@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Package, Truck, CreditCard, Calendar, MapPin, Download, RotateCcw, ShoppingCart, Star, MessageCircle, CheckCircle } from 'lucide-react';
