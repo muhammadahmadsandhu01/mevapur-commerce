@@ -1,14 +1,15 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle, Loader, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
 
-export default function LoginPage() {
+// ✅ Inner component with useSearchParams() - wrapped in Suspense
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get('redirect') || '/';
@@ -117,7 +118,7 @@ export default function LoginPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {[
                 { icon: '🚚', title: 'Fast Delivery', desc: 'Track your orders in real-time' },
-                { icon: '💝', title: 'Wishlist', desc: 'Save your favorite products' },
+                { icon: '', title: 'Wishlist', desc: 'Save your favorite products' },
                 { icon: '🎁', title: 'Exclusive Offers', desc: 'Members-only discounts' }
               ].map((feature, idx) => (
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -308,7 +309,7 @@ export default function LoginPage() {
                 onMouseEnter={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.backgroundColor = '#F0FDFA'; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.backgroundColor = 'white'; }}
               >
-                📘 Facebook
+                 Facebook
               </button>
             </div>
 
@@ -351,5 +352,29 @@ export default function LoginPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// ✅ Main default export with Suspense boundary
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            border: '5px solid #0F766E',
+            borderTop: '5px solid transparent',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 20px'
+          }}></div>
+          <p style={{ color: '#6B7280' }}>Loading...</p>
+        </div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
