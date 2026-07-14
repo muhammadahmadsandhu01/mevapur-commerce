@@ -1,11 +1,11 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import axios from 'axios';
 import { useAuthStore } from '@/store/authStore';
-import { CheckCircle, Package, Truck, CreditCard, Calendar, Copy, Download, ArrowLeft } from 'lucide-react';
+import { CheckCircle, Package, Truck, CreditCard, Calendar, Copy, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 interface OrderItem {
@@ -41,7 +41,8 @@ interface Order {
   createdAt: string;
 }
 
-export default function OrderSuccessPage() {
+// ✅ Inner component with useSearchParams() - wrapped in Suspense
+function OrderSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { token } = useAuthStore();
@@ -450,5 +451,29 @@ export default function OrderSuccessPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// ✅ Main default export with Suspense boundary
+export default function OrderSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            border: '5px solid #0F766E',
+            borderTop: '5px solid transparent',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 20px'
+          }}></div>
+          <p style={{ color: '#6B7280' }}>Loading order details...</p>
+        </div>
+      </div>
+    }>
+      <OrderSuccessContent />
+    </Suspense>
   );
 }
