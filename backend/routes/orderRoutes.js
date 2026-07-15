@@ -1,21 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const { protect, admin } = require('../middleware/auth');
-const {
-  getOrders,
-  getOrder,
-  updateOrderStatus,
-  getRecentOrders,
-  getOrderStats
+const { 
+  createOrder, 
+  getOrders, 
+  getOrderById, 
+  getMyOrders, 
+  updateOrderStatus 
 } = require('../controllers/orderController');
+const { protect, admin } = require('../middleware/authMiddleware');
 
-// All routes are protected (admin only)
-router.use(protect, admin);
+// Public routes
+router.get('/', protect, getOrders);  // Admin ke liye
+router.get('/my-orders', protect, getMyOrders);  // Customer ke liye
+router.get('/:id', protect, getOrderById);
 
-router.get('/', getOrders);
-router.get('/recent', getRecentOrders);
-router.get('/stats', getOrderStats);
-router.get('/:id', getOrder);
-router.put('/:id/status', updateOrderStatus);
+// Customer order create kar sakta hai (admin nahi chahiye)
+router.post('/', protect, createOrder);
+
+// Sirf admin order status update kar sakta hai
+router.put('/:id/status', protect, admin, updateOrderStatus);
 
 module.exports = router;
