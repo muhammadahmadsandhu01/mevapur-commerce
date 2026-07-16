@@ -10,7 +10,7 @@ import OrderCard from '@/components/OrderCard';
 import Toast from '@/components/Toast';
 
 interface OrderItem {
-  id?: string;
+  id: string;
   name: string;
   price: number;
   quantity: number;
@@ -29,26 +29,26 @@ interface TimelineEvent {
 
 interface Order {
   _id: string;
-  id?: string;
+  id: string;
   orderId: string;
-  orderNumber?: string;
+  orderNumber: string;  // ✅ REQUIRED (not optional)
   orderStatus: string;
   paymentMethod: string;
-  paymentStatus?: string;
+  paymentStatus: string;  // ✅ REQUIRED (not optional)
   totalAmount: number;
   createdAt: string;
-  orderDate?: string;
+  orderDate: string;  // ✅ REQUIRED (not optional)
   estimatedDelivery?: string;
-  subtotal?: number;
-  shipping?: number;
-  tax?: number;
-  discount?: number;
-  productCount?: number;
+  subtotal: number;  // ✅ REQUIRED (not optional)
+  shipping: number;  // ✅ REQUIRED (not optional)
+  tax: number;  // ✅ REQUIRED (not optional)
+  discount: number;  // ✅ REQUIRED (not optional)
+  productCount: number;  // ✅ REQUIRED (not optional)
   timeline?: TimelineEvent[];
   items: OrderItem[];
   shippingAddress: {
     fullName: string;
-    name?: string;
+    name: string;  // ✅ REQUIRED (not optional)
     phone: string;
     address: string;
     city: string;
@@ -85,36 +85,36 @@ export default function OrdersPage() {
           }
         );
         if (data.success) {
-          // ✅ Map backend data to include ALL properties OrderCard needs
+          // ✅ Map backend data ensuring ALL required fields are ALWAYS present
           const mappedOrders: Order[] = data.data.map((order: any) => ({
             _id: order._id,
-            id: order._id,
-            orderId: order.orderId,
-            orderNumber: order.orderId,
-            orderStatus: order.orderStatus,
-            paymentMethod: order.paymentMethod,
-            paymentStatus: order.paymentStatus || 'Pending',
-            totalAmount: order.totalAmount,
-            createdAt: order.createdAt,
-            orderDate: order.createdAt,
-            subtotal: order.subtotal || order.totalAmount,
-            shipping: order.shippingCost || 0,
-            tax: 0,
-            discount: order.discount || 0,
-            productCount: order.items?.length || 0,
+            id: order._id || '',
+            orderId: order.orderId || '',
+            orderNumber: order.orderId || order.orderNumber || `ORD-${order._id.slice(-6).toUpperCase()}`,  // ✅ ALWAYS provide
+            orderStatus: order.orderStatus || 'Pending',
+            paymentMethod: order.paymentMethod || 'COD',
+            paymentStatus: order.paymentStatus || 'Pending',  // ✅ ALWAYS provide
+            totalAmount: order.totalAmount || 0,
+            createdAt: order.createdAt || new Date().toISOString(),
+            orderDate: order.createdAt || order.orderDate || new Date().toISOString(),  // ✅ ALWAYS provide
+            subtotal: order.subtotal || order.totalAmount || 0,  // ✅ ALWAYS provide
+            shipping: order.shippingCost || order.shipping || 0,  // ✅ ALWAYS provide
+            tax: order.tax || 0,  // ✅ ALWAYS provide
+            discount: order.discount || 0,  // ✅ ALWAYS provide
+            productCount: order.items?.length || 0,  // ✅ ALWAYS provide
             timeline: order.statusTimeline || order.timeline || [],
             items: order.items?.map((item: any) => ({
-              id: item._id || item.product || '',
-              name: item.name,
-              price: item.price,
-              quantity: item.quantity,
-              image: item.image,
+              id: item._id || item.id || item.product || '',
+              name: item.name || 'Product',
+              price: item.price || 0,
+              quantity: item.quantity || 1,
+              image: item.image || '/placeholder.png',
               sku: item.sku || '',
               variant: item.variant || ''
             })) || [],
             shippingAddress: {
-              fullName: order.shippingAddress?.fullName || '',
-              name: order.shippingAddress?.fullName || '',
+              fullName: order.shippingAddress?.fullName || 'Customer',
+              name: order.shippingAddress?.fullName || order.shippingAddress?.name || 'Customer',  // ✅ ALWAYS provide
               phone: order.shippingAddress?.phone || '',
               address: order.shippingAddress?.address || '',
               city: order.shippingAddress?.city || '',
@@ -149,7 +149,7 @@ export default function OrdersPage() {
       const q = searchQuery.toLowerCase();
       ordersList = ordersList.filter(o =>
         o.orderId.toLowerCase().includes(q) ||
-        o.orderNumber?.toLowerCase().includes(q) ||
+        o.orderNumber.toLowerCase().includes(q) ||
         o.items.some(item => item.name.toLowerCase().includes(q)) ||
         o.shippingAddress.fullName.toLowerCase().includes(q)
       );
@@ -173,8 +173,8 @@ export default function OrdersPage() {
       'buy-again': { message: '✅ Items added to cart!', type: 'success' },
       'cancel': { message: '❌ Order cancelled successfully', type: 'info' },
       'return': { message: '🔄 Return request submitted', type: 'success' },
-      'invoice': { message: '📄 Invoice downloaded', type: 'success' },
-      'track': { message: ' Tracking details loaded', type: 'info' },
+      'invoice': { message: ' Invoice downloaded', type: 'success' },
+      'track': { message: '📦 Tracking details loaded', type: 'info' },
       'review': { message: '⭐ Redirecting to review page...', type: 'info' },
       'support': { message: '💬 Opening support chat...', type: 'info' }
     };
