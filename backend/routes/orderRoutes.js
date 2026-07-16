@@ -9,15 +9,19 @@ const {
 } = require('../controllers/orderController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// Public routes
-router.get('/', protect, getOrders);  // Admin ke liye
-router.get('/my-orders', protect, getMyOrders);  // Customer ke liye
+// Admin: view all orders (SECURED with admin middleware)
+router.get('/', protect, admin, getOrders);
+
+// Customer: view own order history
+router.get('/my-orders', protect, getMyOrders);
+
+// View a single order — owner or admin only (checked in controller)
 router.get('/:id', protect, getOrderById);
 
-// Customer order create kar sakta hai (admin nahi chahiye)
+// Customer: place a new order
 router.post('/', protect, createOrder);
 
-// Sirf admin order status update kar sakta hai
+// Admin: update order status
 router.put('/:id/status', protect, admin, updateOrderStatus);
 
 module.exports = router;

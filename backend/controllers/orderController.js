@@ -2,27 +2,110 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const { logActivity } = require('../middleware/activityLogger');
 
-// @desc    Get all orders
+// @desc    Create new order (Checkout)
+// @route   POST /api/orders
+// @access  Private (Customer)
+exports.createOrder = async (req, res) => {
+  try {
+    const { items, shippingAddress, paymentMethod, subtotal, shippingCost, discount, totalAmount, notes } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Order must contain at least one item' });
+    }
+
+    if (!shippingAddress || !paymentMethod || totalAmount === undefined) {
+      return res.status(400).json({ success: false, message: 'Missing required order fields' });
+    }
+
+    // Verify products exist and have enough stock before creating the order
+    for (const item of items) {
+      const product = await Product.findById(item.product);
+      if (!product) {
+        return res.status(404).json({ success: false, message: `Product not found: ${item.name || item.product}` });
+      }
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ success: false, message: `Insufficient stock for ${product.name}. Only ${product.stock} left.` });
+      }
+    }
+
+    const order = await Order.create({
+      user: req.user.id,
+      items,
+      shippingAddress,
+      paymentMethod,
+      subtotal,
+      shippingCost: shippingCost || 0,
+      discount: discount || 0,
+      totalAmount,
+      orderStatus: 'Pending',
+      statusTimeline: [{
+        status: 'Pending',
+        timestamp: Date.now(),
+        note: notes || 'Order placed'
+      }]
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Order placed successfully',
+      data: order
+    });
+  } catch (error) {
+    console.error('Create order error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get logged-in customer's orders
+// @route   GET /api/orders/my-orders
+// @access  Private (Customer)
+exports.getMyOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ user: req.user.id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: orders });
+  } catch (error) {
+    console.error('Get my orders error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get single order (Owner or Admin only - SECURED)
+// @route   GET /api/orders/:id
+// @access  Private
+exports.getOrderById = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .populate('user', 'fullName email phone')
+      .populate('items.product', 'name images');
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // SECURITY CHECK: Only owner or admin can view this order
+    const isOwner = order.user._id.toString() === req.user.id;
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view this order' });
+    }
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    console.error('Get order error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get all orders (Admin only)
 // @route   GET /api/orders
 // @access  Private/Admin
 exports.getOrders = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      status = '',
-      search = '',
-      startDate = '',
-      endDate = ''
-    } = req.query;
-
-    // Build query
+    const { page = 1, limit = 10, status = '', search = '', startDate = '', endDate = '' } = req.query;
     let query = {};
 
-    if (status) {
-      query.orderStatus = status;
-    }
-
+    if (status) query.orderStatus = status;
     if (search) {
       query.$or = [
         { orderId: { $regex: search, $options: 'i' } },
@@ -30,14 +113,12 @@ exports.getOrders = async (req, res) => {
         { 'shippingAddress.phone': { $regex: search, $options: 'i' } }
       ];
     }
-
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) query.createdAt.$gte = new Date(startDate);
       if (endDate) query.createdAt.$lte = new Date(endDate);
     }
 
-    // Pagination
     const skip = (page - 1) * limit;
     const total = await Order.countDocuments(query);
     const pages = Math.ceil(total / limit);
@@ -51,50 +132,11 @@ exports.getOrders = async (req, res) => {
     res.json({
       success: true,
       data: orders,
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total,
-        pages,
-        hasNext: page < pages,
-        hasPrev: page > 1
-      }
+      pagination: { page: Number(page), limit: Number(limit), total, pages, hasNext: page < pages, hasPrev: page > 1 }
     });
   } catch (error) {
     console.error('Get orders error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// @desc    Get single order
-// @route   GET /api/orders/:id
-// @access  Private/Admin
-exports.getOrder = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id)
-      .populate('user', 'fullName email phone')
-      .populate('items.product', 'name images');
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: order
-    });
-  } catch (error) {
-    console.error('Get order error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -104,67 +146,33 @@ exports.getOrder = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { orderStatus, adminNotes } = req.body;
-
     const order = await Order.findById(req.params.id);
 
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found'
-      });
+      return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    const oldStatus = order.orderStatus;
     order.orderStatus = orderStatus;
     
     if (adminNotes) {
       order.adminNotes = order.adminNotes || [];
-      order.adminNotes.push({
-        note: adminNotes,
-        addedBy: req.user.id,
-        addedAt: Date.now()
-      });
+      order.adminNotes.push({ note: adminNotes, addedBy: req.user.id, addedAt: Date.now() });
     }
 
     order.statusTimeline = order.statusTimeline || [];
-    order.statusTimeline.push({
-      status: orderStatus,
-      timestamp: Date.now(),
-      note: adminNotes || ''
-    });
+    order.statusTimeline.push({ status: orderStatus, timestamp: Date.now(), note: adminNotes || '' });
 
     await order.save();
 
-    if (orderStatus === 'Delivered') {
-      for (const item of order.items) {
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { stock: -item.quantity, soldCount: item.quantity }
-        });
-      }
-    }
-
-    // ✅ YE LINE ADD KAREIN - Activity Log
-    await logActivity(req, 'ORDER_STATUS_UPDATE', 
-      `Updated order #${order.orderId} status to ${orderStatus}`, 
-      { 
-        orderId: order._id, 
-        orderNumber: order.orderId,
-        oldStatus: order.orderStatus,
-        newStatus: orderStatus,
-        adminNotes: adminNotes
-      }
-    );
-
-    res.json({
-      success: true,
-      message: 'Order status updated successfully',
-      data: order
+    await logActivity(req, 'ORDER_STATUS_UPDATE', `Updated order #${order.orderId} status to ${orderStatus}`, { 
+      orderId: order._id, orderNumber: order.orderId, oldStatus, newStatus: orderStatus, adminNotes 
     });
+
+    res.json({ success: true, message: 'Order status updated successfully', data: order });
   } catch (error) {
     console.error('Update order status error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -174,22 +182,11 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getRecentOrders = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
-    
-    const orders = await Order.find()
-      .populate('user', 'fullName email')
-      .sort({ createdAt: -1 })
-      .limit(limit);
-
-    res.json({
-      success: true,
-      data: orders
-    });
+    const orders = await Order.find().populate('user', 'fullName email').sort({ createdAt: -1 }).limit(limit);
+    res.json({ success: true, data: orders });
   } catch (error) {
     console.error('Recent orders error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -212,21 +209,10 @@ exports.getOrderStats = async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        totalOrders,
-        pendingOrders,
-        processingOrders,
-        shippedOrders,
-        deliveredOrders,
-        cancelledOrders,
-        totalRevenue: totalRevenue[0]?.total || 0
-      }
+      data: { totalOrders, pendingOrders, processingOrders, shippedOrders, deliveredOrders, cancelledOrders, totalRevenue: totalRevenue[0]?.total || 0 }
     });
   } catch (error) {
     console.error('Order stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };

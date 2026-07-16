@@ -22,28 +22,17 @@ const orderSchema = new mongoose.Schema({
     image: String
   }],
   shippingAddress: {
-    fullName: {
-      type: String,
-      required: true
-    },
-    phone: {
-      type: String,
-      required: true
-    },
-    address: {
-      type: String,
-      required: true
-    },
-    city: {
-      type: String,
-      required: true
-    },
+    fullName: { type: String, required: true },
+    phone: { type: String, required: true },
+    address: { type: String, required: true },
+    city: { type: String, required: true },
     postalCode: String
   },
   paymentMethod: {
     type: String,
     required: true,
-    enum: ['COD', 'Card', 'Bank Transfer']
+    // UPDATED: Added jazzcash, visa, mastercard to prevent validation errors
+    enum: ['COD', 'jazzcash', 'visa', 'mastercard', 'Card', 'Bank Transfer']
   },
   paymentStatus: {
     type: String,
@@ -55,32 +44,14 @@ const orderSchema = new mongoose.Schema({
     enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'],
     default: 'Pending'
   },
-  subtotal: {
-    type: Number,
-    required: true
-  },
-  shippingCost: {
-    type: Number,
-    default: 0
-  },
-  discount: {
-    type: Number,
-    default: 0
-  },
-  totalAmount: {
-    type: Number,
-    required: true
-  },
+  subtotal: { type: Number, required: true },
+  shippingCost: { type: Number, default: 0 },
+  discount: { type: Number, default: 0 },
+  totalAmount: { type: Number, required: true },
   adminNotes: [{
     note: String,
-    addedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    addedAt: {
-      type: Date,
-      default: Date.now
-    }
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedAt: { type: Date, default: Date.now }
   }],
   statusTimeline: [{
     status: String,
