@@ -4,21 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Heart, Star } from 'lucide-react';
 import { useState, useEffect } from 'react';
-
-interface Product {
-  _id: string;
-  name: string;
-  price: number;
-  originalPrice?: number;
-  images: { url: string; alt: string }[];
-  rating: number;
-  numReviews: number;
-  category: string;
-  brand: string;
-  stock: number;
-  discountPercentage?: number;
-  isFeatured?: boolean;
-}
+import { Product } from '@/types/product'; // ✅ Sirf import rahega
 
 interface ProductCardProps {
   product: Product;
@@ -31,8 +17,10 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
 
   // Check if product is in wishlist (from localStorage or API)
   useEffect(() => {
-    const wishlist = JSON.parse(localStorage.getItem('wishlist') || '[]');
-    setIsWishlisted(wishlist.includes(product._id));
+    if (typeof window !== 'undefined') {
+      const wishlist = JSON.parse(localStorage.getItem('wishlist') || '[]');
+      setIsWishlisted(wishlist.includes(product._id));
+    }
   }, [product._id]);
 
   const discount = product.originalPrice 
@@ -43,19 +31,21 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
     e.preventDefault();
     e.stopPropagation();
     
-    let wishlist = JSON.parse(localStorage.getItem('wishlist') || '[]');
-    
-    if (isWishlisted) {
-      wishlist = wishlist.filter((id: string) => id !== product._id);
-    } else {
-      wishlist.push(product._id);
-    }
-    
-    localStorage.setItem('wishlist', JSON.stringify(wishlist));
-    setIsWishlisted(!isWishlisted);
-    
-    if (onWishlist) {
-      onWishlist(product._id);
+    if (typeof window !== 'undefined') {
+      let wishlist = JSON.parse(localStorage.getItem('wishlist') || '[]');
+      
+      if (isWishlisted) {
+        wishlist = wishlist.filter((id: string) => id !== product._id);
+      } else {
+        wishlist.push(product._id);
+      }
+      
+      localStorage.setItem('wishlist', JSON.stringify(wishlist));
+      setIsWishlisted(!isWishlisted);
+      
+      if (onWishlist) {
+        onWishlist(product._id);
+      }
     }
   };
 
@@ -71,8 +61,8 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
         )}
         
         <Image 
-          src={product.images[0]?.url || '/placeholder.png'} 
-          alt={product.images[0]?.alt || product.name}
+          src={(product as any).images?.[0]?.url || (product as any).image || '/placeholder.png'} 
+          alt={(product as any).images?.[0]?.alt || product.name}
           fill
           className={`object-cover group-hover:scale-110 transition-transform duration-700 ease-out ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
           sizes="(max-width: 768px) 50vw, 25vw"
@@ -86,8 +76,8 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
             <span className="bg-red-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md shadow-lg">
               {discount}% OFF
             </span>
-          )}
-          {product.isFeatured && (
+            )}
+          {(product as any).isFeatured && (
             <span className="bg-amber-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md shadow-lg">
               Featured
             </span>
@@ -116,7 +106,7 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
       <div className="p-4 flex flex-col h-[200px]">
         {/* Category */}
         <span className="text-xs font-medium text-teal-700 uppercase tracking-wide mb-1">
-          {product.category}
+          {product.category || 'Dry Fruits'}
         </span>
 
         {/* Product Name */}
@@ -125,7 +115,7 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
         </h3>
         
         {/* Brand */}
-        <p className="text-xs text-gray-500 mb-2">{product.brand}</p>
+        <p className="text-xs text-gray-500 mb-2">{(product as any).brand || 'MevaPur'}</p>
         
         {/* Rating */}
         <div className="flex items-center gap-1.5 mb-3">
@@ -134,21 +124,21 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
               <Star 
                 key={i} 
                 size={14} 
-                className={i < Math.floor(product.rating) ? "text-yellow-400 fill-yellow-400" : "text-gray-300"} 
+                className={i < Math.floor(product.rating || 0) ? "text-yellow-400 fill-yellow-400" : "text-gray-300"} 
               />
             ))}
           </div>
-          <span className="text-xs text-gray-500 font-medium">({product.numReviews})</span>
+          <span className="text-xs text-gray-500 font-medium">({product.numReviews || product.reviewCount || 0})</span>
         </div>
 
         {/* Price (Pushed to bottom) */}
         <div className="mt-auto flex items-baseline gap-2">
           <span className="text-xl font-bold text-teal-700">
-            Rs. {product.price.toLocaleString()}
+            Rs. {Number(product.price).toLocaleString()}
           </span>
-          {product.originalPrice && product.originalPrice > product.price && (
+          {product.originalPrice && Number(product.originalPrice) > Number(product.price) && (
             <span className="text-sm text-gray-400 line-through">
-              Rs. {product.originalPrice.toLocaleString()}
+              Rs. {Number(product.originalPrice).toLocaleString()}
             </span>
           )}
         </div>

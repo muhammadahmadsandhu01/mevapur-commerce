@@ -1,213 +1,88 @@
 const Category = require('../models/Category');
-const { logActivity } = require('../middleware/activityLogger');  
 
-// @desc    Get all categories
+// @desc    Get all categories (with hierarchy)
 // @route   GET /api/categories
 // @access  Public
 exports.getCategories = async (req, res) => {
   try {
-    const categories = await Category.find().populate('parent', 'name');
-    
-    res.json({
-      success: true,
-      data: categories
+    // Get main categories (parentId is null)
+    const mainCategories = await Category.find({ parentId: null, isActive: true })
+      .sort({ displayOrder: 1 })
+      .lean();
+
+    // Get all subcategories
+    const subcategories = await Category.find({ isActive: true }).lean();
+
+    // Build hierarchy tree
+    const categoriesWithChildren = mainCategories.map(mainCat => {
+      const children = subcategories.filter(sub => sub.parentId.toString() === mainCat._id.toString());
+      return { ...mainCat, children };
     });
+
+    res.json({ success: true, data: categoriesWithChildren });
   } catch (error) {
-    console.error('Get categories error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get single category
+// @desc    Get single category by slug or ID
 // @route   GET /api/categories/:id
 // @access  Public
-exports.getCategory = async (req, res) => {
+exports.getCategoryById = async (req, res) => {
   try {
-    const category = await Category.findById(req.params.id)
-      .populate('parent', 'name')
-      .populate('subcategories', 'name');
-
+    const category = await Category.findOne({ 
+      $or: [{ _id: req.params.id }, { slug: req.params.id }],
+      isActive: true 
+    });
+    
     if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: 'Category not found'
-      });
+      return res.status(404).json({ success: false, message: 'Category not found' });
     }
-
-    res.json({
-      success: true,
-      data: category
-    });
+    res.json({ success: true, data: category });
   } catch (error) {
-    console.error('Get category error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Create category
+// @desc    Create category (Admin)
 // @route   POST /api/categories
 // @access  Private/Admin
 exports.createCategory = async (req, res) => {
   try {
-    const { name, description, parent, image, slug } = req.body;
-
-    const category = await Category.create({
-      name,
-      description,
-      parent: parent || null,
-      image,
-      slug: slug || name.toLowerCase().replace(/ /g, '-')
-    });
-
-    if (parent) {
-      await Category.findByIdAndUpdate(parent, {
-        $push: { subcategories: category._id }
-      });
-    }
-
-    await logActivity(req, 'CATEGORY_CREATE', 
-      `Created category: ${category.name}`, 
-      { 
-        categoryId: category._id,
-        categoryName: category.name,
-        parentCategory: parent
-      }
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Category created successfully',
-      data: category
-    });
+    const category = await Category.create(req.body);
+    res.status(201).json({ success: true, data: category });
   } catch (error) {
-    console.error('Create category error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Update category
+// @desc    Update category (Admin)
 // @route   PUT /api/categories/:id
 // @access  Private/Admin
 exports.updateCategory = async (req, res) => {
   try {
-    const category = await Category.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: 'Category not found'
-      });
-    }
-
-    // ✅ YE LINE ADD KAREIN
-    await logActivity(req, 'CATEGORY_UPDATE', 
-      `Updated category: ${category.name}`, 
-      { 
-        categoryId: category._id,
-        categoryName: category.name,
-        changes: req.body
-      }
-    );
-
-    res.json({
-      success: true,
-      message: 'Category updated successfully',
-      data: category
-    });
+    const category = await Category.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!category) return res.status(404).json({ success: false, message: 'Category not found' });
+    res.json({ success: true, data: category });
   } catch (error) {
-    console.error('Update category error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Delete category
+// @desc    Delete category (Admin)
 // @route   DELETE /api/categories/:id
 // @access  Private/Admin
 exports.deleteCategory = async (req, res) => {
   try {
-    const category = await Category.findById(req.params.id);
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: 'Category not found'
-      });
+    // Check if it has subcategories or products (Optional safety check)
+    const subcategories = await Category.countDocuments({ parentId: req.params.id });
+    if (subcategories > 0) {
+      return res.status(400).json({ success: false, message: 'Cannot delete category with subcategories' });
     }
-
-    if (category.subcategories && category.subcategories.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete category with subcategories'
-      });
-    }
-
+    
     await Category.findByIdAndDelete(req.params.id);
-
-    if (category.parent) {
-      await Category.findByIdAndUpdate(category.parent, {
-        $pull: { subcategories: category._id }
-      });
-    }
-
-    await logActivity(req, 'CATEGORY_DELETE', 
-      `Deleted category: ${category.name}`, 
-      { 
-        categoryId: category._id,
-        categoryName: category.name
-      }
-    );
-
-    res.json({
-      success: true,
-      message: 'Category deleted successfully'
-    });
+    res.json({ success: true, message: 'Category removed' });
   } catch (error) {
-    console.error('Delete category error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-// @desc    Get category statistics
-// @route   GET /api/categories/stats
-// @access  Private/Admin
-exports.getCategoryStats = async (req, res) => {
-  try {
-    const totalCategories = await Category.countDocuments();
-    const parentCategories = await Category.countDocuments({ parent: null });
-    const subcategories = await Category.countDocuments({ parent: { $ne: null } });
-
-    res.json({
-      success: true,
-      data: {
-        totalCategories,
-        parentCategories,
-        subcategories
-      }
-    });
-  } catch (error) {
-    console.error('Category stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };

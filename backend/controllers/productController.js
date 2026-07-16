@@ -1,7 +1,7 @@
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
 
-// @desc    Get all products with advanced filtering, sorting, pagination
+// @desc    Get all products with ADVANCED dynamic filtering, sorting, pagination
 // @route   GET /api/products
 // @access  Public
 exports.getProducts = async (req, res) => {
@@ -22,10 +22,14 @@ exports.getProducts = async (req, res) => {
       ];
     }
 
-    // 2. Category Filter
+    // 2. Category & Subcategory Filter
     if (req.query.category) {
       const categories = req.query.category.split(',');
       query.category = { $in: categories };
+    }
+    if (req.query.subcategory) {
+      const subcategories = req.query.subcategory.split(',');
+      query.subcategory = { $in: subcategories };
     }
 
     // 3. Brand Filter
@@ -53,22 +57,66 @@ exports.getProducts = async (req, res) => {
       query.stock = { $lte: 0 };
     }
 
-    // Sorting
+    // 🌟 7. DYNAMIC ATTRIBUTE FILTERING (Enterprise Feature)
+    // Example URL: /api/products?attribute[Weight]=1kg&attribute[Organic]=Yes
+    if (req.query.attribute && typeof req.query.attribute === 'object') {
+      const attributes = req.query.attribute;
+      query.$and = []; // Use $and for multiple attribute conditions
+      
+      Object.keys(attributes).forEach(key => {
+        const values = Array.isArray(attributes[key]) ? attributes[key] : [attributes[key]];
+        query.$and.push({
+          attributes: { $elemMatch: { name: key, value: { $in: values } } }
+        });
+      });
+    }
+
+    // 8. Sorting
     let sortOption = {};
     if (req.query.sortBy === 'price-asc') sortOption = { price: 1 };
     else if (req.query.sortBy === 'price-desc') sortOption = { price: -1 };
     else if (req.query.sortBy === 'rating') sortOption = { rating: -1, numReviews: -1 };
     else if (req.query.sortBy === 'best-selling') sortOption = { numReviews: -1 };
-    else sortOption = { createdAt: -1 };
+    else sortOption = { createdAt: -1 }; // Default: Newest
 
+    // Execute query with population for richer data
     const [products, total] = await Promise.all([
-      Product.find(query).sort(sortOption).limit(limit).skip(skip).select('-reviews -__v'),
+      Product.find(query)
+        .sort(sortOption)
+        .limit(limit)
+        .skip(skip)
+        .populate('category', 'name slug')
+        .populate('subcategory', 'name slug')
+        .populate('brand', 'name slug logo')
+        .select('-reviews -__v'), // Exclude heavy fields
       Product.countDocuments(query)
     ]);
 
+    // 🌟 BACKWARD COMPATIBILITY MAPPING (Zero Breaking Changes)
+    // Agar product ke paas variants hain, to root level price/stock/images ko default variant se update karo
+    // Taake purana frontend (ProductCard, page.tsx) bina kisi change ke perfectly kaam kare.
+    const formattedProducts = products.map(p => {
+      const productObj = p.toObject();
+      
+      if (productObj.variants && productObj.variants.length > 0) {
+        const defaultVariant = productObj.variants.find(v => v.isDefault) || productObj.variants[0];
+        
+        productObj.price = defaultVariant.price;
+        productObj.originalPrice = defaultVariant.salePrice > 0 ? defaultVariant.salePrice : undefined;
+        productObj.stock = defaultVariant.stock;
+        
+        if (defaultVariant.images && defaultVariant.images.length > 0) {
+          productObj.images = defaultVariant.images;
+          productObj.primaryImage = defaultVariant.images[0];
+        }
+      }
+      
+      return productObj;
+    });
+
     res.json({
       success: true,
-      data: products,
+      data: formattedProducts,
       pagination: {
         page,
         pages: Math.ceil(total / limit),
@@ -84,16 +132,34 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product (RENAMED from getProductById to match routes)
+// @desc    Get single product
 // @route   GET /api/products/:id
 // @access  Public
 exports.getProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id)
+      .populate('category', 'name slug')
+      .populate('subcategory', 'name slug')
+      .populate('brand', 'name slug logo');
+      
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    res.json({ success: true, data: product });
+    
+    // Apply same backward compatibility mapping for single product view
+    const productObj = product.toObject();
+    if (productObj.variants && productObj.variants.length > 0) {
+      const defaultVariant = productObj.variants.find(v => v.isDefault) || productObj.variants[0];
+      productObj.price = defaultVariant.price;
+      productObj.originalPrice = defaultVariant.salePrice > 0 ? defaultVariant.salePrice : undefined;
+      productObj.stock = defaultVariant.stock;
+      if (defaultVariant.images && defaultVariant.images.length > 0) {
+        productObj.images = defaultVariant.images;
+        productObj.primaryImage = defaultVariant.images[0];
+      }
+    }
+    
+    res.json({ success: true, data: productObj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -165,7 +231,11 @@ exports.bulkDeleteProducts = async (req, res) => {
 // @access  Public
 exports.getTopProducts = async (req, res) => {
   try {
-    const products = await Product.find({}).sort({ rating: -1, numReviews: -1 }).limit(5);
+    const products = await Product.find({})
+      .sort({ rating: -1, numReviews: -1 })
+      .limit(5)
+      .populate('category', 'name slug')
+      .populate('brand', 'name slug');
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -182,7 +252,9 @@ exports.getRecentlyViewed = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
     const productIds = ids.split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
-    const products = await Product.find({ _id: { $in: productIds } }).select('-reviews -__v').limit(10);
+    const products = await Product.find({ _id: { $in: productIds } })
+      .select('-reviews -__v')
+      .limit(10);
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -198,7 +270,13 @@ exports.getRecommendedProducts = async (req, res) => {
     let query = {};
     if (categoryId) query.category = categoryId;
     
-    const products = await Product.find(query).sort({ rating: -1, numReviews: -1 }).limit(parseInt(limit, 10)).select('-reviews -__v');
+    const products = await Product.find(query)
+      .sort({ rating: -1, numReviews: -1 })
+      .limit(parseInt(limit, 10))
+      .select('-reviews -__v')
+      .populate('category', 'name slug')
+      .populate('brand', 'name slug');
+      
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

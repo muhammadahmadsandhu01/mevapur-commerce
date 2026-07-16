@@ -1,40 +1,21 @@
 const mongoose = require('mongoose');
 
 const brandSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Please add a brand name'],
-    trim: true,
-    unique: true,
-    maxlength: [100, 'Name cannot be more than 100 characters']
-  },
-  slug: {
-    type: String,
-    unique: true,
-    lowercase: true
-  },
-  description: {
-    type: String,
-    maxlength: [500, 'Description cannot be more than 500 characters']
-  },
-  logo: {
-    type: String,
-    default: ''
-  },
-  website: {
-    type: String,
-    default: ''
-  },
-  isFeatured: {
-    type: Boolean,
-    default: false
-  },
-  isActive: {
-    type: Boolean,
-    default: true
+  name: { type: String, required: true, trim: true },
+  slug: { type: String, required: true, unique: true, lowercase: true },
+  logo: { type: String, default: '' },
+  banner: { type: String, default: '' },
+  description: { type: String, default: '' },
+  countryOfOrigin: { type: String, default: '' },
+  isFeatured: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
+  
+  seo: {
+    metaTitle: { type: String },
+    metaDescription: { type: String }
   }
-}, {
-  timestamps: true
-});
+}, { timestamps: true });
+
+brandSchema.index({ slug: 1 });
 
 module.exports = mongoose.model('Brand', brandSchema);

@@ -1,7 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 import Link from 'next/link';
+import ProductCard from '@/components/products/ProductCard';
+import PromotionalBanner from '@/components/products/PromotionalBanner';
+import RecentlyViewed from '@/components/products/RecentlyViewed';
+import RecommendedProducts from '@/components/products/RecommendedProducts';
+import { Product } from '@/types/product';  // ✅ Sirf import rahega
 
 interface Category {
   name: string;
@@ -12,6 +18,8 @@ interface Category {
 }
 
 export default function Home() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [heroSlide, setHeroSlide] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
   const [timeLeft, setTimeLeft] = useState({ hours: 5, minutes: 30, seconds: 0 });
@@ -31,7 +39,37 @@ export default function Home() {
     { name: 'Flour & Grains', image: 'https://images.unsplash.com/photo-1627485937980-221c88ac04f9?w=400&h=500&fit=crop', products: 30, startingPrice: 'Rs. 110' },
   ];
 
+  // Fetch products from backend
   useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        setLoading(true);
+        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/products`);
+        
+        if (response.data.success) {
+          const productsData = (response.data.data || []).map((p: any) => ({
+            ...p,
+            id: p._id || p.id,
+            price: parseFloat(p.price) || 0,  
+            originalPrice: p.originalPrice ? parseFloat(p.originalPrice) : undefined,
+            discount: Number(p.discount) || 0,
+            rating: Number(p.rating) || 4.5,
+            reviewCount: Number(p.reviewCount) || 128,
+            numReviews: Number(p.numReviews) || Number(p.reviewCount) || 128,
+            brand: p.brand || 'MevaPur',
+            image: p.images && p.images.length > 0 ? p.images[0] : p.image || 'https://via.placeholder.com/400'
+          }));
+          setProducts(productsData);
+        }
+      } catch (error) {
+        console.error('Error fetching products:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProducts();
+
     const slideInterval = setInterval(() => setHeroSlide((prev) => (prev + 1) % 3), 5000);
     setIsVisible(true);
     return () => clearInterval(slideInterval);
@@ -65,7 +103,7 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', fontFamily: 'Outfit, Manrope, Poppins, sans-serif', color: '#111827' }}>
       
-      {/* 🟢 1. HERO SECTION (Slider) */}
+      {/* 1. HERO SECTION (Slider) */}
       <section style={{ position: 'relative', height: '450px', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'white', padding: '20px' }}>
           <div style={{ maxWidth: '800px' }}>
@@ -79,7 +117,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 🟢 2. PREMIUM CATEGORIES */}
+      {/* 2. PREMIUM CATEGORIES */}
       <section style={{ maxWidth: '1400px', margin: '0 auto', padding: '80px 20px' }}>
         <div style={{ marginBottom: '48px' }}>
           <h2 style={{ fontSize: '32px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>Shop by Categories</h2>
@@ -209,11 +247,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 3. FLASH SALE + COUNTDOWN */}
+      {/* 3. PROMOTIONAL BANNER */}
+      <PromotionalBanner />
+
+      {/* 4. FLASH SALE + COUNTDOWN */}
       <section style={{ backgroundColor: '#FEF3C7', padding: '40px 20px', margin: '40px 0' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '24px' }}>
           <div>
-            <h2 style={{ fontSize: '32px', fontWeight: '800', color: '#0F766E', marginBottom: '8px' }}>⚡ Flash Sale</h2>
+            <h2 style={{ fontSize: '32px', fontWeight: '800', color: '#0F766E', marginBottom: '8px' }}> Flash Sale</h2>
             <p style={{ color: '#6B7280', fontSize: '16px' }}>Offer ends soon! Grab premium dry fruits at unbeatable prices.</p>
           </div>
           <div style={{ display: 'flex', gap: '16px' }}>
@@ -231,17 +272,67 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 🟢 4. WHY CHOOSE US */}
+      {/* 5. FEATURED PRODUCTS */}
+      <section style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px 80px' }}>
+        <div style={{ marginBottom: '48px' }}>
+          <h2 style={{ fontSize: '32px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>Featured Products</h2>
+          <p style={{ fontSize: '16px', color: '#6B7280' }}>Discover our handpicked selection of premium quality products</p>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px' }}>
+            <div style={{ width: '60px', height: '60px', border: '5px solid #0F766E', borderTop: '5px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }}></div>
+            <p style={{ color: '#6B7280', fontSize: '16px' }}>Loading premium products...</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '28px' }}>
+            {products.slice(0, 8).map(product => (
+              <ProductCard key={product._id} product={product} />
+            ))}
+          </div>
+        )}
+
+        <div style={{ textAlign: 'center', marginTop: '48px' }}>
+          <Link href="/products" style={{ 
+            display: 'inline-block',
+            backgroundColor: '#0F766E', 
+            color: 'white', 
+            border: 'none', 
+            padding: '16px 40px', 
+            borderRadius: '50px', 
+            fontSize: '16px', 
+            fontWeight: '700', 
+            textDecoration: 'none',
+            boxShadow: '0 4px 16px rgba(15,118,110,0.4)', 
+            transition: 'all 0.3s'
+          }} 
+          onMouseEnter={e => { 
+            e.currentTarget.style.transform = 'translateY(-2px)'; 
+            e.currentTarget.style.boxShadow = '0 8px 24px rgba(15,118,110,0.5)'; 
+          }} 
+          onMouseLeave={e => { 
+            e.currentTarget.style.transform = 'translateY(0)'; 
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(15,118,110,0.4)'; 
+          }}>
+            View All Products →
+          </Link>
+        </div>
+      </section>
+
+      {/* 6. RECENTLY VIEWED */}
+      <RecentlyViewed />
+
+      {/* 7. WHY CHOOSE US */}
       <section style={{ backgroundColor: '#F0FDFA', padding: '80px 20px', margin: '40px 0' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
           <h2 style={{ fontSize: '32px', fontWeight: '800', color: '#0F766E', marginBottom: '16px' }}>Why Choose MevaPur?</h2>
           <p style={{ fontSize: '16px', color: '#6B7280', marginBottom: '48px' }}>Premium quality, trusted by thousands of customers across Pakistan</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '32px' }}>
             {[
-              { icon: '🌿', title: '100% Organic', desc: 'Sourced directly from trusted farms' },
+              { icon: '', title: '100% Organic', desc: 'Sourced directly from trusted farms' },
               { icon: '🚚', title: 'Fast Delivery', desc: '2-3 days across Pakistan' },
               { icon: '💳', title: 'Secure Payment', desc: 'COD, Cards & Bank Transfer' },
-              { icon: '♻️', title: 'Easy Returns', desc: '7-day no questions asked policy' }
+              { icon: '️', title: 'Easy Returns', desc: '7-day no questions asked policy' }
             ].map((item, i) => (
               <div key={i} style={{ backgroundColor: 'white', padding: '32px', borderRadius: '16px', boxShadow: '0 4px 16px rgba(0,0,0,0.06)', transition: 'all 0.3s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-6px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(15,118,110,0.12)'; }} onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.06)'; }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>{item.icon}</div>
@@ -253,7 +344,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 🟢 5. CUSTOMER REVIEWS */}
+      {/* 8. RECOMMENDED PRODUCTS */}
+      <RecommendedProducts />
+
+      {/* 9. CUSTOMER REVIEWS */}
       <section style={{ maxWidth: '1200px', margin: '0 auto', padding: '80px 20px' }}>
         <h2 style={{ fontSize: '32px', fontWeight: '800', marginBottom: '32px', color: '#111827' }}>What Our Customers Say</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
@@ -268,14 +362,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 6. PROMO BANNER */}
+      {/* 10. PROMO BANNER */}
       <section style={{ background: 'linear-gradient(90deg, #F59E0B 0%, #D97706 100%)', padding: '60px 20px', textAlign: 'center', color: 'white', margin: '60px 0', borderRadius: '20px' }}>
         <h2 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '16px' }}>🎉 Weekend Special: Buy 2 Get 1 Free!</h2>
         <p style={{ fontSize: '18px', marginBottom: '28px', opacity: '0.95' }}>On selected premium dry fruits. Use code: <strong style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '4px 12px', borderRadius: '6px' }}>MEVA21</strong></p>
         <Link href="/products" style={{ display: 'inline-block', backgroundColor: 'white', color: '#D97706', border: 'none', padding: '16px 36px', borderRadius: '50px', fontWeight: '700', fontSize: '16px', textDecoration: 'none', boxShadow: '0 4px 16px rgba(0,0,0,0.2)', transition: 'all 0.3s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)'; }} onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.2)'; }}>Shop Now</Link>
       </section>
 
-      {/* 🟢 7. NEWSLETTER */}
+      {/* 11. NEWSLETTER */}
       <section style={{ backgroundColor: '#0F766E', padding: '60px 20px', textAlign: 'center', color: 'white', borderRadius: '20px', margin: '60px 20px' }}>
         <h2 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '12px' }}>Stay Updated with Latest Offers</h2>
         <p style={{ opacity: '0.9', marginBottom: '28px', fontSize: '16px' }}>Subscribe to get exclusive discounts and new arrivals.</p>
@@ -285,11 +379,11 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 🟢 8. FOOTER */}
+      {/* 12. FOOTER */}
       <footer style={{ backgroundColor: '#1F2937', color: '#9CA3AF', padding: '60px 20px 30px', marginTop: '80px' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '40px', marginBottom: '40px' }}>
           <div>
-            <h3 style={{ color: 'white', fontSize: '22px', marginBottom: '20px' }}>🌰 MevaPur</h3>
+            <h3 style={{ color: 'white', fontSize: '22px', marginBottom: '20px' }}> MevaPur</h3>
             <p style={{ fontSize: '14px', lineHeight: '1.8', color: '#D1D5DB' }}>Premium dry fruits & groceries delivered fresh to your doorstep across Pakistan.</p>
           </div>
           <div>
@@ -310,7 +404,7 @@ export default function Home() {
           </div>
           <div>
             <h4 style={{ color: 'white', marginBottom: '16px', fontSize: '16px' }}>Contact Us</h4>
-            <p style={{ fontSize: '14px', lineHeight: '2', color: '#D1D5DB' }}>📞 +92 300 1234567<br/>📧 support@mevapur.com<br/> Lahore, Pakistan</p>
+            <p style={{ fontSize: '14px', lineHeight: '2', color: '#D1D5DB' }}> +92 300 1234567<br/>📧 support@mevapur.com<br/> Lahore, Pakistan</p>
           </div>
         </div>
         <div style={{ borderTop: '1px solid #374151', paddingTop: '24px', textAlign: 'center', fontSize: '14px', color: '#6B7280' }}>
@@ -319,9 +413,9 @@ export default function Home() {
       </footer>
 
       <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(40px); }
-          to { opacity: 1; transform: translateY(0); }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
       `}</style>
     </div>

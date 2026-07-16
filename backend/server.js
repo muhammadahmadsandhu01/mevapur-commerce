@@ -59,7 +59,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/customers', customerRoutes); 
 app.use('/api/categories', categoryRoutes);
-app.use('/api/brands', brandRoutes);
+app.use('/api/brands', brandRoutes); 
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/coupons', couponRoutes); 
 app.use('/api/settings', settingRoutes);
