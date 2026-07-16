@@ -151,7 +151,6 @@ exports.updateOrderStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    const oldStatus = order.orderStatus;
     order.orderStatus = orderStatus;
     
     if (adminNotes) {

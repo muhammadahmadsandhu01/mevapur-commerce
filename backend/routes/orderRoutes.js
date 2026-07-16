@@ -7,7 +7,9 @@ const {
   getMyOrders, 
   updateOrderStatus 
 } = require('../controllers/orderController');
-const { protect, admin } = require('../middleware/authMiddleware');
+
+// ✅ SAHI IMPORT: authMiddleware ki jagah 'auth' use ho raha hai
+const { protect, admin } = require('../middleware/auth');
 
 // Admin: view all orders
 router.get('/', protect, admin, getOrders);
@@ -15,7 +17,7 @@ router.get('/', protect, admin, getOrders);
 // Customer: view own order history
 router.get('/my-orders', protect, getMyOrders);
 
-// View a single order — owner or admin only
+// View a single order — owner or admin only (checked in controller)
 router.get('/:id', protect, getOrderById);
 
 // Customer: place a new order
