@@ -3,8 +3,10 @@ import { persist } from 'zustand/middleware';
 
 export interface CartItem {
   id: string;
+  _id?: string;
+  price: number | string;  // ✅ Accept both string and number
   name: string;
-  price: string;
+  product?: string;
   image: string;
   quantity: number;
   stock?: number;
@@ -14,7 +16,7 @@ export interface CartItem {
 export interface WishlistItem {
   id: string;
   name: string;
-  price: string;
+  price: number | string;  // ✅ Accept both string and number
   image: string;
   variant?: string;
 }
@@ -24,7 +26,7 @@ interface CartStore {
   wishlist: WishlistItem[];
   orders: any[];
   currentOrderId: string | null;
-  totalItems: number; // ✅ Function se number mein change
+  totalItems: number;
   addToCart: (item: Omit<CartItem, 'quantity'>) => void;
   removeFromCart: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
@@ -44,7 +46,7 @@ export const useCartStore = create<CartStore>()(
       wishlist: [],
       orders: [],
       currentOrderId: null,
-      totalItems: 0, // ✅ Initialize with 0
+      totalItems: 0,
 
       addToCart: (item) => {
         const state = get();
@@ -60,26 +62,26 @@ export const useCartStore = create<CartStore>()(
           );
           set({
             items: updatedItems,
-            totalItems: updatedItems.reduce((sum, i) => sum + i.quantity, 0) // ✅ Update total
+            totalItems: updatedItems.reduce((sum, i) => sum + i.quantity, 0)
           });
         } else {
           const newItems = [...state.items, { ...item, quantity: 1 }];
           set({
             items: newItems,
-            totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0) // ✅ Update total
+            totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
           });
         }
       },
 
-      removeFromCart: (id) => {
+      removeFromCart: (id: string) => {
         const newItems = get().items.filter(item => item.id !== id);
         set({
           items: newItems,
-          totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0) // ✅ Recalculate total
+          totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
         });
       },
 
-      updateQuantity: (id, quantity) => {
+      updateQuantity: (id: string, quantity: number) => {
         if (quantity <= 0) {
           get().removeFromCart(id);
           return;
@@ -91,21 +93,22 @@ export const useCartStore = create<CartStore>()(
         
         set({
           items: newItems,
-          totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0) // ✅ Recalculate total
+          totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
         });
       },
 
       clearCart: () => {
-        set({ items: [], totalItems: 0 }); // ✅ Reset total
+        set({ items: [], totalItems: 0 });
       },
 
       totalPrice: () => {
         return get().items.reduce((total, item) => {
-          return total + (parseFloat(item.price) * item.quantity);
+          // ✅ Convert price to number before calculation
+          return total + (Number(item.price) * item.quantity);
         }, 0);
       },
 
-      placeOrder: (city) => {
+      placeOrder: (city: string) => {
         const state = get();
         if (state.items.length === 0) return '';
         
@@ -123,14 +126,14 @@ export const useCartStore = create<CartStore>()(
           orders: [...state.orders, newOrder],
           currentOrderId: orderId,
           items: [],
-          totalItems: 0 // ✅ Reset after order
+          totalItems: 0
         });
         
         console.log('✅ Order placed:', orderId);
         return orderId;
       },
 
-      addToWishlist: (item) => {
+      addToWishlist: (item: WishlistItem) => {
         const state = get();
         const exists = state.wishlist.find(i => i.id === item.id);
         
@@ -140,18 +143,18 @@ export const useCartStore = create<CartStore>()(
         }
       },
 
-      removeFromWishlist: (id) => {
+      removeFromWishlist: (id: string) => {
         set({
           wishlist: get().wishlist.filter(item => item.id !== id)
         });
         console.log('❌ Removed from wishlist');
       },
 
-      isInWishlist: (id) => {
+      isInWishlist: (id: string) => {
         return get().wishlist.some(item => item.id === id);
       },
 
-      moveWishlistToCart: (id) => {
+      moveWishlistToCart: (id: string) => {
         const state = get();
         const item = state.wishlist.find(i => i.id === id);
         
@@ -159,7 +162,7 @@ export const useCartStore = create<CartStore>()(
           get().addToCart({
             id: item.id,
             name: item.name,
-            price: item.price,
+            price: Number(item.price),  // ✅ Convert to number
             image: item.image,
             variant: item.variant
           });

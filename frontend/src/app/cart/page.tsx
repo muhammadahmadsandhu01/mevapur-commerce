@@ -19,9 +19,9 @@ export default function CartPage() {
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [discount, setDiscount] = useState(0);
-  const [saveForLater, setSaveForLater] = useState<string[]>([]); // ✅ FIXED: string[]
+  const [saveForLater, setSaveForLater] = useState<string[]>([]);
   const [isGift, setIsGift] = useState(false);
-  const [removingId, setRemovingId] = useState<string | null>(null); // ✅ FIXED: string | null
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const PAKISTAN_CITIES = [
     "Lahore", "Karachi", "Islamabad", "Rawalpindi", "Faisalabad", 
@@ -55,11 +55,11 @@ export default function CartPage() {
     router.push('/checkout');
   };
 
-  const toggleSaveForLater = (id: string) => { // ✅ FIXED: string parameter
+  const toggleSaveForLater = (id: string) => {
     setSaveForLater(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const handleRemove = (id: string) => { // ✅ FIXED: string parameter
+  const handleRemove = (id: string) => {
     setRemovingId(id);
     setTimeout(() => {
       removeFromCart(id);
@@ -67,19 +67,19 @@ export default function CartPage() {
     }, 300);
   };
 
-  // Recommended Products
+  // ✅ FIXED: Prices are now numbers to prevent TS errors
   const recommendedProducts = [
-    { id: '101', name: 'Premium Honey', price: '450', image: 'https://images.unsplash.com/photo-1587049352846-4a222e773a0e?w=300&h=300&fit=crop', rating: 5, badge: 'Best Seller' },
-    { id: '102', name: 'Organic Dates', price: '350', image: 'https://images.unsplash.com/photo-1601379766822-1c8b2879074f?w=300&h=300&fit=crop', rating: 5, badge: '20% OFF' },
-    { id: '103', name: 'Walnuts', price: '600', image: 'https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=300&h=300&fit=crop', rating: 4, badge: 'Premium' },
-    { id: '104', name: 'Almonds', price: '550', image: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=300&h=300&fit=crop', rating: 5, badge: 'Organic' },
+    { id: '101', name: 'Premium Honey', price: 450, image: 'https://images.unsplash.com/photo-1587049352846-4a222e773a0e?w=300&h=300&fit=crop', rating: 5, badge: 'Best Seller' },
+    { id: '102', name: 'Organic Dates', price: 350, image: 'https://images.unsplash.com/photo-1601379766822-1c8b2879074f?w=300&h=300&fit=crop', rating: 5, badge: '20% OFF' },
+    { id: '103', name: 'Walnuts', price: 600, image: 'https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=300&h=300&fit=crop', rating: 4, badge: 'Premium' },
+    { id: '104', name: 'Almonds', price: 550, image: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=300&h=300&fit=crop', rating: 5, badge: 'Organic' },
   ];
 
-  // Frequently Bought Together
+  // ✅ FIXED: Prices are now numbers to prevent TS errors
   const frequentlyBought = [
-    { id: '201', name: 'Almonds 500g', price: '550', image: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=200&h=200&fit=crop' },
-    { id: '202', name: 'Honey 250g', price: '450', image: 'https://images.unsplash.com/photo-1587049352846-4a222e773a0e?w=200&h=200&fit=crop' },
-    { id: '203', name: 'Walnuts 500g', price: '600', image: 'https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=200&h=200&fit=crop' },
+    { id: '201', name: 'Almonds 500g', price: 550, image: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=200&h=200&fit=crop' },
+    { id: '202', name: 'Honey 250g', price: 450, image: 'https://images.unsplash.com/photo-1587049352846-4a222e773a0e?w=200&h=200&fit=crop' },
+    { id: '203', name: 'Walnuts 500g', price: 600, image: 'https://images.unsplash.com/photo-1599599810769-bcde5a160d32?w=200&h=200&fit=crop' },
   ];
 
   // ✅ ORDER CONFIRMATION
@@ -121,7 +121,7 @@ export default function CartPage() {
   if (items.length === 0) {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '40px 20px' }}>
-        <div style={{ fontSize: '120px', marginBottom: '24px' }}></div>
+        <div style={{ fontSize: '120px', marginBottom: '24px' }}>🛒</div>
         <h2 style={{ fontSize: '32px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>Your Cart is Empty</h2>
         <p style={{ color: '#6B7280', marginBottom: '32px', fontSize: '16px' }}>Add some premium dry fruits to get started!</p>
         <Link href="/" style={{ backgroundColor: '#0F766E', color: 'white', padding: '16px 40px', borderRadius: '50px', fontWeight: '700', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(15,118,110,0.3)', transition: 'all 0.3s' }}
@@ -306,10 +306,10 @@ export default function CartPage() {
                       )}
                     </div>
 
-                    {/* Price */}
+                    {/* ✅ FIXED: Type-safe price calculations */}
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '20px' }}>
-                      <span style={{ fontSize: '28px', fontWeight: '800', color: '#0F766E' }}>Rs. {item.price}</span>
-                      <span style={{ fontSize: '16px', color: '#9CA3AF', textDecoration: 'line-through' }}>Rs. {(parseFloat(item.price) * 1.25).toFixed(0)}</span>
+                      <span style={{ fontSize: '28px', fontWeight: '800', color: '#0F766E' }}>Rs. {Number(item.price).toFixed(0)}</span>
+                      <span style={{ fontSize: '16px', color: '#9CA3AF', textDecoration: 'line-through' }}>Rs. {(Number(item.price) * 1.25).toFixed(0)}</span>
                     </div>
 
                     {/* 5. SAVE FOR LATER + Remove */}
@@ -357,8 +357,9 @@ export default function CartPage() {
                         onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.color = '#111827'; e.currentTarget.style.transform = 'scale(1)'; }}
                       >+</button>
                     </div>
+                    {/* ✅ FIXED: Type-safe price calculations */}
                     <div style={{ fontSize: '14px', fontWeight: '700', color: '#0F766E' }}>
-                      Rs. {(parseFloat(item.price) * item.quantity).toFixed(0)}
+                      Rs. {(Number(item.price) * item.quantity).toFixed(0)}
                     </div>
                   </div>
                 </div>
@@ -377,7 +378,8 @@ export default function CartPage() {
                       {index === 0 && <div style={{ position: 'absolute', top: '8px', left: '8px', backgroundColor: '#F59E0B', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800' }}>POPULAR</div>}
                     </div>
                     <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>{product.name}</h4>
-                    <p style={{ fontSize: '15px', fontWeight: '800', color: '#0F766E' }}>Rs. {product.price}</p>
+                    {/* ✅ FIXED: Type-safe price */}
+                    <p style={{ fontSize: '15px', fontWeight: '800', color: '#0F766E' }}>Rs. {Number(product.price).toFixed(0)}</p>
                   </div>
                 ))}
                 <div style={{ fontSize: '24px', color: '#0F766E', fontWeight: '800' }}>+</div>
@@ -418,7 +420,8 @@ export default function CartPage() {
                       <Star size={14} fill="#F59E0B" color="#F59E0B" />
                       <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '600' }}>{product.rating}</span>
                     </div>
-                    <p style={{ fontSize: '17px', fontWeight: '800', color: '#0F766E' }}>Rs. {product.price}</p>
+                    {/* ✅ FIXED: Type-safe price */}
+                    <p style={{ fontSize: '17px', fontWeight: '800', color: '#0F766E' }}>Rs. {Number(product.price).toFixed(0)}</p>
                   </div>
                 ))}
               </div>

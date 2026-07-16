@@ -1,53 +1,172 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useMemo } from 'react';
-import { Search, Package, ShoppingBag, ArrowLeft } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, Package, ShoppingBag, ArrowLeft, Loader } from 'lucide-react';
 import Link from 'next/link';
-import { mockOrders } from '@/data/mockOrders';
+import { useAuthStore } from '@/store/authStore';
+import axios from 'axios';
 import OrderCard from '@/components/OrderCard';
 import Toast from '@/components/Toast';
 
+interface OrderItem {
+  id?: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image: string;
+  sku?: string;
+  variant?: string;
+}
+
+interface TimelineEvent {
+  status: string;
+  timestamp: string;
+  note?: string;
+  date?: string;
+  completed?: boolean;
+}
+
+interface Order {
+  _id: string;
+  id?: string;
+  orderId: string;
+  orderNumber?: string;
+  orderStatus: string;
+  paymentMethod: string;
+  paymentStatus?: string;
+  totalAmount: number;
+  createdAt: string;
+  orderDate?: string;
+  estimatedDelivery?: string;
+  subtotal?: number;
+  shipping?: number;
+  tax?: number;
+  discount?: number;
+  productCount?: number;
+  timeline?: TimelineEvent[];
+  items: OrderItem[];
+  shippingAddress: {
+    fullName: string;
+    name?: string;
+    phone: string;
+    address: string;
+    city: string;
+    province?: string;
+    postalCode?: string;
+  };
+  trackingNumber?: string;
+  courier?: string;
+}
+
 export default function OrdersPage() {
+  const { token } = useAuthStore();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const filteredOrders = useMemo(() => {
-    let orders = [...mockOrders];
+  useEffect(() => {
+    const fetchOrders = async () => {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
 
-    // Payment filter
+      try {
+        const { data } = await axios.get(
+          `${process.env.NEXT_PUBLIC_API_URL}/orders/my-orders`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        if (data.success) {
+          // ✅ Map backend data to include ALL properties OrderCard needs
+          const mappedOrders: Order[] = data.data.map((order: any) => ({
+            _id: order._id,
+            id: order._id,
+            orderId: order.orderId,
+            orderNumber: order.orderId,
+            orderStatus: order.orderStatus,
+            paymentMethod: order.paymentMethod,
+            paymentStatus: order.paymentStatus || 'Pending',
+            totalAmount: order.totalAmount,
+            createdAt: order.createdAt,
+            orderDate: order.createdAt,
+            subtotal: order.subtotal || order.totalAmount,
+            shipping: order.shippingCost || 0,
+            tax: 0,
+            discount: order.discount || 0,
+            productCount: order.items?.length || 0,
+            timeline: order.statusTimeline || order.timeline || [],
+            items: order.items?.map((item: any) => ({
+              id: item._id || item.product || '',
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+              image: item.image,
+              sku: item.sku || '',
+              variant: item.variant || ''
+            })) || [],
+            shippingAddress: {
+              fullName: order.shippingAddress?.fullName || '',
+              name: order.shippingAddress?.fullName || '',
+              phone: order.shippingAddress?.phone || '',
+              address: order.shippingAddress?.address || '',
+              city: order.shippingAddress?.city || '',
+              province: order.shippingAddress?.province || '',
+              postalCode: order.shippingAddress?.postalCode || ''
+            },
+            trackingNumber: order.trackingNumber || '',
+            courier: order.courier || ''
+          }));
+          
+          setOrders(mappedOrders);
+        }
+      } catch (error) {
+        console.error('Error fetching orders:', error);
+        setToast({ message: 'Failed to load orders', type: 'error' });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, [token]);
+
+  const filteredOrders = useMemo(() => {
+    let ordersList = [...orders];
+
     if (paymentFilter !== 'all') {
-      orders = orders.filter(o => o.paymentMethod === paymentFilter);
+      ordersList = ordersList.filter(o => o.paymentMethod === paymentFilter);
     }
 
-    // Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      orders = orders.filter(o =>
-        o.orderNumber.toLowerCase().includes(q) ||
-        o.items.some(item => 
-          item.name.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q)
-        ) ||
-        (o.trackingNumber && o.trackingNumber.toLowerCase().includes(q))
+      ordersList = ordersList.filter(o =>
+        o.orderId.toLowerCase().includes(q) ||
+        o.orderNumber?.toLowerCase().includes(q) ||
+        o.items.some(item => item.name.toLowerCase().includes(q)) ||
+        o.shippingAddress.fullName.toLowerCase().includes(q)
       );
     }
 
-    // Sort
-    orders.sort((a, b) => {
+    ordersList.sort((a, b) => {
       switch (sortBy) {
-        case 'newest': return new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime();
-        case 'oldest': return new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime();
+        case 'newest': return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case 'oldest': return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         case 'highest': return b.totalAmount - a.totalAmount;
         case 'lowest': return a.totalAmount - b.totalAmount;
         default: return 0;
       }
     });
 
-    return orders;
-  }, [searchQuery, sortBy, paymentFilter]);
+    return ordersList;
+  }, [orders, searchQuery, sortBy, paymentFilter]);
 
   const handleAction = (action: string, orderId: string) => {
     const messages: Record<string, { message: string; type: 'success' | 'error' | 'info' }> = {
@@ -55,7 +174,7 @@ export default function OrdersPage() {
       'cancel': { message: '❌ Order cancelled successfully', type: 'info' },
       'return': { message: '🔄 Return request submitted', type: 'success' },
       'invoice': { message: '📄 Invoice downloaded', type: 'success' },
-      'track': { message: '📦 Tracking details loaded', type: 'info' },
+      'track': { message: ' Tracking details loaded', type: 'info' },
       'review': { message: '⭐ Redirecting to review page...', type: 'info' },
       'support': { message: '💬 Opening support chat...', type: 'info' }
     };
@@ -66,10 +185,17 @@ export default function OrdersPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#0F766E' }} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC' }}>
       
-      {/* Header */}
       <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '20px 0' }}>
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -89,15 +215,13 @@ export default function OrdersPage() {
 
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '32px 20px' }}>
         
-        {/* Top Controls */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '20px', marginBottom: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '16px' }}>
-            {/* Search */}
             <div style={{ position: 'relative' }}>
               <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
               <input
                 type="text"
-                placeholder="Search by Order #, Product, SKU, Tracking..."
+                placeholder="Search by Order #, Product, Name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
@@ -110,17 +234,15 @@ export default function OrdersPage() {
               />
             </div>
 
-            {/* Payment Filter */}
             <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value)}
               style={{ padding: '12px 16px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '14px', outline: 'none', backgroundColor: 'white', cursor: 'pointer' }}>
               <option value="all">All Payments</option>
               <option value="COD">Cash on Delivery</option>
-              <option value="JazzCash">JazzCash</option>
-              <option value="Visa">Visa Card</option>
-              <option value="MasterCard">MasterCard</option>
+              <option value="jazzcash">JazzCash</option>
+              <option value="visa">Visa Card</option>
+              <option value="mastercard">MasterCard</option>
             </select>
 
-            {/* Sort */}
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
               style={{ padding: '12px 16px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '14px', outline: 'none', backgroundColor: 'white', cursor: 'pointer' }}>
               <option value="newest">Newest First</option>
@@ -131,24 +253,25 @@ export default function OrdersPage() {
           </div>
         </div>
 
-        {/* Orders List */}
         {filteredOrders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 20px', backgroundColor: 'white', borderRadius: '16px' }}>
             <div style={{ fontSize: '100px', marginBottom: '24px' }}>📦</div>
             <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>
-              {searchQuery ? 'No orders found' : "You haven't placed any orders yet"}
+              {orders.length === 0 ? "You haven't placed any orders yet" : 'No orders found'}
             </h2>
             <p style={{ color: '#6B7280', marginBottom: '32px', fontSize: '15px' }}>
-              {searchQuery ? 'Try a different search term' : 'Start shopping to see your orders here'}
+              {orders.length === 0 ? 'Start shopping to see your orders here' : 'Try a different search term'}
             </p>
-            <Link href="/" style={{
-              backgroundColor: '#0F766E', color: 'white', padding: '14px 32px',
-              borderRadius: '50px', fontWeight: '700', textDecoration: 'none',
-              display: 'inline-flex', alignItems: 'center', gap: '8px',
-              boxShadow: '0 4px 12px rgba(15,118,110,0.3)'
-            }}>
-              <ShoppingBag size={18} /> Continue Shopping
-            </Link>
+            {orders.length === 0 && (
+              <Link href="/products" style={{
+                backgroundColor: '#0F766E', color: 'white', padding: '14px 32px',
+                borderRadius: '50px', fontWeight: '700', textDecoration: 'none',
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                boxShadow: '0 4px 12px rgba(15,118,110,0.3)'
+              }}>
+                <ShoppingBag size={18} /> Continue Shopping
+              </Link>
+            )}
           </div>
         ) : (
           <>
@@ -156,13 +279,12 @@ export default function OrdersPage() {
               Showing {filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'}
             </div>
             {filteredOrders.map(order => (
-              <OrderCard key={order.id} order={order} onAction={handleAction} />
+              <OrderCard key={order._id} order={order} onAction={handleAction} />
             ))}
           </>
         )}
       </div>
 
-      {/* Toast Notification */}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

@@ -1,20 +1,103 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Package, Truck, CreditCard, Calendar, MapPin, Download, RotateCcw, ShoppingCart, Star, MessageCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Package, Truck, CreditCard, Calendar, MapPin, Download, RotateCcw, ShoppingCart, Star, MessageCircle, Loader } from 'lucide-react';
 import Link from 'next/link';
-import { mockOrders } from '@/data/mockOrders';
-import OrderTimeline from '@/components/OrderTimeline';
-import { useState } from 'react';
+import { useAuthStore } from '@/store/authStore';
+import axios from 'axios';
 import Toast from '@/components/Toast';
+
+interface OrderItem {
+  product: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image: string;
+}
+
+interface TimelineStep {
+  status: string;
+  timestamp: string;
+  note: string;
+  date?: string;
+  completed?: boolean;
+}
+
+interface Order {
+  _id: string;
+  orderId: string;
+  orderNumber?: string;
+  orderStatus: string;
+  paymentMethod: string;
+  paymentStatus: string;
+  subtotal: number;
+  shippingCost: number;
+  discount: number;
+  totalAmount: number;
+  createdAt: string;
+  orderDate?: string;
+  items: OrderItem[];
+  shippingAddress: {
+    fullName: string;
+    phone: string;
+    address: string;
+    city: string;
+    postalCode: string;
+    name?: string; 
+  };
+  statusTimeline?: TimelineStep[];
+  timeline?: TimelineStep[];
+  trackingNumber?: string;
+}
 
 export default function OrderDetailsPage() {
   const params = useParams();
   const router = useRouter();
-  const orderId = params.orderId as string;
-  const order = mockOrders.find(o => o.id === orderId);
+  const { token } = useAuthStore();
+  const orderId = params.orderid as string;
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  useEffect(() => {
+    const fetchOrder = async () => {
+      if (!token) {
+        router.push('/login?redirect=/orders/' + orderId);
+        return;
+      }
+
+      try {
+        const { data } = await axios.get(
+          `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        if (data.success) {
+          setOrder(data.data);
+        }
+      } catch (error) {
+        console.error('Error fetching order:', error);
+        setToast({ message: 'Failed to load order details', type: 'error' });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrder();
+  }, [orderId, token, router]);
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#0F766E' }} />
+      </div>
+    );
+  }
 
   if (!order) {
     return (
@@ -29,19 +112,50 @@ export default function OrderDetailsPage() {
   }
 
   const statusColors: Record<string, { bg: string; text: string; border: string }> = {
-    'pending': { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
-    'confirmed': { bg: '#DBEAFE', text: '#1E40AF', border: '#3B82F6' },
-    'processing': { bg: '#E0E7FF', text: '#4338CA', border: '#6366F1' },
-    'packed': { bg: '#FCE7F3', text: '#9D174D', border: '#EC4899' },
-    'shipped': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
-    'out-for-delivery': { bg: '#CFFAFE', text: '#155E75', border: '#06B6D4' },
-    'delivered': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
-    'cancelled': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' },
-    'returned': { bg: '#FED7AA', text: '#9A3412', border: '#F97316' },
-    'refunded': { bg: '#E5E7EB', text: '#374151', border: '#6B7280' }
+    'Pending': { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
+    'Processing': { bg: '#E0E7FF', text: '#4338CA', border: '#6366F1' },
+    'Shipped': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
+    'Delivered': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
+    'Cancelled': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' }
   };
 
-  const statusColor = statusColors[order.orderStatus] || statusColors.pending;
+  const statusColor = statusColors[order.orderStatus] || statusColors.Pending;
+
+  // Simple timeline component inline
+  const renderTimeline = () => {
+    const timelineData = order.statusTimeline || order.timeline || [];
+    if (timelineData.length === 0) return null;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {timelineData.map((step, index) => (
+          <div key={index} style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+            <div style={{ 
+              width: '40px', 
+              height: '40px', 
+              borderRadius: '50%', 
+              backgroundColor: '#0F766E', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <Truck size={20} color="white" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{step.status}</div>
+              <div style={{ fontSize: '14px', color: '#6B7280' }}>
+                {new Date(step.timestamp).toLocaleString('en-PK')}
+              </div>
+              {step.note && (
+                <div style={{ fontSize: '13px', color: '#0F766E', marginTop: '4px' }}>{step.note}</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F7F8FA', paddingBottom: '60px' }}>
@@ -58,9 +172,9 @@ export default function OrderDetailsPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Package size={28} color="#0F766E" />
               <div>
-                <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', margin: 0 }}>Order #{order.orderNumber}</h1>
+                <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', margin: 0 }}>Order #{order.orderId}</h1>
                 <p style={{ fontSize: '14px', color: '#6B7280', margin: '4px 0 0' }}>
-                  Placed on {new Date(order.orderDate).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  Placed on {new Date(order.createdAt).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' })}
                 </p>
               </div>
             </div>
@@ -69,7 +183,7 @@ export default function OrderDetailsPage() {
               padding: '8px 16px', borderRadius: '20px', fontSize: '13px', fontWeight: '700',
               border: `1px solid ${statusColor.border}`, textTransform: 'capitalize'
             }}>
-              {order.orderStatus.replace('-', ' ')}
+              {order.orderStatus}
             </div>
           </div>
         </div>
@@ -82,28 +196,28 @@ export default function OrderDetailsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             
             {/* Order Timeline */}
-            <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Truck size={20} color="#0F766E" /> Order Timeline
-              </h3>
-              <OrderTimeline timeline={order.timeline} />
-            </div>
+            {(order.statusTimeline || order.timeline) && (order.statusTimeline || order.timeline)!.length > 0 && (
+              <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Truck size={20} color="#0F766E" /> Order Timeline
+                </h3>
+                {renderTimeline()}
+              </div>
+            )}
 
             {/* Products */}
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
               <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Package size={20} color="#0F766E" /> Products ({order.items.length})
               </h3>
-              {order.items.map(item => (
-                <div key={item.id} style={{ display: 'flex', gap: '16px', padding: '16px', marginBottom: '12px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
-                  <img src={item.image} alt={item.name} style={{ width: '100px', height: '100px', borderRadius: '10px', objectFit: 'cover' }} />
+              {order.items.map((item, index) => (
+                <div key={index} style={{ display: 'flex', gap: '16px', padding: '16px', marginBottom: '12px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
+                  <img src={item.image || '/placeholder.png'} alt={item.name} style={{ width: '100px', height: '100px', borderRadius: '10px', objectFit: 'cover' }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '15px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{item.name}</div>
-                    <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Variant: {item.variant}</div>
-                    <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '8px' }}>SKU: {item.sku}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ fontSize: '13px', color: '#6B7280' }}>Qty: {item.quantity}</div>
-                      <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {(item.price * item.quantity).toLocaleString()}</div>
+                      <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {(item.price * item.quantity).toFixed(2)}</div>
                     </div>
                   </div>
                 </div>
@@ -116,9 +230,9 @@ export default function OrderDetailsPage() {
                 <MapPin size={20} color="#0F766E" /> Shipping Address
               </h3>
               <div style={{ fontSize: '14px', color: '#374151', lineHeight: '1.8' }}>
-                <strong>{order.shippingAddress.name}</strong><br />
+                <strong>{order.shippingAddress.fullName}</strong><br />
                 {order.shippingAddress.address}<br />
-                {order.shippingAddress.city}, {order.shippingAddress.province} {order.shippingAddress.postalCode}<br />
+                {order.shippingAddress.city} {order.shippingAddress.postalCode && `- ${order.shippingAddress.postalCode}`}<br />
                 📞 {order.shippingAddress.phone}
               </div>
             </div>
@@ -130,10 +244,6 @@ export default function OrderDetailsPage() {
                   <Truck size={20} color="#0F766E" /> Tracking Information
                 </h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div>
-                    <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Courier</div>
-                    <div style={{ fontSize: '15px', fontWeight: '700', color: '#111827' }}>{order.courier}</div>
-                  </div>
                   <div>
                     <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>Tracking Number</div>
                     <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', fontFamily: 'monospace' }}>{order.trackingNumber}</div>
@@ -153,27 +263,23 @@ export default function OrderDetailsPage() {
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Subtotal</span>
-                  <span style={{ fontWeight: '600' }}>Rs. {order.subtotal.toLocaleString()}</span>
+                  <span style={{ fontWeight: '600' }}>Rs. {order.subtotal.toFixed(2)}</span>
                 </div>
                 {order.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px', color: '#0F766E' }}>
                     <span>Discount</span>
-                    <span style={{ fontWeight: '600' }}>-Rs. {order.discount}</span>
+                    <span style={{ fontWeight: '600' }}>-Rs. {order.discount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Shipping</span>
-                  <span style={{ fontWeight: '600', color: '#0F766E' }}>{order.shipping === 0 ? 'FREE' : `Rs. ${order.shipping}`}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px' }}>
-                  <span style={{ color: '#6B7280' }}>Tax</span>
-                  <span style={{ fontWeight: '600' }}>Rs. {order.tax}</span>
+                  <span style={{ fontWeight: '600', color: '#0F766E' }}>{order.shippingCost === 0 ? 'FREE' : `Rs. ${order.shippingCost.toFixed(2)}`}</span>
                 </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: '800', color: '#0F766E', paddingTop: '16px', borderTop: '2px solid #E5E7EB', marginBottom: '24px' }}>
                 <span>Total</span>
-                <span>Rs. {order.totalAmount.toLocaleString()}</span>
+                <span>Rs. {order.totalAmount.toFixed(2)}</span>
               </div>
 
               {/* Payment Info */}
@@ -184,7 +290,7 @@ export default function OrderDetailsPage() {
                 </div>
                 <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{order.paymentMethod}</div>
                 <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px', textTransform: 'capitalize' }}>
-                  Status: {order.paymentStatus.replace('-', ' ')}
+                  Status: {order.paymentStatus}
                 </div>
               </div>
 
@@ -198,7 +304,7 @@ export default function OrderDetailsPage() {
                   <Download size={16} /> Download Invoice
                 </button>
                 
-                {order.orderStatus === 'delivered' && (
+                {order.orderStatus === 'Delivered' && (
                   <>
                     <button onClick={() => setToast({ message: '✅ Items added to cart!', type: 'success' })} style={{
                       width: '100%', backgroundColor: 'white', color: '#0F766E', border: '2px solid #0F766E',
@@ -213,13 +319,6 @@ export default function OrderDetailsPage() {
                       cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                     }}>
                       <Star size={16} /> Leave Review
-                    </button>
-                    <button onClick={() => setToast({ message: '🔄 Return request submitted', type: 'success' })} style={{
-                      width: '100%', backgroundColor: 'white', color: '#DC2626', border: '1px solid #FCA5A5',
-                      padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: '600',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                    }}>
-                      <RotateCcw size={16} /> Request Return
                     </button>
                   </>
                 )}
