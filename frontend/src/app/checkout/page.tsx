@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function CheckoutPage() {
-  const { items, totalPrice, clearCart, updateQuantity, removeFromCart } = useCartStore();
+  const { items, clearCart, updateQuantity, removeFromCart } = useCartStore();
   const { isAuthenticated, token } = useAuthStore();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,7 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      router.push('/login?redirect=checkout');
+      router.push('/login?redirect=/checkout');
     }
   }, [isAuthenticated, router]);
 
@@ -54,6 +54,14 @@ export default function CheckoutPage() {
       </div>
     );
   }
+
+  // ✅ SAFE CALCULATIONS (Directly from items to avoid store function mismatches)
+  const cartSubtotal = items.reduce((sum, item) => sum + (parseFloat(String(item.price)) * item.quantity), 0);
+  const discountAmountValue = (cartSubtotal * discount) / 100;
+  const afterDiscountValue = cartSubtotal - discountAmountValue;
+  const shippingCostValue = afterDiscountValue >= 1500 ? 0 : 150;
+  const grandTotalValue = afterDiscountValue + shippingCostValue;
+  const totalSavings = discountAmountValue + (shippingCostValue === 0 ? 150 : 0);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -66,7 +74,6 @@ export default function CheckoutPage() {
   const handleFieldBlur = (fieldName: string) => (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setTouched({ ...touched, [fieldName]: true });
     validateField(fieldName);
-    
     if (!errors[fieldName]) {
       e.currentTarget.style.borderColor = '#E5E7EB';
       e.currentTarget.style.boxShadow = 'none';
@@ -104,7 +111,6 @@ export default function CheckoutPage() {
         else delete newErrors.postalCode;
         break;
     }
-    
     setErrors(newErrors);
     return !newErrors[fieldName];
   };
@@ -130,6 +136,7 @@ export default function CheckoutPage() {
     if (COUPONS[upperCode]) {
       setDiscount(COUPONS[upperCode]);
       setAppliedCoupon(upperCode);
+      setToast({ message: `Coupon ${upperCode} applied successfully!`, type: 'success' });
     } else {
       setToast({ message: 'Invalid coupon. Try: MEVA20, FIRSTORDER, RAMADAN', type: 'error' });
     }
@@ -144,20 +151,21 @@ export default function CheckoutPage() {
     }
 
     if (!isAuthenticated || !token) {
-      router.push('/login?redirect=checkout');
+      router.push('/login?redirect=/checkout');
       return;
     }
 
     setLoading(true);
 
     try {
+      // ✅ PERFECTLY MATCHED PAYLOAD FOR BACKEND createOrder
       const orderData = {
         items: items.map(item => ({
-          product: item.id,
+          product: item._id || item.id, // FIX: Backend expects 'product' as ObjectId. Use _id primarily.
           name: item.name,
-          price: parseFloat(item.price),
+          price: parseFloat(String(item.price)),
           quantity: item.quantity,
-          image: item.image
+          image: item.image || ''
         })),
         shippingAddress: {
           fullName: formData.fullName,
@@ -167,12 +175,14 @@ export default function CheckoutPage() {
           postalCode: formData.postalCode
         },
         paymentMethod: formData.paymentMethod,
-        subtotal: subtotal,
-        shippingCost,
-        discount: discountAmount,
-        totalAmount: grandTotal,
-        notes: formData.notes
+        subtotal: cartSubtotal,
+        shippingCost: shippingCostValue,
+        discount: discountAmountValue,
+        totalAmount: grandTotalValue,
+        notes: formData.notes || 'Order placed via website'
       };
+
+      console.log('Sending order to backend:', orderData); // Debugging ke liye
 
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/orders`,
@@ -202,14 +212,6 @@ export default function CheckoutPage() {
     setShowPaymentModal(false);
     handleSubmit(new Event('submit') as any);
   };
-
-  const subtotal = totalPrice();
-  const discountAmount = (subtotal * discount) / 100;
-  const afterDiscount = subtotal - discountAmount;
-  const shippingCost = afterDiscount >= 1500 ? 0 : 150;
-  const tax = 0;
-  const grandTotal = afterDiscount + shippingCost + tax;
-  const totalSavings = discountAmount + (shippingCost === 0 ? 150 : 0);
 
   const steps = [
     { id: 1, name: 'Cart', status: 'completed' },
@@ -244,7 +246,6 @@ export default function CheckoutPage() {
             <div style={{ position: 'absolute', top: '20px', left: '60px', right: '60px', height: '3px', backgroundColor: '#E5E7EB' }}>
               <div style={{ width: '33%', height: '100%', backgroundColor: '#0F766E', transition: 'width 0.3s ease' }} />
             </div>
-            
             {steps.map((step) => (
               <div key={step.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', zIndex: 1 }}>
                 <div style={{ 
@@ -484,8 +485,8 @@ export default function CheckoutPage() {
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 {[
-                  { id: 'COD', label: 'Cash on Delivery', icon: '', color: '#0F766E' },
-                  { id: 'jazzcash', label: 'JazzCash', icon: '', color: '#7C3AED' },
+                  { id: 'COD', label: 'Cash on Delivery', icon: '💵', color: '#0F766E' },
+                  { id: 'jazzcash', label: 'JazzCash', icon: '📱', color: '#7C3AED' },
                   { id: 'visa', label: 'Visa Card', icon: '💳', color: '#1E40AF' },
                   { id: 'mastercard', label: 'MasterCard', icon: '💳', color: '#DC2626' }
                 ].map(method => (
@@ -518,17 +519,17 @@ export default function CheckoutPage() {
               
               <div style={{ marginBottom: '24px', maxHeight: '220px', overflowY: 'auto', paddingRight: '8px' }}>
                 {items.map(item => (
-                  <div key={item.id} style={{ display: 'flex', gap: '16px', marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #F3F4F6', transition: 'all 0.2s' }}>
+                  <div key={item._id || item.id} style={{ display: 'flex', gap: '16px', marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #F3F4F6', transition: 'all 0.2s' }}>
                     <img src={item.image} alt={item.name} style={{ width: '80px', height: '80px', borderRadius: '12px', objectFit: 'cover', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', lineHeight: '1.3', marginBottom: '4px' }}>{item.name}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <button type="button" onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>−</button>
+                        <button type="button" onClick={() => updateQuantity(item._id || item.id, Math.max(1, item.quantity - 1))} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>−</button>
                         <span style={{ fontWeight: '700', minWidth: '24px', textAlign: 'center', fontSize: '14px' }}>{item.quantity}</span>
-                        <button type="button" onClick={() => updateQuantity(item.id, item.quantity + 1)} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>+</button>
+                        <button type="button" onClick={() => updateQuantity(item._id || item.id, item.quantity + 1)} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>+</button>
                       </div>
                       <div style={{ fontSize: '15px', fontWeight: '800', color: '#0F766E' }}>
-                        Rs. {(parseFloat(item.price) * item.quantity).toFixed(0)}
+                        Rs. {(parseFloat(String(item.price)) * item.quantity).toFixed(0)}
                       </div>
                     </div>
                   </div>
@@ -561,18 +562,18 @@ export default function CheckoutPage() {
               <div style={{ marginBottom: '24px', backgroundColor: '#F8FAFC', borderRadius: '12px', padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Subtotal ({items.reduce((a,b) => a + b.quantity, 0)} items)</span>
-                  <span style={{ fontWeight: '700', color: '#111827' }}>Rs. {subtotal.toFixed(2)}</span>
+                  <span style={{ fontWeight: '700', color: '#111827' }}>Rs. {cartSubtotal.toFixed(2)}</span>
                 </div>
                 {discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#0F766E' }}>
                     <span>Discount ({discount}%)</span>
-                    <span style={{ fontWeight: '700' }}>-Rs. {discountAmount.toFixed(2)}</span>
+                    <span style={{ fontWeight: '700' }}>-Rs. {discountAmountValue.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Shipping</span>
-                  <span style={{ fontWeight: '700', color: shippingCost === 0 ? '#0F766E' : '#111827' }}>
-                    {shippingCost === 0 ? 'FREE ✓' : `Rs. ${shippingCost}`}
+                  <span style={{ fontWeight: '700', color: shippingCostValue === 0 ? '#0F766E' : '#111827' }}>
+                    {shippingCostValue === 0 ? 'FREE ✓' : `Rs. ${shippingCostValue}`}
                   </span>
                 </div>
                 {totalSavings > 0 && (
@@ -585,7 +586,7 @@ export default function CheckoutPage() {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px', fontSize: '24px', fontWeight: '800', color: '#0F766E', paddingTop: '20px', borderTop: '3px solid #E5E7EB' }}>
                 <span>Grand Total</span>
-                <span>Rs. {grandTotal.toFixed(2)}</span>
+                <span>Rs. {grandTotalValue.toFixed(2)}</span>
               </div>
 
               <button type="submit" disabled={loading} style={{ 
@@ -626,7 +627,7 @@ export default function CheckoutPage() {
         isOpen={showPaymentModal} 
         onClose={() => setShowPaymentModal(false)} 
         paymentMethod={formData.paymentMethod} 
-        amount={grandTotal} 
+        amount={grandTotalValue} 
         onSuccess={handlePaymentSuccess}
       />
 

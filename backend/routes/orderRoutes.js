@@ -9,13 +9,13 @@ const {
 } = require('../controllers/orderController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// Admin: view all orders (SECURED with admin middleware)
+// Admin: view all orders
 router.get('/', protect, admin, getOrders);
 
 // Customer: view own order history
 router.get('/my-orders', protect, getMyOrders);
 
-// View a single order — owner or admin only (checked in controller)
+// View a single order — owner or admin only
 router.get('/:id', protect, getOrderById);
 
 // Customer: place a new order

@@ -1,6 +1,5 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
-const { logActivity } = require('../middleware/activityLogger');
 
 // @desc    Create new order (Checkout)
 // @route   POST /api/orders
@@ -17,7 +16,7 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing required order fields' });
     }
 
-    // Verify products exist and have enough stock before creating the order
+    // Verify products exist and have enough stock
     for (const item of items) {
       const product = await Product.findById(item.product);
       if (!product) {
@@ -75,7 +74,7 @@ exports.getMyOrders = async (req, res) => {
 exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('user', 'fullName email phone')
+      .populate('user', 'name email phone')
       .populate('items.product', 'name images');
 
     if (!order) {
@@ -124,7 +123,7 @@ exports.getOrders = async (req, res) => {
     const pages = Math.ceil(total / limit);
 
     const orders = await Order.find(query)
-      .populate('user', 'fullName email')
+      .populate('user', 'name email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit));
@@ -165,10 +164,6 @@ exports.updateOrderStatus = async (req, res) => {
 
     await order.save();
 
-    await logActivity(req, 'ORDER_STATUS_UPDATE', `Updated order #${order.orderId} status to ${orderStatus}`, { 
-      orderId: order._id, orderNumber: order.orderId, oldStatus, newStatus: orderStatus, adminNotes 
-    });
-
     res.json({ success: true, message: 'Order status updated successfully', data: order });
   } catch (error) {
     console.error('Update order status error:', error);
@@ -182,7 +177,7 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getRecentOrders = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
-    const orders = await Order.find().populate('user', 'fullName email').sort({ createdAt: -1 }).limit(limit);
+    const orders = await Order.find().populate('user', 'name email').sort({ createdAt: -1 }).limit(limit);
     res.json({ success: true, data: orders });
   } catch (error) {
     console.error('Recent orders error:', error);
