@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/auth');
+
 const {
   getProducts,
   getProduct,
@@ -8,12 +9,16 @@ const {
   updateProduct,
   deleteProduct,
   bulkDeleteProducts,
-  getTopProducts
+  getTopProducts,
+  getRecentlyViewed,
+  getRecommendedProducts
 } = require('../controllers/productController');
 
 // Public routes
 router.get('/', getProducts);
 router.get('/top', getTopProducts);
+router.get('/recently-viewed', getRecentlyViewed);
+router.get('/recommended', getRecommendedProducts);
 router.get('/:id', getProduct);
 
 // Protected routes (Admin only)

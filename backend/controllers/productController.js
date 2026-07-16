@@ -10,10 +10,9 @@ exports.getProducts = async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 12;
     const skip = (page - 1) * limit;
 
-    // Build query object
     const query = {};
 
-    // 1. Text Search (Name, SKU, Brand, Description)
+    // 1. Text Search
     if (req.query.keyword) {
       query.$or = [
         { name: { $regex: req.query.keyword, $options: 'i' } },
@@ -23,13 +22,13 @@ exports.getProducts = async (req, res) => {
       ];
     }
 
-    // 2. Category Filter (Multi-select)
+    // 2. Category Filter
     if (req.query.category) {
       const categories = req.query.category.split(',');
       query.category = { $in: categories };
     }
 
-    // 3. Brand Filter (Multi-select)
+    // 3. Brand Filter
     if (req.query.brand) {
       const brands = req.query.brand.split(',');
       query.brand = { $in: brands };
@@ -54,75 +53,16 @@ exports.getProducts = async (req, res) => {
       query.stock = { $lte: 0 };
     }
 
-    // 7. Discount Filter
-    if (req.query.discount) {
-      const discountPercent = parseFloat(req.query.discount);
-      query.$expr = {
-        $gte: [
-          { $multiply: [{ $subtract: ['$originalPrice', '$price'] }, 100, { $divide: ['$originalPrice', 1] }] },
-          discountPercent
-        ]
-      };
-    }
-
-    // 8. Product Attributes (Dynamic)
-    if (req.query.attributes) {
-      const attributes = JSON.parse(req.query.attributes);
-      Object.keys(attributes).forEach(key => {
-        query[`attributes.${key}`] = { $in: attributes[key].split(',') };
-      });
-    }
-
-    // 9. Delivery Options
-    if (req.query.freeShipping === 'true') {
-      query.freeShipping = true;
-    }
-    if (req.query.expressDelivery === 'true') {
-      query.expressDelivery = true;
-    }
-    if (req.query.cod === 'true') {
-      query.codAvailable = true;
-    }
-
     // Sorting
     let sortOption = {};
-    if (req.query.sortBy) {
-      switch (req.query.sortBy) {
-        case 'price-asc':
-          sortOption = { price: 1 };
-          break;
-        case 'price-desc':
-          sortOption = { price: -1 };
-          break;
-        case 'rating':
-          sortOption = { rating: -1, numReviews: -1 };
-          break;
-        case 'best-selling':
-          sortOption = { numReviews: -1 };
-          break;
-        case 'most-popular':
-          sortOption = { views: -1 };
-          break;
-        case 'highest-discount':
-          sortOption = { discountPercentage: -1 };
-          break;
-        case 'featured':
-          sortOption = { isFeatured: -1, createdAt: -1 };
-          break;
-        default:
-          sortOption = { createdAt: -1 }; // newest
-      }
-    } else {
-      sortOption = { createdAt: -1 };
-    }
+    if (req.query.sortBy === 'price-asc') sortOption = { price: 1 };
+    else if (req.query.sortBy === 'price-desc') sortOption = { price: -1 };
+    else if (req.query.sortBy === 'rating') sortOption = { rating: -1, numReviews: -1 };
+    else if (req.query.sortBy === 'best-selling') sortOption = { numReviews: -1 };
+    else sortOption = { createdAt: -1 };
 
-    // Execute query with pagination
     const [products, total] = await Promise.all([
-      Product.find(query)
-        .sort(sortOption)
-        .limit(limit)
-        .skip(skip)
-        .select('-reviews -__v'), // Exclude heavy fields
+      Product.find(query).sort(sortOption).limit(limit).skip(skip).select('-reviews -__v'),
       Product.countDocuments(query)
     ]);
 
@@ -136,14 +76,6 @@ exports.getProducts = async (req, res) => {
         hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1,
         limit
-      },
-      filters: {
-        categories: await Product.distinct('category'),
-        brands: await Product.distinct('brand'),
-        priceRange: await Product.aggregate([
-          { $match: query },
-          { $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } }
-        ])
       }
     });
   } catch (error) {
@@ -152,16 +84,89 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product
+// @desc    Get single product (RENAMED from getProductById to match routes)
 // @route   GET /api/products/:id
 // @access  Public
-exports.getProductById = async (req, res) => {
+exports.getProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
     res.json({ success: true, data: product });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Create a product
+// @route   POST /api/products
+// @access  Private/Admin
+exports.createProduct = async (req, res) => {
+  try {
+    const product = new Product(req.body);
+    const createdProduct = await product.save();
+    res.status(201).json({ success: true, data: createdProduct });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Update a product
+// @route   PUT /api/products/:id
+// @access  Private/Admin
+exports.updateProduct = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Delete a product
+// @route   DELETE /api/products/:id
+// @access  Private/Admin
+exports.deleteProduct = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    await product.deleteOne();
+    res.json({ success: true, message: 'Product removed' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Bulk delete products
+// @route   POST /api/products/bulk-delete
+// @access  Private/Admin
+exports.bulkDeleteProducts = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'No product IDs provided' });
+    }
+    await Product.deleteMany({ _id: { $in: ids } });
+    res.json({ success: true, message: 'Products deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get top products
+// @route   GET /api/products/top
+// @access  Public
+exports.getTopProducts = async (req, res) => {
+  try {
+    const products = await Product.find({}).sort({ rating: -1, numReviews: -1 }).limit(5);
+    res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -176,12 +181,8 @@ exports.getRecentlyViewed = async (req, res) => {
     if (!ids) {
       return res.json({ success: true, data: [] });
     }
-    
     const productIds = ids.split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
-    const products = await Product.find({ _id: { $in: productIds } })
-      .select('-reviews -__v')
-      .limit(10);
-    
+    const products = await Product.find({ _id: { $in: productIds } }).select('-reviews -__v').limit(10);
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -194,17 +195,10 @@ exports.getRecentlyViewed = async (req, res) => {
 exports.getRecommendedProducts = async (req, res) => {
   try {
     const { categoryId, limit = 8 } = req.query;
-    
     let query = {};
-    if (categoryId) {
-      query.category = categoryId;
-    }
+    if (categoryId) query.category = categoryId;
     
-    const products = await Product.find(query)
-      .sort({ rating: -1, numReviews: -1 })
-      .limit(parseInt(limit, 10))
-      .select('-reviews -__v');
-    
+    const products = await Product.find(query).sort({ rating: -1, numReviews: -1 }).limit(parseInt(limit, 10)).select('-reviews -__v');
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
