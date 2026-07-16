@@ -76,7 +76,7 @@ export default function WishlistPage() {
                 )}
                 
                 <div style={{ fontSize: '20px', fontWeight: '800', color: '#0F766E', marginBottom: '16px' }}>
-                  Rs. {parseFloat(item.price).toLocaleString()}
+                  Rs. {parseFloat(Number(item.price).toFixed(0)).toLocaleString()}
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
