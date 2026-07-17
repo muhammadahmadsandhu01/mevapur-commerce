@@ -18,7 +18,8 @@ const couponSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  minPurchase: {
+  // 🌟 RENAMED to match frontend form exactly
+  minOrderAmount: {
     type: Number,
     default: 0,
     min: 0
@@ -53,8 +54,10 @@ const couponSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product'
   }],
+  // 🌟 UPDATED to ObjectId for proper relational integrity
   applicableCategories: [{
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category'
   }],
   description: {
     type: String,
@@ -63,5 +66,9 @@ const couponSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Index for faster lookups by code
+couponSchema.index({ code: 1 });
+couponSchema.index({ isActive: 1, startDate: 1, endDate: 1 });
 
 module.exports = mongoose.model('Coupon', couponSchema);

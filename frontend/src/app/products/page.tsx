@@ -5,30 +5,43 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import axios from 'axios';
 import ProductCard from '@/components/products/ProductCard';
-
 import ProductFilters from '@/components/products/ProductFilters';
-import RecentlyViewed from '../../components/products/RecentlyViewed';
+import RecentlyViewed from '@/components/products/RecentlyViewed';
 import RecommendedProducts from '@/components/products/RecommendedProducts';
-import PromotionalBanner from '../../components/products/PromotionalBanner';
-import { Search, ChevronLeft, ChevronRight, Loader, SlidersHorizontal, X } from 'lucide-react';
+import PromotionalBanner from '@/components/products/PromotionalBanner';
+import { Search, ChevronLeft, ChevronRight, Loader, X } from 'lucide-react';
 import Link from 'next/link';
+import { getCategories } from '@/lib/api';
 
 function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
   const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ 
-  page: 1, 
-  pages: 1, 
-  total: 0, 
-  limit: 12,
-  hasNext: false,
-  hasPrev: false
-});
+    page: 1, 
+    pages: 1, 
+    total: 0, 
+    limit: 12,
+    hasNext: false,
+    hasPrev: false
+  });
   const [searchQuery, setSearchQuery] = useState(searchParams.get('keyword') || '');
-  const [filters, setFilters] = useState<any>({});
+
+  // Fetch Categories for Breadcrumbs
+  useEffect(() => {
+    const fetchCats = async () => {
+      try {
+        const data = await getCategories();
+        setCategories(data);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      }
+    };
+    fetchCats();
+  }, []);
 
   // Debounced search
   useEffect(() => {
@@ -53,16 +66,15 @@ function ProductsPageContent() {
       try {
         const { data } = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/products?${searchParams.toString()}`);
         if (data.success) {
-            setProducts(data.data);
-            setPagination({
-                page: data.pagination.page,
-                pages: data.pagination.pages,
-                total: data.pagination.total,
-                limit: data.pagination.limit,
-                hasNext: data.pagination.hasNext || false,
-                hasPrev: data.pagination.hasPrev || false
-            });
-            setFilters(data.filters || {});
+          setProducts(data.data);
+          setPagination({
+            page: data.pagination.page,
+            pages: data.pagination.pages,
+            total: data.pagination.total,
+            limit: data.pagination.limit,
+            hasNext: data.pagination.hasNext || false,
+            hasPrev: data.pagination.hasPrev || false
+          });
         }
       } catch (error) {
         console.error('Error fetching products:', error);
@@ -105,6 +117,24 @@ function ProductsPageContent() {
     router.push(`/products?${params.toString()}`);
   };
 
+  // Helper to get category name from slug
+  const getCategoryName = (slug: string) => {
+    const cat = categories.find((c: any) => c.slug === slug);
+    return cat ? cat.name : slug.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+
+  const categorySlug = searchParams.get('category') || '';
+  const subcategorySlug = searchParams.get('subcategory') || '';
+  const keyword = searchParams.get('keyword') || '';
+
+  const pageTitle = keyword 
+    ? `Search: "${keyword}"` 
+    : subcategorySlug 
+      ? getCategoryName(subcategorySlug)
+      : categorySlug 
+        ? getCategoryName(categorySlug)
+        : 'All Products';
+
   const activeFilters = Array.from(searchParams.entries()).filter(
     ([key]) => key !== 'page' && key !== 'sortBy' && key !== 'keyword'
   );
@@ -117,19 +147,39 @@ function ProductsPageContent() {
       {/* Breadcrumb & Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          {/* Breadcrumb */}
+          {/* Dynamic Breadcrumb */}
           <nav className="flex text-sm text-gray-500 mb-4" aria-label="Breadcrumb">
             <Link href="/" className="hover:text-teal-700 transition-colors">Home</Link>
-            <span className="mx-2" aria-hidden="true">/</span>
-            <span className="text-gray-900 font-medium" aria-current="page">All Products</span>
+            {categorySlug && (
+              <>
+                <span className="mx-2">/</span>
+                <Link href={`/products?category=${categorySlug}`} className="hover:text-teal-700 transition-colors">
+                  {getCategoryName(categorySlug)}
+                </Link>
+              </>
+            )}
+            {subcategorySlug && (
+              <>
+                <span className="mx-2">/</span>
+                <span className="text-gray-900 font-medium" aria-current="page">
+                  {getCategoryName(subcategorySlug)}
+                </span>
+              </>
+            )}
+            {!categorySlug && !keyword && (
+              <>
+                <span className="mx-2">/</span>
+                <span className="text-gray-900 font-medium" aria-current="page">All Products</span>
+              </>
+            )}
           </nav>
           
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Premium Collection</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{pageTitle}</h1>
               <p className="text-gray-500 mt-1">
                 {loading ? (
-                  <span className="animate-pulse">Loading...</span>
+                  <span className="animate-pulse">Loading products...</span>
                 ) : (
                   `Showing ${((pagination.page - 1) * pagination.limit) + 1}–${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total} products`
                 )}
@@ -151,7 +201,7 @@ function ProductsPageContent() {
               </div>
               <select 
                 onChange={handleSortChange}
-                defaultValue={searchParams.get('sortBy') || 'newest'}
+                value={searchParams.get('sortBy') || 'newest'}
                 className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-700 outline-none bg-white cursor-pointer shadow-sm"
                 aria-label="Sort products"
               >
@@ -160,8 +210,6 @@ function ProductsPageContent() {
                 <option value="price-desc">Price: High to Low</option>
                 <option value="rating">Highest Rated</option>
                 <option value="best-selling">Best Selling</option>
-                <option value="most-popular">Most Popular</option>
-                <option value="highest-discount">Highest Discount</option>
               </select>
             </div>
           </div>
@@ -255,7 +303,6 @@ function ProductsPageContent() {
                     
                     {[...Array(pagination.pages)].map((_, i) => {
                       const pageNum = i + 1;
-                      // Show first, last, current, and adjacent pages
                       if (pageNum === 1 || pageNum === pagination.pages || Math.abs(pageNum - pagination.page) <= 1) {
                         return (
                           <button
@@ -291,11 +338,13 @@ function ProductsPageContent() {
               </>
             )}
 
-            {/* Recently Viewed */}
-            {!loading && products.length > 0 && <RecentlyViewed />}
-
-            {/* Recommended Products */}
-            {!loading && products.length > 0 && <RecommendedProducts />}
+            {/* Recently Viewed & Recommended */}
+            {!loading && products.length > 0 && (
+              <>
+                <RecentlyViewed />
+                <RecommendedProducts />
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -6,7 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
-
+import AdminGuard from '../components/admin/AdminGuard';
 export default function AdminLayout({
   children,
 }: {
@@ -24,18 +24,64 @@ export default function AdminLayout({
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated && pathname !== '/login') {
-      router.push('/login');
-    }
-  }, [isAuthenticated, pathname, router]);
-
-  useEffect(() => {
     if (mounted) {
       document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
     }
   }, [isDark, mounted]);
 
-  // Always return proper HTML structure
+  // ✅ Login page ko guard se bahar rakha hai
+  if (pathname === '/login') {
+    return (
+      <html lang="en" data-theme={isDark ? 'dark' : 'light'}>
+        <body style={{ margin: 0, padding: 0 }}>
+          <style jsx global>{`
+            :root {
+              --primary: #0F766E;
+              --primary-dark: #115E59;
+              --primary-light: rgba(15, 118, 110, 0.1);
+              --danger: #EF4444;
+              --danger-light: rgba(239, 68, 68, 0.1);
+              --success: #10B981;
+              --warning: #F59E0B;
+            }
+            [data-theme="light"] {
+              --bg-primary: #F8FAFC;
+              --card-bg: #FFFFFF;
+              --sidebar-bg: #FFFFFF;
+              --text-primary: #111827;
+              --text-secondary: #6B7280;
+              --border-color: #E5E7EB;
+              --hover-bg: #F3F4F6;
+              --input-bg: #FFFFFF;
+            }
+            [data-theme="dark"] {
+              --bg-primary: #0F172A;
+              --card-bg: #1E293B;
+              --sidebar-bg: #1E293B;
+              --text-primary: #F1F5F9;
+              --text-secondary: #94A3B8;
+              --border-color: #334155;
+              --hover-bg: #334155;
+              --input-bg: #0F172A;
+            }
+            * { box-sizing: border-box; }
+            body {
+              background-color: var(--bg-primary);
+              color: var(--text-primary);
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-track { background: var(--bg-primary); }
+            ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+            ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+          `}</style>
+          {children}
+        </body>
+      </html>
+    );
+  }
+
+  // ✅ Admin content ko AdminGuard se wrap kiya hai
   return (
     <html lang="en" data-theme={isDark ? 'dark' : 'light'}>
       <body style={{ margin: 0, padding: 0 }}>
@@ -49,7 +95,6 @@ export default function AdminLayout({
             --success: #10B981;
             --warning: #F59E0B;
           }
-
           [data-theme="light"] {
             --bg-primary: #F8FAFC;
             --card-bg: #FFFFFF;
@@ -60,7 +105,6 @@ export default function AdminLayout({
             --hover-bg: #F3F4F6;
             --input-bg: #FFFFFF;
           }
-
           [data-theme="dark"] {
             --bg-primary: #0F172A;
             --card-bg: #1E293B;
@@ -71,49 +115,19 @@ export default function AdminLayout({
             --hover-bg: #334155;
             --input-bg: #0F172A;
           }
-
-          * {
-            box-sizing: border-box;
-          }
-
+          * { box-sizing: border-box; }
           body {
             background-color: var(--bg-primary);
             color: var(--text-primary);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           }
-
-          ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-          }
-
-          ::-webkit-scrollbar-track {
-            background: var(--bg-primary);
-          }
-
-          ::-webkit-scrollbar-thumb {
-            background: var(--border-color);
-            border-radius: 4px;
-          }
-
-          ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-secondary);
-          }
+          ::-webkit-scrollbar { width: 8px; height: 8px; }
+          ::-webkit-scrollbar-track { background: var(--bg-primary); }
+          ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+          ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
         `}</style>
 
-        {pathname === '/login' ? (
-          <>{children}</>
-        ) : !isAuthenticated ? (
-          <div style={{ 
-            minHeight: '100vh', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            backgroundColor: 'var(--bg-primary)'
-          }}>
-            <div>Loading...</div>
-          </div>
-        ) : (
+        <AdminGuard>
           <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-primary)' }}>
             <Sidebar 
               isOpen={isSidebarOpen} 
@@ -132,7 +146,7 @@ export default function AdminLayout({
               </div>
             </main>
           </div>
-        )}
+        </AdminGuard>
       </body>
     </html>
   );

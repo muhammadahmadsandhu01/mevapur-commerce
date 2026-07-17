@@ -30,7 +30,6 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expired - logout
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
         window.location.href = '/login';
@@ -39,5 +38,46 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ==========================================
+// 🚀 ENTERPRISE API HELPER FUNCTIONS
+// ==========================================
+
+export const getCategories = async () => {
+  const response = await api.get('/categories');
+  return response.data.data || [];
+};
+
+export const getBrands = async () => {
+  const response = await api.get('/brands');
+  return response.data.data || [];
+};
+
+export const getProducts = async (params?: {
+  category?: string;
+  subcategory?: string;
+  brand?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  sortBy?: string;
+  page?: number;
+  limit?: number;
+  keyword?: string;
+}) => {
+  const queryParams = new URLSearchParams();
+  
+  if (params?.category) queryParams.append('category', params.category);
+  if (params?.subcategory) queryParams.append('subcategory', params.subcategory);
+  if (params?.brand) queryParams.append('brand', params.brand);
+  if (params?.minPrice) queryParams.append('minPrice', params.minPrice.toString());
+  if (params?.maxPrice) queryParams.append('maxPrice', params.maxPrice.toString());
+  if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
+  if (params?.page) queryParams.append('page', params.page.toString());
+  if (params?.limit) queryParams.append('limit', params.limit.toString());
+  if (params?.keyword) queryParams.append('keyword', params.keyword);
+
+  const response = await api.get(`/products?${queryParams.toString()}`);
+  return response.data;
+};
 
 export default api;

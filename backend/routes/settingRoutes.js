@@ -7,10 +7,10 @@ const {
   getPublicSettings
 } = require('../controllers/settingController');
 
-// Public route
+// Public route (bina login ke store info fetch karne ke liye)
 router.get('/public', getPublicSettings);
 
-// Protected routes
+// Protected routes (sirf Admin ke liye)
 router.get('/', protect, admin, getSettings);
 router.put('/', protect, admin, updateSettings);
 

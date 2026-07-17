@@ -32,22 +32,22 @@ export const useAuthStore = create<AuthState>()(
           if (response.data.success) {
             const { user, token } = response.data.data;
             
-            // ✅ Check if user is admin (role check)
+            // ✅ Strict Admin Check
             if (user.role !== 'admin' && user.role !== 'super_admin') {
               console.log('❌ Access denied - not admin. Role:', user.role);
               return { 
                 success: false, 
-                message: 'Access denied. Admin only. Your role: ' + user.role 
+                message: 'Access denied. Admin privileges required. Your role: ' + (user.role || 'user')
               };
             }
 
             set({
               user: {
-                id: user.id,
+                id: user.id || user._id,
                 fullName: user.fullName,
                 email: user.email,
                 role: user.role
-              },
+              } as User, // ✅ Type assertion to prevent TS errors
               token,
               isAuthenticated: true
             });
@@ -59,11 +59,8 @@ export const useAuthStore = create<AuthState>()(
           }
         } catch (error: any) {
           console.error('❌ Login error:', error);
-          console.error('❌ Error response:', error.response?.data);
-          console.error('❌ Error status:', error.response?.status);
           
           let message = 'Login failed';
-          
           if (error.response?.data?.message) {
             message = error.response.data.message;
           } else if (error.response?.status === 401) {
@@ -71,7 +68,7 @@ export const useAuthStore = create<AuthState>()(
           } else if (error.response?.status === 403) {
             message = 'Access denied. Admin only.';
           } else if (error.code === 'ERR_NETWORK') {
-            message = 'Cannot connect to backend. Please check if backend is running on port 5000.';
+            message = 'Cannot connect to backend. Please check if backend is running.';
           } else if (error.message) {
             message = error.message;
           }

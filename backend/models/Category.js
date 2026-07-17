@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const slugify = require('slugify');
 
 const categorySchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -11,6 +12,7 @@ const categorySchema = new mongoose.Schema({
   parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },
   
   isActive: { type: Boolean, default: true },
+  isFeatured: { type: Boolean, default: false }, // 🌟 ADDED: For homepage display
   displayOrder: { type: Number, default: 0 },
 
   seo: {
@@ -18,6 +20,14 @@ const categorySchema = new mongoose.Schema({
     metaDescription: { type: String }
   }
 }, { timestamps: true });
+
+// 🌟 AUTO-GENERATE SLUG BEFORE SAVING
+categorySchema.pre('save', function(next) {
+  if ((this.isNew || this.isModified('name')) && !this.slug) {
+    this.slug = slugify(this.name, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
+  }
+  next();
+});
 
 categorySchema.index({ slug: 1 });
 categorySchema.index({ parentId: 1, isActive: 1 });

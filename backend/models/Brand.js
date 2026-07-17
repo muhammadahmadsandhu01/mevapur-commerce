@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const slugify = require('slugify');
 
 const brandSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -15,6 +16,14 @@ const brandSchema = new mongoose.Schema({
     metaDescription: { type: String }
   }
 }, { timestamps: true });
+
+// 🌟 AUTO-GENERATE SLUG BEFORE SAVING
+brandSchema.pre('save', function(next) {
+  if ((this.isNew || this.isModified('name')) && !this.slug) {
+    this.slug = slugify(this.name, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
+  }
+  next();
+});
 
 brandSchema.index({ slug: 1 });
 

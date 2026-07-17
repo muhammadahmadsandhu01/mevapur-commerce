@@ -1,24 +1,28 @@
 const Coupon = require('../models/Coupon');
 const { logActivity } = require('../middleware/activityLogger');  
 
-// @desc    Get all coupons
+// @desc    Get all coupons with filtering
 // @route   GET /api/coupons
 // @access  Private/Admin
 exports.getCoupons = async (req, res) => {
   try {
-    const { search = '', status = '' } = req.query;
-
+    const { search = '', status = 'all' } = req.query;
     let query = {};
+    const now = new Date();
 
     if (search) {
       query.code = { $regex: search, $options: 'i' };
     }
 
+    // 🌟 Enhanced status filtering to match frontend exactly
     if (status === 'active') {
       query.isActive = true;
-      query.endDate = { $gte: new Date() };
+      query.startDate = { $lte: now };
+      query.endDate = { $gte: now };
     } else if (status === 'expired') {
-      query.endDate = { $lt: new Date() };
+      query.endDate = { $lt: now };
+    } else if (status === 'upcoming') {
+      query.startDate = { $gt: now };
     } else if (status === 'inactive') {
       query.isActive = false;
     }
@@ -89,6 +93,9 @@ exports.createCoupon = async (req, res) => {
     });
   } catch (error) {
     console.error('Create coupon error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Coupon code already exists' });
+    }
     res.status(500).json({
       success: false,
       message: error.message
@@ -126,6 +133,9 @@ exports.updateCoupon = async (req, res) => {
     });
   } catch (error) {
     console.error('Update coupon error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Coupon code already exists' });
+    }
     res.status(500).json({
       success: false,
       message: error.message
@@ -170,28 +180,30 @@ exports.deleteCoupon = async (req, res) => {
 // @access  Private/Admin
 exports.getCouponStats = async (req, res) => {
   try {
+    const now = new Date();
+    
     const totalCoupons = await Coupon.countDocuments();
     const activeCoupons = await Coupon.countDocuments({ 
       isActive: true,
-      endDate: { $gte: new Date() }
+      startDate: { $lte: now },
+      endDate: { $gte: now }
     });
-    const expiredCoupons = await Coupon.countDocuments({ 
-      endDate: { $lt: new Date() }
-    });
-    const inactiveCoupons = await Coupon.countDocuments({ isActive: false });
+    const expiredCoupons = await Coupon.countDocuments({ endDate: { $lt: now } });
+    const upcomingCoupons = await Coupon.countDocuments({ startDate: { $gt: now } });
 
-    const totalDiscountGiven = await Coupon.aggregate([
-      { $group: { _id: null, total: { $sum: '$usedCount' } } }
+    // 🌟 Accurate aggregation for total usage
+    const usageStats = await Coupon.aggregate([
+      { $group: { _id: null, totalUsed: { $sum: '$usedCount' } } }
     ]);
 
     res.json({
       success: true,
       data: {
-        totalCoupons,
-        activeCoupons,
-        expiredCoupons,
-        inactiveCoupons,
-        totalUsage: totalDiscountGiven[0]?.total || 0
+        total: totalCoupons,
+        active: activeCoupons,
+        expired: expiredCoupons,
+        upcoming: upcomingCoupons,
+        totalUsage: usageStats[0]?.totalUsed || 0
       }
     });
   } catch (error) {

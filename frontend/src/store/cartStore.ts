@@ -4,19 +4,20 @@ import { persist } from 'zustand/middleware';
 export interface CartItem {
   id: string;
   _id?: string;
-  price: number | string;  // ✅ Accept both string and number
+  price: number | string;
   name: string;
   product?: string;
   image: string;
   quantity: number;
   stock?: number;
   variant?: string;
+  sku?: string;
 }
 
 export interface WishlistItem {
   id: string;
   name: string;
-  price: number | string;  // ✅ Accept both string and number
+  price: number | string;
   image: string;
   variant?: string;
 }
@@ -28,8 +29,8 @@ interface CartStore {
   currentOrderId: string | null;
   totalItems: number;
   addToCart: (item: Omit<CartItem, 'quantity'>) => void;
-  removeFromCart: (id: string) => void;
-  updateQuantity: (id: string, quantity: number) => void;
+  removeFromCart: (id: string, variant?: string) => void;
+  updateQuantity: (id: string, quantity: number, variant?: string) => void;
   clearCart: () => void;
   totalPrice: () => number;
   placeOrder: (city: string) => string;
@@ -73,22 +74,26 @@ export const useCartStore = create<CartStore>()(
         }
       },
 
-      removeFromCart: (id: string) => {
-        const newItems = get().items.filter(item => item.id !== id);
+      removeFromCart: (id: string, variant?: string) => {
+        const newItems = get().items.filter(item => 
+          variant ? !(item.id === id && item.variant === variant) : item.id !== id
+        );
         set({
           items: newItems,
           totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
         });
       },
 
-      updateQuantity: (id: string, quantity: number) => {
+      updateQuantity: (id: string, quantity: number, variant?: string) => {
         if (quantity <= 0) {
-          get().removeFromCart(id);
+          get().removeFromCart(id, variant);
           return;
         }
         
         const newItems = get().items.map(item => 
-          item.id === id ? { ...item, quantity } : item
+          (variant ? (item.id === id && item.variant === variant) : item.id === id)
+            ? { ...item, quantity } 
+            : item
         );
         
         set({
@@ -103,7 +108,6 @@ export const useCartStore = create<CartStore>()(
 
       totalPrice: () => {
         return get().items.reduce((total, item) => {
-          // ✅ Convert price to number before calculation
           return total + (Number(item.price) * item.quantity);
         }, 0);
       },
@@ -129,17 +133,14 @@ export const useCartStore = create<CartStore>()(
           totalItems: 0
         });
         
-        console.log('✅ Order placed:', orderId);
         return orderId;
       },
 
       addToWishlist: (item: WishlistItem) => {
         const state = get();
-        const exists = state.wishlist.find(i => i.id === item.id);
-        
+        const exists = state.wishlist.find(i => i.id === item.id && i.variant === item.variant);
         if (!exists) {
           set({ wishlist: [...state.wishlist, item] });
-          console.log('❤️ Added to wishlist:', item.name);
         }
       },
 
@@ -147,7 +148,6 @@ export const useCartStore = create<CartStore>()(
         set({
           wishlist: get().wishlist.filter(item => item.id !== id)
         });
-        console.log('❌ Removed from wishlist');
       },
 
       isInWishlist: (id: string) => {
@@ -157,21 +157,17 @@ export const useCartStore = create<CartStore>()(
       moveWishlistToCart: (id: string) => {
         const state = get();
         const item = state.wishlist.find(i => i.id === id);
-        
         if (item) {
           get().addToCart({
             id: item.id,
             name: item.name,
-            price: Number(item.price),  // ✅ Convert to number
+            price: Number(item.price),
             image: item.image,
             variant: item.variant
           });
-          
           set({
             wishlist: state.wishlist.filter(i => i.id !== id)
           });
-          
-          console.log('🛒 Moved to cart:', item.name);
         }
       }
     }),

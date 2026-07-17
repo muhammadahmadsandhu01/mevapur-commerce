@@ -3,49 +3,44 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Package, Truck, CreditCard, Calendar, MapPin, Download, RotateCcw, ShoppingCart, Star, MessageCircle, Loader } from 'lucide-react';
+import { ArrowLeft, Package, Truck, CreditCard, MapPin, Download, RotateCcw, ShoppingCart, Star, MessageCircle, Loader } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
 import axios from 'axios';
 import Toast from '@/components/Toast';
 
 interface OrderItem {
-  product: string;
+  product?: any;
   name: string;
-  price: number;
+  price: number | string;
   quantity: number;
-  image: string;
+  image?: string;
 }
 
 interface TimelineStep {
   status: string;
   timestamp: string;
-  note: string;
-  date?: string;
-  completed?: boolean;
+  note?: string;
 }
 
 interface Order {
   _id: string;
   orderId: string;
-  orderNumber?: string;
   orderStatus: string;
   paymentMethod: string;
   paymentStatus: string;
-  subtotal: number;
-  shippingCost: number;
-  discount: number;
-  totalAmount: number;
+  subtotal: number | string;
+  shippingCost: number | string;
+  discount: number | string;
+  totalAmount: number | string;
   createdAt: string;
-  orderDate?: string;
   items: OrderItem[];
   shippingAddress: {
     fullName: string;
     phone: string;
     address: string;
     city: string;
-    postalCode: string;
-    name?: string; 
+    postalCode?: string;
   };
   statusTimeline?: TimelineStep[];
   timeline?: TimelineStep[];
@@ -56,7 +51,10 @@ export default function OrderDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const { token } = useAuthStore();
-  const orderId = params.orderid as string;
+  
+  // ✅ FIXED: params.id instead of params.orderid
+  const orderId = params.id as string; 
+  
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -88,7 +86,9 @@ export default function OrderDetailsPage() {
       }
     };
 
-    fetchOrder();
+    if (orderId) {
+      fetchOrder();
+    }
   }, [orderId, token, router]);
 
   if (loading) {
@@ -121,7 +121,6 @@ export default function OrderDetailsPage() {
 
   const statusColor = statusColors[order.orderStatus] || statusColors.Pending;
 
-  // Simple timeline component inline
   const renderTimeline = () => {
     const timelineData = order.statusTimeline || order.timeline || [];
     if (timelineData.length === 0) return null;
@@ -157,6 +156,11 @@ export default function OrderDetailsPage() {
     );
   };
 
+  const subtotal = Number(order.subtotal) || 0;
+  const shippingCost = Number(order.shippingCost) || 0;
+  const discount = Number(order.discount) || 0;
+  const totalAmount = Number(order.totalAmount) || 0;
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F7F8FA', paddingBottom: '60px' }}>
       
@@ -190,7 +194,7 @@ export default function OrderDetailsPage() {
       </div>
 
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '32px 20px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
           
           {/* LEFT COLUMN */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -210,18 +214,23 @@ export default function OrderDetailsPage() {
               <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Package size={20} color="#0F766E" /> Products ({order.items.length})
               </h3>
-              {order.items.map((item, index) => (
-                <div key={index} style={{ display: 'flex', gap: '16px', padding: '16px', marginBottom: '12px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
-                  <img src={item.image || '/placeholder.png'} alt={item.name} style={{ width: '100px', height: '100px', borderRadius: '10px', objectFit: 'cover' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '15px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{item.name}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontSize: '13px', color: '#6B7280' }}>Qty: {item.quantity}</div>
-                      <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {(item.price * item.quantity).toFixed(2)}</div>
+              {order.items.map((item, index) => {
+                const productName = typeof item.product === 'object' ? item.product.name : item.name;
+                const productImage = item.image || (typeof item.product === 'object' ? item.product.images?.[0] : null) || '/placeholder.png';
+                
+                return (
+                  <div key={index} style={{ display: 'flex', gap: '16px', padding: '16px', marginBottom: '12px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
+                    <img src={productImage} alt={productName} style={{ width: '100px', height: '100px', borderRadius: '10px', objectFit: 'cover' }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{productName}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: '13px', color: '#6B7280' }}>Qty: {item.quantity}</div>
+                        <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {(Number(item.price) * item.quantity).toFixed(2)}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Shipping Address */}
@@ -263,23 +272,23 @@ export default function OrderDetailsPage() {
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Subtotal</span>
-                  <span style={{ fontWeight: '600' }}>Rs. {order.subtotal.toFixed(2)}</span>
+                  <span style={{ fontWeight: '600' }}>Rs. {subtotal.toFixed(2)}</span>
                 </div>
-                {order.discount > 0 && (
+                {discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px', color: '#0F766E' }}>
                     <span>Discount</span>
-                    <span style={{ fontWeight: '600' }}>-Rs. {order.discount.toFixed(2)}</span>
+                    <span style={{ fontWeight: '600' }}>-Rs. {discount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Shipping</span>
-                  <span style={{ fontWeight: '600', color: '#0F766E' }}>{order.shippingCost === 0 ? 'FREE' : `Rs. ${order.shippingCost.toFixed(2)}`}</span>
+                  <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#0F766E' : '#111827' }}>{shippingCost === 0 ? 'FREE' : `Rs. ${shippingCost.toFixed(2)}`}</span>
                 </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: '800', color: '#0F766E', paddingTop: '16px', borderTop: '2px solid #E5E7EB', marginBottom: '24px' }}>
                 <span>Total</span>
-                <span>Rs. {order.totalAmount.toFixed(2)}</span>
+                <span>Rs. {totalAmount.toFixed(2)}</span>
               </div>
 
               {/* Payment Info */}
@@ -337,6 +346,13 @@ export default function OrderDetailsPage() {
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

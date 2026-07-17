@@ -27,14 +27,18 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters'],
     select: false  // ✅ Password ko default queries mein select nahi karega
   },
-    role: {
+  role: {
     type: String,
     enum: ['customer', 'super_admin', 'admin', 'manager', 'support', 'inventory'],
     default: 'customer'
   },
   isVerified: {
     type: Boolean,
-    default: true  // ✅ Default true kiya taake login ho sake
+    default: true
+  },
+  isBlocked: { // 🌟 ADDED: Missing field that was being updated in controller
+    type: Boolean,
+    default: false
   },
   verificationToken: String,
   resetPasswordToken: String,
@@ -47,7 +51,7 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// ✅ Password hash karne se pehle
+// ✅ Password hash karne se pehle (Mongoose Hook)
 userSchema.pre('save', async function(next) {
   // Agar password modify nahi hua to skip karein
   if (!this.isModified('password')) {

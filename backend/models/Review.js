@@ -19,7 +19,8 @@ const reviewSchema = new mongoose.Schema({
   },
   title: {
     type: String,
-    maxlength: 100
+    maxlength: 100,
+    default: ''
   },
   comment: {
     type: String,
@@ -34,6 +35,14 @@ const reviewSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isFlagged: { // 🌟 ADDED: Matches frontend admin panel exactly
+    type: Boolean,
+    default: false
+  },
+  reportReason: {
+    type: String,
+    default: ''
+  },
   adminReply: {
     type: String,
     default: ''
@@ -41,19 +50,20 @@ const reviewSchema = new mongoose.Schema({
   repliedAt: {
     type: Date
   },
-  reported: {
-    type: Boolean,
-    default: false
-  },
-  reportReason: {
-    type: String,
-    default: ''
+  helpfulCount: { // 🌟 ADDED: For "X people found this helpful"
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true
 });
 
-// Prevent duplicate reviews
+// Prevent duplicate reviews from same user on same product
 reviewSchema.index({ product: 1, user: 1 }, { unique: true });
+
+// 🌟 Indexes for lightning-fast admin filtering
+reviewSchema.index({ isApproved: 1, createdAt: -1 });
+reviewSchema.index({ isFlagged: 1 });
+reviewSchema.index({ rating: 1 });
 
 module.exports = mongoose.model('Review', reviewSchema);

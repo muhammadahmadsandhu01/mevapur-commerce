@@ -1,282 +1,146 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { 
-  DollarSign, 
-  CheckCircle, 
-  Clock,
-  Search,
-  Filter,
-  Loader,
-  Download,
-  CreditCard,
-  Wallet,
-  Banknote,
-  TrendingDown
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeftCircle, Search, Eye, CheckCircle, XCircle, Clock, AlertCircle, Download, Loader } from 'lucide-react';
 import api from '@/lib/api';
 
-interface Refund {
-  _id: string;
-  returnNumber: string;
-  order: {
-    orderId: string;
-  };
-  customer: {
-    fullName: string;
-    email: string;
-  };
-  refundAmount: number;
-  refundMethod: string;
-  status: string;
-  refundedAt: string;
-  reason: string;
-}
-
 export default function RefundsPage() {
-  const [refunds, setRefunds] = useState<Refund[]>([]);
+  const [refunds, setRefunds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [methodFilter, setMethodFilter] = useState('');
-  const [stats, setStats] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'processed' | 'failed'>('all');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
-    fetchRefunds();
-    fetchStats();
-  }, [search, methodFilter]);
-
-  const fetchRefunds = async () => {
-    try {
+    const fetchRefunds = async () => {
       setLoading(true);
-      const params: any = {};
-      if (search) params.search = search;
-      if (methodFilter) params.refundMethod = methodFilter;
+      try {
+        const params: any = { page, limit: 15 };
+        if (searchQuery) params.search = searchQuery;
+        if (statusFilter !== 'all') params.status = statusFilter;
 
-      // Get all refunded returns
-      const response = await api.get('/returns', { 
-        params: { ...params, status: 'refunded' } 
-      });
-      if (response.data.success) {
-        setRefunds(response.data.data);
+        const response = await api.get('/refunds', { params });
+        if (response.data.success) {
+          setRefunds(response.data.data);
+          setTotalPages(response.data.pagination?.pages || 1);
+        }
+      } catch (error) {
+        console.error('Error fetching refunds:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching refunds:', error);
-    } finally {
-      setLoading(false);
-    }
+    };
+    fetchRefunds();
+  }, [page, searchQuery, statusFilter]);
+
+  const stats = {
+    totalAmount: refunds.reduce((acc, curr) => acc + (curr.amount || 0), 0),
+    pending: refunds.filter(r => r.status === 'pending').length,
+    processed: refunds.filter(r => r.status === 'processed').length,
   };
 
-  const fetchStats = async () => {
-    try {
-      const response = await api.get('/returns/stats');
-      if (response.data.success) {
-        setStats(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  };
-
-  const handleExport = () => {
-    // CSV export functionality
-    const csv = refunds.map(r => ({
-      'Return Number': r.returnNumber,
-      'Order ID': r.order?.orderId,
-      'Customer': r.customer?.fullName,
-      'Email': r.customer?.email,
-      'Refund Amount': r.refundAmount,
-      'Method': r.refundMethod,
-      'Date': new Date(r.refundedAt).toLocaleDateString()
-    }));
-    
-    // Download CSV
-    const headers = ['Return Number', 'Order ID', 'Customer', 'Email', 'Refund Amount', 'Method', 'Date'];
-    const csvContent = [
-      headers.join(','),
-      ...csv.map(row => headers.map(h => `"${row[h as keyof typeof row]}"`).join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `refunds_${Date.now()}.csv`;
-    a.click();
-  };
-
-  const getMethodIcon = (method: string) => {
-    switch (method) {
-      case 'original_payment': return CreditCard;
-      case 'store_credit': return Wallet;
-      case 'bank_transfer': return Banknote;
-      default: return DollarSign;
+  const getStatusBadge = (status: string) => {
+    const s = status.toLowerCase();
+    switch (s) {
+      case 'pending': return { bg: '#FEF3C7', color: '#92400E', icon: Clock };
+      case 'processed': return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
+      case 'failed': return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
+      default: return { bg: '#F3F4F6', color: '#6B7280', icon: AlertCircle };
     }
   };
 
   return (
-    <div>
+    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div>
-            <h1 style={{ fontSize: '32px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>
-              Refunds History
-            </h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              View and manage processed refunds
-            </p>
-          </div>
-          
-          <button
-            onClick={handleExport}
-            style={{
-              backgroundColor: 'var(--primary)',
-              color: 'white',
-              padding: '12px 24px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '15px'
-            }}
-          >
-            <Download size={20} />
-            Export CSV
-          </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>Refunds Management</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Track and process financial refunds for returned or cancelled orders.</p>
         </div>
+        <button style={{ padding: '12px 20px', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Download size={18} /> Export CSV
+        </button>
+      </div>
 
-        {/* Stats Cards */}
-        {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle size={24} color="#10B981" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Refunded</div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {stats.totalRefundAmount?.toLocaleString() || 0}</div>
-              </div>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+        {[
+          { label: 'Total Refunded', value: `Rs. ${stats.totalAmount.toLocaleString()}`, color: '#A855F7', bg: '#FDF4FF', icon: ArrowLeftCircle },
+          { label: 'Pending', value: stats.pending, color: '#F59E0B', bg: '#FEF3C7', icon: Clock },
+          { label: 'Processed', value: stats.processed, color: '#10B981', bg: '#D1FAE5', icon: CheckCircle },
+        ].map((stat, idx) => (
+          <div key={idx} style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: stat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <stat.icon size={24} color={stat.color} />
             </div>
-
-            <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <DollarSign size={24} color="#3B82F6" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Refund Count</div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.refundedReturns || 0}</div>
-              </div>
-            </div>
-
-            <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingDown size={24} color="#F59E0B" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Return Rate</div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.returnRate || '0%'}</div>
-              </div>
-            </div>
-
-            <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#EDE9FE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Clock size={24} color="#8B5CF6" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Avg Refund Time</div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>3.2 days</div>
-              </div>
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>{stat.label}</div>
+              <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stat.value}</div>
             </div>
           </div>
-        )}
+        ))}
       </div>
 
       {/* Filters */}
-      <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ flex: 1, minWidth: '300px', position: 'relative' }}>
-            <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-            <input
-              type="text"
-              placeholder="Search by return number or customer..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ width: '100%', padding: '12px 16px 12px 48px', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '14px', outline: 'none', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }}
-            />
-          </div>
-
-          <select
-            value={methodFilter}
-            onChange={(e) => setMethodFilter(e.target.value)}
-            style={{ padding: '12px 16px', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '14px', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
-          >
-            <option value="">All Methods</option>
-            <option value="original_payment">Original Payment</option>
-            <option value="store_credit">Store Credit</option>
-            <option value="bank_transfer">Bank Transfer</option>
-          </select>
+      <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '16px 20px', border: '1px solid var(--border-color)', marginBottom: '24px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
+          <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+          <input type="text" placeholder="Search by Refund # or Customer..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px 10px 42px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
         </div>
+        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }}
+          style={{ padding: '10px 32px 10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '500', outline: 'none', cursor: 'pointer' }}>
+          <option value="all">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="processed">Processed</option>
+          <option value="failed">Failed</option>
+        </select>
       </div>
 
-      {/* Refunds List */}
+      {/* Table */}
       {loading ? (
-        <div style={{ backgroundColor: 'var(--card-bg)', padding: '60px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} color="var(--primary)" />
-          <p style={{ color: 'var(--text-secondary)' }}>Loading refunds...</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {[...Array(5)].map((_, i) => (<div key={i} style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', height: '80px', animation: 'pulse 1.5s infinite', border: '1px solid var(--border-color)' }} />))}
         </div>
       ) : refunds.length === 0 ? (
-        <div style={{ backgroundColor: 'var(--card-bg)', padding: '60px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-          <DollarSign size={64} style={{ margin: '0 auto 16px', opacity: 0.3 }} color="var(--text-secondary)" />
-          <p style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>No refunds yet</p>
-          <p style={{ color: 'var(--text-secondary)' }}>Processed refunds will appear here</p>
+        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '80px 20px', textAlign: 'center', border: '1px solid var(--border-color)', borderStyle: 'dashed' }}>
+          <ArrowLeftCircle size={48} color="var(--text-secondary)" style={{ opacity: 0.3, marginBottom: '16px' }} />
+          <h3 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>No refunds found</h3>
         </div>
       ) : (
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead style={{ backgroundColor: 'var(--bg-primary)' }}>
-                <tr>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Return #</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Order</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Customer</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Method</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Amount</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Date</th>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
+                  {['Refund #', 'Customer', 'Amount', 'Method', 'Status', 'Date', 'Actions'].map(h => (
+                    <th key={h} style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
-                {refunds.map((refund) => {
-                  const MethodIcon = getMethodIcon(refund.refundMethod);
+              <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
+                {refunds.map((ref) => {
+                  const badge = getStatusBadge(ref.status);
+                  const BadgeIcon = badge.icon;
                   return (
-                    <tr key={refund._id} style={{ borderBottom: '1px solid var(--border-color)' }}
+                    <tr key={ref._id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                      <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: '700', color: 'var(--primary)' }}>
-                        {refund.returnNumber}
-                      </td>
-                      <td style={{ padding: '16px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                        {refund.order?.orderId}
-                      </td>
-                      <td style={{ padding: '16px' }}>
-                        <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{refund.customer?.fullName}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{refund.customer?.email}</div>
-                      </td>
-                      <td style={{ padding: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <MethodIcon size={16} color="var(--text-secondary)" />
-                          <span style={{ fontSize: '13px', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                            {refund.refundMethod.replace('_', ' ')}
-                          </span>
+                      <td style={{ padding: '16px 20px', fontWeight: '700', color: 'var(--primary)', fontFamily: 'monospace' }}>{ref.refundNumber}</td>
+                      <td style={{ padding: '16px 20px', fontWeight: '600', color: 'var(--text-primary)' }}>{ref.customer?.fullName || 'N/A'}</td>
+                      <td style={{ padding: '16px 20px', fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {(ref.amount || 0).toLocaleString()}</td>
+                      <td style={{ padding: '16px 20px', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{ref.method?.replace('_', ' ') || 'N/A'}</td>
+                      <td style={{ padding: '16px 20px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: badge.bg, color: badge.color, borderRadius: '20px', fontSize: '12px', fontWeight: '700', textTransform: 'capitalize' }}>
+                          <BadgeIcon size={14} /> {ref.status}
                         </div>
                       </td>
-                      <td style={{ padding: '16px', fontWeight: '700', color: '#10B981' }}>
-                        Rs. {refund.refundAmount?.toLocaleString()}
-                      </td>
-                      <td style={{ padding: '16px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                        {new Date(refund.refundedAt).toLocaleDateString('en-PK', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      <td style={{ padding: '16px 20px', color: 'var(--text-secondary)', fontSize: '13px' }}>{ref.createdAt ? new Date(ref.createdAt).toLocaleDateString() : '-'}</td>
+                      <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+                        <button style={{ padding: '8px 12px', backgroundColor: 'var(--bg-primary)', color: 'var(--primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Eye size={14} /> View
+                        </button>
                       </td>
                     </tr>
                   );
@@ -286,13 +150,7 @@ export default function RefundsPage() {
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
     </div>
   );
 }

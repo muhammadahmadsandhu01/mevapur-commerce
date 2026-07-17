@@ -21,6 +21,7 @@ const contentRoutes = require('./routes/contentRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const returnRoutes = require('./routes/returnRoutes');
+const refundRoutes = require('./routes/refundRoutes');
 
 // Load env vars
 dotenv.config();
@@ -70,6 +71,7 @@ app.use('/api/content', contentRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/returns', returnRoutes);
+app.use('/api/refunds', refundRoutes);
 
 // Root route
 app.get('/', (req, res) => {

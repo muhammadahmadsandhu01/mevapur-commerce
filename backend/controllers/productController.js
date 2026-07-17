@@ -10,13 +10,12 @@ exports.getProducts = async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 12;
     const skip = (page - 1) * limit;
 
-    const query = {};
+    const query = { isActive: true }; // Only show active products on frontend
 
     // 1. Text Search
     if (req.query.keyword) {
       query.$or = [
         { name: { $regex: req.query.keyword, $options: 'i' } },
-        { brand: { $regex: req.query.keyword, $options: 'i' } },
         { sku: { $regex: req.query.keyword, $options: 'i' } },
         { description: { $regex: req.query.keyword, $options: 'i' } }
       ];
@@ -25,17 +24,17 @@ exports.getProducts = async (req, res) => {
     // 2. Category & Subcategory Filter
     if (req.query.category) {
       const categories = req.query.category.split(',');
-      query.category = { $in: categories };
+      query.category = { $in: categories.map(id => new mongoose.Types.ObjectId(id)) };
     }
     if (req.query.subcategory) {
       const subcategories = req.query.subcategory.split(',');
-      query.subcategory = { $in: subcategories };
+      query.subcategory = { $in: subcategories.map(id => new mongoose.Types.ObjectId(id)) };
     }
 
     // 3. Brand Filter
     if (req.query.brand) {
       const brands = req.query.brand.split(',');
-      query.brand = { $in: brands };
+      query.brand = { $in: brands.map(id => new mongoose.Types.ObjectId(id)) };
     }
 
     // 4. Price Range Filter
@@ -51,20 +50,14 @@ exports.getProducts = async (req, res) => {
     }
 
     // 6. Stock Availability
-    if (req.query.inStock === 'true') {
-      query.stock = { $gt: 0 };
-    } else if (req.query.inStock === 'false') {
-      query.stock = { $lte: 0 };
-    }
+    if (req.query.inStock === 'true') query.stock = { $gt: 0 };
+    else if (req.query.inStock === 'false') query.stock = { $lte: 0 };
 
-    // 🌟 7. DYNAMIC ATTRIBUTE FILTERING (Enterprise Feature)
-    // Example URL: /api/products?attribute[Weight]=1kg&attribute[Organic]=Yes
+    // 🌟 7. DYNAMIC ATTRIBUTE FILTERING
     if (req.query.attribute && typeof req.query.attribute === 'object') {
-      const attributes = req.query.attribute;
-      query.$and = []; // Use $and for multiple attribute conditions
-      
-      Object.keys(attributes).forEach(key => {
-        const values = Array.isArray(attributes[key]) ? attributes[key] : [attributes[key]];
+      query.$and = query.$and || [];
+      Object.keys(req.query.attribute).forEach(key => {
+        const values = Array.isArray(req.query.attribute[key]) ? req.query.attribute[key] : [req.query.attribute[key]];
         query.$and.push({
           attributes: { $elemMatch: { name: key, value: { $in: values } } }
         });
@@ -77,9 +70,9 @@ exports.getProducts = async (req, res) => {
     else if (req.query.sortBy === 'price-desc') sortOption = { price: -1 };
     else if (req.query.sortBy === 'rating') sortOption = { rating: -1, numReviews: -1 };
     else if (req.query.sortBy === 'best-selling') sortOption = { numReviews: -1 };
-    else sortOption = { createdAt: -1 }; // Default: Newest
+    else sortOption = { createdAt: -1 };
 
-    // Execute query with population for richer data
+    // Execute query
     const [products, total] = await Promise.all([
       Product.find(query)
         .sort(sortOption)
@@ -88,38 +81,16 @@ exports.getProducts = async (req, res) => {
         .populate('category', 'name slug')
         .populate('subcategory', 'name slug')
         .populate('brand', 'name slug logo')
-        .select('-reviews -__v'), // Exclude heavy fields
+        .select('-__v'),
       Product.countDocuments(query)
     ]);
 
-    // 🌟 BACKWARD COMPATIBILITY MAPPING (Zero Breaking Changes)
-    // Agar product ke paas variants hain, to root level price/stock/images ko default variant se update karo
-    // Taake purana frontend (ProductCard, page.tsx) bina kisi change ke perfectly kaam kare.
-    const formattedProducts = products.map(p => {
-      const productObj = p.toObject();
-      
-      if (productObj.variants && productObj.variants.length > 0) {
-        const defaultVariant = productObj.variants.find(v => v.isDefault) || productObj.variants[0];
-        
-        productObj.price = defaultVariant.price;
-        productObj.originalPrice = defaultVariant.salePrice > 0 ? defaultVariant.salePrice : undefined;
-        productObj.stock = defaultVariant.stock;
-        
-        if (defaultVariant.images && defaultVariant.images.length > 0) {
-          productObj.images = defaultVariant.images;
-          productObj.primaryImage = defaultVariant.images[0];
-        }
-      }
-      
-      return productObj;
-    });
-
     res.json({
       success: true,
-      data: formattedProducts,
+      data: products,
       pagination: {
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(total / limit) || 1,
         total,
         hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1,
@@ -146,20 +117,7 @@ exports.getProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
     
-    // Apply same backward compatibility mapping for single product view
-    const productObj = product.toObject();
-    if (productObj.variants && productObj.variants.length > 0) {
-      const defaultVariant = productObj.variants.find(v => v.isDefault) || productObj.variants[0];
-      productObj.price = defaultVariant.price;
-      productObj.originalPrice = defaultVariant.salePrice > 0 ? defaultVariant.salePrice : undefined;
-      productObj.stock = defaultVariant.stock;
-      if (defaultVariant.images && defaultVariant.images.length > 0) {
-        productObj.images = defaultVariant.images;
-        productObj.primaryImage = defaultVariant.images[0];
-      }
-    }
-    
-    res.json({ success: true, data: productObj });
+    res.json({ success: true, data: product });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -170,10 +128,25 @@ exports.getProduct = async (req, res) => {
 // @access  Private/Admin
 exports.createProduct = async (req, res) => {
   try {
+    // Pre-validation for variants
+    if (req.body.variants && req.body.variants.length > 0) {
+      req.body.variants.forEach((v, index) => {
+        v.isDefault = index === 0; // Ensure first variant is default
+      });
+    }
+
     const product = new Product(req.body);
     const createdProduct = await product.save();
+    
+    // Populate references before sending response
+    await createdProduct.populate('category', 'name slug');
+    await createdProduct.populate('brand', 'name slug');
+
     res.status(201).json({ success: true, data: createdProduct });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Product with this name or SKU already exists' });
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -187,9 +160,25 @@ exports.updateProduct = async (req, res) => {
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+
+    // Pre-validation for variants update
+    if (req.body.variants && req.body.variants.length > 0) {
+      req.body.variants.forEach((v, index) => {
+        v.isDefault = index === 0;
+      });
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id, 
+      req.body, 
+      { new: true, runValidators: true }
+    ).populate('category', 'name slug').populate('brand', 'name slug');
+
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Product with this name or SKU already exists' });
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -203,8 +192,10 @@ exports.deleteProduct = async (req, res) => {
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
+    
+    // Soft delete preferred in enterprise, but hard delete is fine for now
     await product.deleteOne();
-    res.json({ success: true, message: 'Product removed' });
+    res.json({ success: true, message: 'Product removed successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -219,8 +210,12 @@ exports.bulkDeleteProducts = async (req, res) => {
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'No product IDs provided' });
     }
-    await Product.deleteMany({ _id: { $in: ids } });
-    res.json({ success: true, message: 'Products deleted successfully' });
+    
+    // Validate ObjectIds
+    const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+    await Product.deleteMany({ _id: { $in: validIds } });
+    
+    res.json({ success: true, message: `${validIds.length} products deleted successfully` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -231,11 +226,14 @@ exports.bulkDeleteProducts = async (req, res) => {
 // @access  Public
 exports.getTopProducts = async (req, res) => {
   try {
-    const products = await Product.find({})
+    const limit = parseInt(req.query.limit, 10) || 5;
+    const products = await Product.find({ isActive: true })
       .sort({ rating: -1, numReviews: -1 })
-      .limit(5)
+      .limit(limit)
       .populate('category', 'name slug')
-      .populate('brand', 'name slug');
+      .populate('brand', 'name slug')
+      .select('name price images rating numReviews slug');
+      
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -248,13 +246,13 @@ exports.getTopProducts = async (req, res) => {
 exports.getRecentlyViewed = async (req, res) => {
   try {
     const { ids } = req.query;
-    if (!ids) {
-      return res.json({ success: true, data: [] });
-    }
+    if (!ids) return res.json({ success: true, data: [] });
+    
     const productIds = ids.split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
-    const products = await Product.find({ _id: { $in: productIds } })
-      .select('-reviews -__v')
+    const products = await Product.find({ _id: { $in: productIds }, isActive: true })
+      .select('name price primaryImage images slug rating')
       .limit(10);
+      
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -267,13 +265,13 @@ exports.getRecentlyViewed = async (req, res) => {
 exports.getRecommendedProducts = async (req, res) => {
   try {
     const { categoryId, limit = 8 } = req.query;
-    let query = {};
+    let query = { isActive: true };
     if (categoryId) query.category = categoryId;
     
     const products = await Product.find(query)
       .sort({ rating: -1, numReviews: -1 })
       .limit(parseInt(limit, 10))
-      .select('-reviews -__v')
+      .select('name price primaryImage images slug rating')
       .populate('category', 'name slug')
       .populate('brand', 'name slug');
       

@@ -22,6 +22,7 @@ exports.createOrder = async (req, res) => {
       if (!product) {
         return res.status(404).json({ success: false, message: `Product not found: ${item.name || item.product}` });
       }
+      // Note: For variable products, you might want to check variant stock here in the future
       if (product.stock < item.quantity) {
         return res.status(400).json({ success: false, message: `Insufficient stock for ${product.name}. Only ${product.stock} left.` });
       }
@@ -36,13 +37,16 @@ exports.createOrder = async (req, res) => {
       shippingCost: shippingCost || 0,
       discount: discount || 0,
       totalAmount,
+      notes: notes || '', // 🌟 Save customer notes
       orderStatus: 'Pending',
       statusTimeline: [{
         status: 'Pending',
         timestamp: Date.now(),
-        note: notes || 'Order placed'
+        note: notes || 'Order placed successfully'
       }]
     });
+
+    // TODO: In a production app, you would decrement product stock here using a MongoDB transaction
 
     res.status(201).json({
       success: true,
@@ -60,7 +64,9 @@ exports.createOrder = async (req, res) => {
 // @access  Private (Customer)
 exports.getMyOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user.id }).sort({ createdAt: -1 });
+    const orders = await Order.find({ user: req.user.id })
+      .sort({ createdAt: -1 })
+      .select('-adminNotes'); // Hide admin notes from customers
     res.json({ success: true, data: orders });
   } catch (error) {
     console.error('Get my orders error:', error);
@@ -74,7 +80,7 @@ exports.getMyOrders = async (req, res) => {
 exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('user', 'name email phone')
+      .populate('user', 'fullName email phone')
       .populate('items.product', 'name images');
 
     if (!order) {
@@ -101,10 +107,11 @@ exports.getOrderById = async (req, res) => {
 // @access  Private/Admin
 exports.getOrders = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status = '', search = '', startDate = '', endDate = '' } = req.query;
+    const { page = 1, limit = 15, status = '', search = '', startDate = '', endDate = '', sortBy = 'newest' } = req.query;
     let query = {};
 
-    if (status) query.orderStatus = status;
+    if (status && status !== 'all') query.orderStatus = status;
+    
     if (search) {
       query.$or = [
         { orderId: { $regex: search, $options: 'i' } },
@@ -112,26 +119,39 @@ exports.getOrders = async (req, res) => {
         { 'shippingAddress.phone': { $regex: search, $options: 'i' } }
       ];
     }
+    
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) query.createdAt.$gte = new Date(startDate);
       if (endDate) query.createdAt.$lte = new Date(endDate);
     }
 
+    let sortOption = { createdAt: -1 };
+    if (sortBy === 'oldest') sortOption = { createdAt: 1 };
+    else if (sortBy === 'highest') sortOption = { totalAmount: -1 };
+    else if (sortBy === 'lowest') sortOption = { totalAmount: 1 };
+
     const skip = (page - 1) * limit;
     const total = await Order.countDocuments(query);
-    const pages = Math.ceil(total / limit);
+    const pages = Math.ceil(total / limit) || 1;
 
     const orders = await Order.find(query)
-      .populate('user', 'name email')
-      .sort({ createdAt: -1 })
+      .populate('user', 'fullName email')
+      .sort(sortOption)
       .skip(skip)
       .limit(Number(limit));
 
     res.json({
       success: true,
       data: orders,
-      pagination: { page: Number(page), limit: Number(limit), total, pages, hasNext: page < pages, hasPrev: page > 1 }
+      pagination: { 
+        page: Number(page), 
+        limit: Number(limit), 
+        total, 
+        pages, 
+        hasNext: page < pages, 
+        hasPrev: page > 1 
+      }
     });
   } catch (error) {
     console.error('Get orders error:', error);
@@ -159,7 +179,18 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     order.statusTimeline = order.statusTimeline || [];
-    order.statusTimeline.push({ status: orderStatus, timestamp: Date.now(), note: adminNotes || '' });
+    order.statusTimeline.push({ 
+      status: orderStatus, 
+      timestamp: Date.now(), 
+      note: adminNotes || `Status updated to ${orderStatus}` 
+    });
+
+    // 🌟 Auto-update specific timestamps based on status
+    if (orderStatus === 'Delivered') {
+      order.deliveredAt = Date.now();
+    } else if (orderStatus === 'Cancelled') {
+      order.cancelledAt = Date.now();
+    }
 
     await order.save();
 
@@ -176,7 +207,10 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getRecentOrders = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
-    const orders = await Order.find().populate('user', 'name email').sort({ createdAt: -1 }).limit(limit);
+    const orders = await Order.find()
+      .populate('user', 'fullName email')
+      .sort({ createdAt: -1 })
+      .limit(limit);
     res.json({ success: true, data: orders });
   } catch (error) {
     console.error('Recent orders error:', error);
@@ -203,7 +237,15 @@ exports.getOrderStats = async (req, res) => {
 
     res.json({
       success: true,
-      data: { totalOrders, pendingOrders, processingOrders, shippedOrders, deliveredOrders, cancelledOrders, totalRevenue: totalRevenue[0]?.total || 0 }
+      data: { 
+        totalOrders, 
+        pendingOrders, 
+        processingOrders, 
+        shippedOrders, 
+        deliveredOrders, 
+        cancelledOrders, 
+        totalRevenue: totalRevenue[0]?.total || 0 
+      }
     });
   } catch (error) {
     console.error('Order stats error:', error);

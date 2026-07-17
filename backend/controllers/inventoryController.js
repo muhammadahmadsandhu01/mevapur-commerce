@@ -2,21 +2,84 @@ const Product = require('../models/Product');
 const InventoryTransaction = require('../models/InventoryTransaction');
 const { logActivity } = require('../middleware/activityLogger');
 
-// @desc    Get inventory overview
+// @desc    Get inventory list (paginated)
+// @route   GET /api/inventory
+// @access  Private/Admin
+exports.getInventory = async (req, res) => {
+  try {
+    const { page = 1, limit = 15, search = '', category = '' } = req.query;
+    let query = {};
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { sku: { $regex: search, $options: 'i' } } // Assuming sku is at root or in variants
+      ];
+    }
+    if (category) {
+      query.category = category;
+    }
+
+    const skip = (page - 1) * limit;
+    const total = await Product.countDocuments(query);
+    const pages = Math.ceil(total / limit) || 1;
+
+    const products = await Product.find(query)
+      .populate('category', 'name')
+      .populate('brand', 'name')
+      .sort({ stock: 1 }) // Default: Show lowest stock first
+      .skip(skip)
+      .limit(Number(limit));
+
+    // Map to frontend expected structure
+    const inventoryData = products.map(p => ({
+      _id: p._id,
+      product: {
+        _id: p._id,
+        name: p.name,
+        sku: p.sku || 'N/A',
+        images: p.images || []
+      },
+      stock: p.stock,
+      lowStockThreshold: p.lowStockThreshold || 10,
+      variants: p.variants || [],
+      lastUpdated: p.updatedAt,
+      category: p.category
+    }));
+
+    res.json({
+      success: true,
+      data: inventoryData,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages,
+        hasNext: page < pages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    console.error('Get inventory error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get inventory overview stats
 // @route   GET /api/inventory/overview
 // @access  Private/Admin
 exports.getInventoryOverview = async (req, res) => {
   try {
-    const products = await Product.find();
+    const products = await Product.find({}, 'stock price lowStockThreshold category');
     
     const totalProducts = products.length;
     const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
     const totalValue = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.price || 0)), 0);
-    const lowStockCount = products.filter(p => p.stock < 50 && p.stock > 0).length;
+    
+    const lowStockCount = products.filter(p => p.stock > 0 && p.stock <= (p.lowStockThreshold || 10)).length;
     const outOfStockCount = products.filter(p => p.stock === 0).length;
     const overstockCount = products.filter(p => p.stock > 500).length;
 
-    // Category-wise stock
     const categoryStock = await Product.aggregate([
       { $group: {
           _id: '$category',
@@ -28,7 +91,6 @@ exports.getInventoryOverview = async (req, res) => {
       { $sort: { totalValue: -1 } }
     ]);
 
-    // Recent transactions
     const recentTransactions = await InventoryTransaction.find()
       .populate('product', 'name sku')
       .populate('performedBy', 'fullName')
@@ -38,24 +100,14 @@ exports.getInventoryOverview = async (req, res) => {
     res.json({
       success: true,
       data: {
-        summary: {
-          totalProducts,
-          totalStock,
-          totalValue,
-          lowStockCount,
-          outOfStockCount,
-          overstockCount
-        },
+        summary: { totalProducts, totalStock, totalValue, lowStockCount, outOfStockCount, overstockCount },
         categoryStock,
         recentTransactions
       }
     });
   } catch (error) {
     console.error('Inventory overview error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -64,22 +116,18 @@ exports.getInventoryOverview = async (req, res) => {
 // @access  Private/Admin
 exports.getLowStock = async (req, res) => {
   try {
-    const { threshold = 50 } = req.query;
-    
+    // Find products where stock is less than or equal to their specific threshold
     const products = await Product.find({
-      stock: { $lt: Number(threshold) }
-    }).sort({ stock: 1 });
+      $expr: { $lte: ['$stock', { $ifNull: ['$lowStockThreshold', 10] }] },
+      stock: { $gt: 0 } // Exclude completely out of stock if desired, or remove this line
+    })
+    .populate('category', 'name')
+    .sort({ stock: 1 });
 
-    res.json({
-      success: true,
-      data: products
-    });
+    res.json({ success: true, data: products });
   } catch (error) {
     console.error('Low stock error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -92,10 +140,7 @@ exports.adjustStock = async (req, res) => {
 
     const product = await Product.findById(productId);
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
     const previousStock = product.stock;
@@ -105,10 +150,7 @@ exports.adjustStock = async (req, res) => {
       newStock = previousStock + quantity;
     } else if (type === 'out') {
       if (quantity > previousStock) {
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot reduce stock below zero'
-        });
+        return res.status(400).json({ success: false, message: 'Cannot reduce stock below zero' });
       }
       newStock = previousStock - quantity;
     } else if (type === 'adjustment') {
@@ -129,10 +171,7 @@ exports.adjustStock = async (req, res) => {
       reason,
       reference: reference || '',
       performedBy: req.user.id,
-      metadata: {
-        productName: product.name,
-        sku: product.sku
-      }
+      metadata: { productName: product.name, sku: product.sku }
     });
 
     await logActivity(req, 'INVENTORY_ADJUST', 
@@ -145,25 +184,17 @@ exports.adjustStock = async (req, res) => {
       message: 'Stock adjusted successfully',
       data: {
         transaction,
-        product: {
-          id: product._id,
-          name: product.name,
-          previousStock,
-          newStock
-        }
+        product: { id: product._id, name: product.name, previousStock, newStock }
       }
     });
   } catch (error) {
     console.error('Adjust stock error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get stock history for a product
-// @route   GET /api/inventory/history/:productId
+// @desc    Get stock history for a product or all
+// @route   GET /api/inventory/history/:productId?
 // @access  Private/Admin
 exports.getStockHistory = async (req, res) => {
   try {
@@ -174,7 +205,7 @@ exports.getStockHistory = async (req, res) => {
     
     const skip = (page - 1) * limit;
     const total = await InventoryTransaction.countDocuments(query);
-    const pages = Math.ceil(total / limit);
+    const pages = Math.ceil(total / limit) || 1;
 
     const transactions = await InventoryTransaction.find(query)
       .populate('product', 'name sku images')
@@ -197,10 +228,7 @@ exports.getStockHistory = async (req, res) => {
     });
   } catch (error) {
     console.error('Stock history error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -210,13 +238,21 @@ exports.getStockHistory = async (req, res) => {
 exports.getInventoryStats = async (req, res) => {
   try {
     const totalProducts = await Product.countDocuments();
-    const totalStock = await Product.aggregate([
+    
+    const totalStockAgg = await Product.aggregate([
       { $group: { _id: null, total: { $sum: '$stock' } } }
     ]);
-    const totalValue = await Product.aggregate([
+    
+    const totalValueAgg = await Product.aggregate([
       { $group: { _id: null, total: { $sum: { $multiply: ['$stock', '$price'] } } } }
     ]);
-    const lowStock = await Product.countDocuments({ stock: { $lt: 50, $gt: 0 } });
+
+    // Dynamic low stock count based on threshold
+    const lowStock = await Product.countDocuments({
+      $expr: { $lte: ['$stock', { $ifNull: ['$lowStockThreshold', 10] }] },
+      stock: { $gt: 0 }
+    });
+    
     const outOfStock = await Product.countDocuments({ stock: 0 });
     const totalTransactions = await InventoryTransaction.countDocuments();
     
@@ -228,8 +264,8 @@ exports.getInventoryStats = async (req, res) => {
       success: true,
       data: {
         totalProducts,
-        totalStock: totalStock[0]?.total || 0,
-        totalValue: totalValue[0]?.total || 0,
+        totalStock: totalStockAgg[0]?.total || 0,
+        totalValue: totalValueAgg[0]?.total || 0,
         lowStock,
         outOfStock,
         totalTransactions,
@@ -238,10 +274,7 @@ exports.getInventoryStats = async (req, res) => {
     });
   } catch (error) {
     console.error('Inventory stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -253,10 +286,7 @@ exports.bulkStockUpdate = async (req, res) => {
     const { updates } = req.body; // [{ productId, quantity, type, reason }]
 
     if (!Array.isArray(updates) || updates.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide updates array'
-      });
+      return res.status(400).json({ success: false, message: 'Please provide updates array' });
     }
 
     const results = [];
@@ -281,7 +311,8 @@ exports.bulkStockUpdate = async (req, res) => {
         previousStock,
         newStock,
         reason: update.reason || 'Bulk update',
-        performedBy: req.user.id
+        performedBy: req.user.id,
+        metadata: { productName: product.name, sku: product.sku }
       });
 
       results.push({ productId: update.productId, previousStock, newStock });
@@ -299,9 +330,6 @@ exports.bulkStockUpdate = async (req, res) => {
     });
   } catch (error) {
     console.error('Bulk update error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };

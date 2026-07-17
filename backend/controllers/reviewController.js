@@ -9,19 +9,19 @@ exports.getReviews = async (req, res) => {
   try {
     const { 
       page = 1, 
-      limit = 10, 
-      status = '',
-      rating = '',
+      limit = 15, 
+      isApproved,
+      isFlagged,
+      rating,
       search = ''
     } = req.query;
 
     let query = {};
 
-    if (status === 'approved') query.isApproved = true;
-    else if (status === 'pending') query.isApproved = false;
-    else if (status === 'reported') query.reported = true;
-
-    if (rating) query.rating = parseInt(rating);
+    // 🌟 Direct boolean filtering matching frontend
+    if (isApproved !== undefined) query.isApproved = isApproved === 'true';
+    if (isFlagged !== undefined) query.isFlagged = isFlagged === 'true';
+    if (rating) query.rating = parseInt(rating, 10);
 
     if (search) {
       query.$or = [
@@ -32,10 +32,10 @@ exports.getReviews = async (req, res) => {
 
     const skip = (page - 1) * limit;
     const total = await Review.countDocuments(query);
-    const pages = Math.ceil(total / limit);
+    const pages = Math.ceil(total / limit) || 1;
 
     const reviews = await Review.find(query)
-      .populate('product', 'name images')
+      .populate('product', 'name slug images')
       .populate('user', 'fullName email')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -55,61 +55,53 @@ exports.getReviews = async (req, res) => {
     });
   } catch (error) {
     console.error('Get reviews error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Approve/Reject review
-// @route   PUT /api/reviews/:id/approve
+// @desc    Update review (Approve, Reject, Flag, or Reply)
+// @route   PUT /api/reviews/:id
 // @access  Private/Admin
-exports.approveReview = async (req, res) => {
+exports.updateReview = async (req, res) => {
   try {
-    const { isApproved, adminReply } = req.body;
-
+    const { isApproved, isFlagged, adminReply } = req.body;
     const review = await Review.findById(req.params.id);
 
     if (!review) {
-      return res.status(404).json({
-        success: false,
-        message: 'Review not found'
-      });
+      return res.status(404).json({ success: false, message: 'Review not found' });
     }
 
-    review.isApproved = isApproved;
+    if (isApproved !== undefined) review.isApproved = isApproved;
+    if (isFlagged !== undefined) review.isFlagged = isFlagged;
     
-    if (adminReply) {
+    if (adminReply !== undefined) {
       review.adminReply = adminReply;
       review.repliedAt = Date.now();
     }
 
     await review.save();
 
-    const action = isApproved ? 'REVIEW_APPROVE' : 'REVIEW_REJECT';
-    const description = isApproved 
-      ? `Approved review on product` 
-      : `Rejected review on product`;
-    
+    // Determine action for logging
+    let action = 'REVIEW_UPDATE';
+    let description = `Updated review`;
+    if (isApproved === true) { action = 'REVIEW_APPROVE'; description = 'Approved review'; }
+    else if (isApproved === false) { action = 'REVIEW_REJECT'; description = 'Rejected review'; }
+    else if (isFlagged === true) { action = 'REVIEW_FLAG'; description = 'Flagged review'; }
+
     await logActivity(req, action, description, { 
       reviewId: review._id,
       productId: review.product,
-      rating: review.rating,
-      adminReply: adminReply
+      rating: review.rating
     });
 
     res.json({
       success: true,
-      message: isApproved ? 'Review approved' : 'Review rejected',
+      message: 'Review updated successfully',
       data: review
     });
   } catch (error) {
-    console.error('Approve review error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error('Update review error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -121,27 +113,18 @@ exports.deleteReview = async (req, res) => {
     const review = await Review.findByIdAndDelete(req.params.id);
 
     if (!review) {
-      return res.status(404).json({
-        success: false,
-        message: 'Review not found'
-      });
+      return res.status(404).json({ success: false, message: 'Review not found' });
     }
 
-    await logActivity(req, 'REVIEW_DELETE', 
-      `Deleted review`, 
-      { reviewId: review._id, productId: review.product }
-    );
-
-    res.json({
-      success: true,
-      message: 'Review deleted successfully'
+    await logActivity(req, 'REVIEW_DELETE', `Deleted review`, { 
+      reviewId: review._id, 
+      productId: review.product 
     });
+
+    res.json({ success: true, message: 'Review deleted successfully' });
   } catch (error) {
     console.error('Delete review error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -150,12 +133,12 @@ exports.deleteReview = async (req, res) => {
 // @access  Private/Admin
 exports.getReviewStats = async (req, res) => {
   try {
-    const totalReviews = await Review.countDocuments();
-    const approvedReviews = await Review.countDocuments({ isApproved: true });
-    const pendingReviews = await Review.countDocuments({ isApproved: false });
-    const reportedReviews = await Review.countDocuments({ reported: true });
+    const total = await Review.countDocuments();
+    const approved = await Review.countDocuments({ isApproved: true });
+    const pending = await Review.countDocuments({ isApproved: false, isFlagged: false });
+    const flagged = await Review.countDocuments({ isFlagged: true });
 
-    // Average rating
+    // Average rating of approved reviews only
     const avgRating = await Review.aggregate([
       { $match: { isApproved: true } },
       { $group: { _id: null, avg: { $avg: '$rating' } } }
@@ -164,19 +147,16 @@ exports.getReviewStats = async (req, res) => {
     res.json({
       success: true,
       data: {
-        totalReviews,
-        approvedReviews,
-        pendingReviews,
-        reportedReviews,
-        averageRating: avgRating[0]?.avg?.toFixed(1) || 0
+        total,
+        approved,
+        pending,
+        flagged,
+        averageRating: avgRating[0]?.avg ? avgRating[0].avg.toFixed(1) : '0'
       }
     });
   } catch (error) {
     console.error('Review stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -186,29 +166,19 @@ exports.getReviewStats = async (req, res) => {
 exports.reportReview = async (req, res) => {
   try {
     const { reason } = req.body;
-
     const review = await Review.findById(req.params.id);
 
     if (!review) {
-      return res.status(404).json({
-        success: false,
-        message: 'Review not found'
-      });
+      return res.status(404).json({ success: false, message: 'Review not found' });
     }
 
-    review.reported = true;
-    review.reportReason = reason;
+    review.isFlagged = true;
+    review.reportReason = reason || 'No reason provided';
     await review.save();
 
-    res.json({
-      success: true,
-      message: 'Review reported successfully'
-    });
+    res.json({ success: true, message: 'Review reported successfully' });
   } catch (error) {
     console.error('Report review error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };

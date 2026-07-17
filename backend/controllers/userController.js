@@ -1,10 +1,9 @@
 const User = require('../models/User');
-const bcrypt = require('bcryptjs');
 const { logActivity } = require('../middleware/activityLogger');
 
 // @desc    Get all staff users (exclude customers)
 // @route   GET /api/users/staff
-// @access  Private/SuperAdmin
+// @access  Private/Admin
 exports.getStaffUsers = async (req, res) => {
   try {
     const { search = '', role = '' } = req.query;
@@ -37,6 +36,54 @@ exports.getStaffUsers = async (req, res) => {
   }
 };
 
+// @desc    Get all customers (For Admin Customers Page)
+// @route   GET /api/users/customers
+// @access  Private/Admin
+exports.getCustomers = async (req, res) => {
+  try {
+    const { search = '', page = 1, limit = 15 } = req.query;
+    
+    let query = { role: 'customer' };
+
+    if (search) {
+      query.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const total = await User.countDocuments(query);
+    const pages = Math.ceil(total / limit) || 1;
+
+    const customers = await User.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    res.json({
+      success: true,
+      data: customers,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages,
+        hasNext: page < pages,
+        hasPrev: page > 1
+      }
+    });
+  } catch (error) {
+    console.error('Get customers error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // @desc    Create staff user
 // @route   POST /api/users/staff
 // @access  Private/SuperAdmin
@@ -53,16 +100,14 @@ exports.createStaffUser = async (req, res) => {
       });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
+    // 🌟 FIX: Pass plain text password. The pre('save') hook in User.js 
+    // will automatically hash it. Manual hashing here causes double-hashing!
     const user = await User.create({
       fullName,
       email,
       phone,
       role,
-      password: hashedPassword,
+      password, // Plain text password
       isVerified: true,
       isBlocked: false
     });
@@ -84,6 +129,9 @@ exports.createStaffUser = async (req, res) => {
     });
   } catch (error) {
     console.error('Create staff user error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Email already in use' });
+    }
     res.status(500).json({
       success: false,
       message: error.message
@@ -130,7 +178,14 @@ exports.updateStaffUser = async (req, res) => {
     res.json({
       success: true,
       message: 'Staff user updated successfully',
-      data: user
+      data: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isBlocked: user.isBlocked
+      }
     });
   } catch (error) {
     console.error('Update staff user error:', error);

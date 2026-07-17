@@ -8,6 +8,7 @@ const {
   cleanupActivityLogs
 } = require('../controllers/activityLogController');
 
+// All routes require authentication and admin role
 router.use(protect, admin);
 
 router.get('/stats', getActivityLogStats);

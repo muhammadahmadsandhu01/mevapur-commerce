@@ -5,19 +5,19 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import axios from 'axios';
 import { useAuthStore } from '@/store/authStore';
-import { CheckCircle, Package, Truck, CreditCard, Calendar, Copy, Download, ArrowLeft } from 'lucide-react';
+import { CheckCircle, Package, Truck, CreditCard, Calendar, Copy, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 interface OrderItem {
-  product: {
+  product?: {
     _id: string;
     name: string;
-    images: string[];
-  };
+    images?: string[];
+  } | string;
   name: string;
-  price: number;
+  price: number | string;
   quantity: number;
-  image: string;
+  image?: string;
 }
 
 interface Order {
@@ -29,19 +29,18 @@ interface Order {
     phone: string;
     address: string;
     city: string;
-    postalCode: string;
+    postalCode?: string;
   };
   paymentMethod: string;
   orderStatus: string;
   paymentStatus: string;
-  subtotal: number;
-  shippingCost: number;
-  discount: number;
-  totalAmount: number;
+  subtotal: number | string;
+  shippingCost: number | string;
+  discount: number | string;
+  totalAmount: number | string;
   createdAt: string;
 }
 
-// ✅ Inner component - saari original functionality yahan hai
 function OrderSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -130,6 +129,11 @@ function OrderSuccessContent() {
       </div>
     );
   }
+
+  const subtotal = Number(order.subtotal) || 0;
+  const shippingCost = Number(order.shippingCost) || 0;
+  const discount = Number(order.discount) || 0;
+  const totalAmount = Number(order.totalAmount) || 0;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', paddingBottom: '60px' }}>
@@ -227,7 +231,7 @@ function OrderSuccessContent() {
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginBottom: '24px' }}>
           
           {/* Order Details */}
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
@@ -275,10 +279,10 @@ function OrderSuccessContent() {
             </h3>
             <div style={{ padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
               <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
-                {order.paymentMethod === 'COD' ? ' Cash on Delivery' : order.paymentMethod}
+                {order.paymentMethod === 'COD' ? '💵 Cash on Delivery' : order.paymentMethod}
               </div>
               <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                {order.paymentMethod === 'COD' ? 'Pay when you receive' : 'Online payment'}
+                {order.paymentMethod === 'COD' ? 'Pay when you receive' : 'Online payment processed'}
               </div>
             </div>
           </div>
@@ -309,40 +313,45 @@ function OrderSuccessContent() {
             Order Items ({order.items.length})
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {order.items.map((item, index) => (
-              <div key={index} style={{
-                display: 'flex',
-                gap: '16px',
-                padding: '20px',
-                backgroundColor: '#F8FAFC',
-                borderRadius: '12px',
-                border: '1px solid #E5E7EB'
-              }}>
-                <img
-                  src={item.image || item.product?.images?.[0]}
-                  alt={item.name}
-                  style={{
-                    width: '100px',
-                    height: '100px',
-                    objectFit: 'cover',
-                    borderRadius: '8px'
-                  }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '700', color: '#111827', fontSize: '16px', marginBottom: '8px' }}>
-                    {item.name}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: '14px', color: '#6B7280' }}>
-                      Quantity: <span style={{ fontWeight: '600', color: '#111827' }}>{item.quantity}</span>
+            {order.items.map((item, index) => {
+              const productName = typeof item.product === 'object' ? item.product.name : item.name;
+              const productImage = item.image || (typeof item.product === 'object' ? item.product.images?.[0] : null) || '/placeholder.png';
+              
+              return (
+                <div key={index} style={{
+                  display: 'flex',
+                  gap: '16px',
+                  padding: '20px',
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: '12px',
+                  border: '1px solid #E5E7EB'
+                }}>
+                  <img
+                    src={productImage}
+                    alt={productName}
+                    style={{
+                      width: '100px',
+                      height: '100px',
+                      objectFit: 'cover',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: '700', color: '#111827', fontSize: '16px', marginBottom: '8px' }}>
+                      {productName}
                     </div>
-                    <div style={{ fontSize: '18px', fontWeight: '800', color: '#0F766E' }}>
-                      Rs. {(item.price * item.quantity).toFixed(2)}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '14px', color: '#6B7280' }}>
+                        Quantity: <span style={{ fontWeight: '600', color: '#111827' }}>{item.quantity}</span>
+                      </div>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#0F766E' }}>
+                        Rs. {(Number(item.price) * item.quantity).toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -354,18 +363,18 @@ function OrderSuccessContent() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
               <span style={{ color: '#6B7280' }}>Subtotal ({order.items.reduce((a, b) => a + b.quantity, 0)} items)</span>
-              <span style={{ fontWeight: '600', color: '#111827' }}>Rs. {order.subtotal.toFixed(2)}</span>
+              <span style={{ fontWeight: '600', color: '#111827' }}>Rs. {subtotal.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
               <span style={{ color: '#6B7280' }}>Shipping</span>
-              <span style={{ fontWeight: '600', color: order.shippingCost === 0 ? '#0F766E' : '#111827' }}>
-                {order.shippingCost === 0 ? 'FREE' : `Rs. ${order.shippingCost.toFixed(2)}`}
+              <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#0F766E' : '#111827' }}>
+                {shippingCost === 0 ? 'FREE' : `Rs. ${shippingCost.toFixed(2)}`}
               </span>
             </div>
-            {order.discount > 0 && (
+            {discount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
                 <span style={{ color: '#10B981' }}>Discount</span>
-                <span style={{ fontWeight: '600', color: '#10B981' }}>-Rs. {order.discount.toFixed(2)}</span>
+                <span style={{ fontWeight: '600', color: '#10B981' }}>-Rs. {discount.toFixed(2)}</span>
               </div>
             )}
             <div style={{
@@ -379,7 +388,7 @@ function OrderSuccessContent() {
               color: '#0F766E'
             }}>
               <span>Total</span>
-              <span>Rs. {order.totalAmount.toFixed(2)}</span>
+              <span>Rs. {totalAmount.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -454,7 +463,6 @@ function OrderSuccessContent() {
   );
 }
 
-// ✅ Main default export with Suspense boundary
 export default function OrderSuccessPage() {
   return (
     <Suspense fallback={

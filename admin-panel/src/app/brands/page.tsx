@@ -1,18 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
-  Building2, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Search, 
-  Star,
-  Globe,
-  AlertCircle,
-  CheckCircle,
-  Loader,
-  X
+  Tag, Plus, Edit, Trash2, Search, X, Save,
+  CheckCircle, Loader, Globe, Image as ImageIcon
 } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -20,42 +11,49 @@ interface Brand {
   _id: string;
   name: string;
   slug: string;
-  description: string;
-  logo: string;
-  website: string;
-  isFeatured: boolean;
+  description?: string;
+  logo?: string;
+  banner?: string;
+  website?: string;
+  countryOfOrigin?: string;
   isActive: boolean;
-  createdAt: string;
+  isFeatured: boolean;
+  displayOrder: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  _count?: {
+    products: number;
+  };
 }
 
 export default function BrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showModal, setShowModal] = useState(false);
   const [editingBrand, setEditingBrand] = useState<Brand | null>(null);
-  const [stats, setStats] = useState<any>(null);
-  const [error, setError] = useState('');
-  
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
     description: '',
     logo: '',
+    banner: '',
     website: '',
+    countryOfOrigin: '',
+    isActive: true,
     isFeatured: false,
-    isActive: true
+    displayOrder: 0,
+    seoTitle: '',
+    seoDescription: ''
   });
 
   useEffect(() => {
     fetchBrands();
-    fetchStats();
   }, []);
 
   const fetchBrands = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       const response = await api.get('/brands');
       if (response.data.success) {
         setBrands(response.data.data);
@@ -67,288 +65,185 @@ export default function BrandsPage() {
     }
   };
 
-  const fetchStats = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      const response = await api.get('/brands/stats');
-      if (response.data.success) {
-        setStats(response.data.data);
+      if (editingBrand) {
+        await api.put(`/brands/${editingBrand._id}`, formData);
+      } else {
+        await api.post('/brands', formData);
       }
+      await fetchBrands();
+      closeModal();
     } catch (error) {
-      console.error('Error fetching stats:', error);
+      console.error('Error saving brand:', error);
+      alert('Failed to save brand');
     }
   };
 
-  const handleAddBrand = async () => {
-    if (!formData.name.trim()) {
-      setError('Brand name is required');
-      return;
-    }
-
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) return;
+    
     try {
-      const brandData = {
-        ...formData,
-        slug: formData.slug || formData.name.toLowerCase().replace(/ /g, '-')
-      };
-
-      const response = await api.post('/brands', brandData);
-      
-      if (response.data.success) {
-        setShowAddModal(false);
-        resetForm();
-        await fetchBrands();
-        await fetchStats();
-      }
-    } catch (error: any) {
-      setError(error.response?.data?.message || 'Failed to create brand');
+      await api.delete(`/brands/${id}`);
+      await fetchBrands();
+    } catch (error) {
+      console.error('Error deleting brand:', error);
+      alert('Failed to delete brand');
     }
   };
 
-  const handleEditBrand = async () => {
-    if (!editingBrand || !formData.name.trim()) {
-      setError('Brand name is required');
-      return;
+  const openModal = (brand?: Brand) => {
+    if (brand) {
+      setEditingBrand(brand);
+      setFormData({
+        name: brand.name,
+        slug: brand.slug,
+        description: brand.description || '',
+        logo: brand.logo || '',
+        banner: brand.banner || '',
+        website: brand.website || '',
+        countryOfOrigin: brand.countryOfOrigin || '',
+        isActive: brand.isActive,
+        isFeatured: brand.isFeatured,
+        displayOrder: brand.displayOrder,
+        seoTitle: brand.seoTitle || '',
+        seoDescription: brand.seoDescription || ''
+      });
+    } else {
+      setEditingBrand(null);
+      setFormData({
+        name: '',
+        slug: '',
+        description: '',
+        logo: '',
+        banner: '',
+        website: '',
+        countryOfOrigin: '',
+        isActive: true,
+        isFeatured: false,
+        displayOrder: 0,
+        seoTitle: '',
+        seoDescription: ''
+      });
     }
-
-    try {
-      const brandData = {
-        ...formData,
-        slug: formData.slug || formData.name.toLowerCase().replace(/ /g, '-')
-      };
-
-      const response = await api.put(`/brands/${editingBrand._id}`, brandData);
-      
-      if (response.data.success) {
-        setShowEditModal(false);
-        setEditingBrand(null);
-        resetForm();
-        await fetchBrands();
-      }
-    } catch (error: any) {
-      setError(error.response?.data?.message || 'Failed to update brand');
-    }
+    setShowModal(true);
   };
 
-  const handleDeleteBrand = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this brand?')) return;
-
-    try {
-      const response = await api.delete(`/brands/${id}`);
-      
-      if (response.data.success) {
-        await fetchBrands();
-        await fetchStats();
-      }
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to delete brand');
-    }
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingBrand(null);
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      slug: '',
-      description: '',
-      logo: '',
-      website: '',
-      isFeatured: false,
-      isActive: true
-    });
-    setError('');
-  };
-
-  const openEditModal = (brand: Brand) => {
-    setEditingBrand(brand);
-    setFormData({
-      name: brand.name,
-      slug: brand.slug,
-      description: brand.description || '',
-      logo: brand.logo || '',
-      website: brand.website || '',
-      isFeatured: brand.isFeatured,
-      isActive: brand.isActive
-    });
-    setShowEditModal(true);
-  };
-
-  const filteredBrands = brands.filter(brand => 
-    brand.name.toLowerCase().includes(search.toLowerCase()) ||
-    brand.slug.toLowerCase().includes(search.toLowerCase())
+  const filteredBrands = brands.filter(brand =>
+    brand.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    brand.slug.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const stats = {
+    total: brands.length,
+    active: brands.filter(b => b.isActive).length,
+    featured: brands.filter(b => b.isFeatured).length,
+    withProducts: brands.filter(b => (b._count?.products || 0) > 0).length
+  };
+
   return (
-    <div>
+    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div>
-            <h1 style={{ 
-              fontSize: '32px', 
-              fontWeight: '800', 
-              color: 'var(--text-primary)',
-              marginBottom: '8px'
-            }}>
-              Brands Management
-            </h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              Manage product brands and manufacturers
-            </p>
-          </div>
-          
-          <button
-            onClick={() => {
-              resetForm();
-              setShowAddModal(true);
-            }}
-            style={{
-              backgroundColor: 'var(--primary)',
-              color: 'white',
-              padding: '12px 24px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '15px'
-            }}
-          >
-            <Plus size={20} />
-            Add Brand
-          </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
+            Brands
+          </h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
+            Manage product brands, logos, and brand information.
+          </p>
         </div>
+        <button
+          onClick={() => openModal()}
+          style={{
+            padding: '12px 20px',
+            backgroundColor: 'var(--primary)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '10px',
+            fontWeight: '700',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)'
+          }}
+          onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+        >
+          <Plus size={18} /> Add Brand
+        </button>
+      </div>
 
-        {/* Stats Cards */}
-        {stats && (
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-            gap: '16px',
-            marginBottom: '24px'
-          }}>
-            <div style={{
-              backgroundColor: 'var(--card-bg)',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px'
-            }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '10px',
-                backgroundColor: '#DBEAFE',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <Building2 size={24} color="#3B82F6" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                  Total Brands
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                  {stats.totalBrands || 0}
-                </div>
-              </div>
-            </div>
-
-            <div style={{
-              backgroundColor: 'var(--card-bg)',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px'
-            }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '10px',
-                backgroundColor: '#D1FAE5',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <CheckCircle size={24} color="#10B981" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                  Active Brands
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                  {stats.activeBrands || 0}
-                </div>
-              </div>
-            </div>
-
-            <div style={{
-              backgroundColor: 'var(--card-bg)',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px'
-            }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '10px',
-                backgroundColor: '#FEF3C7',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <Star size={24} color="#F59E0B" />
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                  Featured Brands
-                </div>
-                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                  {stats.featuredBrands || 0}
-                </div>
-              </div>
-            </div>
+      {/* Stats */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '16px',
+        marginBottom: '24px'
+      }}>
+        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Tag size={24} color="#3B82F6" />
           </div>
-        )}
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Brands</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.total}</div>
+          </div>
+        </div>
+        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="#10B981" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Brands</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.active}</div>
+          </div>
+        </div>
+        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Tag size={24} color="#F59E0B" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>With Products</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.withProducts}</div>
+          </div>
+        </div>
       </div>
 
       {/* Search */}
       <div style={{
         backgroundColor: 'var(--card-bg)',
-        padding: '20px',
         borderRadius: '12px',
+        padding: '16px 20px',
         border: '1px solid var(--border-color)',
-        marginBottom: '24px'
+        marginBottom: '24px',
+        display: 'flex',
+        gap: '12px',
+        alignItems: 'center'
       }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={18} style={{
-            position: 'absolute',
-            left: '16px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            color: 'var(--text-secondary)'
-          }} />
+        <div style={{ flex: 1, position: 'relative' }}>
+          <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
           <input
             type="text"
             placeholder="Search brands..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '12px 16px 12px 48px',
+              padding: '10px 14px 10px 42px',
+              borderRadius: '8px',
               border: '1px solid var(--border-color)',
-              borderRadius: '10px',
-              fontSize: '14px',
-              outline: 'none',
               backgroundColor: 'var(--input-bg)',
-              color: 'var(--text-primary)'
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+              outline: 'none'
             }}
           />
         </div>
@@ -356,38 +251,34 @@ export default function BrandsPage() {
 
       {/* Brands Grid */}
       {loading ? (
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          padding: '60px',
-          borderRadius: '12px',
-          border: '1px solid var(--border-color)',
-          textAlign: 'center'
-        }}>
-          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} color="var(--primary)" />
-          <p style={{ color: 'var(--text-secondary)' }}>Loading brands...</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+          {[...Array(6)].map((_, i) => (
+            <div key={i} style={{
+              backgroundColor: 'var(--card-bg)',
+              borderRadius: '12px',
+              height: '200px',
+              animation: 'pulse 1.5s infinite',
+              border: '1px solid var(--border-color)'
+            }} />
+          ))}
         </div>
       ) : filteredBrands.length === 0 ? (
         <div style={{
           backgroundColor: 'var(--card-bg)',
-          padding: '60px',
           borderRadius: '12px',
+          padding: '80px 20px',
+          textAlign: 'center',
           border: '1px solid var(--border-color)',
-          textAlign: 'center'
+          borderStyle: 'dashed'
         }}>
-          <Building2 size={64} style={{ margin: '0 auto 16px', opacity: 0.3 }} color="var(--text-secondary)" />
-          <p style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+          <Tag size={48} color="var(--text-secondary)" style={{ opacity: 0.3, marginBottom: '16px' }} />
+          <h3 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>
             No brands found
-          </p>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Create your first brand to get started
-          </p>
+          </h3>
+          <p style={{ color: 'var(--text-secondary)' }}>Get started by creating your first brand</p>
         </div>
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: '24px'
-        }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
           {filteredBrands.map((brand) => (
             <div
               key={brand._id}
@@ -395,441 +286,437 @@ export default function BrandsPage() {
                 backgroundColor: 'var(--card-bg)',
                 borderRadius: '12px',
                 border: '1px solid var(--border-color)',
-                padding: '24px',
-                transition: 'all 0.2s'
+                overflow: 'hidden',
+                transition: 'all 0.3s'
               }}
               onMouseEnter={e => {
                 e.currentTarget.style.transform = 'translateY(-4px)';
-                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.08)';
+                e.currentTarget.style.boxShadow = '0 12px 24px rgba(0,0,0,0.08)';
               }}
               onMouseLeave={e => {
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.boxShadow = 'none';
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{
-                  width: '64px',
-                  height: '64px',
-                  borderRadius: '12px',
-                  backgroundColor: 'var(--primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontSize: '24px',
-                  fontWeight: '800'
-                }}>
-                  {brand.logo ? (
-                    <img src={brand.logo} alt={brand.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} />
-                  ) : (
-                    brand.name.charAt(0).toUpperCase()
-                  )}
-                </div>
-                
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => openEditModal(brand)}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: '#F59E0B',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontWeight: '600',
-                      fontSize: '13px'
-                    }}
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteBrand(brand._id)}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: '#EF4444',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontWeight: '600',
-                      fontSize: '13px'
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                {brand.name}
-              </h3>
-              
-              {brand.description && (
-                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
-                  {brand.description}
-                </p>
-              )}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-                {brand.website && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    <Globe size={14} />
-                    <a href={brand.website} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'none' }}>
-                      {brand.website}
-                    </a>
+              {/* Brand Logo/Banner */}
+              <div style={{
+                height: '120px',
+                backgroundColor: 'var(--bg-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+                {brand.logo ? (
+                  <img 
+                    src={brand.logo} 
+                    alt={brand.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '20px' }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '80px',
+                    height: '80px',
+                    borderRadius: '50%',
+                    backgroundColor: '#0F766E',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontWeight: '700',
+                    fontSize: '32px'
+                  }}>
+                    {brand.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                {brand.isFeatured && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '12px',
+                    right: '12px',
+                    backgroundColor: '#F59E0B',
+                    color: 'white',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '10px',
+                    fontWeight: '700'
+                  }}>
+                    ⭐ Featured
                   </div>
                 )}
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {brand.isFeatured && (
-                  <span style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#FEF3C7',
-                    color: '#92400E',
-                    borderRadius: '20px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
+              {/* Brand Info */}
+              <div style={{ padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    {brand.name}
+                  </h3>
+                  <div style={{
+                    padding: '4px 10px',
+                    backgroundColor: brand.isActive ? '#D1FAE5' : '#FEE2E2',
+                    color: brand.isActive ? '#0F766E' : '#DC2626',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: '700'
                   }}>
-                    <Star size={14} />
-                    Featured
-                  </span>
+                    {brand.isActive ? 'Active' : 'Inactive'}
+                  </div>
+                </div>
+
+                {brand.description && (
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
+                    {brand.description.substring(0, 80)}
+                    {brand.description.length > 80 && '...'}
+                  </p>
                 )}
-                <span style={{
-                  padding: '6px 12px',
-                  backgroundColor: brand.isActive ? '#D1FAE5' : '#FEE2E2',
-                  color: brand.isActive ? '#0F766E' : '#DC2626',
-                  borderRadius: '20px',
-                  fontSize: '12px',
-                  fontWeight: '600'
-                }}>
-                  {brand.isActive ? 'Active' : 'Inactive'}
-                </span>
+
+                {brand.website && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                    <Globe size={14} />
+                    {brand.website}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    {brand._count?.products || 0} products
+                  </span>
+                  {brand.countryOfOrigin && (
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {brand.countryOfOrigin}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => openModal(brand)}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      backgroundColor: '#DBEAFE',
+                      color: '#1E40AF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Edit size={14} /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(brand._id, brand.name)}
+                    style={{
+                      padding: '10px 14px',
+                      backgroundColor: '#FEE2E2',
+                      color: '#DC2626',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Add/Edit Modal */}
-      {(showAddModal || showEditModal) && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '20px'
-        }} onClick={() => {
-          setShowAddModal(false);
-          setShowEditModal(false);
-          setEditingBrand(null);
-          resetForm();
-        }}>
+      {/* Modal */}
+      {showModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={closeModal}
+        >
           <div 
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',
               padding: '32px',
+              maxWidth: '700px',
               width: '100%',
-              maxWidth: '600px',
               maxHeight: '90vh',
-              overflow: 'auto',
-              border: '1px solid var(--border-color)'
+              overflowY: 'auto'
             }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                {showAddModal ? 'Add Brand' : 'Edit Brand'}
+              <h2 style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                {editingBrand ? 'Edit Brand' : 'Add New Brand'}
               </h2>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setShowEditModal(false);
-                  setEditingBrand(null);
-                  resetForm();
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--text-secondary)',
-                  padding: '8px'
-                }}
-              >
+              <button onClick={closeModal} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                 <X size={24} />
               </button>
             </div>
 
-            {error && (
-              <div style={{
-                padding: '12px',
-                backgroundColor: '#FEE2E2',
-                border: '1px solid #EF4444',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                color: '#DC2626',
-                fontSize: '14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <AlertCircle size={18} />
-                {error}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Brand Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Enter brand name"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    backgroundColor: 'var(--input-bg)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Slug
-                </label>
-                <input
-                  type="text"
-                  value={formData.slug}
-                  onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                  placeholder="brand-slug"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    backgroundColor: 'var(--input-bg)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Brand Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Slug
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.slug}
+                    onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
                   Description
                 </label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Enter brand description"
                   rows={3}
                   style={{
                     width: '100%',
                     padding: '12px 16px',
+                    borderRadius: '8px',
                     border: '1px solid var(--border-color)',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    outline: 'none',
                     backgroundColor: 'var(--input-bg)',
                     color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    outline: 'none',
                     resize: 'vertical'
                   }}
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Logo URL
-                </label>
-                <input
-                  type="url"
-                  value={formData.logo}
-                  onChange={(e) => setFormData({ ...formData, logo: e.target.value })}
-                  placeholder="https://example.com/logo.jpg"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    backgroundColor: 'var(--input-bg)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Website URL
-                </label>
-                <input
-                  type="url"
-                  value={formData.website}
-                  onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                  placeholder="https://example.com"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    backgroundColor: 'var(--input-bg)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <label style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                    Featured
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Logo URL
                   </label>
-                  <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '26px' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.isFeatured}
-                      onChange={(e) => setFormData({ ...formData, isFeatured: e.target.checked })}
-                      style={{ opacity: 0, width: 0, height: 0 }}
-                    />
-                    <span style={{
-                      position: 'absolute',
-                      cursor: 'pointer',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: formData.isFeatured ? 'var(--primary)' : '#ccc',
-                      transition: '.4s',
-                      borderRadius: '34px'
-                    }}>
-                      <span style={{
-                        position: 'absolute',
-                        content: '""',
-                        height: '20px',
-                        width: '20px',
-                        left: '3px',
-                        bottom: '3px',
-                        backgroundColor: 'white',
-                        transition: '.4s',
-                        borderRadius: '50%',
-                        transform: formData.isFeatured ? 'translateX(24px)' : 'translateX(0)'
-                      }} />
-                    </span>
-                  </label>
+                  <input
+                    type="url"
+                    value={formData.logo}
+                    onChange={(e) => setFormData({ ...formData, logo: e.target.value })}
+                    placeholder="https://example.com/logo.png"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <label style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                    Active
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Website
                   </label>
-                  <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '26px' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.isActive}
-                      onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                      style={{ opacity: 0, width: 0, height: 0 }}
-                    />
-                    <span style={{
-                      position: 'absolute',
-                      cursor: 'pointer',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: formData.isActive ? 'var(--primary)' : '#ccc',
-                      transition: '.4s',
-                      borderRadius: '34px'
-                    }}>
-                      <span style={{
-                        position: 'absolute',
-                        content: '""',
-                        height: '20px',
-                        width: '20px',
-                        left: '3px',
-                        bottom: '3px',
-                        backgroundColor: 'white',
-                        transition: '.4s',
-                        borderRadius: '50%',
-                        transform: formData.isActive ? 'translateX(24px)' : 'translateX(0)'
-                      }} />
-                    </span>
-                  </label>
+                  <input
+                    type="url"
+                    value={formData.website}
+                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                    placeholder="https://brand-website.com"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Country of Origin
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.countryOfOrigin}
+                    onChange={(e) => setFormData({ ...formData, countryOfOrigin: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    Display Order
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.displayOrder}
+                    onChange={(e) => setFormData({ ...formData, displayOrder: parseInt(e.target.value) || 0 })}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <label style={{
+                  flex: 1,
+                  padding: '16px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  backgroundColor: formData.isActive ? 'var(--primary-light)' : 'transparent'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.isActive}
+                    onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                    style={{ width: '20px', height: '20px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Active</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Show on frontend</div>
+                  </div>
+                </label>
+                <label style={{
+                  flex: 1,
+                  padding: '16px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  backgroundColor: formData.isFeatured ? 'var(--primary-light)' : 'transparent'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.isFeatured}
+                    onChange={(e) => setFormData({ ...formData, isFeatured: e.target.checked })}
+                    style={{ width: '20px', height: '20px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Featured</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Show on homepage</div>
+                  </div>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
                 <button
-                  onClick={() => {
-                    setShowAddModal(false);
-                    setShowEditModal(false);
-                    setEditingBrand(null);
-                    resetForm();
-                  }}
+                  type="button"
+                  onClick={closeModal}
                   style={{
-                    flex: 1,
-                    padding: '14px',
+                    padding: '12px 24px',
                     backgroundColor: 'var(--card-bg)',
                     color: 'var(--text-primary)',
                     border: '1px solid var(--border-color)',
                     borderRadius: '10px',
-                    cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '15px'
+                    fontWeight: '700',
+                    cursor: 'pointer'
                   }}
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={showAddModal ? handleAddBrand : handleEditBrand}
+                  type="submit"
                   style={{
-                    flex: 1,
-                    padding: '14px',
+                    padding: '12px 24px',
                     backgroundColor: 'var(--primary)',
                     color: 'white',
                     border: 'none',
                     borderRadius: '10px',
+                    fontWeight: '700',
                     cursor: 'pointer',
-                    fontWeight: '600',
-                    fontSize: '15px'
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
                   }}
                 >
-                  {showAddModal ? 'Add Brand' : 'Update Brand'}
+                  <Save size={18} /> {editingBrand ? 'Update' : 'Create'} Brand
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
         }
       `}</style>
     </div>
