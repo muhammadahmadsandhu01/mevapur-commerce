@@ -1,130 +1,87 @@
 const nodemailer = require('nodemailer');
+const { logger } = require('../middleware/logger');
 
-// Email transporter setup
+// Create Transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: process.env.EMAIL_PORT || 587,
-  secure: false,
+  host: process.env.EMAIL_HOST,
+  port: process.env.EMAIL_PORT,
+  secure: false, // true for 465, false for other ports
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
   }
 });
 
-// Send email function
-exports.sendEmail = async (options) => {
-  try {
-    const mailOptions = {
-      from: `"${process.env.EMAIL_FROM || 'MevaPur'}" <${process.env.EMAIL_USER}>`,
-      to: options.to,
-      subject: options.subject,
-      html: options.html
-    };
+// Verify connection configuration
+transporter.verify((error, success) => {
+  if (error) {
+    logger.error('Email service verification failed:', error);
+  } else {
+    logger.info('Email service ready to send messages');
+  }
+});
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent:', info.messageId);
-    return { success: true, messageId: info.messageId };
+
+/**
+ * Send Order Confirmation Email
+ */
+exports.sendOrderConfirmation = async (email, order) => {
+  const mailOptions = {
+    from: process.env.EMAIL_FROM,
+    to: email,
+    subject: `Order Confirmation #${order.orderId}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <h2 style="color: #0F766E;">Thank you for your order!</h2>
+        <p>Dear ${order.shippingAddress.fullName},</p>
+        <p>Your order <strong>#${order.orderId}</strong> has been placed successfully.</p>
+        <h3>Order Details:</h3>
+        <ul>
+          ${order.items.map(item => `<li>${item.name} x ${item.quantity}</li>`).join('')}
+        </ul>
+        <p><strong>Total Amount: $${order.totalAmount}</strong></p>
+        <p>We will notify you once your order is shipped.</p>
+        <br/>
+        <p>Best Regards,<br/>MevaPur Team</p>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    logger.info(`Order confirmation email sent to ${email}`);
+    return { success: true };
   } catch (error) {
-    console.error('❌ Email send error:', error);
-    return { success: false, error: error.message };
+    logger.error('Failed to send order email:', error);
+    throw new Error('Email service failed');
   }
 };
 
-// Order confirmation email template
-exports.sendOrderConfirmation = async (order, customer) => {
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #0F766E 0%, #115E59 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-        <h1 style="color: white; margin: 0;">Order Confirmed! 🎉</h1>
-      </div>
-      <div style="padding: 30px; background: #f9f9f9;">
-        <p style="font-size: 16px;">Dear ${customer.fullName},</p>
-        <p style="font-size: 14px; color: #666;">Thank you for your order! We're excited to let you know that your order has been received and is being processed.</p>
-        
-        <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #0F766E;">Order Details</h3>
-          <p><strong>Order ID:</strong> ${order.orderId}</p>
-          <p><strong>Total Amount:</strong> Rs. ${order.totalAmount.toLocaleString()}</p>
-          <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
-          <p><strong>Status:</strong> ${order.orderStatus}</p>
-        </div>
-
-        <p style="font-size: 14px; color: #666;">You'll receive another email when your order is shipped.</p>
-        <p style="font-size: 14px; color: #666;">Thank you for shopping with MevaPur!</p>
-      </div>
-      <div style="background: #0F766E; padding: 20px; text-align: center; border-radius: 0 0 10px 10px;">
-        <p style="color: white; margin: 0; font-size: 12px;">© 2026 MevaPur. All rights reserved.</p>
-      </div>
-    </div>
-  `;
-
-  return this.sendEmail({
-    to: customer.email,
-    subject: `Order Confirmation - ${order.orderId}`,
-    html
-  });
-};
-
-// Order status update email
-exports.sendOrderStatusUpdate = async (order, customer) => {
-  const statusMessages = {
-    'Processing': 'Your order is now being processed',
-    'Shipped': 'Your order has been shipped!',
-    'Delivered': 'Your order has been delivered!',
-    'Cancelled': 'Your order has been cancelled'
+/**
+ * Send Password Reset Email
+ */
+exports.sendPasswordReset = async (email, resetToken) => {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+  
+  const mailOptions = {
+    from: process.env.EMAIL_FROM,
+    to: email,
+    subject: 'Password Reset Request - MevaPur',
+    html: `
+      <p>You requested a password reset.</p>
+      <p>Click the link below to reset your password:</p>
+      <a href="${resetUrl}" style="color: #0F766E; font-weight: bold;">Reset Password</a>
+      <p>This link expires in 10 minutes.</p>
+      <p>If you didn't request this, please ignore this email.</p>
+    `
   };
 
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-        <h1 style="color: white; margin: 0;">Order Update </h1>
-      </div>
-      <div style="padding: 30px; background: #f9f9f9;">
-        <p style="font-size: 16px;">Dear ${customer.fullName},</p>
-        <p style="font-size: 14px; color: #666;">${statusMessages[order.orderStatus] || 'Your order status has been updated'}.</p>
-        
-        <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <p><strong>Order ID:</strong> ${order.orderId}</p>
-          <p><strong>New Status:</strong> <span style="color: #0F766E; font-weight: bold;">${order.orderStatus}</span></p>
-        </div>
-
-        <p style="font-size: 14px; color: #666;">Thank you for shopping with MevaPur!</p>
-      </div>
-    </div>
-  `;
-
-  return this.sendEmail({
-    to: customer.email,
-    subject: `Order Status Update - ${order.orderId}`,
-    html
-  });
-};
-
-// Low stock alert email (to admin)
-exports.sendLowStockAlert = async (product, adminEmail) => {
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-        <h1 style="color: white; margin: 0;">Low Stock Alert ⚠️</h1>
-      </div>
-      <div style="padding: 30px; background: #f9f9f9;">
-        <p style="font-size: 16px;">Attention Admin,</p>
-        <p style="font-size: 14px; color: #666;">The following product is running low on stock:</p>
-        
-        <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #F59E0B;">
-          <p><strong>Product:</strong> ${product.name}</p>
-          <p><strong>Current Stock:</strong> <span style="color: #EF4444; font-weight: bold;">${product.stock} units</span></p>
-          <p><strong>SKU:</strong> ${product.sku}</p>
-        </div>
-
-        <p style="font-size: 14px; color: #666;">Please restock this product as soon as possible.</p>
-      </div>
-    </div>
-  `;
-
-  return this.sendEmail({
-    to: adminEmail,
-    subject: `Low Stock Alert: ${product.name}`,
-    html
-  });
+  try {
+    await transporter.sendMail(mailOptions);
+    logger.info(`Password reset email sent to ${email}`);
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send reset email:', error);
+    throw new Error('Email service failed');
+  }
 };

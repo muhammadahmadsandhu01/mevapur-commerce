@@ -7,10 +7,16 @@ const {
   createCoupon,
   updateCoupon,
   deleteCoupon,
+  validateCoupon,
   getCouponStats
 } = require('../controllers/couponController');
 
-router.use(protect, admin);
+// PUBLIC ROUTE (Must be defined BEFORE admin middleware)
+router.post('/validate', validateCoupon);
+
+// ADMIN ONLY ROUTES (Protected)
+router.use(protect);
+router.use(admin);
 
 router.get('/stats', getCouponStats);
 router.get('/', getCoupons);

@@ -9,11 +9,28 @@ const api = axios.create({
   },
 });
 
-// Request interceptor - Add token if exists
+// Request interceptor - Add token from Zustand store
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
+      // ✅ FIXED: Read from Zustand persist storage key
+      const authStorage = localStorage.getItem('mevapur-auth-storage');
+      let token: string | null = null;
+      
+      if (authStorage) {
+        try {
+          const parsed = JSON.parse(authStorage);
+          token = parsed.state?.token || null;
+        } catch (e) {
+          console.error('Failed to parse auth storage', e);
+        }
+      }
+
+      // Fallback to old key for backward compatibility
+      if (!token) {
+        token = localStorage.getItem('token');
+      }
+
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -31,6 +48,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined') {
+        localStorage.removeItem('mevapur-auth-storage');
         localStorage.removeItem('token');
         window.location.href = '/login';
       }
@@ -38,10 +56,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// ==========================================
-// 🚀 ENTERPRISE API HELPER FUNCTIONS
-// ==========================================
 
 export const getCategories = async () => {
   const response = await api.get('/categories');

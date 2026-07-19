@@ -1,4 +1,13 @@
-node_modules/
+node_modules
 .env
 .DS_Store
+logs/
+uploads/*
+!uploads/.gitkeep
 *.log
+.vscode
+.idea
+coverage
+.next
+build
+dist

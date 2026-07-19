@@ -28,12 +28,10 @@ export default function Navbar() {
   const [wishlistCount, setWishlistCount] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   
-  // Mega Menu State
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [loadingCategories, setLoadingCategories] = useState(true);
 
-  // Fetch Categories on Mount
   useEffect(() => {
     const fetchCats = async () => {
       try {
@@ -48,7 +46,6 @@ export default function Navbar() {
     fetchCats();
   }, []);
 
-  // Update counts
   useEffect(() => {
     setMounted(true);
     setCartCount(items.length);
@@ -72,90 +69,76 @@ export default function Navbar() {
 
   return (
     <>
-      {/* 🟢 MAIN NAVBAR */}
-      <nav style={{ 
-        backgroundColor: '#0F766E', 
-        position: 'sticky', 
-        top: 0, 
-        zIndex: 1000,
-        boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
-      }}>
-        <div style={{ 
-          maxWidth: '1400px', 
-          margin: '0 auto', 
-          padding: '12px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '20px'
-        }}>
+      {/* MAIN NAVBAR */}
+      <nav className="sticky top-0 z-50 bg-primary-700 shadow-md">
+        <div className="max-w-7xl mx-auto px-5 py-3 flex items-center justify-between gap-5">
           
           {/* Logo */}
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}>
-            <span style={{ fontSize: '28px' }}>🌰</span>
-            <span style={{ fontSize: '26px', fontWeight: '800', color: 'white', letterSpacing: '-0.5px' }}>MevaPur</span>
+          <Link href="/" className="flex items-center gap-2 no-underline">
+            <span className="text-3xl">🌰</span>
+            <span className="text-2xl font-extrabold text-white tracking-tight">MevaPur</span>
           </Link>
 
           {/* Search Bar */}
-          <form onSubmit={handleSearch} style={{ flex: 1, maxWidth: '600px', display: 'flex', borderRadius: '8px', overflow: 'hidden', border: '2px solid #F59E0B' }}>
+          <form onSubmit={handleSearch} className="flex-1 max-w-xl flex rounded-lg overflow-hidden border-2 border-secondary-500">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search dry fruits, nuts, dates..."
-              style={{ flex: 1, padding: '10px 14px', border: 'none', outline: 'none', fontSize: '14px' }}
+              className="flex-1 px-4 py-2.5 border-none outline-none text-sm"
             />
-            <button type="submit" style={{ backgroundColor: '#F59E0B', border: 'none', padding: '0 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button type="submit" className="bg-secondary-500 border-none px-4 cursor-pointer flex items-center justify-center">
               <Search size={20} color="white" />
             </button>
           </form>
 
           {/* Right Section */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', color: 'white' }}>
-            <Link href="/wishlist" style={{ position: 'relative', textDecoration: 'none', color: 'white', display: 'flex', alignItems: 'center' }}>
+          <div className="flex items-center gap-5 text-white">
+            <Link href="/wishlist" className="relative no-underline text-white flex items-center">
               <Heart size={22} />
               {mounted && wishlistCount > 0 && (
-                <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#EF4444', color: 'white', borderRadius: '50%', width: '18px', height: '18px', fontSize: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center">
                   {wishlistCount}
                 </span>
               )}
             </Link>
 
             {isAuthenticated ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', opacity: '0.8' }}>Hello,</div>
-                  <div style={{ fontSize: '13px', fontWeight: '600' }}>{user?.fullName?.split(' ')[0] || 'User'}</div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <div className="text-xs opacity-80">Hello,</div>
+                  <div className="text-sm font-semibold">{user?.fullName?.split(' ')[0] || 'User'}</div>
                 </div>
-                <button onClick={handleLogout} style={{ padding: '8px 16px', backgroundColor: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button onClick={handleLogout} className="px-4 py-2 bg-white/15 text-white border border-white/30 rounded-lg cursor-pointer font-semibold text-sm flex items-center gap-1.5">
                   <LogOut size={14} /> Logout
                 </button>
               </div>
             ) : (
-              <Link href="/login" style={{ cursor: 'pointer', textAlign: 'right', textDecoration: 'none', color: 'white' }}>
-                <div style={{ fontSize: '11px', opacity: '0.8' }}>Hello, Sign in</div>
-                <div style={{ fontSize: '13px', fontWeight: '600' }}>Account</div>
+              <Link href="/login" className="cursor-pointer text-right no-underline text-white">
+                <div className="text-xs opacity-80">Hello, Sign in</div>
+                <div className="text-sm font-semibold">Account</div>
               </Link>
             )}
 
-            <Link href="/orders" style={{ cursor: 'pointer', textAlign: 'right', textDecoration: 'none', color: 'white' }}>
-              <div style={{ fontSize: '11px', opacity: '0.8' }}>Track</div>
-              <div style={{ fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Link href="/orders" className="cursor-pointer text-right no-underline text-white">
+              <div className="text-xs opacity-80">Track</div>
+              <div className="text-sm font-semibold flex items-center gap-1">
                 <Package size={14} /> My Orders
               </div>
             </Link>
 
-            <Link href="/cart" style={{ cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', gap: '5px', textDecoration: 'none', color: 'white' }}>
+            <Link href="/cart" className="cursor-pointer relative flex items-center gap-1 no-underline text-white">
               <ShoppingCart size={24} />
               {mounted && cartCount > 0 && (
-                <span style={{ position: 'absolute', top: '-8px', right: '-8px', backgroundColor: '#F59E0B', color: '#0F766E', borderRadius: '50%', width: '20px', height: '20px', fontSize: '12px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="absolute -top-2 -right-2 bg-secondary-500 text-primary-700 rounded-full w-5 h-5 text-sm font-bold flex items-center justify-center">
                   {cartCount}
                 </span>
               )}
-              <span style={{ fontWeight: '600' }}>Cart</span>
+              <span className="font-semibold">Cart</span>
             </Link>
 
-            <button style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }} onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+            <button className="bg-transparent border-none text-white cursor-pointer md:hidden" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
               {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
           </div>
@@ -163,109 +146,88 @@ export default function Navbar() {
 
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
-          <div style={{ backgroundColor: 'white', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="bg-white p-5 flex flex-col gap-4 md:hidden">
             <form onSubmit={handleSearch}>
-              <div style={{ display: 'flex', border: '2px solid #E5E7EB', borderRadius: '8px', overflow: 'hidden' }}>
-                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search products..." style={{ flex: 1, padding: '12px', border: 'none', outline: 'none', fontSize: '14px' }} />
-                <button type="submit" style={{ backgroundColor: '#0F766E', border: 'none', padding: '0 16px', cursor: 'pointer', color: 'white', display: 'flex', alignItems: 'center' }}>
+              <div className="flex border-2 border-gray-200 rounded-lg overflow-hidden">
+                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search products..." className="flex-1 px-4 py-3 border-none outline-none text-sm" />
+                <button type="submit" className="bg-primary-700 border-none px-4 cursor-pointer text-white flex items-center">
                   <Search size={20} />
                 </button>
               </div>
             </form>
-            <Link href="/products" style={{ color: '#374151', textDecoration: 'none', fontWeight: '600', padding: '12px', backgroundColor: '#F3F4F6', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Link href="/products" className="text-gray-700 no-underline font-semibold p-3 bg-gray-100 rounded-lg flex items-center gap-2">
               <Menu size={16} /> All Categories
             </Link>
             {isAuthenticated ? (
-              <button onClick={handleLogout} style={{ padding: '12px', backgroundColor: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <button onClick={handleLogout} className="p-3 bg-red-100 text-red-700 border-none rounded-lg cursor-pointer font-semibold text-sm flex items-center justify-center gap-2">
                 <LogOut size={16} /> Logout
               </button>
             ) : (
-              <Link href="/login" style={{ color: '#374151', textDecoration: 'none', fontWeight: '600', padding: '12px', backgroundColor: '#F3F4F6', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <Link href="/login" className="text-gray-700 no-underline font-semibold p-3 bg-gray-100 rounded-lg flex items-center justify-center gap-2">
                 <User size={16} /> Sign In
               </Link>
             )}
-            <Link href="/cart" style={{ color: '#374151', textDecoration: 'none', fontWeight: '600' }}>🛒 Cart {mounted && cartCount > 0 ? `(${cartCount})` : ''}</Link>
-            <Link href="/wishlist" style={{ color: '#374151', textDecoration: 'none', fontWeight: '600' }}>❤️ Wishlist {mounted && wishlistCount > 0 ? `(${wishlistCount})` : ''}</Link>
-            <Link href="/orders" style={{ color: '#374151', textDecoration: 'none', fontWeight: '600' }}>📦 My Orders</Link>
+            <Link href="/cart" className="text-gray-700 no-underline font-semibold">🛒 Cart {mounted && cartCount > 0 ? `(${cartCount})` : ''}</Link>
+            <Link href="/wishlist" className="text-gray-700 no-underline font-semibold">❤️ Wishlist {mounted && wishlistCount > 0 ? `(${wishlistCount})` : ''}</Link>
+            <Link href="/orders" className="text-gray-700 no-underline font-semibold">📦 My Orders</Link>
           </div>
         )}
       </nav>
 
-      {/* 🟢 MEGA MENU BAR (Desktop Only) */}
-      {!isMobileMenuOpen && (
-        <div style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #E5E7EB', display: 'none', '@media (min-width: 768px)': { display: 'block' } } as React.CSSProperties}>
-          <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px', display: 'flex', alignItems: 'center', gap: '32px', height: '48px' }}>
+      {/* MEGA MENU BAR - Desktop Only (FIXED: hidden md:block instead of inline styles) */}
+      <div className="hidden md:block bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-5 flex items-center gap-8 h-12">
+          
+          {/* All Categories Button */}
+          <div 
+            className="flex items-center gap-2 cursor-pointer font-bold text-primary-700 text-sm h-full relative"
+            onMouseEnter={() => setActiveCategory('all')}
+            onMouseLeave={() => setActiveCategory(null)}
+          >
+            <Menu size={18} /> All Categories <ChevronDown size={16} />
             
-            {/* All Categories Button */}
-            <div 
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', color: '#0F766E', fontSize: '15px', height: '100%' }}
-              onMouseEnter={() => setActiveCategory('all')}
+            {activeCategory === 'all' && !loadingCategories && (
+              <div className="absolute top-full left-0 bg-white shadow-lg rounded-b-lg z-[9999] min-w-[250px] border border-gray-200 border-t-0 pt-2">
+                {categories.map(cat => (
+                  <Link key={cat._id} href={`/products?category=${cat.slug}`} 
+                    className="block px-5 py-3 text-gray-700 no-underline text-sm hover:bg-teal-50 transition-colors"
+                  >
+                    {cat.name}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Dynamic Category Links */}
+          {!loadingCategories && categories.slice(0, 6).map(cat => (
+            <div key={cat._id} className="relative h-full flex items-center"
+              onMouseEnter={() => setActiveCategory(cat._id)}
               onMouseLeave={() => setActiveCategory(null)}
             >
-              <Menu size={18} /> All Categories <ChevronDown size={16} />
-              
-              {/* Mega Dropdown for All Categories */}
-              {activeCategory === 'all' && !loadingCategories && (
-                <div style={{ 
-                  position: 'absolute', top: '100%', left: '20px', 
-                  backgroundColor: 'white', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', 
-                  borderRadius: '0 0 8px 8px', zIndex: 9999, minWidth: '250px',
-                  border: '1px solid #E5E7EB', borderTop: 'none'
-                }}>
-                  {categories.map(cat => (
-                    <Link key={cat._id} href={`/products?category=${cat.slug}`} 
-                      style={{ display: 'block', padding: '12px 20px', color: '#374151', textDecoration: 'none', fontSize: '14px', transition: 'background 0.2s' }}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F0FDFA')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+              <Link href={`/products?category=${cat.slug}`} className="text-gray-700 no-underline text-sm font-medium hover:text-primary-700 transition-colors">
+                {cat.name}
+              </Link>
+
+              {activeCategory === cat._id && cat.children && cat.children.length > 0 && (
+                <div className="absolute top-full left-0 bg-white shadow-lg rounded-b-lg z-[9999] min-w-[200px] border border-gray-200 border-t-0 py-2">
+                  {cat.children.map(sub => (
+                    <Link key={sub._id} href={`/products?category=${cat.slug}&subcategory=${sub.slug}`} 
+                      className="block px-5 py-2.5 text-gray-600 no-underline text-sm hover:bg-teal-50 hover:text-primary-700 hover:pl-6 transition-all"
                     >
-                      {cat.name}
+                      {sub.name}
                     </Link>
                   ))}
                 </div>
               )}
             </div>
+          ))}
 
-            {/* Dynamic Category Links */}
-            {!loadingCategories && categories.slice(0, 6).map(cat => (
-              <div key={cat._id} style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}
-                onMouseEnter={() => setActiveCategory(cat._id)}
-                onMouseLeave={() => setActiveCategory(null)}
-              >
-                <Link href={`/products?category=${cat.slug}`} style={{ color: '#374151', textDecoration: 'none', fontSize: '14px', fontWeight: '500', transition: 'color 0.2s' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#0F766E')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#374151')}
-                >
-                  {cat.name}
-                </Link>
-
-                {/* Subcategory Dropdown */}
-                {activeCategory === cat._id && cat.children && cat.children.length > 0 && (
-                  <div style={{ 
-                    position: 'absolute', top: '100%', left: '0', 
-                    backgroundColor: 'white', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', 
-                    borderRadius: '0 0 8px 8px', zIndex: 9999, minWidth: '200px',
-                    border: '1px solid #E5E7EB', borderTop: 'none', padding: '8px 0'
-                  }}>
-                    {cat.children.map(sub => (
-                      <Link key={sub._id} href={`/products?category=${cat.slug}&subcategory=${sub.slug}`} 
-                        style={{ display: 'block', padding: '10px 20px', color: '#4B5563', textDecoration: 'none', fontSize: '13px', transition: 'all 0.2s' }}
-                        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F0FDFA'; e.currentTarget.style.color = '#0F766E'; e.currentTarget.style.paddingLeft = '24px'; }}
-                        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#4B5563'; e.currentTarget.style.paddingLeft = '20px'; }}
-                      >
-                        {sub.name}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-            
-            <Link href="/products" style={{ marginLeft: 'auto', color: '#EF4444', textDecoration: 'none', fontSize: '14px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              🔥 Flash Deals
-           8</Link>
-          </div>
+          <Link href="/products" className="ml-auto text-red-500 no-underline text-sm font-bold flex items-center gap-1">
+            🔥 Flash Deals
+          </Link>
         </div>
-      )}
+      </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </>

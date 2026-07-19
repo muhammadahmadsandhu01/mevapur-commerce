@@ -2,18 +2,28 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  
+  // ✅ FIXED: Removed 'eslint' property (not valid in NextConfig type)
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false, // ✅ Enable TS checks for production
   },
-  // @ts-ignore - ESLint config not in type definition
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  
   experimental: {
     serverMinification: false,
   },
+  
   images: {
-    unoptimized: true,
+    unoptimized: false, // ✅ Enable Next.js Image Optimization
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+    ],
   },
 };
 
