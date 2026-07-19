@@ -8,6 +8,7 @@ import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
 import { getCategories } from '@/lib/api';
+import SearchAutocomplete from '@/components/SearchAutocomplete';
 
 interface Category {
   _id: string;
@@ -20,6 +21,7 @@ export default function Navbar() {
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const { items, wishlist } = useCartStore();
   const { user, isAuthenticated, logout } = useAuthStore();
   
@@ -54,11 +56,12 @@ export default function Navbar() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/products?keyword=${encodeURIComponent(searchQuery)}`);
+    const keyword = searchQuery.trim();
+    if (!keyword) return;
+      setIsSearchFocused(false);
       setIsMobileMenuOpen(false);
-      setSearchQuery('');
-    }
+    router.push(`/products?keyword=${encodeURIComponent(keyword)}`);
+    setSearchQuery('');
   };
 
   const handleLogout = () => {
@@ -80,18 +83,50 @@ export default function Navbar() {
           </Link>
 
           {/* Search Bar */}
-          <form onSubmit={handleSearch} className="flex-1 max-w-xl flex rounded-lg overflow-hidden border-2 border-secondary-500">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search dry fruits, nuts, dates..."
-              className="flex-1 px-4 py-2.5 border-none outline-none text-sm"
-            />
-            <button type="submit" className="bg-secondary-500 border-none px-4 cursor-pointer flex items-center justify-center">
-              <Search size={20} color="white" />
-            </button>
-          </form>
+          <div className="relative flex-1 max-w-xl">
+
+            <form
+              onSubmit={handleSearch}
+              className="flex rounded-lg overflow-visible border-2 border-secondary-500"
+            >
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setIsSearchFocused(true)}
+                onBlur={() => {
+                  setTimeout(() => {
+                    setIsSearchFocused(false);
+                  }, 150);
+                }}
+                placeholder="Search dry fruits, nuts, dates..."
+                className="flex-1 px-4 py-2.5 border-none outline-none text-sm"
+                aria-label="Search products"
+                aria-controls="search-suggestions"
+                aria-expanded={isSearchFocused && searchQuery.trim().length >= 2}
+              />
+
+              <button
+                type="submit"
+                className="bg-secondary-500 border-none px-4 cursor-pointer flex items-center justify-center"
+              >
+                <Search size={20} color="white" />
+              </button>
+            </form>
+
+            {isSearchFocused && (
+              <SearchAutocomplete
+                query={searchQuery}
+                onSelect={() => {
+                  setIsSearchFocused(false);
+                  setIsMobileMenuOpen(false);
+                  setSearchQuery('');
+                }}
+                onClose={() => setIsSearchFocused(false)}
+              />
+            )}
+
+          </div>
 
           {/* Right Section */}
           <div className="flex items-center gap-5 text-white">

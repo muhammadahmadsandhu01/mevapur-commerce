@@ -64,6 +64,33 @@ exports.getProducts = async (req, res) => {
       });
     }
 
+    // ================= AUTOCOMPLETE SEARCH =================
+    if (req.query.autocomplete === 'true') {
+      const products = await Product.find(query)
+        .select('name slug price image primaryImage category')
+        .populate('category', 'name slug')
+        .sort({ name: 1 })
+        .limit(limit)
+        .lean();
+
+      const formattedProducts = products.map((product) => ({
+        _id: product._id,
+        name: product.name,
+        slug: product.slug,
+        price: product.price,
+        image:
+          product.image ||
+          product.primaryImage ||
+          '/placeholder.png',
+        category: product.category,
+      }));
+
+      return res.json({
+        success: true,
+        data: formattedProducts,
+      });
+    }
+
     // 8. Sorting
     let sortOption = {};
     if (req.query.sortBy === 'price-asc') sortOption = { price: 1 };
