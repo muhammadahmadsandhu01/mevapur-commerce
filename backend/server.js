@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
+const mongoose = require('mongoose');
+const connectDB = require('./config/db');
 
 // Import Middleware
 const { limiter, dataSanitizer, xssCleaner, hppCleaner, securityHeaders } = require('./middleware/security');
@@ -112,8 +114,7 @@ app.listen(PORT, () => {
     ╚══════════════════════════════════════════╝
   `);
   
-  // Connect to DB AFTER server starts (non-blocking)
-  require('./config/db')();
+  connectDB();
 });
 
 module.exports = app;

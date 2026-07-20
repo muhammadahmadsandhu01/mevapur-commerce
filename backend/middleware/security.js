@@ -6,14 +6,17 @@ const hpp = require('hpp');
 
 // 1. Rate Limiting - Prevents DDoS and Brute Force
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: process.env.RATE_LIMIT_MAX || 100,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again after 15 minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
+
+  skipSuccessfulRequests: false,
+  skipFailedRequests: false,
 });
 
 // 2. Data Sanitization against NoSQL Injection
@@ -32,7 +35,7 @@ const xssCleaner = () => {
 // 4. Prevent Parameter Pollution
 const hppCleaner = () => {
   return hpp({
-    whitelist: ['price', 'rating', 'category', 'tags'], 
+    whitelist: ['price', 'rating', 'category', 'subcategory', 'brand', 'tags', 'attribute', 'sortBy', 'keyword', 'page', 'limit', 'minPrice', 'maxPrice', 'inStock', 'autocomplete',], 
   });
 };
 
@@ -45,12 +48,17 @@ const securityHeaders = () => {
         scriptSrc: ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://accounts.google.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],
-        connectSrc: ["'self'", "https://api.stripe.com", "https://maps.googleapis.com"],
+        connectSrc: ["'self'", "https://api.stripe.com", "https://maps.googleapis.com", "https://res.cloudinary.com", "https://mevapur-frontend.vercel.app",],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         frameAncestors: ["'none'"], // Prevent clickjacking
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
       },
     },
-    crossOriginEmbedderPolicy: false, // Required for some image loaders
+    crossOriginEmbedderPolicy: false, 
+    crossOriginResourcePolicy: {policy: "cross-origin",},
+    referrerPolicy: {policy: "strict-origin-when-cross-origin",
+},
   });
 };
 

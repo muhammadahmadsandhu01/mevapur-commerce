@@ -1,122 +1,169 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { logger } = require('./logger');
 
-// @desc    Protect routes - verify JWT token
-// @access  Private
+/*
+|--------------------------------------------------------------------------
+| Authenticate User
+|--------------------------------------------------------------------------
+*/
+
 exports.protect = async (req, res, next) => {
-  try {
-    let token;
+    try {
 
-    // Check for token in header
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
+        let token;
+
+        if (
+            req.headers.authorization &&
+            req.headers.authorization.startsWith('Bearer ')
+        ) {
+            token = req.headers.authorization.split(' ')[1];
+        }
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication token is required.'
+            });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        const user = await User.findById(decoded.id)
+            .select('-password')
+            .lean();
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'User not found.'
+            });
+        }
+
+        if (user.isDeleted) {
+            return res.status(403).json({
+                success: false,
+                message: 'This account has been deleted.'
+            });
+        }
+
+        if (user.isBlocked) {
+            return res.status(403).json({
+                success: false,
+                message: 'Your account has been blocked.'
+            });
+        }
+
+        req.user = user;
+
+        next();
+
+    } catch (error) {
+
+        logger.error(`Authentication Error: ${error.message}`);
+
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Session expired. Please login again.'
+            });
+        }
+
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid authentication token.'
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Authentication failed.'
+        });
+
     }
-
-    // If no token
-    if (!token) {
-      console.log('❌ No token provided');
-      return res.status(401).json({
-        success: false,
-        message: 'Not authorized, no token provided'
-      });
-    }
-
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    console.log('✅ Token verified, User ID:', decoded.id);
-
-    // Find user by ID
-    const user = await User.findById(decoded.id);
-
-    if (!user) {
-      console.log('❌ User not found for token');
-      return res.status(401).json({
-        success: false,
-        message: 'User not found, token invalid'
-      });
-    }
-
-    // Attach user to request (password already excluded in model)
-    req.user = user;
-    
-    console.log('✅ User authenticated:', user.email, 'Role:', user.role);
-    
-    next();
-  } catch (error) {
-    console.error('❌ Auth middleware error:', error.message);
-    
-    // Specific error messages
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token expired, please login again'
-      });
-    }
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token'
-      });
-    }
-    
-    res.status(401).json({
-      success: false,
-      message: 'Not authorized, token failed'
-    });
-  }
 };
 
-// @desc    Admin only middleware
-// @access  Private/Admin
+/*
+|--------------------------------------------------------------------------
+| Admin Only
+|--------------------------------------------------------------------------
+*/
+
 exports.admin = (req, res, next) => {
-  console.log('🔒 Checking admin access for user:', req.user?.email, 'Role:', req.user?.role);
-  
-  // Check if user exists and has admin role
-  if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
-    console.log('✅ Admin access granted');
-    next();
-  } else {
-    console.log('❌ Admin access denied for role:', req.user?.role);
-    res.status(403).json({
-      success: false,
-      message: 'Not authorized as admin. Admin access required.'
-    });
-  }
-};
 
-// @desc    Super Admin only middleware
-// @access  Private/SuperAdmin
-exports.superAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'super_admin') {
-    next();
-  } else {
-    res.status(403).json({
-      success: false,
-      message: 'Not authorized as super admin'
-    });
-  }
-};
-
-// @desc    Check specific roles
-// @usage   protect, checkRoles(['admin', 'manager'])
-exports.checkRoles = (...roles) => {
-  return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Not authenticated'
-      });
+        return res.status(401).json({
+            success: false,
+            message: 'Authentication required.'
+        });
     }
-    
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `Not authorized. Required roles: ${roles.join(', ')}`
-      });
+
+    const allowedRoles = ['admin', 'super_admin'];
+
+    if (!allowedRoles.includes(req.user.role)) {
+        return res.status(403).json({
+            success: false,
+            message: 'Admin access required.'
+        });
     }
-    
+
     next();
-  };
+
+};
+
+/*
+|--------------------------------------------------------------------------
+| Super Admin Only
+|--------------------------------------------------------------------------
+*/
+
+exports.superAdmin = (req, res, next) => {
+
+    if (!req.user) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authentication required.'
+        });
+    }
+
+    if (req.user.role !== 'super_admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Super Admin access required.'
+        });
+    }
+
+    next();
+
+};
+
+/*
+|--------------------------------------------------------------------------
+| Dynamic Role Authorization
+|--------------------------------------------------------------------------
+*/
+
+exports.checkRoles = (...roles) => {
+
+    return (req, res, next) => {
+
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required.'
+            });
+        }
+
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                message: `Access denied. Allowed roles: ${roles.join(', ')}`
+            });
+        }
+
+        next();
+
+    };
+
 };
