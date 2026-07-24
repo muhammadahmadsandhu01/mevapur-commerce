@@ -10,45 +10,9 @@ import {
   ChevronLeft, X, CheckCircle, CreditCard
 } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
+import type { Product, ProductVariant, ProductAttribute} from "@/types/product";
 import Link from 'next/link';
 import Toast from '@/components/Toast';
-
-interface ProductAttribute {
-  name: string;
-  value: string;
-}
-
-interface ProductVariant {
-  sku: string;
-  attributes: ProductAttribute[];
-  price: number;
-  salePrice?: number;
-  stock: number;
-  images: string[];
-  isDefault: boolean;
-}
-
-interface Product {
-  _id: string;
-  name: string;
-  description: string;
-  price: string | number;
-  originalPrice?: string | number;
-  discount?: number;
-  category: string;
-  subcategory?: string;
-  brand?: any;
-  sku: string;
-  stock: number;
-  images: string[];
-  rating?: number;
-  reviewCount?: number;
-  soldCount?: number;
-  highlights?: string[];
-  specifications?: Record<string, string>;
-  attributes?: ProductAttribute[];
-  variants?: ProductVariant[];
-}
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -116,7 +80,7 @@ export default function ProductDetailPage() {
   const handleAddToCart = () => {
     if (!product) return;
     
-    const finalPrice = selectedVariant ? selectedVariant.price : parseFloat(String(product.price));
+    const finalPrice = selectedVariant ? Number(selectedVariant.price) : Number(product.price);
     const finalImage = uniqueImages[0] || '';
     const variantName = selectedVariant ? selectedVariant.attributes.map(a => `${a.name}: ${a.value}`).join(', ') : undefined;
     const finalSku = selectedVariant?.sku || product.sku;
@@ -128,7 +92,7 @@ export default function ProductDetailPage() {
         name: product.name,
         price: finalPrice,
         image: finalImage,
-        stock: finalStock,
+        stock: finalStock ?? 0,
         variant: variantName,
         sku: finalSku
       });
@@ -142,6 +106,8 @@ export default function ProductDetailPage() {
     setTimeout(() => router.push('/checkout'), 1000);
   };
 
+  const imageUrl = product?.primaryImage || product?.image || product?.images?.[0] || "/placeholder.png";
+
   const handleWishlist = () => {
     const { addToWishlist, removeFromWishlist, isInWishlist } = useCartStore.getState();
     if (!product) return;
@@ -152,11 +118,13 @@ export default function ProductDetailPage() {
       setToast({ message: '❌ Removed from wishlist', type: 'info' });
     } else {
       addToWishlist({
+        _id: product._id,
         id: product._id,
         name: product.name,
-        price: selectedVariant ? selectedVariant.price : parseFloat(String(product.price)),
-        image: uniqueImages[0] || ''
-      });
+        price: Number(product.price),
+        image: imageUrl,
+        slug: product.slug,
+    });
       setWishlist(true);
       setToast({ message: '❤️ Added to wishlist', type: 'success' });
     }
@@ -196,7 +164,7 @@ export default function ProductDetailPage() {
     );
   }
 
-  const currentPrice = selectedVariant ? selectedVariant.price : parseFloat(String(product.price));
+  const currentPrice = selectedVariant ? Number(selectedVariant.price) : Number(product.price);
   const currentOriginalPrice = selectedVariant 
     ? (selectedVariant.salePrice && selectedVariant.salePrice > 0 ? selectedVariant.salePrice : null) 
     : (product.originalPrice ? parseFloat(String(product.originalPrice)) : null);
@@ -206,6 +174,7 @@ export default function ProductDetailPage() {
     : (product.discount || 0);
 
   const brandName = typeof product.brand === 'object' ? product.brand?.name : product.brand;
+  const categoryName = typeof product.category === "object" ? product.category?.name : product.category;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC' }}>
@@ -282,7 +251,7 @@ export default function ProductDetailPage() {
           <div>
             <div style={{ marginBottom: '16px' }}>
               <div style={{ color: '#0F766E', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>
-                {brandName && `${brandName} • `}{product.category}
+                {brandName && `${brandName} • `} {categoryName}
               </div>
             </div>
 
@@ -336,7 +305,7 @@ export default function ProductDetailPage() {
                   {product.variants.map((variant: ProductVariant, idx: number) => {
                     const isSelected = selectedVariant?.sku === variant.sku;
                     const variantLabel = variant.attributes.map(a => a.value).join(' / ');
-                    const isOutOfStock = variant.stock <= 0;
+                    const isOutOfStock = (variant.stock ?? 0) <= 0;
 
                     return (
                       <button
@@ -367,11 +336,11 @@ export default function ProductDetailPage() {
 
             {/* Stock Status */}
             <div style={{ marginBottom: '24px' }}>
-              {(selectedVariant ? selectedVariant.stock : product.stock) > 0 ? (
+              {(selectedVariant?.stock ?? product.stock ?? 0) > 0 ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#D1FAE5', borderRadius: '8px' }}>
                   <CheckCircle size={18} color="#0F766E" />
                   <span style={{ color: '#0F766E', fontWeight: '600' }}>
-                    In Stock - {selectedVariant ? selectedVariant.stock : product.stock} units available
+                    In Stock - {selectedVariant?.stock ?? product.stock ?? 0} units available
                   </span>
                 </div>
               ) : (
@@ -383,7 +352,7 @@ export default function ProductDetailPage() {
             </div>
 
             <p style={{ color: '#374151', fontSize: '16px', lineHeight: '1.7', marginBottom: '24px' }}>
-              {product.description}
+              {product.description || "No description available."}
             </p>
 
             {product.highlights && product.highlights.length > 0 && (
@@ -410,7 +379,7 @@ export default function ProductDetailPage() {
                   <div style={{ padding: '12px 32px', fontSize: '18px', fontWeight: '700', minWidth: '80px', textAlign: 'center', borderLeft: '1px solid #E5E7EB', borderRight: '1px solid #E5E7EB' }}>
                     {quantity}
                   </div>
-                  <button onClick={() => setQuantity(Math.min(selectedVariant ? selectedVariant.stock : product.stock, quantity + 1))} style={{ padding: '12px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }}>
+                  <button onClick={() => setQuantity(Math.min(selectedVariant ? selectedVariant.stock ?? 0 : product.stock ?? 0, quantity + 1))} style={{ padding: '12px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }}>
                     <Plus size={18} />
                   </button>
                 </div>
@@ -418,13 +387,12 @@ export default function ProductDetailPage() {
 
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button 
-                  onClick={handleAddToCart}
-                  disabled={(selectedVariant ? selectedVariant.stock : product.stock) === 0}
+                  onClick={handleAddToCart} disabled={(selectedVariant?.stock ?? product.stock ?? 0)===0}
                   style={{
                     flex: 1, padding: '16px',
-                    backgroundColor: (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? '#0F766E' : '#9CA3AF',
+                    backgroundColor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#0F766E' : '#9CA3AF',
                     color: 'white', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: '700',
-                    cursor: (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? 'pointer' : 'not-allowed',
+                    cursor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? 'pointer' : 'not-allowed',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', transition: 'all 0.3s'
                   }}
                 >
@@ -436,10 +404,10 @@ export default function ProductDetailPage() {
                   disabled={(selectedVariant ? selectedVariant.stock : product.stock) === 0}
                   style={{
                     flex: 1, padding: '16px',
-                    backgroundColor: (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? '#F59E0B' : '#9CA3AF',
-                    color: (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? '#0F766E' : 'white',
+                    backgroundColor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#F59E0B' : '#9CA3AF',
+                    color: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#0F766E' : 'white',
                     border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: '700',
-                    cursor: (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? 'pointer' : 'not-allowed',
+                    cursor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? 'pointer' : 'not-allowed',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', transition: 'all 0.3s'
                   }}
                 >
@@ -499,7 +467,7 @@ export default function ProductDetailPage() {
           {activeTab === 'description' && (
             <div>
               <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '16px' }}>Product Description</h3>
-              <p style={{ color: '#374151', lineHeight: '1.8', fontSize: '16px' }}>{product.description}</p>
+              <p style={{ color: '#374151', lineHeight: '1.8', fontSize: '16px' }}>{product.description || "No description available."}</p>
             </div>
           )}
 
@@ -559,7 +527,7 @@ export default function ProductDetailPage() {
           <button onClick={() => setShowFullscreen(false)} style={{ position: 'absolute', top: '20px', right: '20px', backgroundColor: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '48px', height: '48px', cursor: 'pointer', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <X size={24} />
           </button>
-          <img src={uniqueImages[selectedImage]} alt={product.name} style={{ maxWidth: '90%', maxHeight: '90vh', objectFit: 'contain', borderRadius: '8px' }} onClick={e => e.stopPropagation()} />
+          <img src={uniqueImages[selectedImage] || "/placeholder.png"} alt={product.name} style={{ maxWidth: '90%', maxHeight: '90vh', objectFit: 'contain', borderRadius: '8px' }} onClick={e => e.stopPropagation()} />
         </div>
       )}
 

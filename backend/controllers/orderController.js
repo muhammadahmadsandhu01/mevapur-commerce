@@ -12,7 +12,7 @@ exports.createOrder = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { items, shippingAddress, paymentMethod, subtotal, shippingCost, discount, totalAmount, notes, couponCode } = req.body;
+    const {items, shippingAddress, paymentMethod, payment, subtotal, shippingCost, discount, totalAmount, notes, couponCode} = req.body;
 
     // 1. Basic Validation
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -94,17 +94,32 @@ exports.createOrder = async (req, res) => {
       items,
       shippingAddress,
       paymentMethod,
+      paymentStatus: paymentMethod === 'COD' ? 'Pending' : 'Paid',
+      payment: payment || {
+        provider:
+          paymentMethod === 'COD'
+            ? 'COD'
+            : paymentMethod === 'jazzcash'
+            ? 'JazzCash'
+            : 'Stripe',
+        transactionId: '',
+        paymentIntentId: '',
+        currency: 'PKR',
+        paidAt: null
+      },
       subtotal,
       shippingCost: shippingCost || 0,
       discount: discount || 0,
       totalAmount,
       notes: notes || '',
       orderStatus: 'Pending',
-      statusTimeline: [{
-        status: 'Pending',
-        timestamp: Date.now(),
-        note: notes || 'Order placed successfully'
-      }]
+      statusTimeline: [
+        {
+          status: 'Pending',
+          timestamp: Date.now(),
+          note: notes || 'Order placed successfully'
+        }
+      ]
     };
 
     if (appliedCoupon) {

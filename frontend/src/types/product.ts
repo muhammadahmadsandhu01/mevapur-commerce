@@ -9,7 +9,7 @@ export interface ProductVariant {
   attributes: ProductAttribute[]; // e.g., [{ name: "Weight", value: "500g" }]
   price: number;
   salePrice?: number;
-  stock: number;
+  stock?: number;
   images: string[];
   isDefault: boolean;
 }
@@ -19,18 +19,44 @@ export interface Product {
   id?: string;
   name: string;
   slug?: string;
-  description: string;
+  description?: string;
   shortDescription?: string;
   
   // Backward Compatibility: Root level price/stock for existing components
   price: number;
   originalPrice?: number;
-  stock: number;
+  stock?: number;
+
+  sku?: string;
+  soldCount?: number;
+  highlights?: string[];
+  specifications?: Record<string,string>;
   
   // New Enterprise Fields (Optional for safety)
-  category?: string; // Category ID or Name
-  subcategory?: string;
-  brand?: string;
+  category?:
+  | string
+  | {
+      _id?: string;
+      name: string;
+      slug?: string;
+    };
+
+subcategory?:
+  | string
+  | {
+      _id?: string;
+      name: string;
+      slug?: string;
+    };
+
+brand?:
+  | string
+  | {
+      _id?: string;
+      name: string;
+      slug?: string;
+      logo?: string;
+    };
   discount?: number;
   rating?: number;
   reviewCount?: number;

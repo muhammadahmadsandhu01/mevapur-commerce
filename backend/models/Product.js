@@ -14,9 +14,11 @@ if (mongoose.models.Product) {
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
     subcategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
     brand: { type: mongoose.Schema.Types.ObjectId, ref: 'Brand' },
+    sku: { type: String, unique: true, sparse: true, default: '', trim: true },
     price: { type: Number, required: true, default: 0 },
     originalPrice: { type: Number, default: 0 },
-    stock: { type: Number, required: true, default: 0 },
+    stock: { type: Number, required: true, default: 0,  },
+    soldCount: { type: Number, default: 0 },
     lowStockThreshold: { type: Number, default: 10 },
     discount: { type: Number, default: 0 },
     attributes: [{ name: { type: String, trim: true }, value: { type: String, trim: true } }],
@@ -36,7 +38,6 @@ if (mongoose.models.Product) {
     gallery: [{ type: String }],
     videoUrl: { type: String, default: '' },
     rating: { type: Number, default: 0, min: 0, max: 5 },
-    numReviews: { type: Number, default: 0 },
     reviewCount: { type: Number, default: 0 },
     views: { type: Number, default: 0 },
     isFeatured: { type: Boolean, default: false },
@@ -57,7 +58,7 @@ if (mongoose.models.Product) {
         this.primaryImage = defaultVariant.images[0];
         this.images = defaultVariant.images;
       }
-      this.variants.forEach((v, index) => { v.isDefault = (index === 0); });
+      if (!this.variants.some(v => v.isDefault) && this.variants.length > 0) {this.variants[0].isDefault = true;}
     }
     next();
   });

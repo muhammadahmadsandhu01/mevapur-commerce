@@ -9,7 +9,7 @@ export interface CartItem {
   product?: string;
   image: string;
   quantity: number;
-  stock?: number;
+  stock?: number | null;
   variant?: string;
   sku?: string;
 }
@@ -22,6 +22,8 @@ export interface WishlistItem {
   image: string;
   variant?: string;
   slug?: string;
+  stock?: number | null;
+  sku?: string;
 }
 
 interface CartStore {
@@ -49,11 +51,20 @@ export const useCartStore = create<CartStore>()(
 
         addToCart: (item) => {
           const state = get();
+
+          if (
+            item.stock !== undefined && item.stock !== null && item.stock <= 0) {
+            return;
+          }
           const existingItem = state.items.find(
             i => i.id === item.id && i.variant === item.variant
           );
           
           if (existingItem) {
+            if (
+              existingItem.stock !== undefined && existingItem.stock !== null && existingItem.quantity >= existingItem.stock) {
+              return;
+            }
             const updatedItems = state.items.map(i => 
               i.id === item.id && i.variant === item.variant
                 ? { ...i, quantity: i.quantity + 1 }
@@ -88,11 +99,25 @@ export const useCartStore = create<CartStore>()(
             return;
           }
           
-          const newItems = get().items.map(item => 
-            (variant ? (item.id === id && item.variant === variant) : item.id === id)
-              ? { ...item, quantity } 
-              : item
-          );
+          const newItems = get().items.map(item => {
+            if (
+              variant
+                ? item.id === id && item.variant === variant
+                : item.id === id
+            ) {
+              const maxQty =
+                item.stock !== undefined && item.stock !== null
+                  ? Math.min(quantity, item.stock)
+                  : quantity;
+
+              return {
+                ...item,
+                quantity: maxQty,
+              };
+            }
+
+            return item;
+          });
           
           set({
             items: newItems,
@@ -136,9 +161,11 @@ export const useCartStore = create<CartStore>()(
               id: item.id,
               _id: item._id,
               name: item.name,
-              price: Number(item.price),
+              price: Number(item.price) || 0,
               image: item.image,
-              variant: item.variant
+              variant: item.variant,
+              stock: item.stock,
+              sku: item.sku
             });
             set({
               wishlist: state.wishlist.filter(i => i.id !== id)

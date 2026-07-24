@@ -23,9 +23,9 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
     }
   }, [product._id]);
 
-  const discount = product.originalPrice 
-    ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100) 
-    : 0;
+  const price = Number(product.price ?? 0);
+  const originalPrice = Number(product.originalPrice ?? 0);
+  const discount = originalPrice > price ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
 
   const handleWishlist = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -49,6 +49,20 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
     }
   };
 
+  const getProductImage = () => {
+  const img = product.images?.[0] || product.primaryImage || product.image;
+
+    if (!img) return "/placeholder.png";
+    // Ignore fake/demo URLs
+    if (
+      img.includes("example.com") ||
+      img.includes("via.placeholder.com")
+    ) {
+      return "/placeholder.png";
+    }
+    return img;
+  };
+
   return (
     <Link 
       href={`/products/${product._id}`} 
@@ -61,8 +75,8 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
         )}
         
         <Image 
-          src={(product as any).images?.[0]?.url || (product as any).image || '/placeholder.png'} 
-          alt={(product as any).images?.[0]?.alt || product.name}
+          src={getProductImage()} 
+          alt={product.name}
           fill
           className={`object-cover group-hover:scale-110 transition-transform duration-700 ease-out ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
           sizes="(max-width: 768px) 50vw, 25vw"
@@ -82,9 +96,9 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
               Featured
             </span>
           )}
-          {product.stock < 10 && product.stock > 0 && (
+          {(product.stock ?? 0) < 10 && (product.stock ?? 0) > 0 && (
             <span className="bg-orange-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md shadow-lg">
-              Only {product.stock} left
+              Only {product.stock ?? 0} left
             </span>
           )}
         </div>
@@ -106,7 +120,7 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
       <div className="p-4 flex flex-col h-[200px]">
         {/* Category */}
         <span className="text-xs font-medium text-teal-700 uppercase tracking-wide mb-1">
-          {product.category || 'Dry Fruits'}
+          {typeof product.category === "object" ? product.category?.name : product.category ?? "Dry Fruits"}
         </span>
 
         {/* Product Name */}
@@ -115,7 +129,9 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
         </h3>
         
         {/* Brand */}
-        <p className="text-xs text-gray-500 mb-2">{(product as any).brand || 'MevaPur'}</p>
+        <p className="text-xs text-gray-500 mb-2">
+          {typeof product.brand === "object" ? product.brand?.name : product.brand ?? "MevaPur"}
+        </p>
         
         {/* Rating */}
         <div className="flex items-center gap-1.5 mb-3">
@@ -134,11 +150,11 @@ export default function ProductCard({ product, onWishlist }: ProductCardProps) {
         {/* Price (Pushed to bottom) */}
         <div className="mt-auto flex items-baseline gap-2">
           <span className="text-xl font-bold text-teal-700">
-            Rs. {Number(product.price).toLocaleString()}
+            Rs. {price.toLocaleString()}
           </span>
           {product.originalPrice && Number(product.originalPrice) > Number(product.price) && (
             <span className="text-sm text-gray-400 line-through">
-              Rs. {Number(product.originalPrice).toLocaleString()}
+              Rs. {originalPrice.toLocaleString()}
             </span>
           )}
         </div>

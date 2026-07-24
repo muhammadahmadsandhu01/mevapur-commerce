@@ -37,10 +37,11 @@ exports.register = async (req, res) => {
     }
 
     const { fullName, email, password, phone } = req.body;
+    const normalizedEmail = email.toLowerCase().trim();
     const clientInfo = getClientInfo(req);
 
     // 2. Check Existing User
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({email: normalizedEmail});
     if (existingUser) {
       logger.warn(`Registration attempt with existing email: ${email} from ${clientInfo.ip}`);
       return res.status(409).json({
@@ -52,7 +53,7 @@ exports.register = async (req, res) => {
     // 3. Create User (Model pre-save hook handles hashing)
     const user = await User.create({
       fullName,
-      email,
+      email: normalizedEmail,
       password,
       phone,
       role: 'customer' // 🔒 Security: Force default role to prevent escalation
@@ -106,16 +107,27 @@ exports.login = async (req, res) => {
     }
 
     const { email, password } = req.body;
+    const normalizedEmail = email.toLowerCase().trim();
     const clientInfo = getClientInfo(req);
     
     // 2. Find User (Select password explicitly as it's hidden by default)
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({email: normalizedEmail}).select("+password");
     
     if (!user) {
       logger.warn(`Login attempt failed: User not found (${email}) from ${clientInfo.ip}`);
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password.' // Generic message for security
+      });
+    }
+
+    // Check if account is blocked
+    if (user.isBlocked) {
+      logger.warn(`Blocked user login attempt: ${email} from ${clientInfo.ip}`);
+
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been blocked. Please contact support.'
       });
     }
 
@@ -245,7 +257,10 @@ exports.forgotPassword = async (req, res) => {
     return res.json({
       success: true,
       message: 'Password reset link sent to email.',
-      resetToken // ⚠️ SECURITY RISK: Remove this line in production
+
+      ...(process.env.NODE_ENV === 'development' && {
+        resetToken
+      })
     });
 
   } catch (error) {

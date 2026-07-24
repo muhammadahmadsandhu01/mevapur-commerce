@@ -17,13 +17,18 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '**',
+        hostname: 'res.cloudinary.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'mevapur-backend.onrender.com',
       },
       {
         protocol: 'http',
         hostname: 'localhost',
-      },
-    ],
+        port: '5000',
+      }
+    ]
   },
 };
 

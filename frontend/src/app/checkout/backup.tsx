@@ -9,8 +9,11 @@ import PaymentModal from '@/components/PaymentModal';
 import Link from 'next/link';
 import axios from 'axios';
 import Toast from '@/components/Toast';
-import { MapPin, CreditCard, Mail, CheckCircle, Loader, ArrowLeft, Shield, Truck, RotateCcw, Headphones, Tag, Package, Phone, Globe, Building2, Lock} from 'lucide-react';
-import { calculatePricing } from "@/lib/checkout/pricing";
+import { 
+  MapPin, CreditCard, Mail, CheckCircle, Loader, ArrowLeft, Shield, 
+  Truck, RotateCcw, Headphones, Tag, Package, Phone, Globe, 
+  Building2, Lock
+} from 'lucide-react';
 
 export default function CheckoutPage() {
   const { items, clearCart, updateQuantity, removeFromCart } = useCartStore();
@@ -24,7 +27,7 @@ export default function CheckoutPage() {
   const [discount, setDiscount] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [agreeTerms, setAgreeTerms] = useState(false);
+  
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -34,7 +37,7 @@ export default function CheckoutPage() {
     city: 'Lahore',
     country: 'Pakistan',
     postalCode: '',
-    paymentMethod: 'visa',
+    paymentMethod: 'COD',
     notes: ''
   });
 
@@ -53,8 +56,12 @@ export default function CheckoutPage() {
   }
 
   // ✅ SAFE CALCULATIONS (Directly from items to avoid store function mismatches)
-  const cartSubtotal = items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
-  const pricing = calculatePricing(cartSubtotal, discount);
+  const cartSubtotal = items.reduce((sum, item) => sum + (parseFloat(String(item.price)) * item.quantity), 0);
+  const discountAmountValue = (cartSubtotal * discount) / 100;
+  const afterDiscountValue = cartSubtotal - discountAmountValue;
+  const shippingCostValue = afterDiscountValue >= 1500 ? 0 : 150;
+  const grandTotalValue = afterDiscountValue + shippingCostValue;
+  const totalSavings = discountAmountValue + (shippingCostValue === 0 ? 150 : 0);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -135,108 +142,75 @@ export default function CheckoutPage() {
     }
   };
 
-  const createOrder = async (
-      transactionId?: string
-  ) => {
-
-      setLoading(true);
-
-      try {
-
-          const orderData = {
-              items: items.map(item => ({
-                  product: item._id || item.id,
-                  name: item.name,
-                  price: Number(item.price),
-                  quantity: item.quantity,
-                  image: item.image || ""
-              })),
-
-              shippingAddress: {
-                  fullName: formData.fullName,
-                  phone: formData.phone,
-                  address: formData.address,
-                  city: formData.city,
-                  postalCode: formData.postalCode
-              },
-
-              paymentMethod: formData.paymentMethod,
-
-              paymentResult: transactionId
-                  ? {
-                      id: transactionId,
-                      status: "completed"
-                    }
-                  : undefined,
-
-              subtotal: cartSubtotal,
-              shippingCost: pricing.shippingCost,
-              discount: pricing.discountAmount,
-              totalAmount: pricing.grandTotal,
-              notes: formData.notes
-          };
-
-          const response = await axios.post(
-              `${process.env.NEXT_PUBLIC_API_URL}/orders`,
-              orderData,
-              {
-                  headers: {
-                      Authorization: `Bearer ${token}`
-                  }
-              }
-          );
-
-          clearCart();
-
-          router.push(
-              `/order-success?orderId=${response.data.data._id}`
-          );
-
-      } catch (error:any) {
-
-          setToast({
-              message:
-              error.response?.data?.message ||
-              "Order creation failed.",
-              type:"error"
-          });
-
-      } finally {
-
-          setLoading(false);
-
-      }
-
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
+    e.preventDefault();
+    
+    if (!validate()) {
+      setToast({ message: 'Please fill all required fields correctly', type: 'error' });
+      return;
+    }
 
-      if (!validate()) {
-          setToast({
-              message: "Please fill all required fields correctly",
-              type: "error"
-          });
-          return;
-      }
+    if (!isAuthenticated || !token) {
+      router.push('/login?redirect=/checkout');
+      return;
+    }
 
-      if (!isAuthenticated || !token) {
-          router.push("/login?redirect=/checkout");
-          return;
-      }
+    setLoading(true);
 
-      if (formData.paymentMethod === "COD") {
-          await createOrder();
-      } else {
-          setShowPaymentModal(true);
+    try {
+      // ✅ PERFECTLY MATCHED PAYLOAD FOR BACKEND createOrder
+      const orderData = {
+        items: items.map(item => ({
+          product: item._id || item.id, // FIX: Backend expects 'product' as ObjectId. Use _id primarily.
+          name: item.name,
+          price: parseFloat(String(item.price)),
+          quantity: item.quantity,
+          image: item.image || ''
+        })),
+        shippingAddress: {
+          fullName: formData.fullName,
+          phone: formData.phone,
+          address: formData.address,
+          city: formData.city,
+          postalCode: formData.postalCode
+        },
+        paymentMethod: formData.paymentMethod,
+        subtotal: cartSubtotal,
+        shippingCost: shippingCostValue,
+        discount: discountAmountValue,
+        totalAmount: grandTotalValue,
+        notes: formData.notes || 'Order placed via website'
+      };
+
+      console.log('Sending order to backend:', orderData); // Debugging ke liye
+
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/orders`,
+        orderData,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data.success) {
+        clearCart();
+        router.push(`/order-success?orderId=${response.data.data._id}`);
       }
+    } catch (error: any) {
+      console.error('Order error:', error);
+      const message = error.response?.data?.message || 'Failed to place order. Please try again.';
+      setToast({ message, type: 'error' });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handlePaymentSuccess = async (
-      transactionId: string
-  ) => {
-      setShowPaymentModal(false);
-      await createOrder(transactionId);
+  const handlePaymentSuccess = () => {
+    setShowPaymentModal(false);
+    handleSubmit(new Event('submit') as any);
   };
 
   const steps = [
@@ -511,9 +485,10 @@ export default function CheckoutPage() {
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 {[
-                    {id: "COD", label: "Cash on Delivery", icon: "💵", color: "#0F766E"},
-                    {id: "jazzcash", label: "JazzCash", icon: "📱", color: "#7C3AED"},
-                    {id: "card", label: "Credit / Debit Card", icon: "💳", color: "#2563EB"}                
+                  { id: 'COD', label: 'Cash on Delivery', icon: '💵', color: '#0F766E' },
+                  { id: 'jazzcash', label: 'JazzCash', icon: '📱', color: '#7C3AED' },
+                  { id: 'visa', label: 'Visa Card', icon: '💳', color: '#1E40AF' },
+                  { id: 'mastercard', label: 'MasterCard', icon: '💳', color: '#DC2626' }
                 ].map(method => (
                   <label key={method.id} style={{ 
                     display: 'flex', alignItems: 'center', gap: '12px', padding: '18px', borderRadius: '14px', 
@@ -592,32 +567,26 @@ export default function CheckoutPage() {
                 {discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#0F766E' }}>
                     <span>Discount ({discount}%)</span>
-                    <span style={{ fontWeight: '700' }}>-Rs. {pricing.discountAmount.toFixed(2)}</span>
+                    <span style={{ fontWeight: '700' }}>-Rs. {discountAmountValue.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Shipping</span>
-                  <span style={{ fontWeight: '700', color: pricing.shippingCost === 0 ? '#0F766E' : '#111827' }}>
-                    {pricing.shippingCost === 0 ? 'FREE ✓' : `Rs. ${pricing.shippingCost}`}
+                  <span style={{ fontWeight: '700', color: shippingCostValue === 0 ? '#0F766E' : '#111827' }}>
+                    {shippingCostValue === 0 ? 'FREE ✓' : `Rs. ${shippingCostValue}`}
                   </span>
                 </div>
-                {pricing.totalSavings > 0 && (
+                {totalSavings > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#10B981', fontWeight: '700' }}>
                     <span> You Saved</span>
-                    <span>Rs. {pricing.totalSavings.toFixed(2)}</span>
+                    <span>Rs. {totalSavings.toFixed(2)}</span>
                   </div>
                 )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px', fontSize: '24px', fontWeight: '800', color: '#0F766E', paddingTop: '20px', borderTop: '3px solid #E5E7EB' }}>
-                <label
-                  style={{display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "20px", fontSize: "14px", color: "#374151", cursor: "pointer",}}>
-                  <input type="checkbox" checked={agreeTerms} onChange={(e) => setAgreeTerms(e.target.checked)}/>
-
-                  <span>I agree to the Terms & Conditions and Privacy Policy.</span>
-                </label>
                 <span>Grand Total</span>
-                <span>Rs. {pricing.grandTotal.toFixed(2)}</span>
+                <span>Rs. {grandTotalValue.toFixed(2)}</span>
               </div>
 
               <button type="submit" disabled={loading} style={{ 
@@ -630,7 +599,7 @@ export default function CheckoutPage() {
                   </>
                 ) : (
                   <>
-                    <Lock size={20} /> Complete Order
+                    <Lock size={20} /> 🔒 Secure Checkout
                   </>
                 )}
               </button>
@@ -658,7 +627,7 @@ export default function CheckoutPage() {
         isOpen={showPaymentModal} 
         onClose={() => setShowPaymentModal(false)} 
         paymentMethod={formData.paymentMethod} 
-        amount={pricing.grandTotal} 
+        amount={grandTotalValue} 
         onSuccess={handlePaymentSuccess}
       />
 

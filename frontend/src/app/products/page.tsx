@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import axios from 'axios';
 import ProductCard from '@/components/products/ProductCard';
 import ProductFilters from '@/components/products/ProductFilters';
 import RecentlyViewed from '@/components/products/RecentlyViewed';
@@ -11,14 +10,15 @@ import RecommendedProducts from '@/components/products/RecommendedProducts';
 import PromotionalBanner from '@/components/products/PromotionalBanner';
 import { Search, ChevronLeft, ChevronRight, Loader, X } from 'lucide-react';
 import Link from 'next/link';
-import { getCategories } from '@/lib/api';
+import api, { getCategories } from "@/lib/api";
+import type { Product, Category } from "@/types/product";
 
 function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ 
     page: 1, 
@@ -29,6 +29,7 @@ function ProductsPageContent() {
     hasPrev: false
   });
   const [searchQuery, setSearchQuery] = useState(searchParams.get('keyword') || '');
+  const currentKeyword = searchParams.get("keyword") || "";
 
   // Fetch Categories for Breadcrumbs
   useEffect(() => {
@@ -46,36 +47,46 @@ function ProductsPageContent() {
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (searchQuery) {
-        params.set('keyword', searchQuery);
-      } else {
-        params.delete('keyword');
+      const trimmedQuery = searchQuery.trim();
+
+      // Agar URL already same keyword contain karta hai to kuch mat karo
+      if (trimmedQuery === currentKeyword) {
+        return;
       }
-      params.set('page', '1');
+
+      const params = new URLSearchParams(searchParams.toString());
+
+      if (trimmedQuery) {
+        params.set("keyword", trimmedQuery);
+      } else {
+        params.delete("keyword");
+      }
+
+      params.set("page", "1");
+
       router.push(`/products?${params.toString()}`);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, router, searchParams]);
+  }, [searchQuery, currentKeyword, router]);
 
   // Fetch products when URL changes
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/products?${searchParams.toString()}`);
-        if (data.success) {
-          setProducts(data.data);
-          setPagination({
-            page: data.pagination.page,
-            pages: data.pagination.pages,
-            total: data.pagination.total,
-            limit: data.pagination.limit,
-            hasNext: data.pagination.hasNext || false,
-            hasPrev: data.pagination.hasPrev || false
-          });
-        }
+        const response = await api.get(`/products?${searchParams.toString()}`);
+          if (response.data.success) {
+              setProducts(response.data.data);
+              setPagination({
+                  page: response.data.pagination.page,
+                  pages: response.data.pagination.pages,
+                  total: response.data.pagination.total,
+                  limit: response.data.pagination.limit,
+                  hasNext: response.data.pagination.hasNext,
+                  hasPrev: response.data.pagination.hasPrev,
+              });
+          }
       } catch (error) {
         console.error('Error fetching products:', error);
       } finally {
@@ -89,7 +100,12 @@ function ProductsPageContent() {
   // Track recently viewed
   useEffect(() => {
     if (products.length > 0) {
-      const viewed = JSON.parse(localStorage.getItem('recentlyViewed') || '[]');
+      let viewed: string[] = [];
+      try {
+        viewed = JSON.parse(localStorage.getItem("recentlyViewed") || "[]");
+      } catch {
+        viewed = [];
+      }
       const productIds = products.map(p => p._id);
       const updated = [...new Set([...productIds, ...viewed])].slice(0, 10);
       localStorage.setItem('recentlyViewed', JSON.stringify(updated));
@@ -119,8 +135,12 @@ function ProductsPageContent() {
 
   // Helper to get category name from slug
   const getCategoryName = (slug: string) => {
-    const cat = categories.find((c: any) => c.slug === slug);
-    return cat ? cat.name : slug.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    if (!slug) return "";
+    const cat = categories.find(c => c.slug === slug);
+    return cat ? cat.name : slug 
+      .split("-")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
   };
 
   const categorySlug = searchParams.get('category') || '';
@@ -178,11 +198,18 @@ function ProductsPageContent() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{pageTitle}</h1>
               <p className="text-gray-500 mt-1">
-                {loading ? (
-                  <span className="animate-pulse">Loading products...</span>
-                ) : (
-                  `Showing ${((pagination.page - 1) * pagination.limit) + 1}–${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total} products`
-                )}
+                {
+                  loading ? (
+                    <span className="animate-pulse">Loading products...</span>
+                  ) : pagination.total === 0 ? (
+                    "No products found"
+                  ) : (
+                    `Showing ${((pagination.page - 1) * pagination.limit) + 1}–${Math.min(
+                      pagination.page * pagination.limit,
+                      pagination.total
+                    )} of ${pagination.total} products`
+                  )
+                }
               </p>
             </div>
 

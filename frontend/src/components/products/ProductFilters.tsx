@@ -3,17 +3,20 @@
 import { X, SlidersHorizontal, ChevronDown, ChevronUp, Star } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
-
-interface FilterSection {
-  title: string;
-  isOpen: boolean;
-}
+import { getCategories, getBrands } from "@/lib/api";
+import type { Category, Brand } from "@/types/product";
 
 export default function ProductFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
+  useEffect(() => {
+    setPriceRange({
+      min: searchParams.get("minPrice") || "",
+      max: searchParams.get("maxPrice") || "",
+    }); 
+  }, [searchParams]);
   const [sections, setSections] = useState<Record<string, boolean>>({
     categories: true,
     brands: true,
@@ -26,8 +29,31 @@ export default function ProductFilters() {
   });
 
   // Sample data - In production, fetch from API
-  const categories = ['All', 'dry-fruits', 'nuts', 'seeds', 'spices', 'dates', 'honey'];
-  const brands = ['All', 'Organic Valley', 'Premium Nuts', 'Nature\'s Best', 'Golden Harvest'];
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const data = await getCategories();
+        setCategories(data);
+      } catch (err) {
+        console.error("Category Error:", err);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    const fetchBrands = async () => {
+      try {
+        const data = await getBrands();
+        setBrands(data);
+      } catch (err) {
+        console.error("Brand Error:", err);
+      }
+    };
+    fetchBrands();
+  }, []);
   const attributes = {
     weight: ['100g', '250g', '500g', '1kg'],
     organic: ['Yes', 'No'],
@@ -49,7 +75,7 @@ export default function ProductFilters() {
         params.set(key, updated.join(','));
       }
     } else {
-      if (value === 'All' || !value) {
+      if (!value) {
         params.delete(key);
       } else {
         params.set(key, value);
@@ -87,16 +113,18 @@ export default function ProductFilters() {
         
         {sections.categories && (
           <div className="space-y-2.5">
-            {categories.map(cat => (
-              <label key={cat} className="flex items-center gap-3 cursor-pointer group">
+            {categories.map(category => (
+              <label key={category._id} className="flex items-center gap-3 cursor-pointer group">
                 <input 
                   type="checkbox"
-                  checked={(searchParams.get('category') || 'All').split(',').includes(cat)}
-                  onChange={() => updateFilter('category', cat, true)}
+                  checked={(searchParams.get("category") || "")
+                    .split(",")
+                    .includes(category._id)}
+                  onChange={() => updateFilter("category", category._id, true)}
                   className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
                 />
                 <span className="text-sm text-gray-700 group-hover:text-teal-700 capitalize">
-                  {cat.replace('-', ' ')}
+                  {category.name}
                 </span>
               </label>
             ))}
@@ -117,15 +145,17 @@ export default function ProductFilters() {
         {sections.brands && (
           <div className="space-y-2.5 max-h-48 overflow-y-auto">
             {brands.map(brand => (
-              <label key={brand} className="flex items-center gap-3 cursor-pointer group">
+              <label key={brand._id} className="flex items-center gap-3 cursor-pointer group">
                 <input 
                   type="checkbox"
-                  checked={(searchParams.get('brand') || 'All').split(',').includes(brand)}
-                  onChange={() => updateFilter('brand', brand, true)}
+                  checked={(searchParams.get("brand") || "")
+                    .split(",")
+                    .includes(brand._id)}
+                  onChange={() => updateFilter("brand", brand._id, true)}
                   className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
                 />
                 <span className="text-sm text-gray-700 group-hover:text-teal-700">
-                  {brand}
+                  {brand.name}
                 </span>
               </label>
             ))}

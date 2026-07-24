@@ -36,13 +36,52 @@ const orderSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: true,
-    enum: ['COD', 'jazzcash', 'visa', 'mastercard', 'Card', 'Bank Transfer']
+    enum: ['COD', 'jazzcash', 'card', 'easypaisa', 'bank_transfer']
   },
   paymentStatus: {
     type: String,
     enum: ['Pending', 'Paid', 'Failed', 'Refunded'],
     default: 'Pending'
   },
+
+    payment: {
+    provider: {
+      type: String,
+      enum: ['COD', 'Stripe', 'JazzCash'],
+      default: 'COD'
+    },
+
+    transactionId: {
+      type: String,
+      default: ''
+    },
+
+    paymentIntentId: {
+      type: String,
+      default: ''
+    },
+
+    clientSecret: {
+      type: String,
+      default: '',
+      select: false
+    },
+
+    currency: {
+      type: String,
+      default: 'PKR'
+    },
+
+    paidAt: {
+      type: Date
+    },
+
+    gatewayResponse: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+    }
+  },
+  
   orderStatus: {
     type: String,
     enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'],

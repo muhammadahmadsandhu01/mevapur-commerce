@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { Product, Category } from "@/types/product";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
@@ -17,10 +18,13 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== "undefined") {
-      const token = localStorage.getItem("token");
-
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      const authStorage = localStorage.getItem("mevapur-auth-storage");
+      if (authStorage) {
+          const parsed = JSON.parse(authStorage);
+          const token = parsed?.state?.token;
+          if (token) {
+              config.headers.Authorization = `Bearer ${token}`;
+          }
       }
     }
 
@@ -36,11 +40,20 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+
+    console.error("Axios Error:", {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL,
+    });
+
     if (
       error.response?.status === 401 &&
       typeof window !== "undefined"
     ) {
-      localStorage.removeItem("token");
+      localStorage.removeItem("mevapur-auth-storage");
       window.location.href = "/login";
     }
 
@@ -51,18 +64,6 @@ api.interceptors.response.use(
 // =========================
 // Interfaces
 // =========================
-
-export interface Product {
-  _id: string;
-  name: string;
-  slug: string;
-  price: number;
-  image: string;
-
-  category?: {
-    name: string;
-  };
-}
 
 export interface SearchSuggestion {
   _id: string;
@@ -75,10 +76,6 @@ export interface SearchSuggestion {
     name: string;
   };
 }
-
-// =========================
-// Categories
-// =========================
 
 export const getCategories = async () => {
   const response = await api.get("/categories");
@@ -186,6 +183,57 @@ export const searchProducts = async ({
   }
 
   return response.data.data ?? [];
+};
+
+// ============================================
+// Payment APIs
+// ============================================
+
+export interface CreatePaymentIntentResponse {
+  success: boolean;
+  clientSecret: string;
+  paymentIntentId: string;
+}
+
+export const createPaymentIntent = async (
+  amount: number,
+  currency: string = "pkr"
+): Promise<CreatePaymentIntentResponse> => {
+  const response = await api.post(
+    "/payments/create-payment-intent",
+    {
+      amount,
+      currency,
+    }
+  );
+
+  return response.data;
+};
+
+export const verifyStripePayment = async (
+  paymentIntentId: string
+) => {
+  const response = await api.post(
+    "/payments/verify",
+    {
+      paymentIntentId,
+    }
+  );
+
+  return response.data;
+};
+
+export const createJazzCashPayment = async (
+  amount: number
+) => {
+  const response = await api.post(
+    "/payments/jazzcash/create",
+    {
+      amount,
+    }
+  );
+
+  return response.data;
 };
 
 export default api;
