@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 // @access  Public
 exports.getProducts = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page,10)||1, 1);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = parseInt(req.query.limit, 10) || 12;
     const skip = (page - 1) * limit;
 
@@ -100,17 +100,11 @@ exports.getProducts = async (req, res) => {
         name: product.name,
         slug: product.slug,
         price: product.price,
-        image:
-          product.image ||
-          product.primaryImage ||
-          '/placeholder.png',
+        image: product.image || product.primaryImage || '/placeholder.png',
         category: product.category,
       }));
 
-      return res.json({
-        success: true,
-        data: formattedProducts,
-      });
+      return res.json({ success: true, data: formattedProducts });
     }
 
     // 8. Sorting
@@ -127,9 +121,6 @@ exports.getProducts = async (req, res) => {
         .sort(sortOption)
         .limit(limit)
         .skip(skip)
-        // .populate('category', 'name slug')
-        // .populate('subcategory', 'name slug')
-        // .populate('brand', 'name slug logo')
         .select('-__v')
         .lean(),
       Product.countDocuments(query)
@@ -153,29 +144,60 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product
+// @desc    Get single product (FIXED: Handles corrupt references safely)
 // @route   GET /api/products/:id
 // @access  Public
 exports.getProduct = async (req, res) => {
   try {
-    const product = await Product.findOne({
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(req.params.id) ? req.params.id : null },
-          { slug: req.params.id }
-        ]
-      })
-      .populate('category', 'name slug')
-      .populate('subcategory', 'name slug')
-      .populate('brand', 'name slug logo')
-      .lean();
-      
+    const { id } = req.params;
+    let product = null;
+
+    // Check if the input is a valid MongoDB ObjectId
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+
+    if (isValidObjectId) {
+      // First try to find by _id
+      product = await Product.findOne({ _id: id }).lean();
+    }
+
+    // If not found by ID (or if ID was invalid), try finding by Slug
+    if (!product) {
+      product = await Product.findOne({ slug: id }).lean();
+    }
+
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    
+
+    // MANUAL POPULATION with Error Handling
+    // Instead of .populate() which crashes on bad data, we fetch references manually
+    try {
+      if (product.category && mongoose.Types.ObjectId.isValid(product.category)) {
+        const Category = mongoose.model('Category');
+        const cat = await Category.findById(product.category).lean();
+        product.category = cat || product.category; // Keep ID if category missing
+      }
+      
+      if (product.subcategory && mongoose.Types.ObjectId.isValid(product.subcategory)) {
+        const Category = mongoose.model('Category');
+        const subcat = await Category.findById(product.subcategory).lean();
+        product.subcategory = subcat || product.subcategory;
+      }
+
+      if (product.brand && mongoose.Types.ObjectId.isValid(product.brand)) {
+        const Brand = mongoose.model('Brand');
+        const br = await Brand.findById(product.brand).lean();
+        product.brand = br || product.brand;
+      }
+    } catch (populateError) {
+      console.warn('Populate failed for product, skipping references:', populateError.message);
+      // Continue with product data even if references fail
+    }
+
     res.json({ success: true, data: product });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Get product error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch product details' });
   }
 };
 
@@ -187,7 +209,6 @@ exports.createProduct = async (req, res) => {
     // Pre-validation for variants
     if (req.body.variants?.length > 0) {
       const hasDefault = req.body.variants.some(v => v.isDefault);
-
       if (!hasDefault) {
         req.body.variants[0].isDefault = true;
       }
@@ -214,7 +235,7 @@ exports.createProduct = async (req, res) => {
 // @access  Private/Admin
 exports.updateProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id)
+    const product = await Product.findById(req.params.id);
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
@@ -222,7 +243,6 @@ exports.updateProduct = async (req, res) => {
     // Pre-validation for variants update
     if (req.body.variants?.length > 0) {
       const hasDefault = req.body.variants.some(v => v.isDefault);
-
       if (!hasDefault) {
         req.body.variants[0].isDefault = true;
       }
@@ -248,12 +268,11 @@ exports.updateProduct = async (req, res) => {
 // @access  Private/Admin
 exports.deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id)
+    const product = await Product.findById(req.params.id);
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
     
-    // Soft delete preferred in enterprise, but hard delete is fine for now
     await product.deleteOne();
     res.json({ success: true, message: 'Product removed successfully' });
   } catch (error) {
@@ -271,7 +290,6 @@ exports.bulkDeleteProducts = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No product IDs provided' });
     }
     
-    // Validate ObjectIds
     const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
     await Product.deleteMany({ _id: { $in: validIds } });
     
@@ -293,7 +311,7 @@ exports.getTopProducts = async (req, res) => {
       .populate('category', 'name slug')
       .populate('brand', 'name slug')
       .select('name price primaryImage images rating reviewCount slug')
-      .lean()
+      .lean();
       
     res.json({ success: true, data: products });
   } catch (error) {
@@ -328,7 +346,9 @@ exports.getRecommendedProducts = async (req, res) => {
   try {
     const { categoryId, limit = 8 } = req.query;
     let query = { isActive: true };
-    if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {query.category = new mongoose.Types.ObjectId(categoryId);}
+    if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
+      query.category = new mongoose.Types.ObjectId(categoryId);
+    }
     
     const products = await Product.find(query)
       .sort({ rating: -1, reviewCount: -1 })

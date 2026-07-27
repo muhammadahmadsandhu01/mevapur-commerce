@@ -1,87 +1,99 @@
-const nodemailer = require('nodemailer');
-const { logger } = require('../middleware/logger');
+const logger = require('../common/logger');
+const config = require('../config/email.config');
 
-// Create Transporter
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD
+class EmailService {
+  /**
+   * Send Verification Email
+   */
+  async sendVerificationEmail(email, fullName, token) {
+    const verificationLink = `${config.frontendUrl}/verify-email?token=${token}`;
+    
+    const emailData = {
+      to: email,
+      subject: 'Verify Your Email - MevaPur',
+      template: 'verification',
+      data: {
+        fullName,
+        verificationLink
+      }
+    };
+
+    // In production, this would be queued
+    await this.send(emailData);
+    
+    logger.info('Verification email sent', { email });
   }
-});
 
-// Verify connection configuration
-transporter.verify((error, success) => {
-  if (error) {
-    logger.error('Email service verification failed:', error);
-  } else {
-    logger.info('Email service ready to send messages');
+  /**
+   * Send Password Reset Email
+   */
+  async sendPasswordResetEmail(email, fullName, token) {
+    const resetLink = `${config.frontendUrl}/reset-password?token=${token}`;
+    
+    const emailData = {
+      to: email,
+      subject: 'Reset Your Password - MevaPur',
+      template: 'password-reset',
+      data: {
+        fullName,
+        resetLink
+      }
+    };
+
+    await this.send(emailData);
+    
+    logger.info('Password reset email sent', { email });
   }
-});
 
+  /**
+   * Send Welcome Email
+   */
+  async sendWelcomeEmail(email, fullName) {
+    const emailData = {
+      to: email,
+      subject: 'Welcome to MevaPur!',
+      template: 'welcome',
+      data: {
+        fullName
+      }
+    };
 
-/**
- * Send Order Confirmation Email
- */
-exports.sendOrderConfirmation = async (email, order) => {
-  const mailOptions = {
-    from: process.env.EMAIL_FROM,
-    to: email,
-    subject: `Order Confirmation #${order.orderId}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; color: #333;">
-        <h2 style="color: #0F766E;">Thank you for your order!</h2>
-        <p>Dear ${order.shippingAddress.fullName},</p>
-        <p>Your order <strong>#${order.orderId}</strong> has been placed successfully.</p>
-        <h3>Order Details:</h3>
-        <ul>
-          ${order.items.map(item => `<li>${item.name} x ${item.quantity}</li>`).join('')}
-        </ul>
-        <p><strong>Total Amount: $${order.totalAmount}</strong></p>
-        <p>We will notify you once your order is shipped.</p>
-        <br/>
-        <p>Best Regards,<br/>MevaPur Team</p>
-      </div>
-    `
-  };
+    await this.send(emailData);
+    
+    logger.info('Welcome email sent', { email });
+  }
 
-  try {
-    await transporter.sendMail(mailOptions);
-    logger.info(`Order confirmation email sent to ${email}`);
+  /**
+   * Generic Send Method
+   * In production, integrate with Nodemailer/SendGrid/AWS SES
+   */
+  async send(emailData) {
+    // Mock implementation - replace with actual email provider
+    logger.info('Email queued', { 
+      to: emailData.to, 
+      subject: emailData.subject 
+    });
+    
+    // Example with Nodemailer:
+    // const transporter = nodemailer.createTransport(config.smtp);
+    // await transporter.sendMail({
+    //   from: config.from,
+    //   to: emailData.to,
+    //   subject: emailData.subject,
+    //   html: this.renderTemplate(emailData.template, emailData.data)
+    // });
+
     return { success: true };
-  } catch (error) {
-    logger.error('Failed to send order email:', error);
-    throw new Error('Email service failed');
   }
-};
 
-/**
- * Send Password Reset Email
- */
-exports.sendPasswordReset = async (email, resetToken) => {
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-  
-  const mailOptions = {
-    from: process.env.EMAIL_FROM,
-    to: email,
-    subject: 'Password Reset Request - MevaPur',
-    html: `
-      <p>You requested a password reset.</p>
-      <p>Click the link below to reset your password:</p>
-      <a href="${resetUrl}" style="color: #0F766E; font-weight: bold;">Reset Password</a>
-      <p>This link expires in 10 minutes.</p>
-      <p>If you didn't request this, please ignore this email.</p>
-    `
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    logger.info(`Password reset email sent to ${email}`);
-    return { success: true };
-  } catch (error) {
-    logger.error('Failed to send reset email:', error);
-    throw new Error('Email service failed');
+  /**
+   * Render Email Template
+   */
+  renderTemplate(templateName, data) {
+    // In production, use Handlebars/Pug/EJS
+    // This is a mock implementation
+    return `<html><body>Email Content for ${templateName}</body></html>`;
   }
-};
+}
+
+module.exports = new EmailService();

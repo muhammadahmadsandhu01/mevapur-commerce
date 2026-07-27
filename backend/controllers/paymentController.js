@@ -1,147 +1,73 @@
-const Stripe = require('stripe');
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const crypto = require('crypto');
-const axios = require('axios');
-const Order = require('../models/Order');
+const PaymentService = require('../services/payment/PaymentService');
+const { logger } = require('../errors/logger');
+const { z } = require('zod');
 
-/**
- * ==========================================
- * Create Stripe Payment Intent
- * POST /api/payments/create-payment-intent
- * ==========================================
- */
-exports.createPaymentIntent = async (req, res) => {
+const createPaymentSchema = z.object({
+  orderId: z.string().min(1),
+  gateway: z.enum(['stripe', 'jazzcash']),
+  amount: z.number().positive(),
+  currency: z.string().optional().default('PKR')
+});
+
+const refundSchema = z.object({
+  amount: z.number().positive().optional(),
+  reason: z.string().max(200).optional()
+});
+
+exports.createPayment = async (req, res, next) => {
   try {
+    const validatedData = createPaymentSchema.parse(req.body);
+    
+    // Generate Idempotency Key from request headers or create new
+    const idempotencyKey = req.headers['idempotency-key'] || `${req.user.id}-${validatedData.orderId}-${Date.now()}`;
 
-    const {amount, currency = 'pkr', orderId, customerName, customerEmail} = req.body;
+    const result = await PaymentService.createPaymentSession(
+      req.user.id,
+      validatedData.orderId,
+      validatedData.gateway,
+      validatedData.amount,
+      validatedData.currency,
+      idempotencyKey
+    );
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid payment amount'
-      });
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create({
-
-      amount: Math.round(Number(amount) * 100),
-
-      currency,
-
-      automatic_payment_methods: {
-        enabled: true
-      },
-
-      metadata: {
-        source: 'MevaPur',
-        orderId: orderId || '',
-        customerName: customerName || '',
-        customerEmail: customerEmail || ''
-    }
-
-    });
-
-    return res.status(200).json({
-
-      success: true,
-
-      clientSecret: paymentIntent.client_secret,
-
-      paymentIntentId: paymentIntent.id
-
-    });
-
+    res.json({ success: true, data: result });
   } catch (error) {
-
-    console.error(error);
-
-    return res.status(500).json({
-
-      success: false,
-
-      message: error.message
-
-    });
-
+    logger.error('Create payment error', error);
+    next(error);
   }
 };
 
-
-/**
- * ==========================================
- * Verify Stripe Payment
- * POST /api/payments/verify
- * ==========================================
- */
-
-exports.verifyStripePayment = async (req, res) => {
-
+exports.handleWebhook = async (req, res) => {
   try {
+    const gateway = req.params.gateway;
+    const signature = req.headers['stripe-signature'] || req.headers['x-jazzcash-signature'];
+    
+    // Raw body is needed for signature verification, ensure middleware preserves it
+    const rawBody = Buffer.from(JSON.stringify(req.body)); 
 
-    const {
+    await PaymentService.handleWebhook(gateway, rawBody, signature);
 
-      paymentIntentId
-
-    } = req.body;
-
-    if (!paymentIntentId) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: 'Payment Intent ID missing'
-
-      });
-
+    res.json({ received: true });
+  } catch (error) {
+    logger.error('Webhook processing error', error);
+    // Return 200 anyway to prevent gateway retries for logical errors, unless signature fails
+    if (error.code === 'WEBHOOK_VERIFICATION_FAILED') {
+      return res.status(400).json({ error: 'Invalid signature' });
     }
-
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-    return res.json({
-
-      success: true,
-
-      status: paymentIntent.status,
-
-      paymentIntent
-
-    });
-
+    res.status(200).json({ received: true, error: error.message });
   }
-
-  catch (error) {
-
-    console.error(error);
-
-    return res.status(500).json({
-
-      success: false,
-
-      message: error.message
-
-    });
-
-  }
-
 };
 
+exports.refundPayment = async (req, res, next) => {
+  try {
+    const { amount, reason } = refundSchema.parse(req.body);
+    const { id } = req.params;
 
+    const payment = await PaymentService.processRefund(id, amount, reason, req.user.id);
 
-/**
- * ==========================================
- * JazzCash Placeholder
- * ==========================================
- */
-
-exports.createJazzCashPayment = async (req, res) => {
-
-  return res.json({
-
-    success: true,
-
-    message: 'JazzCash integration will be added here.'
-
-  });
-
+    res.json({ success: true, data: payment });
+  } catch (error) {
+    logger.error('Refund error', error);
+    next(error);
+  }
 };

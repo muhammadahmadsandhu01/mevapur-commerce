@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from '@/lib/api';
 import { CartItem } from '@/store/cartStore';
 import { PricingResult } from '@/lib/checkout/pricing';
 
@@ -10,78 +10,89 @@ interface ShippingAddress {
   postalCode: string;
 }
 
-interface OrderPayload {
+interface SecureOrderPayload {
   items: Array<{
     product: string;
-    name: string;
-    price: number;
     quantity: number;
-    image: string;
   }>;
   shippingAddress: ShippingAddress;
   paymentMethod: string;
-  subtotal: number;
-  shippingCost: number;
-  discount: number;
-  totalAmount: number;
-  notes: string;
+  couponCode?: string;
+  notes?: string;
 }
 
-export interface OrderResponse {
+interface SecureOrderResponse {
   success: boolean;
   data: {
     _id: string;
+    orderId: string;
     orderNumber: string;
+    totalAmount: number;
   };
   message?: string;
 }
 
-/**
- * Creates an order via the backend API.
- * Separates network logic from UI components.
- */
-export async function createOrder(
-  token: string,
-  items: CartItem[],
-  address: ShippingAddress,
-  paymentMethod: string,
-  pricing: PricingResult,
-  notes: string
-): Promise<OrderResponse> {
-  
-  const orderData: OrderPayload = {
-    items: items.map((item) => ({
-      product: item._id || item.id, // Ensure backend gets ID
-      name: item.name,
-      price: parseFloat(String(item.price)),
-      quantity: item.quantity,
-      image: item.image || '',
-    })),
-    shippingAddress: {
-      fullName: address.fullName,
-      phone: address.phone,
-      address: address.address,
-      city: address.city,
-      postalCode: address.postalCode,
-    },
-    paymentMethod,
-    subtotal: pricing.subtotal,
-    shippingCost: pricing.shippingCost,
-    discount: pricing.discountAmount,
-    totalAmount: pricing.grandTotal,
-    notes: notes || 'Order placed via website',
-  };
-
-  const response = await axios.post<OrderResponse>(
-    `${process.env.NEXT_PUBLIC_API_URL}/orders`,
-    orderData,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+export const secureOrderService = {
+  /**
+   * Create order with server-side pricing calculation
+   * Client only sends product IDs and quantities
+   * Server calculates all prices, discounts, and totals
+   */
+  createSecureOrder: async (
+    items: CartItem[],
+    address: ShippingAddress,
+    paymentMethod: string,
+    couponCode?: string,
+    notes?: string
+  ): Promise<SecureOrderResponse> => {
+    const orderData: SecureOrderPayload = {
+      items: items.map(item => ({
+        product: item._id || item.id,
+        quantity: item.quantity
+      })),
+      shippingAddress: {
+        fullName: address.fullName,
+        phone: address.phone,
+        address: address.address,
+        city: address.city,
+        postalCode: address.postalCode
       },
-    }
-  );
+      paymentMethod,
+      couponCode: couponCode || undefined,
+      notes: notes || undefined
+    };
 
-  return response.data;
-}
+    const response = await api.post('/orders', orderData);
+    return response.data;
+  },
+
+  /**
+   * Verify order exists and belongs to user
+   */
+  verifyOrder: async (orderId: string): Promise<boolean> => {
+    try {
+      const response = await api.get(`/orders/${orderId}`);
+      return response.data.success;
+    } catch (error) {
+      return false;
+    }
+  },
+
+  /**
+   * Get order summary (prices calculated server-side)
+   */
+  getOrderSummary: async (
+    items: CartItem[],
+    couponCode?: string
+  ): Promise<PricingResult> => {
+    const response = await api.post('/orders/validate', {
+      items: items.map(item => ({
+        product: item._id || item.id,
+        quantity: item.quantity
+      })),
+      couponCode
+    });
+    
+    return response.data.pricing;
+  }
+};

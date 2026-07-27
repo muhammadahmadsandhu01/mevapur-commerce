@@ -1,45 +1,19 @@
 const express = require('express');
 const router = express.Router();
+const paymentController = require('../controllers/paymentController');
+const { protect } = require('../middleware/auth'); // Assuming auth middleware exists
+const validate = require('../middleware/validate');
+const { createPaymentSchema, refundSchema } = require('../validators/paymentValidator'); // You'd create this similar to orderValidator
 
-const {
-  createPaymentIntent,
-  verifyStripePayment,
-  createJazzCashPayment
-} = require('../controllers/paymentController');
+// Public Webhooks (No auth, signature verified inside)
+router.post('/webhook/:gateway', express.raw({ type: 'application/json' }), (req, res, next) => {
+  // Middleware to parse JSON but keep raw buffer for signature check would go here
+  // For simplicity, assuming controller handles it or custom middleware used
+  paymentController.handleWebhook(req, res, next);
+});
 
-const { protect } = require('../middleware/authMiddleware');
-
-/*
-|--------------------------------------------------------------------------
-| Stripe
-|--------------------------------------------------------------------------
-*/
-
-// Create Stripe Payment Intent
-router.post(
-  '/create-payment-intent',
-  protect,
-  createPaymentIntent
-);
-
-// Verify Stripe Payment
-router.post(
-  '/verify',
-  protect,
-  verifyStripePayment
-);
-
-/*
-|--------------------------------------------------------------------------
-| JazzCash
-|--------------------------------------------------------------------------
-*/
-
-// Create JazzCash Payment
-router.post(
-  '/jazzcash/create',
-  protect,
-  createJazzCashPayment
-);
+// Protected Routes
+router.post('/', protect, paymentController.createPayment);
+router.post('/:id/refund', protect, paymentController.refundPayment);
 
 module.exports = router;

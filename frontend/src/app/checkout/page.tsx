@@ -1,31 +1,63 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { useRouter } from 'next/navigation';
-import PaymentModal from '@/components/PaymentModal';
 import Link from 'next/link';
-import axios from 'axios';
-import Toast from '@/components/Toast';
-import { MapPin, CreditCard, Mail, CheckCircle, Loader, ArrowLeft, Shield, Truck, RotateCcw, Headphones, Tag, Package, Phone, Globe, Building2, Lock} from 'lucide-react';
+import { 
+  MapPin, CreditCard, Mail, CheckCircle, Loader, ArrowLeft, Shield, 
+  Truck, RotateCcw, Headphones, Tag, Package, Building2, Lock, AlertCircle, Globe // ✅ FIX: Globe added
+} from 'lucide-react';
+
+// --- Enterprise Services & Utils ---
 import { calculatePricing } from "@/lib/checkout/pricing";
+import { secureValidation } from "@/lib/checkout/secure-validation"; // ✅ File created in Step 1
+import { secureOrderService } from "@/services/order.service"; // ✅ File created in Step 1
+// import { paymentService } from "@/services/payment.service"; // Optional for now
+
+// --- Components ---
+import PaymentModal from '@/components/checkout/PaymentModal';
+import Toast from '@/components/Toast';
+import ContactForm from '@/components/checkout/ContactForm';
+
+// --- Types ---
+type PaymentMethod = 'COD' | 'visa' | 'mastercard' | 'jazzcash';
+
+interface FormData {
+  fullName: string;
+  email: string;
+  phone: string;
+  address: string;
+  province: string;
+  city: string;
+  country: string;
+  postalCode: string;
+  paymentMethod: PaymentMethod;
+  notes: string;
+}
 
 export default function CheckoutPage() {
+  // --- State Management ---
   const { items, clearCart, updateQuantity, removeFromCart } = useCartStore();
   const { isAuthenticated, token } = useAuthStore();
   const router = useRouter();
+
   const [loading, setLoading] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
-  const [discount, setDiscount] = useState(0);
+  const [displayDiscount, setDisplayDiscount] = useState(0); 
+
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [agreeTerms, setAgreeTerms] = useState(false);
-  const [formData, setFormData] = useState({
+
+  const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
     phone: '',
@@ -34,7 +66,7 @@ export default function CheckoutPage() {
     city: 'Lahore',
     country: 'Pakistan',
     postalCode: '',
-    paymentMethod: 'visa',
+    paymentMethod: 'COD',
     notes: ''
   });
 
@@ -44,199 +76,124 @@ export default function CheckoutPage() {
     }
   }, [isAuthenticated, router]);
 
-  if (items.length === 0) {
+  if (items.length === 0 && !loading) {
     return (
-      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#0F766E' }} />
+      <div className="min-h-[80vh] flex flex-col items-center justify-center p-4">
+        <Package size={64} className="text-gray-300 mb-4" />
+        <h2 className="text-2xl font-bold text-gray-700 mb-2">Your Cart is Empty</h2>
+        <Link href="/products" className="text-teal-600 font-semibold hover:underline">
+          Continue Shopping →
+        </Link>
       </div>
     );
   }
 
-  // ✅ SAFE CALCULATIONS (Directly from items to avoid store function mismatches)
-  const cartSubtotal = items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
-  const pricing = calculatePricing(cartSubtotal, discount);
+  const cartSubtotal = useMemo(() => 
+    items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0), 
+  [items]);
+
+  const pricing = useMemo(() => 
+    calculatePricing(cartSubtotal, displayDiscount), 
+  [cartSubtotal, displayDiscount]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-    if (errors[name]) {
-      setErrors({ ...errors, [name]: '' });
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
+  };
+
+  const handleFieldBlur = (fieldName: string) => () => {
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
+    const error = secureValidation.validateField(fieldName, formData[fieldName as keyof FormData]);
+    setErrors(prev => ({ ...prev, [fieldName]: error || '' }));
+  };
+
+  const validateForm = () => {
+    const result = secureValidation.validateCheckout(formData, appliedCoupon || undefined);
+    setErrors(result.errors);
+    setTouched({ fullName: true, email: true, phone: true, address: true, postalCode: true });
+    
+    if (!agreeTerms) {
+      setToast({ message: 'Please agree to Terms & Conditions', type: 'error' });
+      return false;
     }
+    return result.isValid;
   };
 
-  const handleFieldBlur = (fieldName: string) => (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setTouched({ ...touched, [fieldName]: true });
-    validateField(fieldName);
-    if (!errors[fieldName]) {
-      e.currentTarget.style.borderColor = '#E5E7EB';
-      e.currentTarget.style.boxShadow = 'none';
+  const handleApplyCoupon = () => {
+    if (!couponCode.trim()) {
+      setToast({ message: 'Enter a coupon code', type: 'info' });
+      return;
     }
-  };
-
-  const validateField = (fieldName: string) => {
-    const value = formData[fieldName as keyof typeof formData];
-    const newErrors = { ...errors };
-
-    switch(fieldName) {
-      case 'fullName':
-        if (!value.trim()) newErrors.fullName = 'Full name is required';
-        else if (value.trim().length < 3) newErrors.fullName = 'Name must be at least 3 characters';
-        else delete newErrors.fullName;
-        break;
-      case 'email':
-        if (!value.trim()) newErrors.email = 'Email is required';
-        else if (!/\S+@\S+\.\S+/.test(value)) newErrors.email = 'Please enter a valid email';
-        else delete newErrors.email;
-        break;
-      case 'phone':
-        if (!value.trim()) newErrors.phone = 'Phone number is required';
-        else if (!/^03\d{9}$/.test(value.replace(/\s/g, ''))) newErrors.phone = 'Enter valid Pakistani number (03XX-XXXXXXX)';
-        else delete newErrors.phone;
-        break;
-      case 'address':
-        if (!value.trim()) newErrors.address = 'Address is required';
-        else if (value.trim().length < 10) newErrors.address = 'Please enter complete address';
-        else delete newErrors.address;
-        break;
-      case 'postalCode':
-        if (!value.trim()) newErrors.postalCode = 'Postal code is required';
-        else if (!/^\d{5}$/.test(value)) newErrors.postalCode = 'Enter 5-digit postal code';
-        else delete newErrors.postalCode;
-        break;
-    }
-    setErrors(newErrors);
-    return !newErrors[fieldName];
-  };
-
-  const validate = () => {
-    let isValid = true;
-    ['fullName', 'email', 'phone', 'address', 'postalCode'].forEach(field => {
-      if (!validateField(field)) isValid = false;
-      setTouched(prev => ({ ...prev, [field]: true }));
-    });
-    return isValid;
-  };
-
-  const COUPONS: Record<string, number> = {
-    'MEVA20': 20,
-    'FIRSTORDER': 15,
-    'RAMADAN': 25,
-    'WELCOME': 10
-  };
-
-  const applyCoupon = () => {
+    const validCoupons: Record<string, number> = {
+      'MEVA20': 20, 'FIRSTORDER': 15, 'RAMADAN': 25, 'WELCOME': 10
+    };
     const upperCode = couponCode.toUpperCase();
-    if (COUPONS[upperCode]) {
-      setDiscount(COUPONS[upperCode]);
+    if (validCoupons[upperCode]) {
+      setDisplayDiscount(validCoupons[upperCode]);
       setAppliedCoupon(upperCode);
       setToast({ message: `Coupon ${upperCode} applied successfully!`, type: 'success' });
     } else {
-      setToast({ message: 'Invalid coupon. Try: MEVA20, FIRSTORDER, RAMADAN', type: 'error' });
+      setToast({ message: 'Invalid coupon code.', type: 'error' });
     }
   };
 
-  const createOrder = async (
-      transactionId?: string
-  ) => {
-
+  const processOrder = async (transactionId?: string) => {
+    if (!token) throw new Error('Authentication required');
+    try {
       setLoading(true);
+      const response = await secureOrderService.createSecureOrder(
+        items,
+        {
+          fullName: formData.fullName,
+          phone: formData.phone,
+          address: formData.address,
+          city: formData.city,
+          postalCode: formData.postalCode
+        },
+        formData.paymentMethod,
+        appliedCoupon || undefined,
+        formData.notes
+      );
 
-      try {
-
-          const orderData = {
-              items: items.map(item => ({
-                  product: item._id || item.id,
-                  name: item.name,
-                  price: Number(item.price),
-                  quantity: item.quantity,
-                  image: item.image || ""
-              })),
-
-              shippingAddress: {
-                  fullName: formData.fullName,
-                  phone: formData.phone,
-                  address: formData.address,
-                  city: formData.city,
-                  postalCode: formData.postalCode
-              },
-
-              paymentMethod: formData.paymentMethod,
-
-              paymentResult: transactionId
-                  ? {
-                      id: transactionId,
-                      status: "completed"
-                    }
-                  : undefined,
-
-              subtotal: cartSubtotal,
-              shippingCost: pricing.shippingCost,
-              discount: pricing.discountAmount,
-              totalAmount: pricing.grandTotal,
-              notes: formData.notes
-          };
-
-          const response = await axios.post(
-              `${process.env.NEXT_PUBLIC_API_URL}/orders`,
-              orderData,
-              {
-                  headers: {
-                      Authorization: `Bearer ${token}`
-                  }
-              }
-          );
-
-          clearCart();
-
-          router.push(
-              `/order-success?orderId=${response.data.data._id}`
-          );
-
-      } catch (error:any) {
-
-          setToast({
-              message:
-              error.response?.data?.message ||
-              "Order creation failed.",
-              type:"error"
-          });
-
-      } finally {
-
-          setLoading(false);
-
+      if (response.success && response.data) {
+        clearCart();
+        router.push(`/order-success?orderId=${response.data._id}`);
       }
-
+    } catch (error: any) {
+      console.error('Order failed:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
+    e.preventDefault();
+    if (!validateForm()) {
+      setToast({ message: 'Please fix the errors in the form', type: 'error' });
+      return;
+    }
 
-      if (!validate()) {
-          setToast({
-              message: "Please fill all required fields correctly",
-              type: "error"
-          });
-          return;
-      }
-
-      if (!isAuthenticated || !token) {
-          router.push("/login?redirect=/checkout");
-          return;
-      }
-
-      if (formData.paymentMethod === "COD") {
-          await createOrder();
+    try {
+      if (formData.paymentMethod === 'COD') {
+        await processOrder(`COD-${Date.now()}`);
       } else {
-          setShowPaymentModal(true);
+        setShowPaymentModal(true);
       }
+    } catch (error: any) {
+      setToast({ message: error.response?.data?.message || 'Failed to place order', type: 'error' });
+    }
   };
 
-  const handlePaymentSuccess = async (
-      transactionId: string
-  ) => {
+  // ✅ FIX: Function signature matches PaymentModal props
+  const handlePaymentSuccess = async (transactionId: string) => {
+    try {
+      await processOrder(transactionId);
       setShowPaymentModal(false);
-      await createOrder(transactionId);
+    } catch (error: any) {
+      setToast({ message: error.message || 'Payment successful but order creation failed.', type: 'error' });
+    }
   };
 
   const steps = [
@@ -256,15 +213,8 @@ export default function CheckoutPage() {
     'Azad Kashmir': ['Muzaffarabad', 'Mirpur', 'Kotli']
   };
 
-  const getPhoneBorderColor = () => {
-    if (errors.phone && touched.phone) return '#EF4444';
-    if (touched.phone) return '#0F766E';
-    return '#E5E7EB';
-  };
-
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F7F8FA', paddingBottom: '60px', fontFamily: 'Outfit, Manrope, system-ui, sans-serif' }}>
-      
       {/* Progress Indicator */}
       <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '20px 0' }}>
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px' }}>
@@ -318,96 +268,13 @@ export default function CheckoutPage() {
           {/* LEFT: FORMS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             
-            {/* Contact Info */}
-            <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB' }}>
-              <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Mail size={22} color="#0F766E" /> Contact Information
-              </h3>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{ position: 'relative' }}>
-                  <label style={{ 
-                    position: 'absolute', left: '16px', top: formData.fullName ? '-10px' : '14px',
-                    fontSize: formData.fullName ? '11px' : '14px', fontWeight: '600',
-                    color: formData.fullName ? '#0F766E' : '#6B7280',
-                    backgroundColor: 'white', padding: '0 4px',
-                    transition: 'all 0.2s', pointerEvents: 'none'
-                  }}>
-                     Full Name *
-                  </label>
-                  <input name="fullName" value={formData.fullName} onChange={handleChange} onBlur={handleFieldBlur('fullName')}
-                    style={{ 
-                      width: '100%', padding: '16px', paddingTop: formData.fullName ? '24px' : '16px',
-                      borderRadius: '12px', border: `2px solid ${errors.fullName && touched.fullName ? '#EF4444' : touched.fullName ? '#0F766E' : '#E5E7EB'}`,
-                      fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
-                    }}
-                    onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
-                    placeholder=" "
-                  />
-                  {errors.fullName && touched.fullName && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}> {errors.fullName}</span>}
-                </div>
-
-                <div style={{ position: 'relative' }}>
-                  <label style={{ 
-                    position: 'absolute', left: '16px', top: formData.email ? '-10px' : '14px',
-                    fontSize: formData.email ? '11px' : '14px', fontWeight: '600',
-                    color: formData.email ? '#0F766E' : '#6B7280',
-                    backgroundColor: 'white', padding: '0 4px',
-                    transition: 'all 0.2s', pointerEvents: 'none'
-                  }}>
-                    📧 Email *
-                  </label>
-                  <input name="email" type="email" value={formData.email} onChange={handleChange} onBlur={handleFieldBlur('email')}
-                    style={{ 
-                      width: '100%', padding: '16px', paddingTop: formData.email ? '24px' : '16px',
-                      borderRadius: '12px', border: `2px solid ${errors.email && touched.email ? '#EF4444' : touched.email ? '#0F766E' : '#E5E7EB'}`,
-                      fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
-                    }}
-                    onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
-                    placeholder=" "
-                  />
-                  {errors.email && touched.email && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}>❌ {errors.email}</span>}
-                </div>
-              </div>
-
-              <div style={{ marginTop: '20px', position: 'relative' }}>
-                <label style={{ 
-                  position: 'absolute', left: '16px', top: formData.phone ? '-10px' : '14px',
-                  fontSize: formData.phone ? '11px' : '14px', fontWeight: '600',
-                  color: formData.phone ? '#0F766E' : '#6B7280',
-                  backgroundColor: 'white', padding: '0 4px',
-                  transition: 'all 0.2s', pointerEvents: 'none'
-                }}>
-                  📱 Phone Number *
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <div style={{ 
-                    backgroundColor: '#F8FAFC', padding: '16px', borderRadius: '12px 0 0 12px',
-                    borderTop: `2px solid ${getPhoneBorderColor()}`,
-                    borderRight: 'none',
-                    borderBottom: `2px solid ${getPhoneBorderColor()}`,
-                    borderLeft: `2px solid ${getPhoneBorderColor()}`,
-                    fontSize: '14px', fontWeight: '600', color: '#374151'
-                  }}>
-                    🇵🇰 +92
-                  </div>
-                  <input name="phone" value={formData.phone} onChange={handleChange} onBlur={handleFieldBlur('phone')}
-                    style={{ 
-                      flex: 1, padding: '16px', paddingTop: formData.phone ? '24px' : '16px',
-                      borderRadius: '0 12px 12px 0',
-                      borderTop: `2px solid ${getPhoneBorderColor()}`,
-                      borderRight: `2px solid ${getPhoneBorderColor()}`,
-                      borderBottom: `2px solid ${getPhoneBorderColor()}`,
-                      borderLeft: 'none',
-                      fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
-                    }}
-                    onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
-                    placeholder="03XX XXXXXXX"
-                  />
-                </div>
-                {errors.phone && touched.phone && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}>❌ {errors.phone}</span>}
-              </div>
-            </div>
+            <ContactForm 
+              formData={formData}
+              errors={errors}
+              touched={touched}
+              handleChange={handleChange}
+              handleFieldBlur={handleFieldBlur}
+            />
 
             {/* Shipping Address */}
             <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB' }}>
@@ -513,7 +380,7 @@ export default function CheckoutPage() {
                 {[
                     {id: "COD", label: "Cash on Delivery", icon: "💵", color: "#0F766E"},
                     {id: "jazzcash", label: "JazzCash", icon: "📱", color: "#7C3AED"},
-                    {id: "card", label: "Credit / Debit Card", icon: "💳", color: "#2563EB"}                
+                    {id: "visa", label: "Visa / MasterCard", icon: "💳", color: "#2563EB"}                
                 ].map(method => (
                   <label key={method.id} style={{ 
                     display: 'flex', alignItems: 'center', gap: '12px', padding: '18px', borderRadius: '14px', 
@@ -570,7 +437,7 @@ export default function CheckoutPage() {
                     <input type="text" placeholder="MEVA20" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                       style={{ flex: 1, padding: '12px 16px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '14px', outline: 'none', fontWeight: '600' }}
                     />
-                    <button type="button" onClick={applyCoupon} style={{ backgroundColor: '#F59E0B', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+                    <button type="button" onClick={handleApplyCoupon} style={{ backgroundColor: '#F59E0B', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
                       Apply
                     </button>
                   </div>
@@ -579,8 +446,9 @@ export default function CheckoutPage() {
                 <div style={{ backgroundColor: '#D1FAE5', borderRadius: '12px', padding: '14px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '2px solid #0F766E' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Tag size={18} color="#0F766E" />
-                    <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>{appliedCoupon} applied ({discount}% OFF)</span>
+                    <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>{appliedCoupon} applied ({displayDiscount}% OFF)</span>
                   </div>
+                  <button onClick={() => { setAppliedCoupon(null); setDisplayDiscount(0); }} className="text-xs text-red-600 font-bold hover:underline">Remove</button>
                 </div>
               )}
 
@@ -589,9 +457,9 @@ export default function CheckoutPage() {
                   <span style={{ color: '#6B7280' }}>Subtotal ({items.reduce((a,b) => a + b.quantity, 0)} items)</span>
                   <span style={{ fontWeight: '700', color: '#111827' }}>Rs. {cartSubtotal.toFixed(2)}</span>
                 </div>
-                {discount > 0 && (
+                {displayDiscount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#0F766E' }}>
-                    <span>Discount ({discount}%)</span>
+                    <span>Discount ({displayDiscount}%)</span>
                     <span style={{ fontWeight: '700' }}>-Rs. {pricing.discountAmount.toFixed(2)}</span>
                   </div>
                 )}
@@ -603,26 +471,32 @@ export default function CheckoutPage() {
                 </div>
                 {pricing.totalSavings > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#10B981', fontWeight: '700' }}>
-                    <span> You Saved</span>
+                    <span>You Saved</span>
                     <span>Rs. {pricing.totalSavings.toFixed(2)}</span>
                   </div>
                 )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px', fontSize: '24px', fontWeight: '800', color: '#0F766E', paddingTop: '20px', borderTop: '3px solid #E5E7EB' }}>
-                <label
-                  style={{display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "20px", fontSize: "14px", color: "#374151", cursor: "pointer",}}>
-                  <input type="checkbox" checked={agreeTerms} onChange={(e) => setAgreeTerms(e.target.checked)}/>
-
-                  <span>I agree to the Terms & Conditions and Privacy Policy.</span>
-                </label>
-                <span>Grand Total</span>
-                <span>Rs. {pricing.grandTotal.toFixed(2)}</span>
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label
+                    style={{display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", color: "#374151", cursor: "pointer",}}
+                  >
+                    <input type="checkbox" checked={agreeTerms} onChange={(e) => setAgreeTerms(e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"/>
+                    <span>I agree to Terms & Privacy Policy</span>
+                  </label>
+                  {!agreeTerms && <span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={12}/> Required</span>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '14px', color: '#6B7280', fontWeight: '500' }}>Grand Total</div>
+                  <div>Rs. {pricing.grandTotal.toFixed(2)}</div>
+                </div>
               </div>
 
-              <button type="submit" disabled={loading} style={{ 
-                width: '100%', backgroundColor: loading ? '#9CA3AF' : '#0F766E', color: 'white', border: 'none', padding: '20px', borderRadius: '14px', 
-                fontSize: '17px', fontWeight: '800', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px'
+              <button type="submit" disabled={loading || !agreeTerms} style={{ 
+                width: '100%', backgroundColor: loading || !agreeTerms ? '#9CA3AF' : '#0F766E', color: 'white', border: 'none', padding: '20px', borderRadius: '14px', 
+                fontSize: '17px', fontWeight: '800', cursor: loading || !agreeTerms ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                opacity: loading || !agreeTerms ? 0.7 : 1, transition: 'all 0.2s'
               }}>
                 {loading ? (
                   <>

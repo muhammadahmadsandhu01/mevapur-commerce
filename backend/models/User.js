@@ -1,214 +1,207 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 
 const userSchema = new mongoose.Schema(
-{
+  {
     fullName: {
-        type: String,
-        required: [true, 'Full name is required'],
-        trim: true,
-        minlength: [3, 'Full name must be at least 3 characters'],
-        maxlength: [100, 'Full name cannot exceed 100 characters']
+      type: String,
+      required: [true, 'Full name is required'],
+      trim: true,
+      minlength: [3, 'Full name must be at least 3 characters'],
+      maxlength: [100, 'Full name cannot exceed 100 characters']
     },
 
     email: {
-        type: String,
-        required: [true, 'Email is required'],
-        unique: true,
-        index: true,
-        lowercase: true,
-        trim: true,
-        match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
+      type: String,
+      required: [true, 'Email is required'],
+      unique: true,
+      index: true,
+      lowercase: true,
+      trim: true,
+      match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
     },
 
     phone: {
-        type: String,
-        trim: true,
-        maxlength: 20,
-        default: ''
+      type: String,
+      trim: true,
+      maxlength: 20,
+      default: ''
     },
 
     password: {
-        type: String,
-        required: [true, 'Password is required'],
-        minlength: [8, 'Password must be at least 8 characters'],
-        select: false
+      type: String,
+      required: [true, 'Password is required'],
+      minlength: [8, 'Password must be at least 8 characters'],
+      select: false // Password kabhi bhi query result mein wapis nahi aayega
     },
 
     role: {
-        type: String,
-        enum: [
-            'customer',
-            'support',
-            'inventory',
-            'manager',
-            'admin',
-            'super_admin'
-        ],
-        default: 'customer'
+      type: String,
+      enum: ['customer', 'support', 'inventory', 'manager', 'admin', 'super_admin'],
+      default: 'customer',
+      index: true // RBAC queries ke liye optimized
     },
 
     avatar: {
-        type: String,
-        default: ''
+      type: String,
+      default: ''
     },
 
     addresses: [
-        {
-            fullName: String,
-            phone: String,
-            address: String,
-            city: String,
-            state: String,
-            postalCode: String,
-            country: {
-                type: String,
-                default: 'Pakistan'
-            },
-            isDefault: {
-                type: Boolean,
-                default: false
-            }
+      {
+        fullName: String,
+        phone: String,
+        address: String,
+        city: String,
+        state: String,
+        postalCode: String,
+        country: {
+          type: String,
+          default: 'Pakistan'
+        },
+        isDefault: {
+          type: Boolean,
+          default: false
         }
+      }
     ],
 
+    // Email Verification Status
     isVerified: {
-        type: Boolean,
-        default: true
+      type: Boolean,
+      default: false // Security: Pehle verify hoga, phir login allowed
     },
 
+    // Account Status
     isBlocked: {
-        type: Boolean,
-        default: false
+      type: Boolean,
+      default: false,
+      index: true
     },
 
     isDeleted: {
-        type: Boolean,
-        default: false
+      type: Boolean,
+      default: false,
+      index: true // Soft Delete implementation
     },
 
-    verificationToken: String,
-
-    resetPasswordToken: String,
-
-    resetPasswordExpire: Date,
-
-    refreshToken: {
-        type: String,
-        default: null
+    // Security: Brute Force Protection
+    loginAttempts: {
+      type: Number,
+      default: 0,
+      select: false
+    },
+    lockUntil: {
+      type: Date,
+      default: null,
+      select: false
     },
 
-    lastLogin: Date
-},
-{
-    timestamps: true
+    // Security: Token Versioning (For Refresh Token Rotation & Logout All)
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      select: false
+    }
+    
+    // NOTE: refreshToken, verificationToken, resetPasswordToken fields removed.
+    // Ye ab 'Session' collection aur alag temporary collections mein store honge.
+  },
+  {
+    timestamps: true // createdAt, updatedAt auto manage
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| Indexes for Performance
+|--------------------------------------------------------------------------
+*/
+// Compound index for finding active users quickly
+userSchema.index({ isDeleted: 1, isBlocked: 1 });
+
+/*
+|--------------------------------------------------------------------------
+| Hash Password (Pre-Save Hook)
+|--------------------------------------------------------------------------
+*/
+userSchema.pre('save', async function(next) {
+  // Sirf tab hash karo jab password modify ho ya naya ho
+  if (!this.isModified('password')) {
+    return next();
+  }
+
+  try {
+    const salt = await bcrypt.genSalt(12);
+    this.password = await bcrypt.hash(this.password, salt);
+    
+    // Password change hone par login attempts reset karo
+    this.loginAttempts = 0;
+    this.lockUntil = null;
+    
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
-
-
-
-
 /*
 |--------------------------------------------------------------------------
-| Hash Password
+| Compare Password Instance Method
 |--------------------------------------------------------------------------
 */
-
-userSchema.pre('save', async function(next){
-
-    if(!this.isModified('password')){
-        return next();
-    }
-
-    try{
-
-        const salt=await bcrypt.genSalt(12);
-
-        this.password=await bcrypt.hash(this.password,salt);
-
-        next();
-
-    }catch(err){
-
-        next(err);
-
-    }
-
-});
-
-
-
-
-
-/*
-|--------------------------------------------------------------------------
-| Compare Password
-|--------------------------------------------------------------------------
-*/
-
-userSchema.methods.matchPassword=async function(password){
-
-    return await bcrypt.compare(password,this.password);
-
+userSchema.methods.matchPassword = async function(candidatePassword) {
+  // 'select: false' field ko access karne ke liye explicit populate nahi chahiye method ke andar
+  // lekin agar query mein select(false) tha to pehle select('+password') karna padega controller mein.
+  // Yeh method tab call karna jab password field loaded ho.
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
+/*
+|--------------------------------------------------------------------------
+| Account Lock Logic Helpers
+|--------------------------------------------------------------------------
+*/
+userSchema.methods.isAccountLocked = function() {
+  return !!(this.lockUntil && this.lockUntil > Date.now());
+};
 
-
-
+userSchema.methods.incrementLoginAttempts = function() {
+  // Agar account already locked hai ya attempts pehle se hain, to increment karo
+  if (this.lockUntil && this.lockUntil < Date.now()) {
+    return this.updateOne({
+      $set: { loginAttempts: 1 },
+      $unset: { lockUntil: 1 }
+    });
+  }
+  
+  const updates = { $inc: { loginAttempts: 1 } };
+  
+  // Agar 5 attempts ho gaye, to 1 hour ke liye lock karo (Configurable)
+  if (this.loginAttempts + 1 >= 5 && !this.isAccountLocked()) {
+    updates.$set = { lockUntil: Date.now() + 60 * 60 * 1000 }; // 1 hour
+  }
+  
+  return this.updateOne(updates);
+};
 
 /*
 |--------------------------------------------------------------------------
-| Generate JWT
+| Hide Sensitive Data (toJSON)
 |--------------------------------------------------------------------------
 */
-
-userSchema.methods.generateToken=function(){
-
-    return jwt.sign(
-
-        {
-
-            id:this._id,
-
-            role:this.role
-
-        },
-
-        process.env.JWT_SECRET,
-
-        {
-
-            expiresIn:process.env.JWT_EXPIRE || '7d'
-
-        }
-
-    );
-
+userSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  
+  // Sensitive fields remove karo
+  delete obj.password;
+  delete obj.loginAttempts;
+  delete obj.lockUntil;
+  delete obj.tokenVersion;
+  delete obj.__v;
+  delete obj.isDeleted; // Client ko soft delete flag dikhane ki zarurat nahi
+  
+  return obj;
 };
 
-
-
-
-
-/*
-|--------------------------------------------------------------------------
-| Hide Sensitive Data
-|--------------------------------------------------------------------------
-*/
-
-userSchema.methods.toJSON=function(){
-
-    const obj=this.toObject();
-
-    delete obj.password;
-    delete obj.resetPasswordToken;
-    delete obj.resetPasswordExpire;
-    delete obj.refreshToken;
-    delete obj.__v;
-
-    return obj;
-
-};
-
-module.exports=mongoose.model('User',userSchema);
+module.exports = mongoose.model('User', userSchema);

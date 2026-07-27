@@ -1,86 +1,96 @@
 const User = require('../models/User');
+const AuthService = require('../services/AuthService');
+const AuditService = require('../services/AuditService');
 const { validationResult } = require('express-validator');
 const { logger } = require('../middleware/logger');
-const crypto = require('crypto');
+const config = require('../config/auth.config');
 
 /*
 |--------------------------------------------------------------------------
-| Helper: Get Client IP & User Agent for Logging
+| Helper: Get Client Info for Logging & Audit
 |--------------------------------------------------------------------------
 */
-const getClientInfo = (req) => {
-  return {
-    ip: req.ip || req.connection.remoteAddress || 'unknown',
-    userAgent: req.get('User-Agent') || 'unknown'
-  };
-};
+const getClientInfo = (req) => ({
+  ip: req.ip || req.connection.remoteAddress || 'unknown',
+  userAgent: req.get('User-Agent') || 'unknown',
+  requestId: req.get('X-Request-ID') || 'unknown'
+});
 
 /*
 |--------------------------------------------------------------------------
 | Register New User
 |--------------------------------------------------------------------------
-| - Validates input via express-validator
-| - Prevents role escalation (hardcoded 'customer')
-| - Uses Model hooks for password hashing
-| - Logs registration with IP info
+| - Validates input via express-validator (middleware)
+| - Calls AuthService for business logic
+| - Logs audit event
+| - Returns standardized response
 */
-exports.register = async (req, res) => {
+exports.register = async (req, res, next) => {
   try {
-    // 1. Validation Check
+    // 1. Validation Check (from middleware)
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        error: {
+          code: 'AUTH_VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
       });
     }
 
     const { fullName, email, password, phone } = req.body;
-    const normalizedEmail = email.toLowerCase().trim();
     const clientInfo = getClientInfo(req);
 
-    // 2. Check Existing User
-    const existingUser = await User.findOne({email: normalizedEmail});
-    if (existingUser) {
-      logger.warn(`Registration attempt with existing email: ${email} from ${clientInfo.ip}`);
-      return res.status(409).json({
-        success: false,
-        message: 'User already exists with this email address.'
-      });
-    }
-
-    // 3. Create User (Model pre-save hook handles hashing)
-    const user = await User.create({
+    // 2. Call Service Layer
+    const result = await AuthService.register({
       fullName,
-      email: normalizedEmail,
+      email,
       password,
       phone,
-      role: 'customer' // 🔒 Security: Force default role to prevent escalation
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent
     });
 
-    // 4. Generate Token (Using Model Method)
-    const token = user.generateToken();
+    // 3. Audit Log
+    await AuditService.log({
+      requestId: clientInfo.requestId,
+      userId: result.user._id,
+      action: 'AUTH.REGISTER',
+      status: 'SUCCESS',
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent,
+      metadata: { email: result.user.email }
+    });
 
-    // 5. Log Activity
-    logger.info(`New user registered: ${email} (ID: ${user._id}) from ${clientInfo.ip}`);
-
-    // 6. Send Response (Model toJSON method hides sensitive fields automatically)
+    // 4. Standardized Response
     return res.status(201).json({
       success: true,
       message: 'Registration successful',
-      data: {
-        user,
-        token
-      }
+      data: result
     });
 
   } catch (error) {
     logger.error(`Registration Error: ${error.message}`, error.stack);
     
-    return res.status(500).json({
+    // Audit failure
+    await AuditService.log({
+      requestId: req.get('X-Request-ID') || 'unknown',
+      userId: null,
+      action: 'AUTH.REGISTER',
+      status: 'FAILURE',
+      ipAddress: req.ip || 'unknown',
+      userAgent: req.get('User-Agent') || 'unknown',
+      errorMessage: error.message
+    });
+
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Registration failed due to server error.'
+      error: {
+        code: error.code || 'SERVER_ERROR',
+        message: error.isOperational ? error.message : 'Registration failed due to server error.'
+      }
     });
   }
 };
@@ -90,83 +100,225 @@ exports.register = async (req, res) => {
 | Login User
 |--------------------------------------------------------------------------
 | - Validates credentials
-| - Checks password match securely using bcrypt
-| - Updates lastLogin timestamp for analytics
-| - Returns token + sanitized user data
+| - Handles account lockout & brute-force protection
+| - Creates session
+| - Returns HttpOnly cookies (if configured) or token
 */
-exports.login = async (req, res) => {
+exports.login = async (req, res, next) => {
   try {
     // 1. Validation Check
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        error: {
+          code: 'AUTH_VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
       });
     }
 
     const { email, password } = req.body;
-    const normalizedEmail = email.toLowerCase().trim();
     const clientInfo = getClientInfo(req);
-    
-    // 2. Find User (Select password explicitly as it's hidden by default)
-    const user = await User.findOne({email: normalizedEmail}).select("+password");
-    
-    if (!user) {
-      logger.warn(`Login attempt failed: User not found (${email}) from ${clientInfo.ip}`);
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password.' // Generic message for security
+
+    // 2. Call Service Layer
+    const result = await AuthService.login({
+      email,
+      password,
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent,
+      requestId: clientInfo.requestId
+    });
+
+    // 3. Audit Log
+    await AuditService.log({
+      requestId: clientInfo.requestId,
+      userId: result.user._id,
+      action: 'AUTH.LOGIN.SUCCESS',
+      status: 'SUCCESS',
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent,
+      metadata: { sessionId: result.session._id }
+    });
+
+    // 4. Set Cookies (if enabled)
+    if (config.cookies.enabled) {
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: config.cookies.secure,
+        sameSite: config.cookies.sameSite,
+        maxAge: config.cookies.refreshExpiry * 1000,
+        path: '/api/v1/auth/refresh'
+      });
+
+      res.cookie('accessToken', result.accessToken, {
+        httpOnly: true,
+        secure: config.cookies.secure,
+        sameSite: config.cookies.sameSite,
+        maxAge: config.cookies.accessExpiry * 1000,
+        path: '/'
       });
     }
 
-    // Check if account is blocked
-    if (user.isBlocked) {
-      logger.warn(`Blocked user login attempt: ${email} from ${clientInfo.ip}`);
-
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been blocked. Please contact support.'
-      });
-    }
-
-    // 3. Verify Password using Model Method
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) {
-      logger.warn(`Login attempt failed: Invalid password for ${email} from ${clientInfo.ip}`);
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password.' // Generic message
-      });
-    }
-
-    // 4. Update Last Login (Async, don't wait for it to block response)
-    user.lastLogin = new Date();
-    await user.save({ validateBeforeSave: false }); // Skip validation for performance
-
-    // 5. Generate Token
-    const token = user.generateToken();
-
-    // 6. Log Success
-    logger.info(`User logged in: ${email} (ID: ${user._id}) from ${clientInfo.ip}`);
-
-    // 7. Send Response
-    return res.json({
+    // 5. Standardized Response
+    return res.status(200).json({
       success: true,
       message: 'Login successful',
       data: {
-        user,
-        token
+        user: result.user,
+        sessionId: result.session._id,
+        ...(config.cookies.enabled ? {} : { accessToken: result.accessToken, refreshToken: result.refreshToken })
       }
     });
 
   } catch (error) {
     logger.error(`Login Error: ${error.message}`, error.stack);
+
+    // Attempt to find user for audit (even on failure)
+    let userId = null;
+    try {
+      const user = await User.findOne({ email: req.body.email }).select('_id');
+      if (user) userId = user._id;
+    } catch (e) { /* Ignore */ }
+
+    await AuditService.log({
+      requestId: req.get('X-Request-ID') || 'unknown',
+      userId,
+      action: 'AUTH.LOGIN.FAILED',
+      status: 'FAILURE',
+      ipAddress: req.ip || 'unknown',
+      userAgent: req.get('User-Agent') || 'unknown',
+      errorMessage: error.message,
+      metadata: { reason: error.code }
+    });
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      error: {
+        code: error.code || 'SERVER_ERROR',
+        message: error.isOperational ? error.message : 'Login failed due to server error.'
+      }
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Refresh Access Token
+|--------------------------------------------------------------------------
+| - Validates refresh token
+| - Implements token rotation
+| - Returns new access + refresh tokens
+*/
+exports.refreshToken = async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
+
+    if (!refreshToken) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'AUTH_TOKEN_MISSING',
+          message: 'Refresh token is required.'
+        }
+      });
+    }
+
+    const clientInfo = getClientInfo(req);
+
+    // Call Service
+    const result = await AuthService.refreshToken({
+      refreshToken,
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent
+    });
+
+    // Set new cookies
+    if (config.cookies.enabled) {
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: config.cookies.secure,
+        sameSite: config.cookies.sameSite,
+        maxAge: config.cookies.refreshExpiry * 1000,
+        path: '/api/v1/auth/refresh'
+      });
+
+      res.cookie('accessToken', result.accessToken, {
+        httpOnly: true,
+        secure: config.cookies.secure,
+        sameSite: config.cookies.sameSite,
+        maxAge: config.cookies.accessExpiry * 1000,
+        path: '/'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Token refreshed successfully',
+      data: {
+        ...(config.cookies.enabled ? {} : { accessToken: result.accessToken, refreshToken: result.refreshToken })
+      }
+    });
+
+  } catch (error) {
+    logger.error(`Refresh Token Error: ${error.message}`);
+
+    return res.status(error.statusCode || 401).json({
+      success: false,
+      error: {
+        code: error.code || 'AUTH_TOKEN_INVALID',
+        message: error.isOperational ? error.message : 'Token refresh failed.'
+      }
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Logout User
+|--------------------------------------------------------------------------
+| - Revokes current session
+| - Clears cookies
+*/
+exports.logout = async (req, res, next) => {
+  try {
+    const sessionId = req.body.sessionId || req.user?.sessionId;
+    const userId = req.user?._id;
+
+    if (sessionId) {
+      await AuthService.revokeSession(sessionId, userId);
+    }
+
+    // Clear cookies
+    if (config.cookies.enabled) {
+      res.clearCookie('refreshToken', { path: '/api/v1/auth/refresh' });
+      res.clearCookie('accessToken', { path: '/' });
+    }
+
+    await AuditService.log({
+      requestId: req.get('X-Request-ID') || 'unknown',
+      userId: req.user?._id,
+      action: 'AUTH.LOGOUT',
+      status: 'SUCCESS',
+      ipAddress: req.ip || 'unknown',
+      userAgent: req.get('User-Agent') || 'unknown'
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logout successful'
+    });
+
+  } catch (error) {
+    logger.error(`Logout Error: ${error.message}`);
     
     return res.status(500).json({
       success: false,
-      message: 'Login failed due to server error.'
+      error: {
+        code: 'SERVER_ERROR',
+        message: 'Logout failed.'
+      }
     });
   }
 };
@@ -175,31 +327,24 @@ exports.login = async (req, res) => {
 |--------------------------------------------------------------------------
 | Get Current User Profile
 |--------------------------------------------------------------------------
-| - Protected route (req.user available via middleware)
-| - No extra DB query needed (middleware already fetched lean user)
-| - Returns full profile including addresses
 */
-exports.getMe = async (req, res) => {
+exports.getMe = async (req, res, next) => {
   try {
-    // req.user is already set by 'protect' middleware with lean() query
-    // No need to query database again -> Performance Boost
-    const user = req.user;
-
-    logger.debug(`Profile accessed: ${user.email}`);
-
-    return res.json({
+    return res.status(200).json({
       success: true,
       data: {
-        user
+        user: req.user
       }
     });
-
   } catch (error) {
-    logger.error(`Get Profile Error: ${error.message}`, error.stack);
+    logger.error(`Get Profile Error: ${error.message}`);
     
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch profile.'
+      error: {
+        code: 'SERVER_ERROR',
+        message: 'Failed to fetch profile.'
+      }
     });
   }
 };
@@ -208,67 +353,48 @@ exports.getMe = async (req, res) => {
 |--------------------------------------------------------------------------
 | Forgot Password
 |--------------------------------------------------------------------------
-| - Generates secure random reset token
-| - Hashes token (SHA-256) before saving to DB (Security Best Practice)
-| - Sets expiration (15 mins)
-| - TODO: Integrate Email Service (Nodemailer/SendGrid)
 */
-exports.forgotPassword = async (req, res) => {
+exports.forgotPassword = async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        error: {
+          code: 'AUTH_VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
       });
     }
 
     const { email } = req.body;
     const clientInfo = getClientInfo(req);
 
-    const user = await User.findOne({ email });
+    const result = await AuthService.forgotPassword({
+      email,
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent
+    });
 
-    if (!user) {
-      // Security: Don't reveal if email exists or not to prevent enumeration
-      logger.warn(`Password reset requested for non-existent email: ${email} from ${clientInfo.ip}`);
-      return res.json({
-        success: true,
-        message: 'If an account exists with this email, a reset link has been sent.'
-      });
-    }
-
-    // Generate Random Token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-
-    // Hash Token (SHA-256) before saving to DB
-    // This ensures even if DB is compromised, tokens are safe
-    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000; // 15 minutes
-
-    await user.save();
-
-    logger.info(`Password reset token generated for: ${email} from ${clientInfo.ip}`);
-
-    // TODO: Send Email here with reset link containing the raw 'resetToken'
-    // await sendEmail({ ... });
-
-    // For Development: Return token directly (REMOVE THIS IN PRODUCTION)
-    return res.json({
+    // Always return success message to prevent email enumeration
+    return res.status(200).json({
       success: true,
-      message: 'Password reset link sent to email.',
-
-      ...(process.env.NODE_ENV === 'development' && {
-        resetToken
+      message: 'If an account exists with this email, a reset link has been sent.',
+      ...(process.env.NODE_ENV === 'development' && result.resetToken && {
+        resetToken: result.resetToken
       })
     });
 
   } catch (error) {
-    logger.error(`Forgot Password Error: ${error.message}`, error.stack);
+    logger.error(`Forgot Password Error: ${error.message}`);
     
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to process password reset request.'
+      error: {
+        code: error.code || 'SERVER_ERROR',
+        message: 'Failed to process password reset request.'
+      }
     });
   }
 };
@@ -277,68 +403,54 @@ exports.forgotPassword = async (req, res) => {
 |--------------------------------------------------------------------------
 | Reset Password
 |--------------------------------------------------------------------------
-| - Verifies hashed token against DB
-| - Checks expiration time
-| - Updates password (Model hooks handle hashing)
-| - Clears reset tokens after successful reset
 */
-exports.resetPassword = async (req, res) => {
+exports.resetPassword = async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        error: {
+          code: 'AUTH_VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
       });
     }
 
     const { resetToken, newPassword } = req.body;
     const clientInfo = getClientInfo(req);
 
-    if (!resetToken || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Reset token and new password are required.'
-      });
-    }
-
-    // Hash the incoming token to match the one stored in DB
-    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-
-    const user = await User.findOne({
-      resetPasswordToken: hashedToken,
-      resetPasswordExpire: { $gt: Date.now() } // Ensure token is not expired
+    const result = await AuthService.resetPassword({
+      resetToken,
+      newPassword,
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent
     });
 
-    if (!user) {
-      logger.warn(`Invalid or expired reset token used from ${clientInfo.ip}`);
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired reset token.'
-      });
-    }
+    await AuditService.log({
+      requestId: clientInfo.requestId,
+      userId: result.user._id,
+      action: 'AUTH.PASSWORD.RESET',
+      status: 'SUCCESS',
+      ipAddress: clientInfo.ip,
+      userAgent: clientInfo.userAgent
+    });
 
-    // Update Password (Model pre-save hook will hash it)
-    user.password = newPassword;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-
-    await user.save();
-
-    logger.info(`Password reset successful for: ${user.email} from ${clientInfo.ip}`);
-
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: 'Password reset successful. Please login.'
     });
 
   } catch (error) {
-    logger.error(`Reset Password Error: ${error.message}`, error.stack);
+    logger.error(`Reset Password Error: ${error.message}`);
     
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to reset password.'
+      error: {
+        code: error.code || 'SERVER_ERROR',
+        message: 'Failed to reset password.'
+      }
     });
   }
 };
