@@ -1,4 +1,4 @@
-const logger = require('../common/logger');
+const logger = require('../common/utils/logger');
 const config = require('../config/email.config');
 
 class EmailService {
