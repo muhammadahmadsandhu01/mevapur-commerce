@@ -31,22 +31,28 @@ interface Notification {
   createdAt: string;
 }
 
+interface NotificationStats {
+  totalNotifications: number;
+  unreadCount: number;
+  readCount: number;
+}
+
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<NotificationStats | null>(null);
 
   useEffect(() => {
     fetchNotifications();
     fetchStats();
   }, [filter]);
 
-  const fetchNotifications = async () => {
+  async function fetchNotifications() {
     try {
       setLoading(true);
-      const params: any = {};
+      const params: Record<string, string> = {};
       if (filter !== 'all') {
         if (filter === 'unread') params.isRead = 'false';
         else params.type = filter;
@@ -61,9 +67,9 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const fetchStats = async () => {
+  async function fetchStats() {
     try {
       const response = await api.get('/notifications/stats');
       if (response.data.success) {
@@ -72,7 +78,7 @@ export default function NotificationsPage() {
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
-  };
+  }
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -308,7 +314,7 @@ export default function NotificationsPage() {
         <div style={{ backgroundColor: 'var(--card-bg)', padding: '60px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
           <Bell size={64} style={{ margin: '0 auto 16px', opacity: 0.3 }} color="var(--text-secondary)" />
           <p style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>No notifications</p>
-          <p style={{ color: 'var(--text-secondary)' }}>You're all caught up!</p>
+          <p style={{ color: 'var(--text-secondary)' }}>You&apos;re all caught up!</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

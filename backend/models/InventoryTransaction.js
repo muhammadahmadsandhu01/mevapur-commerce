@@ -6,6 +6,21 @@ const inventoryTransactionSchema = new mongoose.Schema({
     ref: 'Product',
     required: true
   },
+  variantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  order: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Order',
+    default: null
+  },
+  operationKey: {
+    type: String,
+    sparse: true,
+    unique: true,
+    maxlength: 300
+  },
   type: {
     type: String,
     enum: ['in', 'out', 'adjustment', 'return', 'damage', 'sale'],
@@ -48,5 +63,6 @@ const inventoryTransactionSchema = new mongoose.Schema({
 inventoryTransactionSchema.index({ product: 1, createdAt: -1 });
 inventoryTransactionSchema.index({ type: 1, createdAt: -1 });
 inventoryTransactionSchema.index({ performedBy: 1, createdAt: -1 });
+inventoryTransactionSchema.index({ order: 1, createdAt: 1 });
 
 module.exports = mongoose.model('InventoryTransaction', inventoryTransactionSchema);

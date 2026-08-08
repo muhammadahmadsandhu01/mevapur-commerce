@@ -6,18 +6,22 @@ import { useParams, useRouter } from 'next/navigation';
 import axios from 'axios';
 import { 
   ShoppingCart, Heart, Star, Truck, Shield, RotateCcw, 
-  Minus, Plus, Share2, MessageCircle, ChevronRight, 
+  Minus, Plus, MessageCircle, ChevronRight, 
   ChevronLeft, X, CheckCircle, CreditCard
 } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import type { Product, ProductVariant, ProductAttribute} from "@/types/product";
 import Link from 'next/link';
 import Toast from '@/components/Toast';
+import ProductReviews from '@/components/products/ProductReviews';
+import { accountService } from '@/services/account.service';
+import { useAuthStore } from '@/store/authStore';
 
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { addToCart } = useCartStore();
+  const { isAuthenticated } = useAuthStore();
   
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,22 +58,28 @@ export default function ProductDetailPage() {
           const defaultVar = fetchedProduct.variants?.find((v: ProductVariant) => v.isDefault) || fetchedProduct.variants?.[0];
           setSelectedVariant(defaultVar || null);
           
-          // Check wishlist status
-          const { isInWishlist } = useCartStore.getState();
-          setWishlist(isInWishlist(fetchedProduct._id));
+          if (isAuthenticated) {
+            accountService.wishlist().then((result) => setWishlist(result.items.some((entry) => String((entry.product as { _id: string })._id) === String(fetchedProduct._id)))).catch(() => setWishlist(false));
+          } else {
+            const { isInWishlist } = useCartStore.getState();
+            setWishlist(isInWishlist(fetchedProduct._id));
+          }
         } else {
           setError('Product not found');
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('❌ Error fetching product:', error);
-        setError(error.response?.data?.message || 'Failed to load product');
+        const apiError = error as {
+          response?: { data?: { message?: string } };
+        };
+        setError(apiError.response?.data?.message || 'Failed to load product');
       } finally {
         setLoading(false);
       }
     };
 
     fetchProduct();
-  }, [params.id]);
+  }, [params.id, isAuthenticated]);
 
   // 🌟 Dynamic Images: Variant images first, then product gallery
   const allImages = selectedVariant?.images && selectedVariant.images.length > 0 
@@ -93,6 +103,7 @@ export default function ProductDetailPage() {
         price: finalPrice,
         image: finalImage,
         stock: finalStock ?? 0,
+        variantId: selectedVariant?._id,
         variant: variantName,
         sku: finalSku
       });
@@ -112,6 +123,11 @@ export default function ProductDetailPage() {
     const { addToWishlist, removeFromWishlist, isInWishlist } = useCartStore.getState();
     if (!product) return;
     
+    if (isAuthenticated) {
+      const request = wishlist ? accountService.removeWishlist(product._id) : accountService.addWishlist(product._id);
+      void request.then(() => { setWishlist(!wishlist); setToast({ message: wishlist ? 'Removed from your account wishlist' : 'Saved to your account wishlist', type: 'success' }); }).catch(() => setToast({ message: 'Wishlist update failed', type: 'error' }));
+      return;
+    }
     if (isInWishlist(product._id)) {
       removeFromWishlist(product._id);
       setWishlist(false);
@@ -262,14 +278,13 @@ export default function ProductDetailPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 {[...Array(5)].map((_, i) => (
-                  <Star key={i} size={20} fill={i < (product.rating || 5) ? '#F59E0B' : 'none'} color="#F59E0B" />
+                  <Star key={i} size={20} fill={i < Math.round(product.rating || 0) ? '#F59E0B' : 'none'} color="#F59E0B" />
                 ))}
-                <span style={{ fontWeight: '700', color: '#111827', marginLeft: '4px' }}>{product.rating || 5}</span>
+                <span style={{ fontWeight: '700', color: '#111827', marginLeft: '4px' }}>{Number(product.rating || 0).toFixed(1)}</span>
               </div>
               <span style={{ color: '#6B7280' }}>|</span>
-              <span style={{ color: '#6B7280', fontSize: '14px' }}>({product.reviewCount || 128} reviews)</span>
-              <span style={{ color: '#6B7280' }}>|</span>
-              <span style={{ color: '#10B981', fontSize: '14px', fontWeight: '600' }}>{product.soldCount || 0} sold</span>
+              <span style={{ color: '#6B7280', fontSize: '14px' }}>({product.reviewCount || 0} reviews)</span>
+              {Number(product.soldCount || 0) > 0 && <><span style={{ color: '#6B7280' }}>|</span><span style={{ color: '#10B981', fontSize: '14px', fontWeight: '600' }}>{product.soldCount} sold</span></>}
             </div>
 
             <div style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
@@ -431,7 +446,7 @@ export default function ProductDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
                 <Truck size={20} color="#0F766E" />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Free Delivery</span>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Shipping calculated at checkout</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
                 <Shield size={20} color="#0F766E" />
@@ -439,7 +454,7 @@ export default function ProductDetailPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
                 <RotateCcw size={20} color="#0F766E" />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Easy Returns</span>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Return eligibility confirmed before purchase</span>
               </div>
             </div>
           </div>
@@ -508,15 +523,7 @@ export default function ProductDetailPage() {
             </div>
           )}
 
-          {activeTab === 'reviews' && (
-            <div>
-              <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '16px' }}>Customer Reviews</h3>
-              <div style={{ textAlign: 'center', padding: '40px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
-                <Star size={48} fill="#F59E0B" color="#F59E0B" style={{ marginBottom: '16px' }} />
-                <p style={{ color: '#6B7280', fontSize: '16px' }}>Reviews coming soon!</p>
-              </div>
-            </div>
-          )}
+          {activeTab === 'reviews' && <ProductReviews productId={product._id} />}
         </div>
 
       </div>

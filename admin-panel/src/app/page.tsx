@@ -54,6 +54,14 @@ interface Product {
   images: string[];
 }
 
+interface ProductApi extends Omit<Product, 'soldCount' | 'images'> {
+  soldCount?: number;
+  numReviews?: number;
+  reviewCount?: number;
+  images?: string[];
+  gallery?: string[];
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
@@ -105,7 +113,7 @@ export default function Dashboard() {
         try {
           const productsRes = await api.get('/products?sortBy=best-selling&limit=5');
           if (productsRes.data.success) {
-            setTopProducts(productsRes.data.data.map((p: any) => ({
+            setTopProducts(productsRes.data.data.map((p: ProductApi) => ({
               _id: p._id,
               name: p.name,
               price: p.price,
@@ -251,7 +259,7 @@ export default function Dashboard() {
               Dashboard Overview
             </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              Welcome back! Here's what's happening with your store today.
+              Welcome back! Here&apos;s what&apos;s happening with your store today.
             </p>
           </div>
           
@@ -630,7 +638,7 @@ export default function Dashboard() {
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
           <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)', color: 'white' }}>
-            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today's Revenue</div>
+            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today&apos;s Revenue</div>
             <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.todayRevenue || 0).toLocaleString()}</div>
             <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.revenueGrowth || 12.5}% from yesterday</div>
           </div>

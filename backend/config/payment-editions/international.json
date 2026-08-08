@@ -1,0 +1,8 @@
+{
+  "code": "international",
+  "displayName": "International",
+  "baseCurrency": "PKR",
+  "providers": [
+    "stripe"
+  ]
+}

@@ -4,14 +4,31 @@ import { useState, useEffect } from 'react';
 import { RotateCcw, Search, Eye, CheckCircle, XCircle, Clock, AlertCircle, Download, X, Loader } from 'lucide-react';
 import api from '@/lib/api';
 
+type ReturnStatus = 'pending' | 'approved' | 'received' | 'inspected'
+  | 'refunded' | 'rejected' | 'cancelled';
+
+interface ReturnRecord {
+  _id: string;
+  returnNumber: string;
+  status: ReturnStatus;
+  refundAmount?: number;
+  order?: { orderId?: string };
+  customer?: { fullName?: string };
+  items?: Array<{
+    product?: { name?: string };
+    reason?: string;
+    reasonDetails?: string;
+  }>;
+}
+
 export default function ReturnsPage() {
-  const [returns, setReturns] = useState<any[]>([]);
+  const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'received' | 'inspected' | 'refunded' | 'rejected' | 'cancelled'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | ReturnStatus>('all');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [selectedReturn, setSelectedReturn] = useState<any>(null);
+  const [selectedReturn, setSelectedReturn] = useState<ReturnRecord | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -19,7 +36,7 @@ export default function ReturnsPage() {
     const fetchReturns = async () => {
       setLoading(true);
       try {
-        const params: any = { page, limit: 15 };
+        const params: Record<string, string | number> = { page, limit: 15 };
         if (searchQuery) params.search = searchQuery;
         if (statusFilter !== 'all') params.status = statusFilter;
 
@@ -42,7 +59,7 @@ export default function ReturnsPage() {
     try {
       await api.put(`/returns/${id}/status`, { status: newStatus });
       setShowModal(false);
-      const params: any = { page, limit: 15 };
+      const params: Record<string, string | number> = { page, limit: 15 };
       if (searchQuery) params.search = searchQuery;
       if (statusFilter !== 'all') params.status = statusFilter;
       const response = await api.get('/returns', { params });
@@ -113,7 +130,10 @@ export default function ReturnsPage() {
           <input type="text" placeholder="Search by Return #, Order # or Customer..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: '100%', padding: '10px 14px 10px 42px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
         </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }}
+        <select value={statusFilter} onChange={(e) => {
+          setStatusFilter(e.target.value as typeof statusFilter);
+          setPage(1);
+        }}
           style={{ padding: '10px 32px 10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '500', outline: 'none', cursor: 'pointer' }}>
           <option value="all">All Statuses</option>
           <option value="pending">Pending</option>
@@ -148,7 +168,9 @@ export default function ReturnsPage() {
                 {returns.map((ret) => {
                   const badge = getStatusBadge(ret.status);
                   const BadgeIcon = badge.icon;
-                  const productName = ret.items?.[0]?.product?.name || (ret.items?.length > 1 ? `${ret.items.length} Items` : 'Unknown');
+                  const itemCount = ret.items?.length || 0;
+                  const productName = ret.items?.[0]?.product?.name
+                    || (itemCount > 1 ? `${itemCount} Items` : 'Unknown');
                   const reason = ret.items?.[0]?.reason || 'N/A';
                   
                   return (

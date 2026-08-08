@@ -30,6 +30,7 @@ function ProductsPageContent() {
   });
   const [searchQuery, setSearchQuery] = useState(searchParams.get('keyword') || '');
   const currentKeyword = searchParams.get("keyword") || "";
+  const searchParamsString = searchParams.toString();
 
   // Fetch Categories for Breadcrumbs
   useEffect(() => {
@@ -54,7 +55,7 @@ function ProductsPageContent() {
         return;
       }
 
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParamsString);
 
       if (trimmedQuery) {
         params.set("keyword", trimmedQuery);
@@ -68,14 +69,14 @@ function ProductsPageContent() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, currentKeyword, router]);
+  }, [searchQuery, currentKeyword, router, searchParamsString]);
 
   // Fetch products when URL changes
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const response = await api.get(`/products?${searchParams.toString()}`);
+        const response = await api.get(`/products?${searchParamsString}`);
           if (response.data.success) {
               setProducts(response.data.data);
               setPagination({
@@ -95,7 +96,7 @@ function ProductsPageContent() {
     };
 
     fetchProducts();
-  }, [searchParams]);
+  }, [searchParamsString]);
 
   // Track recently viewed
   useEffect(() => {
@@ -291,7 +292,7 @@ function ProductsPageContent() {
                 <div className="text-7xl mb-6">🔍</div>
                 <h3 className="text-2xl font-bold text-gray-900 mb-3">No products found</h3>
                 <p className="text-gray-500 mb-8 max-w-md mx-auto">
-                  Try adjusting your filters or search query to find what you're looking for.
+                  Try adjusting your filters or search query to find what you&apos;re looking for.
                 </p>
                 <div className="flex gap-4 justify-center">
                   <button 

@@ -2,82 +2,126 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const config = require('../config/auth.config');
 const { AppError } = require('../common/errors/AppError');
-const { ERROR_CODES } = require('../constants/errorCodes');
-const User = require('../models/User');
+const ERROR_CODES = require('../constants/errorCodes');
 
 class TokenService {
-  generateAccessToken(userId, sessionId, tokenVersion = 0) {
+  generateAccessToken({ userId, sessionId, tokenVersion = 0 }) {
     const payload = {
-      sub: userId,
-      sid: sessionId,
+      sub: String(userId),
+      sid: String(sessionId),
       jti: uuidv4(),
-      ver: tokenVersion,
+      tokenVersion: Number(tokenVersion),
       type: 'access'
     };
 
-    return jwt.sign(payload, config.jwtSecret, {
-      expiresIn: config.accessTokenExpiry,
-      issuer: config.jwtIssuer,
-      audience: config.jwtAudience
+    return jwt.sign(payload, config.jwt.secret, {
+      algorithm: 'HS256',
+      expiresIn: config.jwt.accessExpiry,
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience
     });
   }
 
-  generateRefreshToken(userId, sessionId, tokenVersion = 0) {
+  generateRefreshToken({
+    userId,
+    sessionId,
+    tokenVersion = 0,
+    tokenFamilyId
+  }) {
     const payload = {
-      sub: userId,
-      sid: sessionId,
+      sub: String(userId),
+      sid: String(sessionId),
       jti: uuidv4(),
-      ver: tokenVersion,
+      tokenVersion: Number(tokenVersion),
+      tokenFamilyId,
       type: 'refresh'
     };
 
-    return jwt.sign(payload, config.jwtSecret, {
-      expiresIn: config.refreshTokenExpiry,
-      issuer: config.jwtIssuer,
-      audience: config.jwtAudience
+    return jwt.sign(payload, config.jwt.secret, {
+      algorithm: 'HS256',
+      expiresIn: config.jwt.refreshExpiry,
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience
     });
   }
 
-  verifyToken(token) {
+  verifyToken(token, expectedType) {
+    if (!token || typeof token !== 'string') {
+      throw new AppError(
+        'Authentication token is required',
+        401,
+        ERROR_CODES.AUTH_TOKEN_REQUIRED
+      );
+    }
+
     try {
-      return jwt.verify(token, config.jwtSecret, {
-        issuer: config.jwtIssuer,
-        audience: config.jwtAudience
+      const decoded = jwt.verify(token, config.jwt.secret, {
+        algorithms: ['HS256'],
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience
       });
+
+      if (
+        decoded.type !== expectedType
+        || !decoded.sub
+        || !decoded.sid
+        || !Number.isInteger(decoded.tokenVersion)
+      ) {
+        throw new AppError(
+          'Invalid authentication token',
+          401,
+          ERROR_CODES.AUTH_TOKEN_INVALID
+        );
+      }
+
+      if (expectedType === 'refresh' && !decoded.tokenFamilyId) {
+        throw new AppError(
+          'Invalid authentication token',
+          401,
+          ERROR_CODES.AUTH_TOKEN_INVALID
+        );
+      }
+
+      return decoded;
     } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
       if (error.name === 'TokenExpiredError') {
-        throw new AppError('Token has expired', 401, ERROR_CODES.AUTH_TOKEN_EXPIRED);
+        throw new AppError(
+          'Authentication token has expired',
+          401,
+          ERROR_CODES.AUTH_TOKEN_EXPIRED
+        );
       }
+
       if (error.name === 'JsonWebTokenError' || error.name === 'NotBeforeError') {
-        throw new AppError('Invalid token', 401, ERROR_CODES.AUTH_TOKEN_INVALID);
+        throw new AppError(
+          'Invalid authentication token',
+          401,
+          ERROR_CODES.AUTH_TOKEN_INVALID
+        );
       }
-      // Fallback for any other JWT error
-      throw new AppError('Token verification failed', 401, ERROR_CODES.AUTH_TOKEN_INVALID);
+
+      throw new AppError(
+        'Authentication token verification failed',
+        401,
+        ERROR_CODES.AUTH_TOKEN_INVALID
+      );
     }
   }
 
-  async rotateToken(userId, session = null) {
-    // Build query with session support if provided
-    let query = User.findById(userId);
-    if (session) query = query.session(session);
-    
-    const user = await query.exec();
-    
-    if (!user) {
-      throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
-    }
+  verifyAccessToken(token) {
+    return this.verifyToken(token, 'access');
+  }
 
-    user.tokenVersion += 1;
-    
-    // Mock-friendly save check
-    if (typeof user.save === 'function') {
-      await user.save({ session });
-    } else {
-      // Fallback for plain objects in tests if save is missing
-      await User.findByIdAndUpdate(user._id, { tokenVersion: user.tokenVersion }, { session, new: true });
-    }
-    
-    return user.tokenVersion;
+  verifyRefreshToken(token) {
+    return this.verifyToken(token, 'refresh');
+  }
+
+  getAccessTokenExpiry() {
+    return config.jwt.accessExpiry;
   }
 }
 

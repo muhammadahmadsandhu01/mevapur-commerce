@@ -9,6 +9,7 @@ import {
   Loader, AlertCircle, Save, X, Star, ShoppingBag
 } from 'lucide-react';
 import api from '@/lib/api';
+import axios from 'axios';
 
 interface OrderItem {
   _id?: string;
@@ -75,30 +76,38 @@ export default function OrderDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
+  const [courierCompany, setCourierCompany] = useState('');
 
   useEffect(() => {
     fetchOrder();
   }, [orderId]);
 
-  const fetchOrder = async () => {
+  async function fetchOrder() {
     setLoading(true);
     setError('');
     try {
       const response = await api.get(`/orders/${orderId}`);
       if (response.data.success) {
-        setOrder(response.data.data);
-        setNewStatus(response.data.data.orderStatus);
-        setTrackingNumber(response.data.data.trackingNumber || '');
+        const order = response.data.data.order;
+        setOrder(order);
+        setNewStatus(order.orderStatus);
+        setTrackingNumber(order.trackingNumber || '');
+        setCourierCompany(order.courierCompany || '');
       } else {
         setError('Order not found');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error fetching order:', err);
-      setError(err.response?.data?.message || 'Failed to load order');
+      setError(
+        axios.isAxiosError(err)
+        && typeof err.response?.data?.message === 'string'
+          ? err.response.data.message
+          : 'Failed to load order'
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleStatusUpdate = async () => {
     if (!newStatus) return;
@@ -107,7 +116,7 @@ export default function OrderDetailPage() {
     try {
       await api.put(`/orders/${orderId}/status`, {
         orderStatus: newStatus,
-        adminNotes
+        adminNote: adminNotes
       });
       await fetchOrder();
       setShowStatusModal(false);
@@ -123,9 +132,7 @@ export default function OrderDetailPage() {
 
   const handleTrackingUpdate = async () => {
     try {
-      await api.put(`/orders/${orderId}`, {
-        trackingNumber
-      });
+      await api.put(`/orders/${orderId}/tracking`, { trackingNumber, courierCompany });
       await fetchOrder();
       setShowTrackingModal(false);
       alert('Tracking number updated!');
@@ -140,6 +147,7 @@ export default function OrderDetailPage() {
       case 'Delivered': return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle, label: 'Delivered' };
       case 'Shipped': return { bg: '#DBEAFE', color: '#1E40AF', icon: Truck, label: 'Shipped' };
       case 'Processing': return { bg: '#FEF3C7', color: '#92400E', icon: Package, label: 'Processing' };
+      case 'Confirmed': return { bg: '#E0F2FE', color: '#075985', icon: CheckCircle, label: 'Confirmed' };
       case 'Pending': return { bg: '#F3F4F6', color: '#6B7280', icon: Clock, label: 'Pending' };
       case 'Cancelled': return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle, label: 'Cancelled' };
       default: return { bg: '#F3F4F6', color: '#6B7280', icon: Clock, label: status };
@@ -196,7 +204,7 @@ export default function OrderDetailPage() {
           {error || 'Order Not Found'}
         </h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-          The order you're looking for doesn't exist or has been removed.
+          The order you&apos;re looking for doesn&apos;t exist or has been removed.
         </p>
         <button
           onClick={() => router.push('/admin/orders')}
@@ -894,6 +902,16 @@ export default function OrderDetailPage() {
 
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                Courier / Carrier
+              </label>
+              <input
+                type="text"
+                value={courierCompany}
+                onChange={(e) => setCourierCompany(e.target.value)}
+                placeholder="e.g., TCS"
+                style={{ width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', marginBottom: '16px' }}
+              />
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
                 New Status
               </label>
               <select
@@ -910,8 +928,9 @@ export default function OrderDetailPage() {
                   outline: 'none'
                 }}
               >
-                <option value="Pending">Pending</option>
-                <option value="Processing">Processing</option>
+              <option value="Pending">Pending</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Processing">Processing</option>
                 <option value="Shipped">Shipped</option>
                 <option value="Delivered">Delivered</option>
                 <option value="Cancelled">Cancelled</option>

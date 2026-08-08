@@ -1,0 +1,13 @@
+{
+  "code": "pakistan",
+  "displayName": "Pakistan",
+  "baseCurrency": "PKR",
+  "providers": [
+    "cod",
+    "bank_transfer",
+    "raast",
+    "jazzcash",
+    "easypaisa",
+    "stripe"
+  ]
+}

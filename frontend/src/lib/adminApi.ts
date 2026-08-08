@@ -1,23 +1,32 @@
-import axios from 'axios';
+import axios, {
+  type AxiosError,
+  type InternalAxiosRequestConfig,
+} from 'axios';
+import {
+  clearAuthentication,
+  getAccessToken,
+  refreshAuthentication,
+} from '@/lib/authSession';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+type AdminMutationPayload = Record<string, unknown>;
 
 export const adminApi = axios.create({
-  baseURL: API_URL,
+  baseURL: publicApiBaseUrl,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor - Add token if exists
+interface RetryRequestConfig extends InternalAxiosRequestConfig {
+  _authRetry?: boolean;
+}
+
 adminApi.interceptors.request.use(
   (config) => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
+    const token = getAccessToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
   (error) => {
@@ -28,11 +37,26 @@ adminApi.interceptors.request.use(
 // Response interceptor - Handle errors
 adminApi.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+  async (error: AxiosError) => {
+    const request = error.config as RetryRequestConfig | undefined;
+    if (
+      error.response?.status === 401
+      && request
+      && !request._authRetry
+    ) {
+      request._authRetry = true;
+      try {
+        const refreshed = await refreshAuthentication();
+        if (refreshed) {
+          request.headers.Authorization = `Bearer ${refreshed.accessToken}`;
+          return adminApi(request);
+        }
+      } catch {
+        clearAuthentication(true);
+      }
+
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        window.location.href = '/login';
+        window.location.assign('/login');
       }
     }
     return Promise.reject(error);
@@ -66,7 +90,7 @@ export const getOrders = async (page = 1, limit = 10, filters = {}) => {
 export const updateOrderStatus = async (orderId: string, status: string, notes?: string) => {
   const response = await adminApi.put(`/orders/${orderId}/status`, {
     orderStatus: status,
-    adminNotes: notes
+    adminNote: notes
   });
   return response.data;
 };
@@ -82,12 +106,12 @@ export const getProducts = async (page = 1, limit = 10, filters = {}) => {
   return response.data;
 };
 
-export const createProduct = async (productData: any) => {
+export const createProduct = async (productData: AdminMutationPayload) => {
   const response = await adminApi.post('/products', productData);
   return response.data;
 };
 
-export const updateProduct = async (id: string, productData: any) => {
+export const updateProduct = async (id: string, productData: AdminMutationPayload) => {
   const response = await adminApi.put(`/products/${id}`, productData);
   return response.data;
 };
@@ -103,12 +127,12 @@ export const getCategories = async () => {
   return response.data.data;
 };
 
-export const createCategory = async (categoryData: any) => {
+export const createCategory = async (categoryData: AdminMutationPayload) => {
   const response = await adminApi.post('/categories', categoryData);
   return response.data;
 };
 
-export const updateCategory = async (id: string, categoryData: any) => {
+export const updateCategory = async (id: string, categoryData: AdminMutationPayload) => {
   const response = await adminApi.put(`/categories/${id}`, categoryData);
   return response.data;
 };
@@ -124,12 +148,12 @@ export const getBrands = async () => {
   return response.data.data;
 };
 
-export const createBrand = async (brandData: any) => {
+export const createBrand = async (brandData: AdminMutationPayload) => {
   const response = await adminApi.post('/brands', brandData);
   return response.data;
 };
 
-export const updateBrand = async (id: string, brandData: any) => {
+export const updateBrand = async (id: string, brandData: AdminMutationPayload) => {
   const response = await adminApi.put(`/brands/${id}`, brandData);
   return response.data;
 };

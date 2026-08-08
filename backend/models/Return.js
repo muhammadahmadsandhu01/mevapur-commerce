@@ -76,6 +76,7 @@ const returnSchema = new mongoose.Schema({
   approvedAt: Date,
   receivedAt: Date,
   refundedAt: Date,
+  inventoryRestockedAt: { type: Date, default: null, select: false },
   rejectedReason: String
 }, {
   timestamps: true

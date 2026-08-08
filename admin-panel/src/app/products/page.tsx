@@ -27,7 +27,7 @@ interface Product {
   reviewCount?: number;
   isFeatured?: boolean;
   isActive?: boolean;
-  variants?: any[];
+  variants?: Array<{ _id?: string }>;
   attributes?: { name: string; value: string }[];
   createdAt: string;
 }
@@ -60,7 +60,11 @@ export default function ProductsPage() {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const params: any = { page, limit: 12, sortBy };
+        const params: Record<string, string | number> = {
+          page,
+          limit: 12,
+          sortBy
+        };
         if (debouncedSearch) params.keyword = debouncedSearch;
         if (categoryFilter) params.category = categoryFilter;
 

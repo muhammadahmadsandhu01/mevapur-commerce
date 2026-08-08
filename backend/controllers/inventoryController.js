@@ -1,5 +1,7 @@
 const Product = require('../models/Product');
 const InventoryTransaction = require('../models/InventoryTransaction');
+const mongoose = require('mongoose');
+const { AppError } = require('../common/errors/AppError');
 const { logActivity } = require('../middleware/activityLogger');
 
 // @desc    Get inventory list (paginated)
@@ -136,43 +138,45 @@ exports.getLowStock = async (req, res) => {
 // @access  Private/Admin
 exports.adjustStock = async (req, res) => {
   try {
-    const { productId, quantity, type, reason, reference } = req.body;
-
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
+    const { productId, variantId, quantity, type, reason, reference, operationKey } = req.body;
+    const key = operationKey ? `adjust:${req.user.id}:${operationKey}` : null;
+    const session = await mongoose.startSession();
+    let transaction;
+    let product;
+    let previousStock;
+    let newStock;
+    let isReplay = false;
+    try {
+      await session.withTransaction(async () => {
+        if (key) {
+          transaction = await InventoryTransaction.findOne({ operationKey: key }).session(session);
+          if (transaction) { isReplay = true; return; }
+        }
+        product = await Product.findById(productId).session(session);
+        if (!product) throw new AppError('Product not found', 404, 'PRODUCT_NOT_FOUND');
+        const target = variantId ? product.variants.id(variantId) : product;
+        if (!target) throw new AppError('Product variant not found', 404, 'ORDER_VARIANT_NOT_FOUND');
+        previousStock = target.stock;
+        newStock = type === 'in' ? previousStock + quantity : type === 'out' ? previousStock - quantity : quantity;
+        if (newStock < 0) throw new AppError('Cannot reduce stock below zero', 409, 'INVENTORY_INSUFFICIENT');
+        target.stock = newStock;
+        if (variantId && target.isDefault) product.stock = newStock;
+        await product.save({ session });
+        [transaction] = await InventoryTransaction.create([{
+          product: productId, variantId: variantId || null, operationKey: key || undefined, type,
+          quantity: Math.abs(newStock - previousStock), previousStock, newStock, reason,
+          reference: reference || '', performedBy: req.user.id,
+          metadata: { productName: product.name, sku: target.sku || product.sku || '' }
+        }], { session });
+      });
+    } finally {
+      await session.endSession();
     }
-
-    const previousStock = product.stock;
-    let newStock = previousStock;
-
-    if (type === 'in') {
-      newStock = previousStock + quantity;
-    } else if (type === 'out') {
-      if (quantity > previousStock) {
-        return res.status(400).json({ success: false, message: 'Cannot reduce stock below zero' });
-      }
-      newStock = previousStock - quantity;
-    } else if (type === 'adjustment') {
-      newStock = quantity; // Direct set
+    if (isReplay) {
+      product = await Product.findById(productId);
+      previousStock = transaction.previousStock;
+      newStock = transaction.newStock;
     }
-
-    // Update product stock
-    product.stock = newStock;
-    await product.save();
-
-    // Create transaction record
-    const transaction = await InventoryTransaction.create({
-      product: productId,
-      type,
-      quantity: Math.abs(newStock - previousStock),
-      previousStock,
-      newStock,
-      reason,
-      reference: reference || '',
-      performedBy: req.user.id,
-      metadata: { productName: product.name, sku: product.sku }
-    });
 
     await logActivity(req, 'INVENTORY_ADJUST', 
       `Adjusted stock for ${product.name}: ${previousStock} → ${newStock}`, 
@@ -184,12 +188,13 @@ exports.adjustStock = async (req, res) => {
       message: 'Stock adjusted successfully',
       data: {
         transaction,
-        product: { id: product._id, name: product.name, previousStock, newStock }
+        product: { id: product._id, name: product.name, variantId: variantId || null, previousStock, newStock },
+        idempotentReplay: isReplay
       }
     });
   } catch (error) {
     console.error('Adjust stock error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message, error: { code: error.code || 'INTERNAL_SERVER_ERROR' } });
   }
 };
 

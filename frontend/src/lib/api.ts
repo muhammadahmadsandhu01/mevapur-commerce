@@ -1,60 +1,72 @@
-import axios from "axios";
-import type { Product, Category } from "@/types/product";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+import axios, {
+  type AxiosError,
+  type InternalAxiosRequestConfig,
+} from "axios";
+import {
+  clearAuthentication,
+  getAccessToken,
+  refreshAuthentication,
+} from "@/lib/authSession";
+import { publicApiBaseUrl } from "@/config/publicConfig";
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: publicApiBaseUrl,
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// =========================
-// Request Interceptor
-// =========================
+interface RetryRequestConfig extends InternalAxiosRequestConfig {
+  _authRetry?: boolean;
+}
 
 api.interceptors.request.use(
   (config) => {
-    if (typeof window !== "undefined") {
-      const authStorage = localStorage.getItem("mevapur-auth-storage");
-      if (authStorage) {
-          const parsed = JSON.parse(authStorage);
-          const token = parsed?.state?.token;
-          if (token) {
-              config.headers.Authorization = `Bearer ${token}`;
-          }
-      }
-    }
-
+    const token = getAccessToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// =========================
-// Response Interceptor
-// =========================
-
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-
-    console.error("Axios Error:", {
-      message: error.message,
-      code: error.code,
-      status: error.response?.status,
-      url: error.config?.url,
-      baseURL: error.config?.baseURL,
-    });
+  async (error: AxiosError) => {
+    const request = error.config as RetryRequestConfig | undefined;
+    const url = request?.url || "";
+    const nonRetryable = [
+      "/auth/login",
+      "/auth/register",
+      "/auth/refresh",
+      "/auth/csrf-token",
+      "/auth/forgot-password",
+      "/auth/reset-password",
+    ].some((path) => url.includes(path));
 
     if (
-      error.response?.status === 401 &&
-      typeof window !== "undefined"
+      error.response?.status === 401
+      && request
+      && !request._authRetry
+      && !nonRetryable
     ) {
-      localStorage.removeItem("mevapur-auth-storage");
-      window.location.href = "/login";
+      request._authRetry = true;
+      try {
+        const refreshed = await refreshAuthentication();
+        if (refreshed) {
+          request.headers.Authorization = `Bearer ${refreshed.accessToken}`;
+          return api(request);
+        }
+      } catch {
+        clearAuthentication(true);
+      }
+
+      if (
+        typeof window !== "undefined"
+        && window.location.pathname !== "/login"
+      ) {
+        window.location.assign("/login");
+      }
     }
 
     return Promise.reject(error);
@@ -183,57 +195,6 @@ export const searchProducts = async ({
   }
 
   return response.data.data ?? [];
-};
-
-// ============================================
-// Payment APIs
-// ============================================
-
-export interface CreatePaymentIntentResponse {
-  success: boolean;
-  clientSecret: string;
-  paymentIntentId: string;
-}
-
-export const createPaymentIntent = async (
-  amount: number,
-  currency: string = "pkr"
-): Promise<CreatePaymentIntentResponse> => {
-  const response = await api.post(
-    "/payments/create-payment-intent",
-    {
-      amount,
-      currency,
-    }
-  );
-
-  return response.data;
-};
-
-export const verifyStripePayment = async (
-  paymentIntentId: string
-) => {
-  const response = await api.post(
-    "/payments/verify",
-    {
-      paymentIntentId,
-    }
-  );
-
-  return response.data;
-};
-
-export const createJazzCashPayment = async (
-  amount: number
-) => {
-  const response = await api.post(
-    "/payments/jazzcash/create",
-    {
-      amount,
-    }
-  );
-
-  return response.data;
 };
 
 export default api;

@@ -1,7 +1,12 @@
 const { v4: uuidv4 } = require('uuid');
 
 const requestId = (req, res, next) => {
-  const id = req.headers['x-request-id'] || uuidv4();
+  const supplied = req.headers['x-request-id'];
+  const id = (
+    typeof supplied === 'string'
+    && supplied.length <= 128
+    && /^[A-Za-z0-9._:-]+$/.test(supplied)
+  ) ? supplied : uuidv4();
   req.requestId = id;
   res.setHeader('X-Request-ID', id);
   next();

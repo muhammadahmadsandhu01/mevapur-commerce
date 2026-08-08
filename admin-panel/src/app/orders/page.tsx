@@ -52,7 +52,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Pending' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [page, setPage] = useState(1);
@@ -69,10 +69,10 @@ export default function OrdersPage() {
     fetchOrders();
   }, [page, statusFilter, dateFilter, sortBy]);
 
-  const fetchOrders = async () => {
+  async function fetchOrders() {
     setLoading(true);
     try {
-      const params: any = { page, limit: 15 };
+      const params: Record<string, string | number> = { page, limit: 15 };
       
       if (statusFilter !== 'all') params.status = statusFilter;
       if (dateFilter !== 'all') {
@@ -97,15 +97,15 @@ export default function OrdersPage() {
 
       const response = await api.get('/orders', { params });
       if (response.data.success) {
-        setOrders(response.data.data);
-        setTotalPages(response.data.pagination?.pages || 1);
+        setOrders(response.data.data.orders);
+        setTotalPages(response.data.data.pagination?.pages || 1);
       }
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleStatusUpdate = async () => {
     if (!updatingOrder || !newStatus) return;
@@ -114,7 +114,7 @@ export default function OrdersPage() {
     try {
       await api.put(`/orders/${updatingOrder._id}/status`, {
         orderStatus: newStatus,
-        adminNotes
+        adminNote: adminNotes
       });
       await fetchOrders();
       setShowStatusModal(false);
@@ -135,6 +135,7 @@ export default function OrdersPage() {
       case 'Delivered': return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
       case 'Shipped': return { bg: '#DBEAFE', color: '#1E40AF', icon: Truck };
       case 'Processing': return { bg: '#FEF3C7', color: '#92400E', icon: Package };
+      case 'Confirmed': return { bg: '#E0F2FE', color: '#075985', icon: CheckCircle };
       case 'Pending': return { bg: '#F3F4F6', color: '#6B7280', icon: Clock };
       case 'Cancelled': return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
       default: return { bg: '#F3F4F6', color: '#6B7280', icon: Clock };
@@ -307,7 +308,10 @@ export default function OrdersPage() {
 
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }}
+          onChange={(e) => {
+            setStatusFilter(e.target.value as typeof statusFilter);
+            setPage(1);
+          }}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -321,8 +325,9 @@ export default function OrdersPage() {
           }}
         >
           <option value="all">All Status</option>
-          <option value="Pending">Pending</option>
-          <option value="Processing">Processing</option>
+              <option value="Pending">Pending</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Processing">Processing</option>
           <option value="Shipped">Shipped</option>
           <option value="Delivered">Delivered</option>
           <option value="Cancelled">Cancelled</option>
@@ -330,7 +335,10 @@ export default function OrdersPage() {
 
         <select
           value={dateFilter}
-          onChange={(e) => { setDateFilter(e.target.value as any); setPage(1); }}
+          onChange={(e) => {
+            setDateFilter(e.target.value as typeof dateFilter);
+            setPage(1);
+          }}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -351,7 +359,7 @@ export default function OrdersPage() {
 
         <select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -876,8 +884,9 @@ export default function OrdersPage() {
                   outline: 'none'
                 }}
               >
-                <option value="Pending">Pending</option>
-                <option value="Processing">Processing</option>
+              <option value="Pending">Pending</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Processing">Processing</option>
                 <option value="Shipped">Shipped</option>
                 <option value="Delivered">Delivered</option>
                 <option value="Cancelled">Cancelled</option>

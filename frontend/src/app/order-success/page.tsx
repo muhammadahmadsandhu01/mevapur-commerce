@@ -3,10 +3,11 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import axios from 'axios';
+import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { CheckCircle, Package, Truck, CreditCard, Calendar, Copy, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { branding } from '@/config/branding';
 
 interface OrderItem {
   product?: {
@@ -59,17 +60,10 @@ function OrderSuccessContent() {
       }
 
       try {
-        const response = await axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
+        const response = await api.get(`/orders/${orderId}`);
 
         if (response.data.success) {
-          setOrder(response.data.data);
+          setOrder(response.data.data.order);
         }
       } catch (error) {
         console.error('Error fetching order:', error);
@@ -167,10 +161,10 @@ function OrderSuccessContent() {
             Order Confirmed! 
           </h1>
           <p style={{ fontSize: '18px', color: '#6B7280', marginBottom: '8px' }}>
-            Thank you for shopping with MevaPur
+            Thank you for shopping with {branding.siteName}
           </p>
           <p style={{ fontSize: '14px', color: '#10B981', fontWeight: '600' }}>
-            We've sent a confirmation email to your registered email address
+            We&apos;ve sent a confirmation email to your registered email address
           </p>
         </div>
 
@@ -279,10 +273,10 @@ function OrderSuccessContent() {
             </h3>
             <div style={{ padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
               <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
-                {order.paymentMethod === 'COD' ? '💵 Cash on Delivery' : order.paymentMethod}
+                {order.paymentMethod.toLowerCase() === 'cod' ? '💵 Cash on Delivery' : 'Card via Stripe'}
               </div>
               <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                {order.paymentMethod === 'COD' ? 'Pay when you receive' : 'Online payment processed'}
+                {order.paymentMethod.toLowerCase() === 'cod' ? 'Pay when you receive' : 'Online payment'}
               </div>
             </div>
           </div>

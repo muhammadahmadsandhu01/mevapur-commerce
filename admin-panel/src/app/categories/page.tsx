@@ -53,7 +53,7 @@ export default function CategoriesPage() {
     fetchCategories();
   }, []);
 
-  const fetchCategories = async () => {
+  async function fetchCategories() {
     setLoading(true);
     try {
       const response = await api.get('/categories');
@@ -65,7 +65,7 @@ export default function CategoriesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,456 +1,231 @@
-const User = require('../models/User');
 const AuthService = require('../services/AuthService');
-const AuditService = require('../services/AuditService');
-const { validationResult } = require('express-validator');
-const { logger } = require('../middleware/logger');
 const config = require('../config/auth.config');
+const {
+  issueCsrfToken,
+  clearCsrfToken
+} = require('../middleware/csrf');
 
-/*
-|--------------------------------------------------------------------------
-| Helper: Get Client Info for Logging & Audit
-|--------------------------------------------------------------------------
-*/
 const getClientInfo = (req) => ({
-  ip: req.ip || req.connection.remoteAddress || 'unknown',
-  userAgent: req.get('User-Agent') || 'unknown',
-  requestId: req.get('X-Request-ID') || 'unknown'
+  ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
+  userAgent: (req.get('User-Agent') || 'unknown').slice(0, 500),
+  requestId: req.requestId || 'unknown'
 });
 
-/*
-|--------------------------------------------------------------------------
-| Register New User
-|--------------------------------------------------------------------------
-| - Validates input via express-validator (middleware)
-| - Calls AuthService for business logic
-| - Logs audit event
-| - Returns standardized response
-*/
+const getDeviceInfo = (req) => {
+  const userAgent = (req.get('User-Agent') || 'Unknown Device').slice(0, 200);
+  return {
+    deviceId: (req.get('X-Device-ID') || '').slice(0, 128) || undefined,
+    deviceName: userAgent,
+    browser: 'Unknown',
+    os: 'Unknown'
+  };
+};
+
+const success = (req, res, statusCode, message, data) => {
+  const body = {
+    success: true,
+    message,
+    meta: {
+      requestId: req.requestId || 'unknown'
+    }
+  };
+
+  if (data !== undefined) body.data = data;
+  return res.status(statusCode).json(body);
+};
+
+const setRefreshCookie = (res, refreshToken) => {
+  res.cookie(
+    config.cookie.refresh.name,
+    refreshToken,
+    config.cookie.refresh
+  );
+};
+
+const clearAuthCookies = (res) => {
+  const { maxAge: refreshMaxAge, ...refreshOptions } = config.cookie.refresh;
+  res.clearCookie(config.cookie.refresh.name, refreshOptions);
+  clearCsrfToken(res);
+};
+
+exports.getCsrfToken = (req, res) => {
+  const csrfToken = issueCsrfToken(res);
+  return success(req, res, 200, 'CSRF token issued', {
+    csrfToken,
+    hasRefreshSession: Boolean(
+      req.cookies?.[config.cookie.refresh.name]
+    )
+  });
+};
+
 exports.register = async (req, res, next) => {
   try {
-    // 1. Validation Check (from middleware)
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'AUTH_VALIDATION_ERROR',
-          message: 'Validation failed',
-          details: errors.array()
-        }
-      });
-    }
-
-    const { fullName, email, password, phone } = req.body;
-    const clientInfo = getClientInfo(req);
-
-    // 2. Call Service Layer
     const result = await AuthService.register({
-      fullName,
-      email,
-      password,
-      phone,
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent
+      ...req.body,
+      ...getClientInfo(req),
+      deviceInfo: getDeviceInfo(req)
     });
+    const csrfToken = issueCsrfToken(res);
+    setRefreshCookie(res, result.refreshToken);
 
-    // 3. Audit Log
-    await AuditService.log({
-      requestId: clientInfo.requestId,
-      userId: result.user._id,
-      action: 'AUTH.REGISTER',
-      status: 'SUCCESS',
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent,
-      metadata: { email: result.user.email }
+    return success(req, res, 201, 'Registration successful', {
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+      csrfToken
     });
-
-    // 4. Standardized Response
-    return res.status(201).json({
-      success: true,
-      message: 'Registration successful',
-      data: result
-    });
-
   } catch (error) {
-    logger.error(`Registration Error: ${error.message}`, error.stack);
-    
-    // Audit failure
-    await AuditService.log({
-      requestId: req.get('X-Request-ID') || 'unknown',
-      userId: null,
-      action: 'AUTH.REGISTER',
-      status: 'FAILURE',
-      ipAddress: req.ip || 'unknown',
-      userAgent: req.get('User-Agent') || 'unknown',
-      errorMessage: error.message
-    });
-
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      error: {
-        code: error.code || 'SERVER_ERROR',
-        message: error.isOperational ? error.message : 'Registration failed due to server error.'
-      }
-    });
+    return next(error);
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Login User
-|--------------------------------------------------------------------------
-| - Validates credentials
-| - Handles account lockout & brute-force protection
-| - Creates session
-| - Returns HttpOnly cookies (if configured) or token
-*/
 exports.login = async (req, res, next) => {
   try {
-    // 1. Validation Check
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'AUTH_VALIDATION_ERROR',
-          message: 'Validation failed',
-          details: errors.array()
-        }
-      });
-    }
-
-    const { email, password } = req.body;
-    const clientInfo = getClientInfo(req);
-
-    // 2. Call Service Layer
     const result = await AuthService.login({
-      email,
-      password,
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent,
-      requestId: clientInfo.requestId
+      ...req.body,
+      ...getClientInfo(req),
+      deviceInfo: getDeviceInfo(req)
     });
+    const csrfToken = issueCsrfToken(res);
+    setRefreshCookie(res, result.refreshToken);
 
-    // 3. Audit Log
-    await AuditService.log({
-      requestId: clientInfo.requestId,
-      userId: result.user._id,
-      action: 'AUTH.LOGIN.SUCCESS',
-      status: 'SUCCESS',
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent,
-      metadata: { sessionId: result.session._id }
+    return success(req, res, 200, 'Login successful', {
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+      csrfToken
     });
-
-    // 4. Set Cookies (if enabled)
-    if (config.cookies.enabled) {
-      res.cookie('refreshToken', result.refreshToken, {
-        httpOnly: true,
-        secure: config.cookies.secure,
-        sameSite: config.cookies.sameSite,
-        maxAge: config.cookies.refreshExpiry * 1000,
-        path: '/api/v1/auth/refresh'
-      });
-
-      res.cookie('accessToken', result.accessToken, {
-        httpOnly: true,
-        secure: config.cookies.secure,
-        sameSite: config.cookies.sameSite,
-        maxAge: config.cookies.accessExpiry * 1000,
-        path: '/'
-      });
-    }
-
-    // 5. Standardized Response
-    return res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: result.user,
-        sessionId: result.session._id,
-        ...(config.cookies.enabled ? {} : { accessToken: result.accessToken, refreshToken: result.refreshToken })
-      }
-    });
-
   } catch (error) {
-    logger.error(`Login Error: ${error.message}`, error.stack);
-
-    // Attempt to find user for audit (even on failure)
-    let userId = null;
-    try {
-      const user = await User.findOne({ email: req.body.email }).select('_id');
-      if (user) userId = user._id;
-    } catch (e) { /* Ignore */ }
-
-    await AuditService.log({
-      requestId: req.get('X-Request-ID') || 'unknown',
-      userId,
-      action: 'AUTH.LOGIN.FAILED',
-      status: 'FAILURE',
-      ipAddress: req.ip || 'unknown',
-      userAgent: req.get('User-Agent') || 'unknown',
-      errorMessage: error.message,
-      metadata: { reason: error.code }
-    });
-
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      error: {
-        code: error.code || 'SERVER_ERROR',
-        message: error.isOperational ? error.message : 'Login failed due to server error.'
-      }
-    });
+    return next(error);
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Refresh Access Token
-|--------------------------------------------------------------------------
-| - Validates refresh token
-| - Implements token rotation
-| - Returns new access + refresh tokens
-*/
-exports.refreshToken = async (req, res, next) => {
+exports.refresh = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
-
-    if (!refreshToken) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          code: 'AUTH_TOKEN_MISSING',
-          message: 'Refresh token is required.'
-        }
-      });
-    }
-
-    const clientInfo = getClientInfo(req);
-
-    // Call Service
-    const result = await AuthService.refreshToken({
+    const refreshToken = req.cookies?.[config.cookie.refresh.name];
+    const result = await AuthService.refreshTokens({
       refreshToken,
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent
+      ...getClientInfo(req)
     });
+    const csrfToken = issueCsrfToken(res);
+    setRefreshCookie(res, result.refreshToken);
 
-    // Set new cookies
-    if (config.cookies.enabled) {
-      res.cookie('refreshToken', result.refreshToken, {
-        httpOnly: true,
-        secure: config.cookies.secure,
-        sameSite: config.cookies.sameSite,
-        maxAge: config.cookies.refreshExpiry * 1000,
-        path: '/api/v1/auth/refresh'
-      });
-
-      res.cookie('accessToken', result.accessToken, {
-        httpOnly: true,
-        secure: config.cookies.secure,
-        sameSite: config.cookies.sameSite,
-        maxAge: config.cookies.accessExpiry * 1000,
-        path: '/'
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Token refreshed successfully',
-      data: {
-        ...(config.cookies.enabled ? {} : { accessToken: result.accessToken, refreshToken: result.refreshToken })
-      }
+    return success(req, res, 200, 'Authentication refreshed', {
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+      csrfToken
     });
-
   } catch (error) {
-    logger.error(`Refresh Token Error: ${error.message}`);
-
-    return res.status(error.statusCode || 401).json({
-      success: false,
-      error: {
-        code: error.code || 'AUTH_TOKEN_INVALID',
-        message: error.isOperational ? error.message : 'Token refresh failed.'
-      }
-    });
+    clearAuthCookies(res);
+    return next(error);
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Logout User
-|--------------------------------------------------------------------------
-| - Revokes current session
-| - Clears cookies
-*/
+exports.getMe = (req, res) => success(
+  req,
+  res,
+  200,
+  'Current user retrieved',
+  { user: req.user }
+);
+
 exports.logout = async (req, res, next) => {
   try {
-    const sessionId = req.body.sessionId || req.user?.sessionId;
-    const userId = req.user?._id;
-
-    if (sessionId) {
-      await AuthService.revokeSession(sessionId, userId);
-    }
-
-    // Clear cookies
-    if (config.cookies.enabled) {
-      res.clearCookie('refreshToken', { path: '/api/v1/auth/refresh' });
-      res.clearCookie('accessToken', { path: '/' });
-    }
-
-    await AuditService.log({
-      requestId: req.get('X-Request-ID') || 'unknown',
-      userId: req.user?._id,
-      action: 'AUTH.LOGOUT',
-      status: 'SUCCESS',
-      ipAddress: req.ip || 'unknown',
-      userAgent: req.get('User-Agent') || 'unknown'
+    await AuthService.logout({
+      userId: req.auth.userId,
+      sessionId: req.auth.sessionId,
+      ...getClientInfo(req)
     });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Logout successful'
-    });
-
+    clearAuthCookies(res);
+    return success(req, res, 200, 'Logout successful');
   } catch (error) {
-    logger.error(`Logout Error: ${error.message}`);
-    
-    return res.status(500).json({
-      success: false,
-      error: {
-        code: 'SERVER_ERROR',
-        message: 'Logout failed.'
-      }
-    });
+    return next(error);
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Get Current User Profile
-|--------------------------------------------------------------------------
-*/
-exports.getMe = async (req, res, next) => {
+exports.logoutAll = async (req, res, next) => {
   try {
-    return res.status(200).json({
-      success: true,
-      data: {
-        user: req.user
-      }
+    const result = await AuthService.logoutAll({
+      userId: req.auth.userId,
+      ...getClientInfo(req)
+    });
+    clearAuthCookies(res);
+    return success(req, res, 200, 'All sessions revoked', {
+      sessionsRevoked: result.sessionsRevoked
     });
   } catch (error) {
-    logger.error(`Get Profile Error: ${error.message}`);
-    
-    return res.status(500).json({
-      success: false,
-      error: {
-        code: 'SERVER_ERROR',
-        message: 'Failed to fetch profile.'
-      }
-    });
+    return next(error);
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Forgot Password
-|--------------------------------------------------------------------------
-*/
+exports.getSessions = async (req, res, next) => {
+  try {
+    const sessions = await AuthService.getSessions({
+      userId: req.auth.userId,
+      currentSessionId: req.auth.sessionId
+    });
+    return success(req, res, 200, 'Active sessions retrieved', { sessions });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.revokeSession = async (req, res, next) => {
+  try {
+    const result = await AuthService.revokeSession({
+      sessionId: req.params.sessionId,
+      userId: req.auth.userId,
+      currentSessionId: req.auth.sessionId,
+      ...getClientInfo(req)
+    });
+    if (result.revokedCurrent) clearAuthCookies(res);
+    return success(req, res, 200, 'Session revoked', result);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 exports.forgotPassword = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'AUTH_VALIDATION_ERROR',
-          message: 'Validation failed',
-          details: errors.array()
-        }
-      });
-    }
-
-    const { email } = req.body;
-    const clientInfo = getClientInfo(req);
-
-    const result = await AuthService.forgotPassword({
-      email,
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent
+    await AuthService.forgotPassword({
+      email: req.body.email,
+      ...getClientInfo(req)
     });
-
-    // Always return success message to prevent email enumeration
-    return res.status(200).json({
-      success: true,
-      message: 'If an account exists with this email, a reset link has been sent.',
-      ...(process.env.NODE_ENV === 'development' && result.resetToken && {
-        resetToken: result.resetToken
-      })
-    });
-
+    return success(
+      req,
+      res,
+      200,
+      'If an account exists with this email, a reset link has been sent'
+    );
   } catch (error) {
-    logger.error(`Forgot Password Error: ${error.message}`);
-    
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      error: {
-        code: error.code || 'SERVER_ERROR',
-        message: 'Failed to process password reset request.'
-      }
-    });
+    return next(error);
   }
 };
 
-/*
-|--------------------------------------------------------------------------
-| Reset Password
-|--------------------------------------------------------------------------
-*/
 exports.resetPassword = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'AUTH_VALIDATION_ERROR',
-          message: 'Validation failed',
-          details: errors.array()
-        }
-      });
-    }
-
-    const { resetToken, newPassword } = req.body;
-    const clientInfo = getClientInfo(req);
-
-    const result = await AuthService.resetPassword({
-      resetToken,
-      newPassword,
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent
+    await AuthService.resetPassword({
+      ...req.body,
+      ...getClientInfo(req)
     });
-
-    await AuditService.log({
-      requestId: clientInfo.requestId,
-      userId: result.user._id,
-      action: 'AUTH.PASSWORD.RESET',
-      status: 'SUCCESS',
-      ipAddress: clientInfo.ip,
-      userAgent: clientInfo.userAgent
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Password reset successful. Please login.'
-    });
-
+    clearAuthCookies(res);
+    return success(req, res, 200, 'Password reset successful');
   } catch (error) {
-    logger.error(`Reset Password Error: ${error.message}`);
-    
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      error: {
-        code: error.code || 'SERVER_ERROR',
-        message: 'Failed to reset password.'
-      }
+    return next(error);
+  }
+};
+
+exports.changePassword = async (req, res, next) => {
+  try {
+    await AuthService.changePassword({
+      userId: req.auth.userId,
+      ...req.body,
+      ...getClientInfo(req)
     });
+    clearAuthCookies(res);
+    return success(req, res, 200, 'Password changed successfully');
+  } catch (error) {
+    return next(error);
   }
 };

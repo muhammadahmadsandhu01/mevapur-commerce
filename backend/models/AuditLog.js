@@ -35,7 +35,11 @@ const auditLogSchema = new mongoose.Schema({
       'AUTH.EMAIL.VERIFIED',
       'AUTH.SESSION.CREATED',
       'AUTH.SESSION.REVOKED',
+      'AUTH.SESSION.REVOKED_ALL',
       'AUTH.SESSION.REFRESHED',
+      'AUTH.TOKEN.REUSE_DETECTED',
+      'AUTH.PASSWORD.CHANGED',
+      'AUTH.RATE_LIMIT_EXCEEDED',
       'AUTH.2FA.ENABLED',
       'AUTH.2FA.DISABLED',
       'AUTH.ACCOUNT.LOCKED',
@@ -125,11 +129,25 @@ auditLogSchema.methods.delete = function() {
   throw new Error('Audit logs cannot be deleted');
 };
 
+[
+  'updateOne',
+  'updateMany',
+  'findOneAndUpdate',
+  'deleteOne',
+  'deleteMany',
+  'findOneAndDelete'
+].forEach((operation) => {
+  auditLogSchema.pre(operation, function(next) {
+    const error = new Error('Audit logs are append-only');
+    error.code = 'AUDIT_LOG_IMMUTABLE';
+    next(error);
+  });
+});
+
 // Indexes for fast querying
 auditLogSchema.index({ userId: 1, createdAt: -1 });
 auditLogSchema.index({ eventName: 1, createdAt: -1 });
 auditLogSchema.index({ status: 1, createdAt: -1 });
-auditLogSchema.index({ requestId: 1 });
 
 // TTL index for auto-expiry after 2 years (adjust as per compliance needs)
 // auditLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 63072000 });

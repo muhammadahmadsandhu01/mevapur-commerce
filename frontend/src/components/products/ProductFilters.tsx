@@ -12,10 +12,13 @@ export default function ProductFilters() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
   useEffect(() => {
-    setPriceRange({
-      min: searchParams.get("minPrice") || "",
-      max: searchParams.get("maxPrice") || "",
-    }); 
+    const timer = window.setTimeout(() => {
+      setPriceRange({
+        min: searchParams.get("minPrice") || "",
+        max: searchParams.get("maxPrice") || "",
+      });
+    }, 0);
+    return () => clearTimeout(timer);
   }, [searchParams]);
   const [sections, setSections] = useState<Record<string, boolean>>({
     categories: true,
@@ -62,17 +65,14 @@ export default function ProductFilters() {
 
   const updateFilter = (key: string, value: string, isMulti = false) => {
     const params = new URLSearchParams(searchParams.toString());
+    const supportedKeys = new Set(['category', 'brand', 'minPrice', 'maxPrice', 'rating', 'inStock', 'sortBy']);
+    if (!supportedKeys.has(key)) return;
     
     if (isMulti) {
-      const current = params.get(key)?.split(',') || [];
-      const updated = current.includes(value)
-        ? current.filter(v => v !== value)
-        : [...current, value];
-      
-      if (updated.length === 0) {
+      if (params.get(key) === value) {
         params.delete(key);
       } else {
-        params.set(key, updated.join(','));
+        params.set(key, value);
       }
     } else {
       if (!value) {
@@ -99,7 +99,7 @@ export default function ProductFilters() {
     ([key]) => key !== 'page' && key !== 'sortBy'
   ).length;
 
-  const FilterContent = () => (
+  const renderFilterContent = () => (
     <div className="space-y-6">
       {/* Categories - Multi-select */}
       <div className="border-b border-gray-100 pb-6">
@@ -429,7 +429,7 @@ export default function ProductFilters() {
               </span>
             )}
           </div>
-          <FilterContent />
+          {renderFilterContent()}
         </div>
       </div>
 
@@ -454,7 +454,7 @@ export default function ProductFilters() {
               </button>
             </div>
             <div className="mt-6">
-              <FilterContent />
+              {renderFilterContent()}
             </div>
           </div>
         </div>

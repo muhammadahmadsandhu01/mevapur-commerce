@@ -63,7 +63,7 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
     }
     
     // ✅ CANCEL ORDER - Only before shipping (pending, confirmed, processing, packed)
-    if (['pending', 'confirmed', 'processing', 'packed'].includes(order.orderStatus)) {
+    if (['pending', 'confirmed'].includes(order.orderStatus)) {
       actions.push({ 
         label: 'Cancel Order', 
         icon: <XCircle size={14} />, 

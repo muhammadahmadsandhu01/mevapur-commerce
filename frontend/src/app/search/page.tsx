@@ -6,25 +6,26 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import axios from 'axios';
 import ProductCard from '@/components/products/ProductCard';
 import { Search, Filter, SlidersHorizontal } from 'lucide-react';
+import type { Product } from '@/types/product';
 
 function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const query = searchParams.get('q') || '';
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     category: '',
     minPrice: '',
     maxPrice: '',
-    sortBy: 'name'
+    sortBy: 'newest'
   });
 
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        let url = `${process.env.NEXT_PUBLIC_API_URL}/products?search=${query}`;
+        let url = `${process.env.NEXT_PUBLIC_API_URL}/products?keyword=${encodeURIComponent(query)}`;
         
         if (filters.category) url += `&category=${filters.category}`;
         if (filters.minPrice) url += `&minPrice=${filters.minPrice}`;
@@ -95,10 +96,7 @@ function SearchContent() {
               }}
             >
               <option value="">All Categories</option>
-              <option value="dry-fruits">Dry Fruits</option>
-              <option value="nuts">Nuts</option>
-              <option value="seeds">Seeds</option>
-              <option value="spices">Spices</option>
+              <option value="" disabled>Select categories from the catalogue page</option>
             </select>
 
             <select
@@ -112,10 +110,10 @@ function SearchContent() {
                 backgroundColor: 'white'
               }}
             >
-              <option value="name">Sort by Name</option>
+              <option value="newest">Newest First</option>
               <option value="price-asc">Price: Low to High</option>
               <option value="price-desc">Price: High to Low</option>
-              <option value="createdAt">Newest First</option>
+              <option value="best-selling">Best Selling</option>
             </select>
 
             <input
@@ -191,7 +189,7 @@ function SearchContent() {
         ) : (
           <>
             <p style={{ color: '#6B7280', marginBottom: '24px', fontSize: '14px' }}>
-              Found {products.length} product{products.length !== 1 ? 's' : ''} for "{query}"
+              Found {products.length} product{products.length !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
             </p>
             <div style={{
               display: 'grid',

@@ -1,146 +1,635 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ArrowLeftCircle, Search, Eye, CheckCircle, XCircle, Clock, AlertCircle, Download, Loader } from 'lucide-react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  CreditCard,
+  Loader,
+  RotateCcw,
+  XCircle
+} from 'lucide-react';
 import api from '@/lib/api';
+import ProviderPaymentActions from '@/modules/payments/core/ProviderPaymentActions';
+import { paymentAdminService } from '@/modules/payments/core/paymentAdmin.service';
+import type {
+  AdminPaymentSummary as PaymentSummary,
+  AdminProviderStatus,
+  PaymentStatus
+} from '@/modules/payments/core/types';
+
+type RefundStatus =
+  | 'Pending'
+  | 'Processing'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled';
+
+interface RefundSummary {
+  _id: string;
+  refundNumber: string;
+  payment: PaymentSummary;
+  order?: { _id: string; orderId: string };
+  customer?: { fullName: string; email: string };
+  provider: string;
+  providerRefundId?: string;
+  amount: number;
+  currency: 'PKR';
+  status: RefundStatus;
+  reason?: string;
+  createdAt: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+}
+
+const refundableStatuses = new Set<PaymentStatus>([
+  'Completed',
+  'PartiallyRefunded'
+]);
+
+const badgeFor = (status: PaymentStatus | RefundStatus) => {
+  switch (status) {
+    case 'Completed':
+    case 'Refunded':
+      return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
+    case 'Failed':
+    case 'Cancelled':
+      return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
+    case 'Pending':
+    case 'Processing':
+      return { bg: '#FEF3C7', color: '#92400E', icon: Clock };
+    default:
+      return { bg: '#E0F2FE', color: '#0369A1', icon: AlertCircle };
+  }
+};
 
 export default function RefundsPage() {
-  const [refunds, setRefunds] = useState<any[]>([]);
+  const [payments, setPayments] = useState<PaymentSummary[]>([]);
+  const [providerStatuses, setProviderStatuses] = useState<AdminProviderStatus[]>([]);
+  const [refunds, setRefunds] = useState<RefundSummary[]>([]);
+  const [pagination, setPagination] = useState<Pagination>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 1
+  });
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'processed' | 'failed'>('all');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | RefundStatus>('all');
+  const [providerFilter, setProviderFilter] = useState('all');
+  const [paymentActionId, setPaymentActionId] = useState('');
+  const [paymentId, setPaymentId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState<{
+    kind: 'success' | 'error';
+    text: string;
+  } | null>(null);
+  const refundAttemptRef = useRef<{
+    fingerprint: string;
+    key: string;
+  } | null>(null);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const refundParams: { page: number; limit: number; status?: RefundStatus } = {
+        page: pagination.page,
+        limit: pagination.limit
+      };
+      if (statusFilter !== 'all') refundParams.status = statusFilter;
+
+      const paymentParams: { page: number; limit: number; provider?: string } = {
+        page: 1,
+        limit: 20
+      };
+      if (providerFilter !== 'all') paymentParams.provider = providerFilter;
+
+      const [paymentResponse, refundResponse, statuses] = await Promise.all([
+        api.get('/payments', { params: paymentParams }),
+        api.get('/refunds', { params: refundParams }),
+        paymentAdminService.getProviderStatuses()
+      ]);
+
+      setPayments(paymentResponse.data.data.payments || []);
+      setRefunds(refundResponse.data.data.refunds || []);
+      setProviderStatuses(statuses);
+      setPagination(refundResponse.data.data.pagination || pagination);
+    } catch {
+      setMessage({
+        kind: 'error',
+        text: 'Payment and refund records could not be loaded.'
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [pagination.limit, pagination.page, providerFilter, statusFilter]);
 
   useEffect(() => {
-    const fetchRefunds = async () => {
-      setLoading(true);
-      try {
-        const params: any = { page, limit: 15 };
-        if (searchQuery) params.search = searchQuery;
-        if (statusFilter !== 'all') params.status = statusFilter;
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadData]);
 
-        const response = await api.get('/refunds', { params });
-        if (response.data.success) {
-          setRefunds(response.data.data);
-          setTotalPages(response.data.pagination?.pages || 1);
-        }
-      } catch (error) {
-        console.error('Error fetching refunds:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchRefunds();
-  }, [page, searchQuery, statusFilter]);
-
-  const stats = {
-    totalAmount: refunds.reduce((acc, curr) => acc + (curr.amount || 0), 0),
-    pending: refunds.filter(r => r.status === 'pending').length,
-    processed: refunds.filter(r => r.status === 'processed').length,
+  const beginRefund = (payment: PaymentSummary) => {
+    const remaining = Math.max(
+      0,
+      Number(((payment.paidAmount || payment.amount) - payment.refundedAmount).toFixed(2))
+    );
+    setPaymentId(payment._id);
+    setAmount(remaining.toFixed(2));
+    setReason('');
+    setMessage(null);
+    refundAttemptRef.current = null;
   };
 
-  const getStatusBadge = (status: string) => {
-    const s = status.toLowerCase();
-    switch (s) {
-      case 'pending': return { bg: '#FEF3C7', color: '#92400E', icon: Clock };
-      case 'processed': return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
-      case 'failed': return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
-      default: return { bg: '#F3F4F6', color: '#6B7280', icon: AlertCircle };
+  const runPaymentAction = async (
+    payment: PaymentSummary,
+    action: 'collect' | 'approve' | 'reject'
+  ) => {
+    setPaymentActionId(payment._id);
+    setMessage(null);
+    try {
+      if (action === 'collect') {
+        await paymentAdminService.collectCod(payment._id);
+      } else {
+        await paymentAdminService.reviewManual(payment._id, action);
+      }
+      setMessage({
+        kind: 'success',
+        text: action === 'collect'
+          ? 'COD collection recorded.'
+          : `Manual payment ${action === 'approve' ? 'approved' : 'rejected'}.`
+      });
+      await loadData();
+    } catch {
+      setMessage({
+        kind: 'error',
+        text: 'The payment action was rejected by the backend.'
+      });
+    } finally {
+      setPaymentActionId('');
+    }
+  };
+
+  const submitRefund = async (event: FormEvent) => {
+    event.preventDefault();
+    const numericAmount = Number(amount);
+    if (!paymentId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setMessage({ kind: 'error', text: 'A valid payment and amount are required.' });
+      return;
+    }
+
+    const fingerprint = JSON.stringify({
+      paymentId,
+      amount: numericAmount,
+      reason: reason.trim()
+    });
+    if (refundAttemptRef.current?.fingerprint !== fingerprint) {
+      refundAttemptRef.current = {
+        fingerprint,
+        key: `admin-refund-${globalThis.crypto.randomUUID()}`
+      };
+    }
+
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      await api.post(
+        `/payments/${paymentId}/refunds`,
+        {
+          amount: numericAmount,
+          reason: reason.trim() || undefined
+        },
+        {
+          headers: {
+            'Idempotency-Key': refundAttemptRef.current.key
+          }
+        }
+      );
+      setMessage({
+        kind: 'success',
+        text: 'Refund request was accepted by the backend.'
+      });
+      setPaymentId('');
+      setAmount('');
+      setReason('');
+      refundAttemptRef.current = null;
+      await loadData();
+    } catch {
+      setMessage({
+        kind: 'error',
+        text: 'The refund could not be completed. No payment status was changed by the browser.'
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>Refunds Management</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Track and process financial refunds for returned or cancelled orders.</p>
-        </div>
-        <button style={{ padding: '12px 20px', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Download size={18} /> Export CSV
-        </button>
-      </div>
+      <header style={{ marginBottom: '28px' }}>
+        <h1 style={{
+          fontSize: '28px',
+          fontWeight: '800',
+          color: 'var(--text-primary)',
+          marginBottom: '8px'
+        }}>
+          Payments &amp; Refunds
+        </h1>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
+          Provider-confirmed payment state and admin-only refund operations.
+        </p>
+      </header>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {[
-          { label: 'Total Refunded', value: `Rs. ${stats.totalAmount.toLocaleString()}`, color: '#A855F7', bg: '#FDF4FF', icon: ArrowLeftCircle },
-          { label: 'Pending', value: stats.pending, color: '#F59E0B', bg: '#FEF3C7', icon: Clock },
-          { label: 'Processed', value: stats.processed, color: '#10B981', bg: '#D1FAE5', icon: CheckCircle },
-        ].map((stat, idx) => (
-          <div key={idx} style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: stat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <stat.icon size={24} color={stat.color} />
+      {message && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: '20px',
+            padding: '14px 16px',
+            borderRadius: '10px',
+            border: `1px solid ${message.kind === 'success' ? '#A7F3D0' : '#FECACA'}`,
+            background: message.kind === 'success' ? '#ECFDF5' : '#FEF2F2',
+            color: message.kind === 'success' ? '#065F46' : '#991B1B'
+          }}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <section style={{
+        marginBottom: '28px',
+        borderRadius: '12px',
+        border: '1px solid var(--border-color)',
+        background: 'var(--card-bg)',
+        padding: '18px 20px'
+      }}>
+        <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '14px' }}>
+          Provider registry
+        </h2>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+          gap: '10px'
+        }}>
+          {providerStatuses.map((provider) => (
+            <div key={provider.code} style={{
+              border: '1px solid var(--border-color)',
+              borderRadius: '10px',
+              padding: '12px'
+            }}>
+              <div style={{ fontWeight: '800' }}>{provider.displayName}</div>
+              <div style={{ marginTop: '5px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {provider.available
+                  ? 'Available'
+                  : provider.reason || 'Unavailable'}
+              </div>
+              <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                installed {String(provider.installed)} · edition {String(provider.included)} · enabled {String(provider.enabled)} · configured {String(provider.configured)}
+              </div>
             </div>
-            <div>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>{stat.label}</div>
-              <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stat.value}</div>
-            </div>
+          ))}
+        </div>
+      </section>
+
+      <section style={{
+        marginBottom: '28px',
+        overflow: 'hidden',
+        borderRadius: '12px',
+        border: '1px solid var(--border-color)',
+        background: 'var(--card-bg)'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          padding: '18px 20px',
+          borderBottom: '1px solid var(--border-color)'
+        }}>
+          <h2 style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)' }}>
+            Recent payments
+          </h2>
+          <select
+            value={providerFilter}
+            onChange={(event) => setProviderFilter(event.target.value)}
+            aria-label="Filter payments by provider"
+            style={{
+              padding: '9px 12px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--input-bg)'
+            }}
+          >
+            <option value="all">All providers</option>
+            {providerStatuses.map((provider) => (
+              <option key={provider.code} value={provider.code}>
+                {provider.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-primary)' }}>
+                {['Payment', 'Provider reference', 'Amount', 'Refunded', 'Status', 'Action'].map((heading) => (
+                  <th key={heading} style={{
+                    padding: '14px 18px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    {heading}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {payments.map((payment) => {
+                const badge = badgeFor(payment.status);
+                const BadgeIcon = badge.icon;
+                return (
+                  <tr key={payment._id} style={{ borderTop: '1px solid var(--border-color)' }}>
+                    <td style={{ padding: '14px 18px', fontFamily: 'monospace' }}>
+                      <div>{payment._id}</div>
+                      <div style={{ fontFamily: 'inherit', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {payment.providerDisplayName || payment.provider}
+                      </div>
+                    </td>
+                    <td style={{ padding: '14px 18px', fontFamily: 'monospace' }}>
+                      {payment.safeProviderReference
+                        || payment.providerPaymentId
+                        || payment.customerReferenceMasked
+                        || 'Pending'}
+                    </td>
+                    <td style={{ padding: '14px 18px', fontWeight: '700' }}>
+                      Rs. {payment.amount.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '14px 18px' }}>
+                      Rs. {payment.refundedAmount.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '14px 18px' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        borderRadius: '999px',
+                        padding: '6px 10px',
+                        background: badge.bg,
+                        color: badge.color,
+                        fontWeight: '700',
+                        fontSize: '12px'
+                      }}>
+                        <BadgeIcon size={14} /> {payment.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '14px 18px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px' }}>
+                        <ProviderPaymentActions
+                          payment={payment}
+                          disabled={paymentActionId === payment._id}
+                          onCollect={() => void runPaymentAction(payment, 'collect')}
+                          onReview={(decision) => void runPaymentAction(payment, decision)}
+                        />
+                        {payment.capabilities?.refund && (
+                          <button
+                            type="button"
+                            disabled={!refundableStatuses.has(payment.status)}
+                            onClick={() => beginRefund(payment)}
+                            style={{
+                              border: 0,
+                              borderRadius: '8px',
+                              padding: '9px 12px',
+                              background: 'var(--primary)',
+                              color: 'white',
+                              fontWeight: '700',
+                              cursor: refundableStatuses.has(payment.status)
+                                ? 'pointer'
+                                : 'not-allowed',
+                              opacity: refundableStatuses.has(payment.status) ? 1 : 0.45
+                            }}
+                          >
+                            Refund
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!loading && payments.length === 0 && (
+          <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            No payment records found.
           </div>
-        ))}
-      </div>
+        )}
+      </section>
 
-      {/* Filters */}
-      <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '16px 20px', border: '1px solid var(--border-color)', marginBottom: '24px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
-          <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-          <input type="text" placeholder="Search by Refund # or Customer..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: '100%', padding: '10px 14px 10px 42px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
-        </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }}
-          style={{ padding: '10px 32px 10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '500', outline: 'none', cursor: 'pointer' }}>
-          <option value="all">All Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="processed">Processed</option>
-          <option value="failed">Failed</option>
-        </select>
-      </div>
+      {paymentId && (
+        <form
+          onSubmit={submitRefund}
+          style={{
+            marginBottom: '28px',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            background: 'var(--card-bg)',
+            padding: '20px'
+          }}
+        >
+          <h2 style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '16px',
+            fontSize: '18px',
+            fontWeight: '800'
+          }}>
+            <RotateCcw size={20} /> Create provider refund
+          </h2>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '14px'
+          }}>
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13px' }}>
+              Payment record
+              <input
+                value={paymentId}
+                readOnly
+                style={{
+                  padding: '11px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--input-bg)'
+                }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13px' }}>
+              Refund amount (PKR)
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                required
+                style={{
+                  padding: '11px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--input-bg)'
+                }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13px' }}>
+              Reason
+              <input
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                maxLength={200}
+                placeholder="Optional internal reason"
+                style={{
+                  padding: '11px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--input-bg)'
+                }}
+              />
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              marginTop: '16px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              border: 0,
+              borderRadius: '8px',
+              padding: '11px 16px',
+              background: 'var(--primary)',
+              color: 'white',
+              fontWeight: '700',
+              cursor: submitting ? 'wait' : 'pointer'
+            }}
+          >
+            {submitting ? <Loader className="animate-spin" size={17} /> : <CreditCard size={17} />}
+            Submit refund
+          </button>
+        </form>
+      )}
 
-      {/* Table */}
-      {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[...Array(5)].map((_, i) => (<div key={i} style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', height: '80px', animation: 'pulse 1.5s infinite', border: '1px solid var(--border-color)' }} />))}
+      <section style={{
+        overflow: 'hidden',
+        borderRadius: '12px',
+        border: '1px solid var(--border-color)',
+        background: 'var(--card-bg)'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          padding: '18px 20px',
+          borderBottom: '1px solid var(--border-color)'
+        }}>
+          <h2 style={{ fontSize: '18px', fontWeight: '800' }}>
+            Refund ledger
+          </h2>
+          <select
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as 'all' | RefundStatus);
+              setPagination((current) => ({ ...current, page: 1 }));
+            }}
+            style={{
+              padding: '9px 12px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--input-bg)'
+            }}
+          >
+            <option value="all">All statuses</option>
+            <option value="Pending">Pending</option>
+            <option value="Processing">Processing</option>
+            <option value="Completed">Completed</option>
+            <option value="Failed">Failed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
         </div>
-      ) : refunds.length === 0 ? (
-        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '80px 20px', textAlign: 'center', border: '1px solid var(--border-color)', borderStyle: 'dashed' }}>
-          <ArrowLeftCircle size={48} color="var(--text-secondary)" style={{ opacity: 0.3, marginBottom: '16px' }} />
-          <h3 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>No refunds found</h3>
-        </div>
-      ) : (
-        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+
+        {loading ? (
+          <div style={{ padding: '48px', textAlign: 'center' }}>
+            <Loader className="animate-spin" size={28} />
+          </div>
+        ) : refunds.length === 0 ? (
+          <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            No refund records found.
+          </div>
+        ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+            <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  {['Refund #', 'Customer', 'Amount', 'Method', 'Status', 'Date', 'Actions'].map(h => (
-                    <th key={h} style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{h}</th>
+                <tr style={{ background: 'var(--bg-primary)' }}>
+                  {['Refund', 'Customer', 'Provider reference', 'Amount', 'Status', 'Created'].map((heading) => (
+                    <th key={heading} style={{
+                      padding: '14px 18px',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      {heading}
+                    </th>
                   ))}
                 </tr>
               </thead>
-              <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
-                {refunds.map((ref) => {
-                  const badge = getStatusBadge(ref.status);
+              <tbody>
+                {refunds.map((refund) => {
+                  const badge = badgeFor(refund.status);
                   const BadgeIcon = badge.icon;
                   return (
-                    <tr key={ref._id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                      <td style={{ padding: '16px 20px', fontWeight: '700', color: 'var(--primary)', fontFamily: 'monospace' }}>{ref.refundNumber}</td>
-                      <td style={{ padding: '16px 20px', fontWeight: '600', color: 'var(--text-primary)' }}>{ref.customer?.fullName || 'N/A'}</td>
-                      <td style={{ padding: '16px 20px', fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {(ref.amount || 0).toLocaleString()}</td>
-                      <td style={{ padding: '16px 20px', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{ref.method?.replace('_', ' ') || 'N/A'}</td>
-                      <td style={{ padding: '16px 20px' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: badge.bg, color: badge.color, borderRadius: '20px', fontSize: '12px', fontWeight: '700', textTransform: 'capitalize' }}>
-                          <BadgeIcon size={14} /> {ref.status}
-                        </div>
+                    <tr key={refund._id} style={{ borderTop: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '14px 18px', fontFamily: 'monospace' }}>
+                        {refund.refundNumber}
                       </td>
-                      <td style={{ padding: '16px 20px', color: 'var(--text-secondary)', fontSize: '13px' }}>{ref.createdAt ? new Date(ref.createdAt).toLocaleDateString() : '-'}</td>
-                      <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                        <button style={{ padding: '8px 12px', backgroundColor: 'var(--bg-primary)', color: 'var(--primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <Eye size={14} /> View
-                        </button>
+                      <td style={{ padding: '14px 18px' }}>
+                        {refund.customer?.fullName || 'Unavailable'}
+                      </td>
+                      <td style={{ padding: '14px 18px', fontFamily: 'monospace' }}>
+                        {refund.providerRefundId || 'Pending'}
+                      </td>
+                      <td style={{ padding: '14px 18px', fontWeight: '700' }}>
+                        Rs. {refund.amount.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '14px 18px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          borderRadius: '999px',
+                          padding: '6px 10px',
+                          background: badge.bg,
+                          color: badge.color,
+                          fontWeight: '700',
+                          fontSize: '12px'
+                        }}>
+                          <BadgeIcon size={14} /> {refund.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px 18px', color: 'var(--text-secondary)' }}>
+                        {new Date(refund.createdAt).toLocaleDateString()}
                       </td>
                     </tr>
                   );
@@ -148,9 +637,8 @@ export default function RefundsPage() {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
+        )}
+      </section>
     </div>
   );
 }

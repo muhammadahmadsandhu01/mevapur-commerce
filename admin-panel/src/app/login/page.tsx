@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { Lock, Mail } from 'lucide-react';
+import BrandLogo from '@/components/brand/BrandLogo';
+import { branding } from '@/config/branding';
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -50,12 +52,14 @@ export default function AdminLogin() {
         boxShadow: '0 20px 60px rgba(0,0,0,0.1)'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}></div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+            <BrandLogo theme="dark" href="" height={34} />
+          </div>
           <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '8px' }}>
             Admin Login
           </h1>
           <p style={{ color: '#6B7280', fontSize: '14px' }}>
-            MevaPur Administration Panel
+            {branding.siteName} Administration Panel
           </p>
         </div>
 
@@ -157,21 +161,6 @@ export default function AdminLogin() {
           </button>
         </form>
 
-        <div style={{
-          marginTop: '24px',
-          padding: '16px',
-          backgroundColor: '#F0FDFA',
-          borderRadius: '10px',
-          border: '1px solid #0F766E'
-        }}>
-          <p style={{ fontSize: '13px', color: '#0F766E', fontWeight: '600', marginBottom: '8px' }}>
-            Demo Credentials:
-          </p>
-          <p style={{ fontSize: '12px', color: '#6B7280' }}>
-            Email: admin@mevapur.com<br />
-            Password: Admin123!
-          </p>
-        </div>
       </div>
     </div>
   );

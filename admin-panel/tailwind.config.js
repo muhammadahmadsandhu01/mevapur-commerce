@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+const config = {
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -11,26 +11,32 @@ module.exports = {
     extend: {
       colors: {
         primary: {
-          50: '#f0fdfa',
-          100: '#ccfbf1',
-          200: '#99f6e4',
-          300: '#5eead4',
-          400: '#2dd4bf',
-          500: '#14b8a6',
-          600: '#0d9488',
-          700: '#0f766e',
-          800: '#115e59',
-          900: '#134e4a',
+          50: '#eef1f8',
+          100: '#d5dce9',
+          200: '#aab8d3',
+          300: '#8094bd',
+          400: '#566fa7',
+          500: '#2c4b91',
+          600: '#1f376f',
+          700: '#15274f',
+          800: '#0B132B',
+          900: '#060a16',
         },
         secondary: {
-          500: '#f59e0b',
-          600: '#d97706',
-          700: '#b45309',
+          500: '#FF8A00',
+          600: '#e67d00',
+          700: '#cc7000',
+        },
+        brand: {
+          primary: '#0B132B',
+          accent: '#FF8A00',
+          surface: '#F7F7F5',
+          muted: '#6B7280',
         },
         sidebar: {
           light: '#ffffff',
           dark: '#0f172a',
-          active: '#0f766e'
+          active: '#0B132B'
         }
       },
       fontFamily: {
@@ -38,7 +44,7 @@ module.exports = {
       },
     },
   },
-  plugins: [
-    require('@tailwindcss/forms'),
-  ],
+  plugins: [],
 }
+
+export default config;

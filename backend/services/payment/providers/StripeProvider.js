@@ -1,91 +1,181 @@
 const Stripe = require('stripe');
 const PaymentProvider = require('../PaymentProvider');
-const { AppError } = require('../../../errors/AppError');
+const { getStripeConfig } = require('../../../config/payment.config');
+const { AppError } = require('../../../utils/errors/AppError');
+const { PAYMENT_STATUSES } = require('../../../constants/paymentConstants');
+
+const toMinorUnits = (amount) => {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new AppError('Payment amount is invalid', 422, 'PAYMENT_AMOUNT_INVALID');
+  }
+
+  return Math.round((amount + Number.EPSILON) * 100);
+};
+
+const sanitizeProviderFailure = () => (
+  new AppError('The payment provider could not complete the request', 502, 'PAYMENT_PROVIDER_ERROR')
+);
 
 class StripeProvider extends PaymentProvider {
   constructor() {
     super('stripe');
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    this._stripe = null;
+    this._testClientInjected = false;
   }
 
-  async createPayment(amount, currency, orderId, customerId, metadata) {
+  get stripe() {
+    if (!this._stripe) {
+      const { secretKey } = getStripeConfig();
+      this._stripe = new Stripe(secretKey);
+    }
+    return this._stripe;
+  }
+
+  setClientForTests(client) {
+    if (process.env.NODE_ENV !== 'test') {
+      throw new AppError(
+        'A test provider client can only be injected in the test environment',
+        500,
+        'PAYMENT_TEST_CLIENT_FORBIDDEN'
+      );
+    }
+    this._stripe = client;
+    this._testClientInjected = true;
+  }
+
+  resetClientForTests() {
+    if (this._testClientInjected) {
+      this._stripe = null;
+      this._testClientInjected = false;
+    }
+  }
+
+  async createPayment({
+    amount,
+    currency,
+    paymentId,
+    orderId,
+    environment,
+    idempotencyKey
+  }) {
     try {
       const paymentIntent = await this.stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Stripe expects smallest currency unit
+        amount: toMinorUnits(amount),
         currency: currency.toLowerCase(),
-        metadata: {
-          orderId,
-          customerId
-        },
         automatic_payment_methods: { enabled: true },
-        ...metadata
+        metadata: {
+          paymentId: String(paymentId),
+          orderId: String(orderId),
+          environment
+        }
+      }, {
+        idempotencyKey
+      });
+
+      return this.toSafePaymentResult(paymentIntent);
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw sanitizeProviderFailure();
+    }
+  }
+
+  async retrievePayment(providerPaymentId) {
+    try {
+      const paymentIntent = await this.stripe.paymentIntents.retrieve(providerPaymentId);
+      return this.toSafePaymentResult(paymentIntent);
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw sanitizeProviderFailure();
+    }
+  }
+
+  async refundPayment({
+    providerPaymentId,
+    amount,
+    refundId,
+    paymentId,
+    orderId,
+    idempotencyKey
+  }) {
+    try {
+      const refund = await this.stripe.refunds.create({
+        payment_intent: providerPaymentId,
+        amount: toMinorUnits(amount),
+        metadata: {
+          refundId: String(refundId),
+          paymentId: String(paymentId),
+          orderId: String(orderId)
+        }
+      }, {
+        idempotencyKey
       });
 
       return {
-        providerId: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret,
-        status: this.mapStatus(paymentIntent.status),
-        rawResponse: paymentIntent
+        providerRefundId: refund.id,
+        status: refund.status
       };
     } catch (error) {
-      throw new AppError(`Stripe Error: ${error.message}`, 400, 'PAYMENT_PROVIDER_ERROR');
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw sanitizeProviderFailure();
     }
-  }
-
-  async verifyPayment(paymentIntentId) {
-    const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
-    return {
-      status: this.mapStatus(paymentIntent.status),
-      amount: paymentIntent.amount / 100,
-      rawResponse: paymentIntent
-    };
-  }
-
-  async capturePayment(paymentIntentId) {
-    const paymentIntent = await this.stripe.paymentIntents.capture(paymentIntentId);
-    return { status: this.mapStatus(paymentIntent.status), rawResponse: paymentIntent };
-  }
-
-  async refundPayment(transactionId, amount, reason) {
-    const params = { payment_intent: transactionId };
-    if (amount) params.amount = Math.round(amount * 100);
-    if (reason) params.reason = reason;
-
-    const refund = await this.stripe.refunds.create(params);
-    return { status: refund.status, transactionId: refund.id, rawResponse: refund };
-  }
-
-  async cancelPayment(paymentIntentId) {
-    const paymentIntent = await this.stripe.paymentIntents.cancel(paymentIntentId);
-    return { status: this.mapStatus(paymentIntent.status), rawResponse: paymentIntent };
-  }
-
-  async getPaymentStatus(paymentIntentId) {
-    const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
-    return this.mapStatus(paymentIntent.status);
   }
 
   verifyWebhookSignature(rawBody, signature) {
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!Buffer.isBuffer(rawBody) || !signature) {
+      throw new AppError(
+        'Invalid Stripe webhook signature',
+        400,
+        'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
+      );
+    }
+
+    const { webhookSecret } = getStripeConfig({ requireWebhookSecret: true });
+
     try {
-      const event = this.stripe.webhooks.constructEvent(rawBody, signature, endpointSecret);
-      return event;
-    } catch (error) {
-      throw new AppError('Invalid Stripe webhook signature', 400, 'WEBHOOK_VERIFICATION_FAILED');
+      return this.stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    } catch (_error) {
+      throw new AppError(
+        'Invalid Stripe webhook signature',
+        400,
+        'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
+      );
     }
   }
 
-  mapStatus(stripeStatus) {
-    const map = {
-      'requires_payment_method': 'Failed',
-      'requires_confirmation': 'Processing',
-      'requires_action': 'RequiresAction',
-      'processing': 'Processing',
-      'succeeded': 'Completed',
-      'canceled': 'Cancelled'
+  toSafePaymentResult(paymentIntent) {
+    return {
+      providerPaymentId: paymentIntent.id,
+      clientSecret: paymentIntent.client_secret || null,
+      status: this.mapStatus(paymentIntent.status),
+      amountMinor: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      metadata: {
+        paymentId: paymentIntent.metadata?.paymentId || '',
+        orderId: paymentIntent.metadata?.orderId || '',
+        environment: paymentIntent.metadata?.environment || ''
+      }
     };
-    return map[stripeStatus] || 'Pending';
+  }
+
+  mapStatus(stripeStatus) {
+    const statusMap = {
+      requires_payment_method: PAYMENT_STATUSES.PENDING,
+      requires_confirmation: PAYMENT_STATUSES.PROCESSING,
+      requires_action: PAYMENT_STATUSES.PROCESSING,
+      processing: PAYMENT_STATUSES.PROCESSING,
+      succeeded: PAYMENT_STATUSES.COMPLETED,
+      canceled: PAYMENT_STATUSES.CANCELLED
+    };
+
+    return statusMap[stripeStatus] || PAYMENT_STATUSES.PENDING;
   }
 }
 
 module.exports = new StripeProvider();
+module.exports.toMinorUnits = toMinorUnits;

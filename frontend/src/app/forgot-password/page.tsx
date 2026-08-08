@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Mail, ArrowLeft, CheckCircle, Loader, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
+import BrandLogo from '@/components/brand/BrandLogo';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -77,6 +78,9 @@ export default function ForgotPasswordPage() {
         padding: '48px 40px',
         textAlign: 'center'
       }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+          <BrandLogo theme="dark" height={34} />
+        </div>
         
         {!success ? (
           <>
@@ -93,7 +97,7 @@ export default function ForgotPasswordPage() {
               Forgot Password?
             </h1>
             <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '32px', lineHeight: '1.6' }}>
-              No worries! Enter your email address and we'll send you a link to reset your password.
+              No worries! Enter your email address and we&apos;ll send you a link to reset your password.
             </p>
 
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -177,7 +181,7 @@ export default function ForgotPasswordPage() {
               Check Your Email
             </h1>
             <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '32px', lineHeight: '1.6' }}>
-              We've sent a password reset link to{' '}
+              We&apos;ve sent a password reset link to{' '}
               <strong style={{ color: '#0F766E' }}>{email}</strong>.
               <br /><br />
               Please check your inbox and follow the instructions.
@@ -188,7 +192,7 @@ export default function ForgotPasswordPage() {
               border: '1px solid #F59E0B', marginBottom: '24px',
               fontSize: '13px', color: '#78350F', textAlign: 'left'
             }}>
-              <strong>💡 Tip:</strong> If you don't see the email, check your spam folder or click below to resend.
+              <strong>💡 Tip:</strong> If you don&apos;t see the email, check your spam folder or click below to resend.
             </div>
 
             <button

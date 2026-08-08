@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle, Loader, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
+import BrandLogo from '@/components/brand/BrandLogo';
+import { branding } from '@/config/branding';
 
 function LoginContent() {
   const router = useRouter();
@@ -103,12 +105,14 @@ function LoginContent() {
           <div style={{ position: 'absolute', bottom: '-80px', left: '-80px', width: '300px', height: '300px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)' }} />
 
           <div style={{ position: 'relative', zIndex: 1 }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌰</div>
+            <div style={{ marginBottom: '24px' }}>
+              <BrandLogo theme="light" height={38} />
+            </div>
             <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '16px', lineHeight: '1.2' }}>
-              Welcome Back!
+              Welcome to {branding.siteName}
             </h1>
             <p style={{ fontSize: '16px', opacity: '0.9', marginBottom: '40px', lineHeight: '1.6' }}>
-              Sign in to access your orders, wishlist, and exclusive member benefits.
+              {branding.tagline} Sign in to access your orders, wishlist, and account.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -303,7 +307,7 @@ function LoginContent() {
             </div>
 
             <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '14px', color: '#6B7280' }}>
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <Link href="/register" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '700' }}>
                 Create Account
               </Link>

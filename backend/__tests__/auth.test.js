@@ -1,79 +1,127 @@
 const request = require('supertest');
-const app = require('../server'); // Ensure server.js exports app
-const mongoose = require('mongoose');
+const app = require('../app');
+const User = require('../models/User');
+const Session = require('../models/Session');
+const EmailService = require('../services/EmailService');
 
-describe('Auth Module', () => {
-  // Close DB connection after all tests
-  afterAll(async () => {
-    await mongoose.connection.close();
+const password = 'Violet!9Mountain';
+const changedPassword = 'Quartz!7VelvetMoon';
+
+describe('Authentication password flows', () => {
+  it('stores only a reset-token hash and saves the new password through hashing', async () => {
+    const user = await createTestUser({
+      email: 'reset@example.com',
+      password,
+    });
+    const agent = request.agent(app);
+    const login = await agent
+      .post('/api/auth/login')
+      .send({ email: user.email, password });
+    const oldAccessToken = login.body.data.accessToken;
+
+    let deliveredResetToken;
+    jest.spyOn(EmailService, 'sendPasswordResetEmail')
+      .mockImplementation(async (email, fullName, resetToken) => {
+        deliveredResetToken = resetToken;
+        return { success: true };
+      });
+
+    const forgot = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: user.email });
+
+    expect(forgot.statusCode).toBe(200);
+    expect(forgot.body).not.toHaveProperty('resetToken');
+    expect(JSON.stringify(forgot.body)).not.toContain(deliveredResetToken);
+
+    const pendingUser = await User.findById(user._id).select(
+      '+resetPasswordTokenHash +resetPasswordExpiresAt'
+    );
+    expect(pendingUser.resetPasswordTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(pendingUser.resetPasswordTokenHash).not.toBe(deliveredResetToken);
+
+    const reset = await request(app)
+      .post('/api/auth/reset-password')
+      .send({
+        resetToken: deliveredResetToken,
+        newPassword: changedPassword,
+      });
+
+    expect(reset.statusCode).toBe(200);
+
+    const savedUser = await User.findById(user._id).select(
+      '+password +tokenVersion +resetPasswordTokenHash'
+    );
+    expect(savedUser.password).not.toBe(changedPassword);
+    expect(await savedUser.matchPassword(changedPassword)).toBe(true);
+    expect(savedUser.resetPasswordTokenHash).toBeNull();
+    expect(savedUser.tokenVersion).toBe(1);
+    expect(await Session.countDocuments({ isActive: true })).toBe(0);
+
+    const oldTokenResponse = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${oldAccessToken}`);
+    expect(oldTokenResponse.statusCode).toBe(401);
   });
 
-  describe('POST /api/auth/register', () => {
-    it('should register a new user successfully', async () => {
-      const userData = {
-        fullName: 'Test User',
-        email: `test${Date.now()}@example.com`,
-        password: 'TestPass123!',
-        phone: '1234567890'
-      };
+  it('changes a password, revokes sessions, and accepts only the new password', async () => {
+    const agent = request.agent(app);
+    const registered = await agent
+      .post('/api/auth/register')
+      .send({
+        fullName: 'Change Password',
+        email: 'change@example.com',
+        password,
+        phone: '03001234567',
+      });
 
-      const res = await request(app)
-        .post('/api/auth/register')
-        .send(userData);
+    const changed = await agent
+      .post('/api/auth/change-password')
+      .set('Authorization', `Bearer ${registered.body.data.accessToken}`)
+      .set('X-CSRF-Token', registered.body.data.csrfToken)
+      .send({
+        currentPassword: password,
+        newPassword: changedPassword,
+      });
 
-      expect(res.statusCode).toEqual(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('token');
-      expect(res.body.data.user).toHaveProperty('fullName', userData.fullName);
+    expect(changed.statusCode).toBe(200);
+    expect(await Session.countDocuments({ isActive: true })).toBe(0);
+
+    const oldLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'change@example.com', password });
+    expect(oldLogin.statusCode).toBe(401);
+
+    const newLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'change@example.com', password: changedPassword });
+    expect(newLogin.statusCode).toBe(200);
+  });
+
+  it('locks an account after the configured failed-login threshold', async () => {
+    await createTestUser({
+      email: 'locked@example.com',
+      password,
     });
 
-    it('should fail if email already exists', async () => {
-      // Note: This assumes the first test ran successfully
-      // In real scenario, use specific test data cleanup
-      const userData = {
-        fullName: 'Duplicate User',
-        email: 'duplicate@example.com',
-        password: 'TestPass123!'
-      };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'locked@example.com',
+          password: 'Wrong!8Password',
+        });
+      expect(response.statusCode).toBe(401);
+    }
 
-      // First registration
-      await request(app).post('/api/auth/register').send(userData);
-      
-      // Second registration
-      const res = await request(app).post('/api/auth/register').send(userData);
+    const locked = await request(app)
+      .post('/api/auth/login')
+      .send({
+        email: 'locked@example.com',
+        password: 'Wrong!8Password',
+      });
 
-      expect(res.statusCode).toEqual(400);
-      expect(res.body.success).toBe(false);
-    });it('should fail if email already exists', async () => {
-      // Note: This assumes the first test ran successfully
-      // In real scenario, use specific test data cleanup
-      const userData = {
-        fullName: 'Duplicate User',
-        email: 'duplicate@example.com',
-        password: 'TestPass123!'
-      };
-
-      // First registration
-      await request(app).post('/api/auth/register').send(userData);
-      
-      // Second registration
-      const res = await request(app).post('/api/auth/register').send(userData);
-
-      expect(res.statusCode).toEqual(400);
-      expect(res.body.success).toBe(false);
-    });
-
-    it('should fail validation if password is weak', async () => {
-      const userData = {
-        fullName: 'Weak Pass User',
-        email: `weak${Date.now()}@example.com`,
-        password: '123' // Too short
-      };
-
-      const res = await request(app).post('/api/auth/register').send(userData);
-
-      expect(res.statusCode).toEqual(400);
-      expect(res.body.message).toContain('password');
-    });
+    expect(locked.statusCode).toBe(423);
+    expect(locked.body.error.code).toBe('AUTH_ACCOUNT_LOCKED');
   });
 });

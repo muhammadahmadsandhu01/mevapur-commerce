@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="harzaar-symbol-title">
+  <title id="harzaar-symbol-title">HARZAAR</title>
+  <rect x="3" y="3" width="8" height="26" rx="1.5" fill="#0B132B"/>
+  <rect x="3" y="13" width="18" height="6" rx="1" fill="#0B132B"/>
+  <rect x="21" y="3" width="8" height="26" rx="1.5" fill="#FF8A00"/>
+  <path d="M13 11 L19 16 L13 21 Z" fill="#F7F7F5"/>
+</svg>

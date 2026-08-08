@@ -40,25 +40,30 @@ const hppCleaner = () => {
 };
 
 // 5. Security Headers (Helmet)
-const securityHeaders = () => {
+const securityHeaders = (runtimeConfig) => {
   return helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://accounts.google.com"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        imgSrc: ["'self'", "data:", "https:", "blob:"],
-        connectSrc: ["'self'", "https://api.stripe.com", "https://maps.googleapis.com", "https://res.cloudinary.com", "https://mevapur-frontend.vercel.app",],
-        fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        frameAncestors: ["'none'"], // Prevent clickjacking
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'", ...runtimeConfig.origins.allowed],
+        fontSrc: ["'self'"],
+        frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: runtimeConfig.isDeployed ? [] : null
       },
     },
-    crossOriginEmbedderPolicy: false, 
-    crossOriginResourcePolicy: {policy: "cross-origin",},
-    referrerPolicy: {policy: "strict-origin-when-cross-origin",
-},
+    strictTransportSecurity: runtimeConfig.isDeployed
+      ? { maxAge: 31536000, includeSubDomains: true }
+      : false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    frameguard: { action: 'deny' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   });
 };
 

@@ -1,150 +1,219 @@
+const crypto = require('crypto');
+const mongoose = require('mongoose');
 const SessionRepository = require('../repositories/SessionRepository');
 const AuditService = require('./AuditService');
 const { v4: uuidv4 } = require('uuid');
 const { AppError } = require('../common/errors/AppError');
-const { ERROR_CODES } = require('../constants/errorCodes');
-const logger = require('../common/logger');
+const ERROR_CODES = require('../constants/errorCodes');
+const config = require('../config/auth.config');
 
 class SessionService {
-  /**
-   * Create New Session
-   */
-  async createSession(userId, deviceInfo, ipAddress) {
-    const sessionId = uuidv4();
-    
-    const sessionData = {
+  createSessionId() {
+    return new mongoose.Types.ObjectId();
+  }
+
+  hashToken(token) {
+    return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+  }
+
+  hashesMatch(left, right) {
+    if (!left || !right || left.length !== right.length) return false;
+    return crypto.timingSafeEqual(
+      Buffer.from(left, 'hex'),
+      Buffer.from(right, 'hex')
+    );
+  }
+
+  async createSession({
+    sessionId,
+    userId,
+    refreshToken,
+    tokenFamilyId = uuidv4(),
+    deviceInfo = {},
+    ipAddress = 'unknown',
+    userAgent = 'unknown'
+  }) {
+    return SessionRepository.create({
+      _id: sessionId,
       user: userId,
-      sessionId,
-      refreshTokenHash: null, // Will be set after token generation
+      refreshTokenHash: this.hashToken(refreshToken),
+      tokenFamilyId,
       deviceInfo: {
         deviceId: deviceInfo.deviceId || uuidv4(),
         deviceName: deviceInfo.deviceName || 'Unknown Device',
         browser: deviceInfo.browser || 'Unknown',
-        os: deviceInfo.os || 'Unknown',
-        platform: deviceInfo.platform || 'Unknown'
+        os: deviceInfo.os || 'Unknown'
       },
-      location: {
-        ipAddress,
-        country: deviceInfo.country || 'Unknown',
-        city: deviceInfo.city || 'Unknown'
-      },
+      ipAddress,
+      userAgent,
+      country: deviceInfo.country || 'Unknown',
+      city: deviceInfo.city || 'Unknown',
       isActive: true,
+      isRevoked: false,
       lastActive: new Date(),
-      expiresAt: new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)) // 30 days
-    };
-
-    const session = await SessionRepository.create(sessionData);
-    
-    logger.info('Session created', { 
-      sessionId, 
-      userId, 
-      device: deviceInfo.deviceName 
-    });
-
-    return session;
-  }
-
-  /**
-   * Update Refresh Token Hash
-   */
-  async updateRefreshToken(sessionId, refreshToken) {
-    const crypto = require('crypto');
-    const hash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    
-    return await SessionRepository.update(sessionId, {
-      refreshTokenHash: hash,
-      lastActive: new Date()
+      expiresAt: new Date(Date.now() + config.cookie.refresh.maxAge)
     });
   }
 
-  /**
-   * Validate Refresh Token
-   */
-  async validateRefreshToken(sessionId, refreshToken) {
-    const crypto = require('crypto');
-    const providedHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    
-    const session = await SessionRepository.findById(sessionId);
-    
+  async assertRefreshSession({
+    sessionId,
+    userId,
+    tokenFamilyId,
+    refreshToken,
+    auditContext
+  }) {
+    const session = await SessionRepository.findForRefresh(sessionId);
     if (!session) {
-      throw new AppError('Session not found', 404, ERROR_CODES.AUTH_SESSION_NOT_FOUND);
+      throw new AppError(
+        'Authentication session was not found',
+        401,
+        ERROR_CODES.AUTH_SESSION_NOT_FOUND
+      );
     }
 
-    if (!session.isActive) {
-      throw new AppError('Session has been revoked', 401, ERROR_CODES.AUTH_SESSION_REVOKED);
+    if (
+      String(session.user) !== String(userId)
+      || session.tokenFamilyId !== tokenFamilyId
+    ) {
+      throw new AppError(
+        'Invalid authentication session',
+        401,
+        ERROR_CODES.AUTH_TOKEN_INVALID
+      );
     }
 
-    if (session.expiresAt < new Date()) {
-      throw new AppError('Session expired', 401, ERROR_CODES.AUTH_SESSION_EXPIRED);
+    if (!session.isActive || session.isRevoked) {
+      throw new AppError(
+        'Authentication session has been revoked',
+        401,
+        ERROR_CODES.AUTH_SESSION_REVOKED
+      );
     }
 
-    if (session.refreshTokenHash !== providedHash) {
-      // Potential token reuse attack - revoke all sessions
-      await this.revokeAllSessions(session.user.toString());
-      throw new AppError('Invalid refresh token - possible reuse detected', 401, ERROR_CODES.AUTH_TOKEN_REUSE_DETECTED);
+    if (session.expiresAt <= new Date()) {
+      throw new AppError(
+        'Authentication session has expired',
+        401,
+        ERROR_CODES.AUTH_SESSION_EXPIRED
+      );
     }
 
-    return session;
-  }
-
-  /**
-   * Revoke Single Session
-   */
-  async revokeSession(sessionId, reason = 'USER_REQUEST') {
-    const session = await SessionRepository.update(sessionId, {
-      isActive: false,
-      revokedAt: new Date(),
-      revokedReason: reason
-    });
-
-    await AuditService.log({
-      userId: session.user,
-      action: 'AUTH.SESSION.REVOKED',
-      status: 'SUCCESS',
-      metadata: { sessionId, reason }
-    });
-
-    return session;
-  }
-
-  /**
-   * Revoke All Sessions for User
-   */
-  async revokeAllSessions(userId, reason = 'USER_REQUEST') {
-    const sessions = await SessionRepository.findByUser(userId);
-    
-    for (const session of sessions) {
-      await SessionRepository.update(session._id, {
-        isActive: false,
-        revokedAt: new Date(),
-        revokedReason: reason
+    const presentedHash = this.hashToken(refreshToken);
+    if (!this.hashesMatch(session.refreshTokenHash, presentedHash)) {
+      await this.revokeTokenFamily(
+        userId,
+        tokenFamilyId,
+        'REFRESH_TOKEN_REUSE'
+      );
+      await AuditService.log({
+        ...auditContext,
+        userId,
+        sessionId,
+        eventName: 'AUTH.TOKEN.REUSE_DETECTED',
+        status: 'WARNING',
+        metadata: { tokenFamilyRevoked: true }
       });
+
+      throw new AppError(
+        'Refresh token reuse was detected',
+        401,
+        ERROR_CODES.AUTH_TOKEN_REUSE_DETECTED
+      );
     }
 
-    await AuditService.log({
+    return session;
+  }
+
+  async rotateRefreshToken({
+    sessionId,
+    userId,
+    tokenFamilyId,
+    currentRefreshToken,
+    nextRefreshToken,
+    auditContext
+  }) {
+    const currentHash = this.hashToken(currentRefreshToken);
+    const nextHash = this.hashToken(nextRefreshToken);
+    const rotated = await SessionRepository.rotateRefreshToken(
+      sessionId,
+      currentHash,
+      nextHash
+    );
+
+    if (!rotated) {
+      await this.revokeTokenFamily(
+        userId,
+        tokenFamilyId,
+        'CONCURRENT_REFRESH_OR_REUSE'
+      );
+      await AuditService.log({
+        ...auditContext,
+        userId,
+        sessionId,
+        eventName: 'AUTH.TOKEN.REUSE_DETECTED',
+        status: 'WARNING',
+        metadata: { tokenFamilyRevoked: true }
+      });
+
+      throw new AppError(
+        'Refresh token reuse was detected',
+        401,
+        ERROR_CODES.AUTH_TOKEN_REUSE_DETECTED
+      );
+    }
+
+    return rotated;
+  }
+
+  async revokeOwnedSession(sessionId, userId, reason = 'USER_REQUEST') {
+    const existing = await SessionRepository.findById(sessionId);
+    if (!existing) {
+      throw new AppError(
+        'Authentication session was not found',
+        404,
+        ERROR_CODES.AUTH_SESSION_NOT_FOUND
+      );
+    }
+
+    if (String(existing.user) !== String(userId)) {
+      throw new AppError(
+        'You cannot revoke another user session',
+        403,
+        ERROR_CODES.AUTH_FORBIDDEN
+      );
+    }
+
+    if (!existing.isActive || existing.isRevoked) return existing;
+    return SessionRepository.revokeOwned(sessionId, userId, reason);
+  }
+
+  async revokeAllSessions(userId, reason = 'USER_REQUEST') {
+    const result = await SessionRepository.revokeAllByUser(userId, reason);
+    return result.modifiedCount || 0;
+  }
+
+  async revokeTokenFamily(userId, tokenFamilyId, reason) {
+    const result = await SessionRepository.revokeTokenFamily(
       userId,
-      action: 'AUTH.SESSION.REVOKED_ALL',
-      status: 'SUCCESS',
-      metadata: { count: sessions.length, reason }
-    });
-
-    return sessions.length;
+      tokenFamilyId,
+      reason
+    );
+    return result.modifiedCount || 0;
   }
 
-  /**
-   * Get Active Sessions for User
-   */
-  async getActiveSessions(userId) {
-    return await SessionRepository.findActiveByUser(userId);
-  }
-
-  /**
-   * Cleanup Expired Sessions
-   */
-  async cleanupExpiredSessions() {
-    const result = await SessionRepository.deleteExpired();
-    logger.info('Expired sessions cleaned up', { count: result.deletedCount });
-    return result;
+  async getActiveSessions(userId, currentSessionId) {
+    const sessions = await SessionRepository.findByUserId(userId);
+    return sessions.map((session) => ({
+      id: String(session._id),
+      deviceInfo: session.deviceInfo,
+      ipAddress: session.ipAddress,
+      country: session.country,
+      city: session.city,
+      lastActive: session.lastActive,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      isCurrent: String(session._id) === String(currentSessionId)
+    }));
   }
 }
 

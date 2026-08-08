@@ -1,25 +1,20 @@
 const swaggerJsdoc = require('swagger-jsdoc');
+const { getRuntimeConfig } = require('../config/runtime.config');
+
+const runtimeConfig = getRuntimeConfig();
 
 const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'MevaPur Enterprise API',
+      title: 'HARZAAR Commerce API',
       version: '1.0.0',
-      description: 'Enterprise E-commerce Platform - Authentication & Security Module',
-      contact: {
-        name: 'API Support',
-        email: 'support@mevapur.com'
-      }
+      description: 'Authentication, catalogue, commerce, and administration API for the configurable HARZAAR marketplace.',
     },
     servers: [
       {
-        url: 'http://localhost:5000/api/v1',
-        description: 'Development Server'
-      },
-      {
-        url: 'https://api.mevapur.com/api/v1',
-        description: 'Production Server'
+        url: `${runtimeConfig.origins.backend}/api/v1`,
+        description: 'Configured API server'
       }
     ],
     components: {

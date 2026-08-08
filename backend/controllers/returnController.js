@@ -1,6 +1,7 @@
 const Return = require('../models/Return');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const ReturnInventoryService = require('../services/ReturnInventoryService');
 const { logActivity } = require('../middleware/activityLogger');
 
 // @desc    Get all returns
@@ -199,12 +200,6 @@ exports.updateReturnStatus = async (req, res) => {
       returnItem.refundedAt = Date.now();
       if (refundAmount) returnItem.refundAmount = refundAmount;
       
-      // Restore product stock
-      for (const item of returnItem.items) {
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { stock: item.quantity }
-        });
-      }
     }
 
     if (status === 'rejected') {
@@ -215,6 +210,8 @@ exports.updateReturnStatus = async (req, res) => {
     if (courierCompany) returnItem.courierCompany = courierCompany;
 
     await returnItem.save();
+
+    if (status === 'refunded') await ReturnInventoryService.restockOnce(returnItem._id);
 
     await logActivity(req, 'RETURN_STATUS_UPDATE', 
       `Updated return ${returnItem.returnNumber} status to ${status}`, 
@@ -270,14 +267,8 @@ exports.processRefund = async (req, res) => {
       });
     }
 
-    // Restore stock
-    for (const item of returnItem.items) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: item.quantity }
-      });
-    }
-
     await returnItem.save();
+    await ReturnInventoryService.restockOnce(returnItem._id);
 
     await logActivity(req, 'RETURN_REFUND', 
       `Processed refund for return ${returnItem.returnNumber}: Rs. ${returnItem.refundAmount}`, 

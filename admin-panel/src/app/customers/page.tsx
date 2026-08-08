@@ -38,11 +38,7 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
-
-  const fetchCustomers = async () => {
+  async function fetchCustomers() {
     setLoading(true);
     try {
       const response = await api.get('/customers');
@@ -54,7 +50,14 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchCustomers();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const filteredCustomers = customers.filter(customer => {
     const matchesSearch = customer.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -269,7 +272,7 @@ export default function CustomersPage() {
 
         <select
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value as any)}
+          onChange={(e) => setFilterType(e.target.value as typeof filterType)}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -290,7 +293,7 @@ export default function CustomersPage() {
 
         <select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',

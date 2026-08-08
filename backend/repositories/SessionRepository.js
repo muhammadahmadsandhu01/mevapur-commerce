@@ -3,48 +3,100 @@ const Session = require('../models/Session');
 class SessionRepository {
   async create(sessionData) {
     const session = new Session(sessionData);
-    return await session.save();
+    return session.save();
   }
 
   async findByUserId(userId) {
-    return await Session.find({ user: userId, isActive: true })
-      .sort({ lastActiveAt: -1 });
+    return Session.find({
+      user: userId,
+      isActive: true,
+      isRevoked: false,
+      expiresAt: { $gt: new Date() }
+    }).sort({ lastActive: -1 });
   }
 
   async findById(id) {
-    return await Session.findById(id);
+    return Session.findById(id);
   }
 
-  async findByRefreshTokenHash(hash) {
-    return await Session.findOne({ refreshTokenHash: hash }).select('+refreshTokenHash');
+  async findForRefresh(id) {
+    return Session.findById(id).select('+refreshTokenHash');
   }
 
   async updateLastActive(id) {
-    return await Session.findByIdAndUpdate(id, { lastActiveAt: new Date() }, { new: true });
+    return Session.findByIdAndUpdate(
+      id,
+      { $set: { lastActive: new Date() } },
+      { new: true }
+    );
   }
 
-  async revoke(id, reason) {
-    return await Session.findByIdAndUpdate(id, {
-      isActive: false,
-      revokedAt: new Date(),
-      revokeReason: reason
-    }, { new: true });
+  async rotateRefreshToken(id, expectedHash, nextHash) {
+    return Session.findOneAndUpdate(
+      {
+        _id: id,
+        refreshTokenHash: expectedHash,
+        isActive: true,
+        isRevoked: false,
+        expiresAt: { $gt: new Date() }
+      },
+      {
+        $set: {
+          refreshTokenHash: nextHash,
+          lastActive: new Date(),
+          lastRotatedAt: new Date()
+        }
+      },
+      { new: true }
+    ).select('+refreshTokenHash');
+  }
+
+  async revokeOwned(id, userId, reason) {
+    return Session.findOneAndUpdate(
+      { _id: id, user: userId, isActive: true, isRevoked: false },
+      {
+        $set: {
+          isActive: false,
+          isRevoked: true,
+          revokedAt: new Date(),
+          revokedReason: reason
+        }
+      },
+      { new: true }
+    );
   }
 
   async revokeAllByUser(userId, reason) {
-    return await Session.updateMany(
-      { user: userId, isActive: true },
+    return Session.updateMany(
+      { user: userId, isActive: true, isRevoked: false },
       {
-        isActive: false,
-        revokedAt: new Date(),
-        revokeReason: reason
+        $set: {
+          isActive: false,
+          isRevoked: true,
+          revokedAt: new Date(),
+          revokedReason: reason
+        }
       }
     );
   }
 
-  async deleteExpired() {
-    // TTL index handles most, but this can force cleanup if needed
-    return await Session.deleteMany({ expiresAt: { $lt: new Date() } });
+  async revokeTokenFamily(userId, tokenFamilyId, reason) {
+    return Session.updateMany(
+      {
+        user: userId,
+        tokenFamilyId,
+        isActive: true,
+        isRevoked: false
+      },
+      {
+        $set: {
+          isActive: false,
+          isRevoked: true,
+          revokedAt: new Date(),
+          revokedReason: reason
+        }
+      }
+    );
   }
 }
 

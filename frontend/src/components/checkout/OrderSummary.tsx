@@ -5,8 +5,6 @@ import Link from "next/link";
 import { CartItem } from "@/store/cartStore";
 import { PricingResult } from "@/lib/checkout/pricing";
 import { Tag, Trash2, Plus, Minus } from "lucide-react";
-import { calculatePricing } from '@/lib/checkout/pricing';
-import { createOrder } from '@/services/order.service';
 
 interface OrderSummaryProps {
   items: CartItem[];
@@ -60,7 +58,7 @@ export default function OrderSummary({
       <div className="space-y-4 mb-6 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
         {items.map((item) => (
           <div key={item._id || item.id} className="flex gap-4 pb-4 border-b last:border-0">
-            <Link href={`/products/${item.slug || item._id}`} className="shrink-0">
+            <Link href={`/products/${item._id || item.id}`} className="shrink-0">
               <Image
                 src={item.image || "/placeholder.png"}
                 alt={item.name}
@@ -70,7 +68,7 @@ export default function OrderSummary({
               />
             </Link>
             <div className="flex-1 min-w-0">
-              <Link href={`/products/${item.slug || item._id}`}>
+              <Link href={`/products/${item._id || item.id}`}>
                 <h4 className="font-semibold text-gray-800 text-sm line-clamp-2 hover:text-teal-600">
                   {item.name}
                 </h4>

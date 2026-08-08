@@ -1,68 +1,130 @@
 import api from '@/lib/api';
 
-interface CreatePaymentIntentRequest {
+export type PaymentProvider =
+  | 'cod'
+  | 'bank_transfer'
+  | 'raast'
+  | 'jazzcash'
+  | 'easypaisa'
+  | 'stripe';
+export type PaymentStatus =
+  | 'Pending'
+  | 'AwaitingCustomerPayment'
+  | 'AwaitingVerification'
+  | 'Processing'
+  | 'Completed'
+  | 'Rejected'
+  | 'Failed'
+  | 'Expired'
+  | 'Cancelled'
+  | 'PartiallyRefunded'
+  | 'Refunded';
+
+export interface CreatePaymentRequest {
+  orderId: string;
+  provider: PaymentProvider;
+}
+
+export interface PaymentSummary {
+  _id: string;
+  order: string;
+  provider: PaymentProvider;
+  providerDisplayName: string;
+  providerIntegrationVersion: string;
+  paymentType: 'offline' | 'manual' | 'automated' | 'historical';
+  capabilities: Record<string, boolean>;
+  providerPaymentId: string;
+  safeProviderReference: string;
+  customerAction?: PaymentCustomerAction | null;
+  customerReferenceMasked?: string;
+  customerSubmittedAt?: string | null;
+  status: PaymentStatus;
   amount: number;
   currency: string;
-  orderId?: string;
+  paidAmount: number;
+  refundedAmount: number;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  cancelledAt?: string | null;
 }
 
-interface CreatePaymentIntentResponse {
-  clientSecret: string;
-  paymentIntentId: string;
-  success: boolean;
+export interface PaymentCustomerAction {
+  kind: 'bank_transfer' | 'raast';
+  accountTitle: string;
+  message: string;
+  bankName?: string;
+  accountReference?: string;
+  raastId?: string;
 }
 
-interface VerifyPaymentRequest {
-  paymentIntentId: string;
-}
-
-interface VerifyPaymentResponse {
-  success: boolean;
-  paymentIntent: {
-    id: string;
-    status: string;
-    amount: number;
+export interface AvailablePaymentMethod {
+  code: PaymentProvider;
+  displayName: string;
+  paymentType: 'offline' | 'manual' | 'automated';
+  capabilities: Record<string, boolean>;
+  metadata: {
+    publishableKey?: string;
+    instructions?: PaymentCustomerAction | null;
   };
 }
 
+export interface CreatePaymentResponse {
+  success: boolean;
+  data: {
+    idempotentReplay: boolean;
+    providerOperationPending: boolean;
+    payment: PaymentSummary;
+    clientSecret?: string;
+    customerAction?: PaymentCustomerAction;
+  };
+  meta: { requestId: string };
+}
+
 export const paymentService = {
-  // Create Stripe Payment Intent
-  createPaymentIntent: async (
-    data: CreatePaymentIntentRequest
-  ): Promise<CreatePaymentIntentResponse> => {
-    const response = await api.post('/payments/create-payment-intent', data);
-    return response.data;
-  },
-
-  // Verify Payment Status
-  verifyPayment: async (
-    data: VerifyPaymentRequest
-  ): Promise<VerifyPaymentResponse> => {
-    const response = await api.post('/payments/verify', data);
-    return response.data;
-  },
-
-  // Process JazzCash Payment (Mock for now, replace with real API call)
-  processJazzCashPayment: async (
-    amount: number,
-    orderId: string
-  ): Promise<{ transactionId: string; success: boolean }> => {
-    // In real implementation, this would call JazzCash API via your backend
-    const response = await api.post('/payments/jazzcash', {
-      amount,
-      orderId,
-      currency: 'PKR'
+  createPaymentSession: async (
+    data: CreatePaymentRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal
+  ): Promise<CreatePaymentResponse> => {
+    const response = await api.post('/payments', data, {
+      signal,
+      headers: {
+        'Idempotency-Key': idempotencyKey
+      }
     });
     return response.data;
   },
 
-  // Handle COD Payment
-  processCODPayment: async (
-    orderId: string
-  ): Promise<{ transactionId: string; success: boolean }> => {
-    return {
-      transactionId: `COD-${orderId}-${Date.now()}`,
-      success: true
-    };
+  getPayment: async (
+    paymentId: string,
+    signal?: AbortSignal
+  ): Promise<PaymentSummary> => {
+    const response = await api.get(`/payments/${paymentId}`, { signal });
+    return response.data.data.payment;
+  },
+
+  getAvailableMethods: async (
+    country = 'PK',
+    currency = 'PKR',
+    amount?: number,
+    signal?: AbortSignal
+  ): Promise<AvailablePaymentMethod[]> => {
+    const response = await api.get('/payments/methods', {
+      signal,
+      params: { country, currency, amount }
+    });
+    return response.data.data.methods || [];
+  },
+
+  submitManualPayment: async (
+    paymentId: string,
+    transactionReference: string,
+    note?: string
+  ): Promise<PaymentSummary> => {
+    const response = await api.post(
+      `/payments/${paymentId}/manual-submission`,
+      { transactionReference, note: note || undefined }
+    );
+    return response.data.data.payment;
   }
 };

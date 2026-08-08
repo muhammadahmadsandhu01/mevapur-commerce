@@ -41,8 +41,25 @@ interface Testimonial {
   status: 'Approved' | 'Pending' | 'Rejected';
 }
 
-export default function ContentManagementPage() {
-  const [activeTab, setActiveTab] = useState<'pages' | 'banners' | 'faqs' | 'testimonials'>('pages');
+type ContentTab = 'pages' | 'banners' | 'faqs' | 'testimonials';
+type ContentRouteType = 'page' | 'banner' | 'blog' | 'slider';
+
+interface ContentManagementPageProps {
+  defaultType?: ContentRouteType;
+}
+
+const resolveInitialTab = (defaultType?: ContentRouteType): ContentTab => (
+  defaultType === 'banner' || defaultType === 'slider'
+    ? 'banners'
+    : 'pages'
+);
+
+export default function ContentManagementPage({
+  defaultType
+}: ContentManagementPageProps = {}) {
+  const [activeTab, setActiveTab] = useState<ContentTab>(
+    () => resolveInitialTab(defaultType)
+  );
   const [searchQuery, setSearchQuery] = useState('');
   
   // Data States
@@ -55,7 +72,12 @@ export default function ContentManagementPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const tabs = [
+  const tabs: Array<{
+    id: ContentTab;
+    label: string;
+    icon: typeof FileText;
+    endpoint: string;
+  }> = [
     { id: 'pages', label: 'Static Pages', icon: FileText, endpoint: '/pages' },
     { id: 'banners', label: 'Banners & Sliders', icon: ImageIcon, endpoint: '/banners' },
     { id: 'faqs', label: 'FAQ Management', icon: HelpCircle, endpoint: '/faqs' },
@@ -131,19 +153,31 @@ export default function ContentManagementPage() {
   const handleStatusToggle = async (id: string, currentStatus: string) => {
     try {
       const currentTab = tabs.find(t => t.id === activeTab);
-      const newStatus = currentStatus.toLowerCase() === 'active' || currentStatus.toLowerCase() === 'published' || currentStatus.toLowerCase() === 'approved' ? 'Inactive' : 'Active';
-      
-      await api.patch(`${currentTab?.endpoint}/${id}/status`, { status: newStatus });
-      
-      // Optimistic UI update
+
       if (activeTab === 'pages') {
-        setPages(prev => prev.map(p => p._id === id ? { ...p, status: newStatus as any } : p));
+        const status: Page['status'] = currentStatus === 'Published'
+          ? 'Draft'
+          : 'Published';
+        await api.patch(`${currentTab?.endpoint}/${id}/status`, { status });
+        setPages(prev => prev.map(p => p._id === id ? { ...p, status } : p));
       } else if (activeTab === 'banners') {
-        setBanners(prev => prev.map(b => b._id === id ? { ...b, status: newStatus as any } : b));
+        const status: Banner['status'] = currentStatus === 'Active'
+          ? 'Inactive'
+          : 'Active';
+        await api.patch(`${currentTab?.endpoint}/${id}/status`, { status });
+        setBanners(prev => prev.map(b => b._id === id ? { ...b, status } : b));
       } else if (activeTab === 'faqs') {
-        setFaqs(prev => prev.map(f => f._id === id ? { ...f, status: newStatus as any } : f));
+        const status: Faq['status'] = currentStatus === 'Active'
+          ? 'Inactive'
+          : 'Active';
+        await api.patch(`${currentTab?.endpoint}/${id}/status`, { status });
+        setFaqs(prev => prev.map(f => f._id === id ? { ...f, status } : f));
       } else if (activeTab === 'testimonials') {
-        setTestimonials(prev => prev.map(t => t._id === id ? { ...t, status: newStatus as any } : t));
+        const status: Testimonial['status'] = currentStatus === 'Approved'
+          ? 'Pending'
+          : 'Approved';
+        await api.patch(`${currentTab?.endpoint}/${id}/status`, { status });
+        setTestimonials(prev => prev.map(t => t._id === id ? { ...t, status } : t));
       }
     } catch (err) {
       console.error('Status toggle error:', err);
@@ -200,7 +234,7 @@ export default function ContentManagementPage() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id)}
               style={{
                 padding: '12px 20px', border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
                 fontSize: '15px', fontWeight: isActive ? '700' : '500',
@@ -393,7 +427,7 @@ export default function ContentManagementPage() {
                         onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
                         <td style={{ padding: '16px 20px', fontWeight: '600', color: 'var(--text-primary)' }}>{testimonial.name}</td>
                         <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          "{testimonial.review}"
+                          &ldquo;{testimonial.review}&rdquo;
                         </td>
                         <td style={{ padding: '16px 20px', color: '#F59E0B', fontSize: '14px' }}>
                           {'★'.repeat(testimonial.rating)}{'☆'.repeat(5 - testimonial.rating)}

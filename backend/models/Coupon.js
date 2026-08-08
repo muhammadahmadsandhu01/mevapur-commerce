@@ -13,6 +13,13 @@ if (mongoose.models.Coupon) {
     maxDiscount: { type: Number, default: 0, min: 0 },
     usageLimit: { type: Number, default: 0, min: 0 },
     usedCount: { type: Number, default: 0 },
+    perCustomerLimit: { type: Number, default: 0, min: 0 },
+    redemptions: [{
+      _id: false,
+      user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      count: { type: Number, default: 0, min: 0 },
+      lastUsedAt: { type: Date, default: Date.now }
+    }],
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     isActive: { type: Boolean, default: true },
@@ -23,6 +30,7 @@ if (mongoose.models.Coupon) {
 
   // Removed duplicate code index. Kept functional composite index.
   couponSchema.index({ isActive: 1, startDate: 1, endDate: 1 });
+  couponSchema.index({ 'redemptions.user': 1 });
 
   module.exports = mongoose.model('Coupon', couponSchema);
 }

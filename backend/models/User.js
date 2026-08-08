@@ -101,11 +101,26 @@ const userSchema = new mongoose.Schema(
     tokenVersion: {
       type: Number,
       default: 0,
+      min: 0,
       select: false
+    },
+
+    resetPasswordTokenHash: {
+      type: String,
+      select: false,
+      default: null
+    },
+
+    resetPasswordExpiresAt: {
+      type: Date,
+      select: false,
+      default: null
+    },
+
+    lastLoginAt: {
+      type: Date,
+      default: null
     }
-    
-    // NOTE: refreshToken, verificationToken, resetPasswordToken fields removed.
-    // Ye ab 'Session' collection aur alag temporary collections mein store honge.
   },
   {
     timestamps: true // createdAt, updatedAt auto manage
@@ -192,12 +207,16 @@ userSchema.methods.incrementLoginAttempts = function() {
 */
 userSchema.methods.toJSON = function() {
   const obj = this.toObject();
-  
+
+  obj.id = obj._id.toString();
+  delete obj._id;
   // Sensitive fields remove karo
   delete obj.password;
   delete obj.loginAttempts;
   delete obj.lockUntil;
   delete obj.tokenVersion;
+  delete obj.resetPasswordTokenHash;
+  delete obj.resetPasswordExpiresAt;
   delete obj.__v;
   delete obj.isDeleted; // Client ko soft delete flag dikhane ki zarurat nahi
   

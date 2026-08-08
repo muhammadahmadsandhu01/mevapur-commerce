@@ -2,13 +2,44 @@
 
 import { useState, useEffect } from 'react';
 import { BarChart3, Download, TrendingUp, Users, Package, DollarSign, FileText, Loader, AlertCircle, CheckCircle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import api from '@/lib/api';
 
+type ReportTab = 'sales' | 'inventory' | 'customers';
+
+interface ReportData {
+  summary?: {
+    totalRevenue?: number;
+    totalOrders?: number;
+    averageOrderValue?: number;
+    totalCustomers?: number;
+    newCustomers?: number;
+    growthRate?: number;
+  };
+  totalProducts?: number;
+  outOfStockCount?: number;
+  chartData?: Array<{ date: string; orders: number; revenue: number }>;
+  lowStockProducts?: Array<{ name: string; stock: number }>;
+  topSpenders?: Array<{
+    fullName: string;
+    orderCount: number;
+    totalSpent: number;
+  }>;
+}
+
+interface KpiCardProps {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  color: string;
+  bg: string;
+}
+
 export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState<'sales' | 'inventory' | 'customers'>('sales');
+  const [activeTab, setActiveTab] = useState<ReportTab>('sales');
   const [dateRange, setDateRange] = useState('30');
   const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState<any>(null);
+  const [reportData, setReportData] = useState<ReportData | null>(null);
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -28,7 +59,7 @@ export default function ReportsPage() {
     fetchReport();
   }, [activeTab, dateRange]);
 
-  const tabs = [
+  const tabs: Array<{ id: ReportTab; label: string; icon: LucideIcon }> = [
     { id: 'sales', label: 'Sales Report', icon: DollarSign },
     { id: 'inventory', label: 'Inventory Report', icon: Package },
     { id: 'customers', label: 'Customer Report', icon: Users },
@@ -40,7 +71,7 @@ export default function ReportsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>Reports & Analytics</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Comprehensive insights into your store's performance.</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Comprehensive insights into your store&apos;s performance.</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}
@@ -61,7 +92,7 @@ export default function ReportsPage() {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               style={{
                 padding: '12px 20px', border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
                 fontSize: '15px', fontWeight: '600', color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
@@ -121,21 +152,21 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {activeTab === 'sales' && reportData.chartData?.slice(0, 10).map((item: any, idx: number) => (
+                {activeTab === 'sales' && reportData.chartData?.slice(0, 10).map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px 24px', fontWeight: '600', color: 'var(--text-primary)' }}>{item.date}</td>
                     <td style={{ padding: '16px 24px', color: 'var(--text-secondary)' }}>{item.orders} Orders</td>
                     <td style={{ padding: '16px 24px', fontWeight: '700', color: 'var(--primary)' }}>Rs. {(item.revenue || 0).toLocaleString()}</td>
                   </tr>
                 ))}
-                {activeTab === 'inventory' && reportData.lowStockProducts?.slice(0, 10).map((item: any, idx: number) => (
+                {activeTab === 'inventory' && reportData.lowStockProducts?.slice(0, 10).map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px 24px', fontWeight: '600', color: 'var(--text-primary)' }}>{item.name}</td>
                     <td style={{ padding: '16px 24px', color: 'var(--text-secondary)' }}>Stock: {item.stock}</td>
                     <td style={{ padding: '16px 24px', fontWeight: '700', color: '#EF4444' }}>Low Stock Alert</td>
                   </tr>
                 ))}
-                {activeTab === 'customers' && reportData.topSpenders?.slice(0, 10).map((item: any, idx: number) => (
+                {activeTab === 'customers' && reportData.topSpenders?.slice(0, 10).map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px 24px', fontWeight: '600', color: 'var(--text-primary)' }}>{item.fullName}</td>
                     <td style={{ padding: '16px 24px', color: 'var(--text-secondary)' }}>{item.orderCount} Orders</td>
@@ -157,7 +188,7 @@ export default function ReportsPage() {
   );
 }
 
-function KPICard({ label, value, icon: Icon, color, bg }: any) {
+function KPICard({ label, value, icon: Icon, color, bg }: KpiCardProps) {
   return (
     <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '24px', border: '1px solid var(--border-color)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>

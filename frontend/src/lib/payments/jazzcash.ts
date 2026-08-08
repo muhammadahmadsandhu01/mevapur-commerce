@@ -4,30 +4,13 @@ import {
 } from "./index";
 
 export async function processJazzCashPayment(
-  data: PaymentRequest
+  _data: PaymentRequest
 ): Promise<PaymentResult> {
-
-  /*
-      NEXT STEP
-
-      JazzCash API
-
-      Verify Payment
-
-      Return transactionId
-  */
-
+  void _data;
   return {
-
-    success: true,
-
+    success: false,
     provider: "jazzcash",
-
-    status: "paid",
-
-    transactionId:
-      "JAZZ_" + Date.now()
-
+    status: "failed",
+    message: "JazzCash payments are not currently available."
   };
-
 }

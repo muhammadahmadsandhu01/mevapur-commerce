@@ -1,19 +1,156 @@
 const express = require('express');
-const router = express.Router();
 const paymentController = require('../controllers/paymentController');
-const { protect } = require('../middleware/auth'); // Assuming auth middleware exists
+const { protect, admin } = require('../middleware/auth');
 const validate = require('../middleware/validate');
-const { createPaymentSchema, refundSchema } = require('../validators/paymentValidator'); // You'd create this similar to orderValidator
+const {
+  createPaymentSchema,
+  createRefundSchema,
+  codCollectionSchema,
+  idempotencyHeaderSchema,
+  manualPaymentReviewSchema,
+  manualPaymentSubmissionSchema,
+  orderPaymentReferenceSchema,
+  paymentAvailabilityQuerySchema,
+  paymentListQuerySchema,
+  paymentReferenceSchema,
+  webhookProviderSchema
+} = require('../validators/paymentValidator');
 
-// Public Webhooks (No auth, signature verified inside)
-router.post('/webhook/:gateway', express.raw({ type: 'application/json' }), (req, res, next) => {
-  // Middleware to parse JSON but keep raw buffer for signature check would go here
-  // For simplicity, assuming controller handles it or custom middleware used
-  paymentController.handleWebhook(req, res, next);
-});
+const router = express.Router();
+const webhookRouter = express.Router();
 
-// Protected Routes
-router.post('/', protect, paymentController.createPayment);
-router.post('/:id/refund', protect, paymentController.refundPayment);
+webhookRouter.post(
+  '/:provider',
+  express.raw({ type: 'application/json', limit: '1mb' }),
+  validate(webhookProviderSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.handleWebhook
+);
+
+router.get(
+  '/methods',
+  validate(paymentAvailabilityQuerySchema, {
+    source: 'query',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.getAvailableMethods
+);
+
+router.get(
+  '/providers/status',
+  protect,
+  admin,
+  validate(paymentAvailabilityQuerySchema, {
+    source: 'query',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.getProviderStatuses
+);
+
+router.post(
+  '/',
+  protect,
+  validate(idempotencyHeaderSchema, {
+    source: 'headers',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(createPaymentSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.createPayment
+);
+
+router.get(
+  '/order/:orderId',
+  protect,
+  validate(orderPaymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.getPaymentForOrder
+);
+
+router.post(
+  '/:id/manual-submission',
+  protect,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(manualPaymentSubmissionSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.submitManualPayment
+);
+
+router.post(
+  '/:id/manual-review',
+  protect,
+  admin,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(manualPaymentReviewSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.reviewManualPayment
+);
+
+router.post(
+  '/:id/collect',
+  protect,
+  admin,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(codCollectionSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.collectCodPayment
+);
+
+router.get(
+  '/',
+  protect,
+  admin,
+  validate(paymentListQuerySchema, {
+    source: 'query',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.listPayments
+);
+
+router.get(
+  '/:id',
+  protect,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.getPayment
+);
+
+router.post(
+  '/:id/refunds',
+  protect,
+  admin,
+  validate(idempotencyHeaderSchema, {
+    source: 'headers',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(createRefundSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.createRefund
+);
 
 module.exports = router;
+module.exports.webhookRouter = webhookRouter;

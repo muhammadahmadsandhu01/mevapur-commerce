@@ -39,6 +39,10 @@ import {
   Globe,
   HelpCircle
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import BrandLogo from '@/components/brand/BrandLogo';
+import { copyrightLine } from '@/config/branding';
+import { useThemeStore } from '@/store/themeStore';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -46,7 +50,7 @@ interface SidebarProps {
 }
 
 interface MenuItem {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   href: string;
   badge?: string;
@@ -101,7 +105,7 @@ const menuItems: MenuItem[] = [
       { label: 'Rejected', href: '/returns?status=rejected' }
     ]
   },
-  { icon: DollarSign, label: 'Refunds', href: '/returns?view=refunds' },
+  { icon: DollarSign, label: 'Payments & Refunds', href: '/refunds' },
   { icon: Bell, label: 'Notifications', href: '/notifications' },
   { 
     icon: FileSpreadsheet, 
@@ -135,6 +139,7 @@ const menuItems: MenuItem[] = [
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+  const { isDark } = useThemeStore();
 
   const toggleMenu = (href: string) => {
     setExpandedMenus(prev => 
@@ -191,29 +196,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           gap: '12px',
           minHeight: '80px'
         }}>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
-            backgroundColor: 'var(--primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '24px',
-            flexShrink: 0
-          }}>
-            🛒
-          </div>
+          <BrandLogo
+            variant={isOpen ? 'horizontal' : 'symbol'}
+            theme={isDark ? 'light' : 'dark'}
+            height={isOpen ? 27 : 34}
+          />
           {isOpen && (
-            <div>
-              <div style={{ 
-                fontSize: '18px', 
-                fontWeight: '800', 
-                color: 'var(--text-primary)',
-                lineHeight: 1.2
-              }}>
-                MevaPur
-              </div>
+            <div style={{ marginLeft: 'auto' }}>
               <div style={{ 
                 fontSize: '11px', 
                 color: 'var(--text-secondary)',
@@ -349,6 +338,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           padding: '16px 12px',
           borderTop: '1px solid var(--border-color)'
         }}>
+          {isOpen && (
+            <p style={{ margin: '0 8px 8px', color: 'var(--text-secondary)', fontSize: '10px' }}>
+              {copyrightLine()}
+            </p>
+          )}
           <button
             style={{
               width: '100%',

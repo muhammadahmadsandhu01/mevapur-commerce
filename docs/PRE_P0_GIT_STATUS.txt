@@ -1,0 +1,39 @@
+﻿ D backend-structure.txt
+ D backend.zip
+ M backend/__tests__/auth.test.js
+ M backend/controllers/orderController.js
+ M backend/controllers/paymentController.js
+ M backend/middleware/auth.js
+ M backend/middleware/validate.js
+ M backend/routes/paymentRoutes.js
+ M backend/server.js
+ M backend/services/AuthService.js
+ M backend/services/SessionService.js
+ M backend/services/TokenService.js
+ M backend/services/emailService.js
+ M backend/services/order/InventoryService.js
+ M backend/services/order/OrderService.js
+ M backend/services/payment/PaymentProvider.js
+ M backend/services/payment/PaymentService.js
+ M backend/services/payment/providers/JazzCashProvider.js
+ M backend/services/payment/providers/StripeProvider.js
+ M backend/services/payment/stateMachine/PaymentStateMachine.js
+ M backend/tests/e2e/auth.e2e.test.js
+ M backend/tests/integration/auth.integration.test.js
+ M docs/PROJECT_AUDIT_REPORT.md
+ M frontend/src/app/checkout/page.tsx
+ M frontend/src/app/orders/page.tsx
+ M frontend/src/components/admin/AdminGuard.tsx
+ M frontend/src/components/checkout/OrderSummary.tsx
+ M frontend/src/components/checkout/PaymentModal.tsx
+ M frontend/src/components/checkout/StripePaymentForm.tsx
+ M frontend/src/hooks/useCheckout.ts
+ M frontend/src/lib/api.ts
+ M frontend/src/lib/payments/jazzcash.ts
+ M frontend/src/lib/payments/stripe.ts
+ M frontend/src/services/order.service.ts
+ M frontend/src/services/payment.service.ts
+ D project-structure.txt
+?? backend/app.js
+?? backend/config/email.config.js
+?? docs/PRE_P0_WORKING_TREE.patch

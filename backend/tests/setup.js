@@ -1,67 +1,67 @@
+if (process.env.MONGODB_URI) {
+  throw new Error(
+    'Refusing to run tests with an inherited database URI'
+  );
+}
+
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET =
+  'test-only-auth-secret-that-is-never-used-outside-tests';
+process.env.AUTH_AUTO_VERIFY_EMAIL = 'true';
+process.env.PAYMENT_EDITION = 'full';
+process.env.PAYMENT_PROVIDER_COD_ENABLED = 'true';
+process.env.PAYMENT_PROVIDER_STRIPE_ENABLED = 'true';
+process.env.STRIPE_SECRET_KEY = 'sk_test_isolated_fake';
+process.env.STRIPE_PUBLISHABLE_KEY = 'pk_test_isolated_fake';
+process.env.STRIPE_WEBHOOK_SECRET = 'whsec_isolated_fake';
+process.env.BANK_TRANSFER_ACCOUNT_TITLE = 'MevaPur Isolated Test';
+process.env.BANK_TRANSFER_BANK_NAME = 'Isolated Test Bank';
+process.env.BANK_TRANSFER_PUBLIC_ACCOUNT_REFERENCE = 'TEST-ACCOUNT-0001';
+process.env.RAAST_ACCOUNT_TITLE = 'MevaPur Isolated Test';
+process.env.RAAST_PUBLIC_ID = 'test-raast-id';
+
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
-const request = require('supertest');
-const app = require('../app');
 
-let mongoServer;
-let authToken;
-let testUser;
+let userSequence = 0;
 
-// Connect to in-memory DB before tests
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  const mongoUri = mongoServer.getUri();
-  
+  const mongoUri = process.env.AUTH_TEST_DATABASE_URI;
+
+  if (
+    typeof mongoUri !== 'string'
+    || !/^mongodb:\/\/(127\.0\.0\.1|localhost):\d+\//.test(mongoUri)
+  ) {
+    throw new Error('Test database is not an isolated local server');
+  }
+
+  global.__AUTH_TEST_DATABASE_URI__ = mongoUri;
   await mongoose.connect(mongoUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
+    serverSelectionTimeoutMS: 10000,
+    autoIndex: true,
   });
 });
 
-// Clear DB between tests
 afterEach(async () => {
-  const collections = mongoose.connection.collections;
-  for (const key in collections) {
-    await collections[key].deleteMany({});
-  }
+  if (!mongoose.connection.db) return;
+  const collections = await mongoose.connection.db.collections();
+  await Promise.all(collections.map((collection) => collection.deleteMany({})));
 });
 
-// Close DB after tests
 afterAll(async () => {
   await mongoose.disconnect();
-  await mongoServer.stop();
+  delete global.__AUTH_TEST_DATABASE_URI__;
 });
 
-// Helper: Create Test User
 global.createTestUser = async (overrides = {}) => {
   const User = require('../models/User');
-  return await User.create({
+  userSequence += 1;
+  return User.create({
     fullName: 'Test User',
-    email: `test${Date.now()}@example.com`,
-    password: 'SecurePass123!',
+    email: `test-${userSequence}@example.com`,
+    password: 'Violet!9Mountain',
     phone: '03001234567',
     role: 'customer',
     isVerified: true,
-    ...overrides
+    ...overrides,
   });
 };
-
-// Helper: Get Auth Token
-global.getAuthToken = async (email, password) => {
-  const res = await request(app)
-    .post('/api/v1/auth/login')
-    .send({ email, password });
-  
-  if (res.body.success) {
-    authToken = res.body.data.accessToken;
-    testUser = res.body.data.user;
-    return authToken;
-  }
-  throw new Error('Login failed');
-};
-
-// Helper: Auth Header
-global.authHeader = () => ({
-  Authorization: `Bearer ${authToken}`,
-  'Content-Type': 'application/json'
-});

@@ -1,30 +1,34 @@
 const { ZodError } = require('zod');
-const { ValidationError } = require('../errors/AppError');
+const { ValidationError } = require('../common/errors/AppError');
+const ERROR_CODES = require('../constants/errorCodes');
 
 /**
  * Middleware Factory for Zod Validation
  * Usage: router.post('/', validate(createOrderSchema), controller.createOrder);
  */
-const validate = (schema) => (req, res, next) => {
+const validate = (
+  schema,
+  {
+    source = 'body',
+    code = ERROR_CODES.VALIDATION_ERROR
+  } = {}
+) => (req, res, next) => {
   try {
-    // Validate request body against schema
-    schema.parse(req.body);
-    
-    // If valid, proceed to controller
-    next();
+    const parsed = schema.parse(req[source]);
+    req[source] = parsed;
+    return next();
   } catch (error) {
     if (error instanceof ZodError) {
-      // Format Zod errors into a clean structure
-      const errors = error.errors.map((err) => ({
+      const errors = error.issues.map((err) => ({
         field: err.path.join('.'),
         message: err.message
       }));
-      
-      // Throw standardized Validation Error
-      return next(new ValidationError('Request validation failed', errors));
+
+      return next(
+        new ValidationError('Request validation failed', errors, code)
+      );
     }
-    // Pass other errors to global error handler
-    next(error);
+    return next(error);
   }
 };
 

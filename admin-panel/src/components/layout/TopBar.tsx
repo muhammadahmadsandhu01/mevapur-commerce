@@ -16,9 +16,14 @@ import {
   Settings,
   LogOut,
   Lock,
-  X
+  X,
+  Package,
+  ShoppingCart,
+  Users,
+  Percent
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { branding } from '@/config/branding';
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -83,6 +88,10 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
         >
           <Menu size={24} />
         </button>
+
+        <span style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          {branding.siteName} Admin
+        </span>
 
         {/* Search Bar */}
         <div style={{

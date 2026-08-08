@@ -2,29 +2,85 @@ const AuditLogRepository = require('../repositories/AuditLogRepository');
 const logger = require('../common/utils/logger'); // Path fixed here
 const { v4: uuidv4 } = require('uuid');
 
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'currentpassword',
+  'newpassword',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'resettoken',
+  'authorization',
+  'cookie',
+  'cookies',
+  'secret'
+]);
+
+const redact = (value, key = '') => {
+  if (SENSITIVE_KEYS.has(String(key).toLowerCase())) return '[REDACTED]';
+  if (Array.isArray(value)) return value.map((item) => redact(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, childValue]) => [
+        childKey,
+        redact(childValue, childKey)
+      ])
+    );
+  }
+  return value;
+};
+
 class AuditService {
-  async log({ requestId, userId, action, status, ipAddress, userAgent, metadata = {}, errorMessage = null }) {
+  async log({
+    requestId,
+    userId = null,
+    sessionId = null,
+    eventName,
+    action,
+    status,
+    ipAddress = 'unknown',
+    userAgent = 'unknown',
+    metadata = {},
+    errorMessage = null,
+    errorCode = null
+  }) {
+    const normalizedEventName = eventName || action;
+    const normalizedRequestId = requestId || uuidv4();
+
     try {
       const auditData = {
-        requestId,
+        eventId: uuidv4(),
+        requestId: normalizedRequestId,
         userId,
-        action,
+        sessionId,
+        eventName: normalizedEventName,
         status,
         ipAddress,
         userAgent,
-        metadata,
-        errorMessage
+        metadata: redact(metadata),
+        errorMessage: errorMessage ? String(errorMessage).slice(0, 500) : null,
+        errorCode
       };
 
-      await AuditLogRepository.create(auditData);
+      const result = await AuditLogRepository.create(auditData);
 
-      // Log to file/console as well for immediate visibility
       const logLevel = status === 'FAILURE' ? 'warn' : 'info';
-      logger[logLevel](`Audit Event: ${action}`, { userId, status, requestId });
-      
+      logger[logLevel]('Authentication audit event recorded', {
+        eventName: normalizedEventName,
+        userId,
+        status,
+        requestId: normalizedRequestId
+      });
+
+      return result;
     } catch (error) {
-      // Never let audit logging fail the main operation
-      logger.error(`Failed to write audit log: ${error.message}`, { action, requestId });
+      logger.error('Authentication audit write failed', {
+        eventName: normalizedEventName,
+        requestId: normalizedRequestId,
+        errorName: error.name,
+        errorCode: error.code
+      });
+      return null;
     }
   }
 

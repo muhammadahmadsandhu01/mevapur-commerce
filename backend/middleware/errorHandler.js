@@ -1,11 +1,19 @@
 const { logger } = require('./logger');
+const ERROR_CODES = require('../constants/errorCodes');
 
 // Custom Error Class for API Errors
 class ApiError extends Error {
-  constructor(statusCode, message, isOperational = true, stack = '') {
+  constructor(
+    statusCode,
+    message,
+    isOperational = true,
+    stack = '',
+    code = ERROR_CODES.INTERNAL_SERVER_ERROR
+  ) {
     super(message);
     this.statusCode = statusCode;
-    this.isOperational = isOperational; // True for known errors, false for programming bugs
+    this.code = code;
+    this.isOperational = isOperational;
     
     if (stack) {
       this.stack = stack;
@@ -17,51 +25,76 @@ class ApiError extends Error {
 
 // Global Error Handler Middleware
 const errorHandler = (err, req, res, next) => {
-  let error = { ...err };
-  error.message = err.message;
+  let statusCode = err.statusCode || 500;
+  let code = typeof err.code === 'string'
+    ? err.code
+    : ERROR_CODES.INTERNAL_SERVER_ERROR;
+  let message = err.isOperational
+    ? err.message
+    : 'An unexpected server error occurred';
+  let details = err.details;
 
-  // Log error for debugging (using Winston)
-  logger.error(`${err.statusCode || 500} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
-
-  // Mongoose Bad ObjectId
   if (err.name === 'CastError') {
-    const message = 'Resource not found';
-    error = new ApiError(404, message);
+    statusCode = 404;
+    code = 'NOT_FOUND';
+    message = 'Resource not found';
   }
 
-  // Mongoose Duplicate Key (Unique Field)
   if (err.code === 11000) {
-    const field = Object.keys(err.keyValue)[0];
-    const message = `${field} already exists`;
-    error = new ApiError(400, message);
+    statusCode = 409;
+    code = 'DUPLICATE_RESOURCE';
+    message = 'A resource with that value already exists';
   }
 
-  // Mongoose Validation Error
   if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors).map(val => val.message).join(', ');
-    error = new ApiError(400, message);
+    statusCode = 400;
+    code = ERROR_CODES.VALIDATION_ERROR;
+    message = 'Request validation failed';
+    details = Object.values(err.errors || {}).map((value) => ({
+      field: value.path,
+      message: value.message
+    }));
   }
 
-  // JWT Errors
   if (err.name === 'JsonWebTokenError') {
-    const message = 'Invalid token';
-    error = new ApiError(401, message);
+    statusCode = 401;
+    code = ERROR_CODES.AUTH_TOKEN_INVALID;
+    message = 'Invalid authentication token';
   }
 
   if (err.name === 'TokenExpiredError') {
-    const message = 'Token expired';
-    error = new ApiError(401, message);
+    statusCode = 401;
+    code = ERROR_CODES.AUTH_TOKEN_EXPIRED;
+    message = 'Authentication token has expired';
   }
 
-  // Send Response
-  res.status(error.statusCode || 500).json({
-    success: false,
-    message: error.message || 'Server Error',
-    // In development, send stack trace
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    // In development, send detailed error info
-    errorDetails: process.env.NODE_ENV === 'development' ? err.errors : undefined
+  logger.error('Request failed', {
+    statusCode,
+    code,
+    method: req.method,
+    route: req.route?.path
+      ? `${req.baseUrl || ''}${req.route.path}`
+      : 'unmatched',
+    requestId: req.requestId,
+    errorName: err.name
   });
+
+  const response = {
+    success: false,
+    error: {
+      code,
+      message
+    },
+    meta: {
+      requestId: req.requestId || 'unknown'
+    }
+  };
+
+  if (Array.isArray(details) && details.length > 0) {
+    response.error.details = details;
+  }
+
+  res.status(statusCode).json(response);
 };
 
 module.exports = errorHandler;

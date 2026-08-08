@@ -1,31 +1,50 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import { useAuthStore } from '@/store/authStore';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { usePathname } from 'next/navigation';
 import { useThemeStore } from '@/store/themeStore';
 import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
 import AdminGuard from '../components/admin/AdminGuard';
+import AdminHelpAssistant from '@/components/assistant/AdminHelpAssistant';
+import { branding } from '@/config/branding';
+
+const subscribeToHydration = () => () => {};
+
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
-  const { user, isAuthenticated } = useAuthStore();
   const { isDark } = useThemeStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false
+  );
 
   useEffect(() => {
     if (mounted) {
       document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      document.title = `${branding.siteName} Administration`;
+
+      let favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+      if (!favicon) {
+        favicon = document.createElement('link');
+        favicon.rel = 'icon';
+        document.head.appendChild(favicon);
+      }
+      favicon.href = branding.faviconPath;
+
+      let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+      if (!description) {
+        description = document.createElement('meta');
+        description.name = 'description';
+        document.head.appendChild(description);
+      }
+      description.content = branding.shortDescription;
     }
   }, [isDark, mounted]);
 
@@ -36,13 +55,13 @@ export default function AdminLayout({
         <body style={{ margin: 0, padding: 0 }}>
           <style jsx global>{`
             :root {
-              --primary: #0F766E;
-              --primary-dark: #115E59;
-              --primary-light: rgba(15, 118, 110, 0.1);
+              --primary: #0B132B;
+              --primary-dark: #060A16;
+              --primary-light: rgba(11, 19, 43, 0.1);
               --danger: #EF4444;
               --danger-light: rgba(239, 68, 68, 0.1);
               --success: #10B981;
-              --warning: #F59E0B;
+              --warning: #FF8A00;
             }
             [data-theme="light"] {
               --bg-primary: #F8FAFC;
@@ -87,13 +106,13 @@ export default function AdminLayout({
       <body style={{ margin: 0, padding: 0 }}>
         <style jsx global>{`
           :root {
-            --primary: #0F766E;
-            --primary-dark: #115E59;
-            --primary-light: rgba(15, 118, 110, 0.1);
+            --primary: #0B132B;
+            --primary-dark: #060A16;
+            --primary-light: rgba(11, 19, 43, 0.1);
             --danger: #EF4444;
             --danger-light: rgba(239, 68, 68, 0.1);
             --success: #10B981;
-            --warning: #F59E0B;
+            --warning: #FF8A00;
           }
           [data-theme="light"] {
             --bg-primary: #F8FAFC;
@@ -145,6 +164,7 @@ export default function AdminLayout({
                 {children}
               </div>
             </main>
+            <AdminHelpAssistant />
           </div>
         </AdminGuard>
       </body>

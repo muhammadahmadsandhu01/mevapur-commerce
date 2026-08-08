@@ -1,73 +1,204 @@
-const PaymentService = require('../services/payment/PaymentService');
-const { logger } = require('../errors/logger');
-const { z } = require('zod');
-
-const createPaymentSchema = z.object({
-  orderId: z.string().min(1),
-  gateway: z.enum(['stripe', 'jazzcash']),
-  amount: z.number().positive(),
-  currency: z.string().optional().default('PKR')
-});
-
-const refundSchema = z.object({
-  amount: z.number().positive().optional(),
-  reason: z.string().max(200).optional()
-});
+const PaymentService = require('../modules/payments/core/PaymentService');
+const RefundService = require('../modules/payments/core/RefundService');
+const { AppError } = require('../common/errors/AppError');
 
 exports.createPayment = async (req, res, next) => {
   try {
-    const validatedData = createPaymentSchema.parse(req.body);
-    
-    // Generate Idempotency Key from request headers or create new
-    const idempotencyKey = req.headers['idempotency-key'] || `${req.user.id}-${validatedData.orderId}-${Date.now()}`;
+    const result = await PaymentService.createPayment({
+      userId: req.auth.userId,
+      orderId: req.body.orderId,
+      provider: req.body.provider,
+      idempotencyKey: req.headers['idempotency-key']
+    });
 
-    const result = await PaymentService.createPaymentSession(
-      req.user.id,
-      validatedData.orderId,
-      validatedData.gateway,
-      validatedData.amount,
-      validatedData.currency,
-      idempotencyKey
+    const statusCode = result.providerOperationPending
+      ? 202
+      : result.idempotentReplay
+        ? 200
+        : 201;
+
+    return res.status(statusCode).json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getPayment = async (req, res, next) => {
+  try {
+    const payment = await PaymentService.getPayment({
+      paymentId: req.params.id,
+      userId: req.auth.userId,
+      role: req.user.role
+    });
+    return res.json({
+      success: true,
+      data: { payment },
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getPaymentForOrder = async (req, res, next) => {
+  try {
+    const payment = await PaymentService.getPaymentForOrder({
+      orderId: req.params.orderId,
+      userId: req.auth.userId,
+      role: req.user.role
+    });
+    return res.json({
+      success: true,
+      data: { payment },
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.listPayments = async (req, res, next) => {
+  try {
+    const result = await PaymentService.listPayments(req.query);
+    return res.json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getAvailableMethods = async (req, res, next) => {
+  try {
+    const result = PaymentService.getAvailableMethods(req.query);
+    return res.json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getProviderStatuses = async (req, res, next) => {
+  try {
+    const result = PaymentService.getProviderStatuses(req.query);
+    return res.json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.submitManualPayment = async (req, res, next) => {
+  try {
+    const result = await PaymentService.submitManualPayment({
+      paymentId: req.params.id,
+      userId: req.auth.userId,
+      transactionReference: req.body.transactionReference,
+      note: req.body.note
+    });
+    return res.status(result.idempotentReplay ? 200 : 202).json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.reviewManualPayment = async (req, res, next) => {
+  try {
+    const result = await PaymentService.reviewManualPayment({
+      paymentId: req.params.id,
+      adminId: req.auth.userId,
+      decision: req.body.decision,
+      note: req.body.note,
+      requestId: req.requestId
+    });
+    return res.json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.collectCodPayment = async (req, res, next) => {
+  try {
+    const result = await PaymentService.collectCodPayment({
+      paymentId: req.params.id,
+      adminId: req.auth.userId,
+      note: req.body.note,
+      requestId: req.requestId
+    });
+    return res.json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.handleWebhook = async (req, res, next) => {
+  try {
+    if (!Buffer.isBuffer(req.body)) {
+      throw new AppError(
+        'Webhook body must be provided as raw bytes',
+        400,
+        'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
+      );
+    }
+
+    const signature = req.headers['stripe-signature']
+      || req.headers['x-payment-signature'];
+    const result = await PaymentService.handleWebhook(
+      req.params.provider,
+      req.body,
+      signature
     );
 
-    res.json({ success: true, data: result });
+    return res.status(200).json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
   } catch (error) {
-    logger.error('Create payment error', error);
-    next(error);
+    return next(error);
   }
 };
 
-exports.handleWebhook = async (req, res) => {
+exports.createRefund = async (req, res, next) => {
   try {
-    const gateway = req.params.gateway;
-    const signature = req.headers['stripe-signature'] || req.headers['x-jazzcash-signature'];
-    
-    // Raw body is needed for signature verification, ensure middleware preserves it
-    const rawBody = Buffer.from(JSON.stringify(req.body)); 
+    const result = await RefundService.createRefund({
+      paymentId: req.params.id,
+      amount: req.body.amount,
+      reason: req.body.reason,
+      adminId: req.auth.userId,
+      idempotencyKey: req.headers['idempotency-key']
+    });
 
-    await PaymentService.handleWebhook(gateway, rawBody, signature);
-
-    res.json({ received: true });
+    return res.status(result.idempotentReplay ? 200 : 201).json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
   } catch (error) {
-    logger.error('Webhook processing error', error);
-    // Return 200 anyway to prevent gateway retries for logical errors, unless signature fails
-    if (error.code === 'WEBHOOK_VERIFICATION_FAILED') {
-      return res.status(400).json({ error: 'Invalid signature' });
-    }
-    res.status(200).json({ received: true, error: error.message });
-  }
-};
-
-exports.refundPayment = async (req, res, next) => {
-  try {
-    const { amount, reason } = refundSchema.parse(req.body);
-    const { id } = req.params;
-
-    const payment = await PaymentService.processRefund(id, amount, reason, req.user.id);
-
-    res.json({ success: true, data: payment });
-  } catch (error) {
-    logger.error('Refund error', error);
-    next(error);
+    return next(error);
   }
 };

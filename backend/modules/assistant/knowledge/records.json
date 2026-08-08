@@ -1,0 +1,90 @@
+[
+  {
+    "id": "public-brand-identity",
+    "title": "HARZAAR marketplace identity",
+    "audience": ["customer", "anonymous"],
+    "category": "brand",
+    "content": "HARZAAR, pronounced Har-Zaar, is the current marketplace identity. Its tagline is CHOOSE BEYOND. HARZAAR is a modern, configurable, multi-category commerce platform. The actual catalogue and stock determine which products are available; the assistant must not claim that every product is available. Payment capabilities and external AI providers are independently configured and are not activated by the HARZAAR identity.",
+    "sourceReference": "docs/HARZAAR_BRAND_GUIDELINES.md"
+  },
+  {
+    "id": "public-navigation",
+    "title": "Storefront navigation",
+    "audience": ["customer", "anonymous"],
+    "category": "navigation",
+    "content": "Browse the catalogue from Products, search by product name, keep items in the cart, and use Orders after signing in to verify order status. Checkout and payment decisions must be verified in the normal checkout and order screens.",
+    "sourceReference": "Storefront navigation and account screens"
+  },
+  {
+    "id": "public-shipping",
+    "title": "Shipping guidance",
+    "audience": ["customer", "anonymous"],
+    "category": "shipping",
+    "content": "Available shipping destinations, costs, delivery estimates, and courier details depend on the selected edition and the order response shown during checkout. The assistant cannot promise a delivery date or change shipping details.",
+    "sourceReference": "Customer shipping policy"
+  },
+  {
+    "id": "public-returns-refunds",
+    "title": "Returns and refunds guidance",
+    "audience": ["customer", "anonymous"],
+    "category": "returns",
+    "content": "Return and refund eligibility is determined by the published customer policy and the normal application workflow. A submitted or completed refund must be verified from the authenticated order status. The assistant cannot approve a return or refund.",
+    "sourceReference": "Customer returns and refund policy"
+  },
+  {
+    "id": "public-payment-methods",
+    "title": "Payment method explanations",
+    "audience": ["customer", "anonymous"],
+    "category": "payments",
+    "content": "Payment methods are edition and configuration dependent. Cash on delivery, bank transfer, Raast, JazzCash, Easypaisa, and Stripe are separate capabilities. Visibility does not prove merchant approval or provider activation. Verify the method and status in checkout or the order screen.",
+    "sourceReference": "docs/PAYMENT_PROVIDER_CONFIGURATION.md"
+  },
+  {
+    "id": "public-account-help",
+    "title": "Account help",
+    "audience": ["customer", "anonymous"],
+    "category": "account",
+    "content": "Use registration and login for account access, forgot password for a reset request, and the authenticated dashboard for orders. Access tokens remain in browser memory and refresh authentication uses an HttpOnly cookie. Never share passwords or tokens with the assistant.",
+    "sourceReference": "Authentication customer workflow"
+  },
+  {
+    "id": "customer-order-verification",
+    "title": "Customer order verification",
+    "audience": ["customer"],
+    "category": "orders",
+    "content": "Authenticated order, payment, and refund summaries are read-only and limited to the current account. The normal order page is authoritative for operational decisions, and the assistant cannot alter an order or payment.",
+    "sourceReference": "Authenticated customer order dashboard"
+  },
+  {
+    "id": "admin-usage",
+    "title": "Admin assistant usage",
+    "audience": ["admin"],
+    "category": "admin",
+    "content": "The P5C admin assistant is read-only. It may return aggregate product, low-stock, order, payment, refund, edition, provider availability, and health guidance. It cannot approve, reject, create, update, delete, configure, or execute arbitrary queries.",
+    "sourceReference": "docs/AI_ASSISTANT_ROLE_AND_TOOL_POLICY.md"
+  },
+  {
+    "id": "admin-health",
+    "title": "Application health and readiness",
+    "audience": ["admin"],
+    "category": "operations",
+    "content": "The backend liveness path is /api/health and readiness path is /api/ready. Storefront and admin expose /healthz. Liveness does not prove database readiness. Readiness may fail closed when required internal database checks are unavailable.",
+    "sourceReference": "docs/P5B_OPERATIONAL_HARDENING_RUNBOOK.md"
+  },
+  {
+    "id": "admin-editions",
+    "title": "Commerce edition configuration",
+    "audience": ["admin"],
+    "category": "configuration",
+    "content": "Pakistan, international, and full editions control which regional payment capabilities may be presented. Provider feature flags and merchant approvals remain separate gates, and no edition automatically activates an external provider.",
+    "sourceReference": "docs/CUSTOMER_EDITION_CONFIGURATION_GUIDE.md"
+  },
+  {
+    "id": "admin-deployment",
+    "title": "Customer-owned deployment",
+    "audience": ["admin"],
+    "category": "deployment",
+    "content": "Production accounts, billing, domains, DNS, secrets, database, monitoring, and provider accounts must be customer owned. Vercel and Render are reference options; compatible Node hosting normally needs configuration rather than commerce business-code changes.",
+    "sourceReference": "CUSTOMER_DEPLOYMENT_GUIDE.md"
+  }
+]

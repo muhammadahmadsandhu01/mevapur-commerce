@@ -4,8 +4,8 @@ const { z } = require('zod');
 const revokeSessionSchema = z.object({
   sessionId: z.string()
     .min(1, 'Session ID is required')
-    .regex(/^[0-9a-f]{24}$/, 'Invalid session ID format')
-});
+    .regex(/^[0-9a-fA-F]{24}$/, 'Invalid session ID format')
+}).strict();
 
 // Revoke Multiple Sessions
 const revokeMultipleSessionsSchema = z.object({

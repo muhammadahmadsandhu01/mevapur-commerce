@@ -3,14 +3,18 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Package, Truck, CreditCard, MapPin, Download, RotateCcw, ShoppingCart, Star, MessageCircle, Loader } from 'lucide-react';
+import { ArrowLeft, Package, Truck, CreditCard, MapPin, Download, ShoppingCart, Star, MessageCircle, Loader } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
-import axios from 'axios';
+import api from '@/lib/api';
 import Toast from '@/components/Toast';
 
 interface OrderItem {
-  product?: any;
+  product?: string | {
+    _id: string;
+    name?: string;
+    images?: string[];
+  };
   name: string;
   price: number | string;
   quantity: number;
@@ -67,16 +71,9 @@ export default function OrderDetailsPage() {
       }
 
       try {
-        const { data } = await axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
+        const { data } = await api.get(`/orders/${orderId}`);
         if (data.success) {
-          setOrder(data.data);
+          setOrder(data.data.order);
         }
       } catch (error) {
         console.error('Error fetching order:', error);
@@ -217,6 +214,7 @@ export default function OrderDetailsPage() {
               {order.items.map((item, index) => {
                 const productName = typeof item.product === 'object' ? item.product.name : item.name;
                 const productImage = item.image || (typeof item.product === 'object' ? item.product.images?.[0] : null) || '/placeholder.png';
+                const returnProductId = typeof item.product === 'object' ? item.product._id : item.product;
                 
                 return (
                   <div key={index} style={{ display: 'flex', gap: '16px', padding: '16px', marginBottom: '12px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
@@ -227,6 +225,7 @@ export default function OrderDetailsPage() {
                         <div style={{ fontSize: '13px', color: '#6B7280' }}>Qty: {item.quantity}</div>
                         <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {(Number(item.price) * item.quantity).toFixed(2)}</div>
                       </div>
+                      {order.orderStatus === 'Delivered' && <Link href={`/account?order=${encodeURIComponent(order.orderId || order._id)}&product=${encodeURIComponent(String(returnProductId))}`} style={{ fontSize: '13px', color: '#0F766E' }}>Request a return for this item</Link>}
                     </div>
                   </div>
                 );
@@ -305,13 +304,13 @@ export default function OrderDetailsPage() {
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button onClick={() => setToast({ message: '📄 Invoice downloaded', type: 'success' })} style={{
+                <Link href={`/orders/${order._id}/invoice`} style={{
                   width: '100%', backgroundColor: '#0F766E', color: 'white', border: 'none',
                   padding: '14px', borderRadius: '10px', fontSize: '14px', fontWeight: '700',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                 }}>
                   <Download size={16} /> Download Invoice
-                </button>
+                </Link>
                 
                 {order.orderStatus === 'Delivered' && (
                   <>

@@ -33,7 +33,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   }, [product.stock, product.variants]);
 
   // ✅ Fix #7: Safe discount calculation (prevents negative values)
-  const calcDiscount = () => {
+  const discount = useMemo(() => {
     const original = Number(product.originalPrice || 0);
     const current = Number(product.price || 0);
     
@@ -41,9 +41,7 @@ export default function ProductCard({ product }: ProductCardProps) {
       return Math.round(((original - current) / original) * 100);
     }
     return 0;
-  };
-  
-  const discount = useMemo(() => calcDiscount(), [ product.price, product.originalPrice ]);
+  }, [product.price, product.originalPrice]);
 
   // ✅ Image URL helper for cleaner JSX
   const imageUrl = useMemo(
@@ -58,6 +56,8 @@ export default function ProductCard({ product }: ProductCardProps) {
   const brandName = typeof product.brand === "object" ? product.brand?.name : product.brand;
   const categoryName = typeof product.category === "object" ? product.category?.name : product.category;
   const reviewCount = product.reviewCount ?? product.numReviews ?? 0;
+  const defaultVariant = product.variants?.find(v => v.isDefault)
+    || product.variants?.[0];
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -70,10 +70,14 @@ export default function ProductCard({ product }: ProductCardProps) {
       id: product._id,
       product: product._id,
       name: product.name,
-      price: Number(product.price) || 0,
-      image: imageUrl,
-      stock: product.stock ?? undefined,
-      sku: product.sku
+      price: Number(defaultVariant?.price ?? product.price) || 0,
+      image: defaultVariant?.images?.[0] || imageUrl,
+      stock: defaultVariant?.stock ?? product.stock ?? undefined,
+      variantId: defaultVariant?._id,
+      variant: defaultVariant?.attributes
+        .map(attribute => `${attribute.name}: ${attribute.value}`)
+        .join(', '),
+      sku: defaultVariant?.sku || product.sku
     });
   };
 
@@ -89,7 +93,11 @@ export default function ProductCard({ product }: ProductCardProps) {
       price: Number(product.price) || 0,
       image: imageUrl,
       slug: product.slug,
-      variant: product.variants?.find(v => v.isDefault)?.sku
+      variantId: defaultVariant?._id,
+      variant: defaultVariant?.attributes
+        .map(attribute => `${attribute.name}: ${attribute.value}`)
+        .join(', '),
+      sku: defaultVariant?.sku || product.sku
     };
 
     if (isInWishlist) {

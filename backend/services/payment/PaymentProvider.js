@@ -1,43 +1,47 @@
-const { AppError } = require('../../errors/AppError');
+const { AppError } = require('../../utils/errors/AppError');
 
-/**
- * Abstract Base Class for Payment Providers
- * All providers (Stripe, JazzCash, etc.) must implement these methods
- */
 class PaymentProvider {
   constructor(name) {
     if (this.constructor === PaymentProvider) {
-      throw new AppError('PaymentProvider is an abstract class', 500, 'ABSTRACT_CLASS_ERROR');
+      throw new AppError(
+        'PaymentProvider is an abstract class',
+        500,
+        'ABSTRACT_CLASS_ERROR'
+      );
     }
     this.name = name;
   }
 
-  async createPayment(amount, currency, orderId, customerId, metadata) {
-    throw new AppError('Method createPayment() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
+  async createPayment(_request) {
+    throw new AppError(
+      'Payment creation is not implemented for this provider',
+      501,
+      'PAYMENT_PROVIDER_OPERATION_UNAVAILABLE'
+    );
   }
 
-  async verifyPayment(paymentIntentId) {
-    throw new AppError('Method verifyPayment() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
+  async retrievePayment(_providerPaymentId) {
+    throw new AppError(
+      'Payment retrieval is not implemented for this provider',
+      501,
+      'PAYMENT_PROVIDER_OPERATION_UNAVAILABLE'
+    );
   }
 
-  async capturePayment(paymentIntentId) {
-    throw new AppError('Method capturePayment() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
+  async refundPayment(_request) {
+    throw new AppError(
+      'Refund creation is not implemented for this provider',
+      501,
+      'PAYMENT_PROVIDER_OPERATION_UNAVAILABLE'
+    );
   }
 
-  async refundPayment(transactionId, amount, reason) {
-    throw new AppError('Method refundPayment() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
-  }
-
-  async cancelPayment(paymentIntentId) {
-    throw new AppError('Method cancelPayment() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
-  }
-
-  async getPaymentStatus(paymentIntentId) {
-    throw new AppError('Method getPaymentStatus() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
-  }
-
-  verifyWebhookSignature(rawBody, signature) {
-    throw new AppError('Method verifyWebhookSignature() must be implemented', 500, 'METHOD_NOT_IMPLEMENTED');
+  verifyWebhookSignature(_rawBody, _signature) {
+    throw new AppError(
+      'Webhook verification is not implemented for this provider',
+      501,
+      'PAYMENT_PROVIDER_OPERATION_UNAVAILABLE'
+    );
   }
 }
 

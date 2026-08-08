@@ -10,6 +10,8 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import api, { getCategories, getBrands } from '@/lib/api';
+import axios from 'axios';
+import type { LucideIcon } from 'lucide-react';
 
 // Types
 interface Variant {
@@ -28,6 +30,17 @@ interface Variant {
 interface Attribute {
   name: string;
   value: string;
+}
+
+interface CategoryOption {
+  _id: string;
+  name: string;
+  parentId?: string | null;
+}
+
+interface BrandOption {
+  _id: string;
+  name: string;
 }
 
 interface ProductFormData {
@@ -162,7 +175,7 @@ const Section = ({
   onSave
 }: { 
   title: string; 
-  icon: any; 
+  icon: LucideIcon;
   children: React.ReactNode; 
   defaultOpen?: boolean;
   onSave?: () => void;
@@ -285,8 +298,8 @@ export default function EditProductPage() {
   const [formData, setFormData] = useState<ProductFormData>(initialFormData);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [brands, setBrands] = useState<any[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -294,14 +307,17 @@ export default function EditProductPage() {
   // Auto-generate slug from name (only if user hasn't manually changed it)
   const [slugManuallyChanged, setSlugManuallyChanged] = useState(false);
   useEffect(() => {
-    if (formData.name && !slugManuallyChanged) {
-      const slug = formData.name
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .substring(0, 60);
-      setFormData(prev => ({ ...prev, slug }));
-    }
+    const timer = window.setTimeout(() => {
+      if (formData.name && !slugManuallyChanged) {
+        const slug = formData.name
+          .toLowerCase()
+          .replace(/[^\w\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .substring(0, 60);
+        setFormData(prev => ({ ...prev, slug }));
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [formData.name, slugManuallyChanged]);
 
   // Fetch product data
@@ -401,22 +417,13 @@ export default function EditProductPage() {
 
   // Track changes
   useEffect(() => {
-    if (!loading) {
-      setHasChanges(true);
-    }
+    const timer = window.setTimeout(() => {
+      if (!loading) setHasChanges(true);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [formData, loading]);
 
-  // Auto-save every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (hasChanges && formData.status === 'draft') {
-        handleAutoSave();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [formData, hasChanges]);
-
-  const handleAutoSave = async () => {
+  async function handleAutoSave() {
     setSaving(true);
     try {
       await api.put(`/products/${productId}`, formData);
@@ -427,7 +434,17 @@ export default function EditProductPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }
+
+  // Auto-save every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (hasChanges && formData.status === 'draft') {
+        handleAutoSave();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [formData, hasChanges]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -461,8 +478,13 @@ export default function EditProductPage() {
         setLastSaved(new Date());
         router.push('/admin/products');
       }
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to update product');
+    } catch (error: unknown) {
+      alert(
+        axios.isAxiosError(error)
+        && typeof error.response?.data?.message === 'string'
+          ? error.response.data.message
+          : 'Failed to update product'
+      );
     } finally {
       setLoading(false);
     }
@@ -515,7 +537,11 @@ export default function EditProductPage() {
     setHasChanges(true);
   };
 
-  const updateVariant = (index: number, field: keyof Variant, value: any) => {
+  const updateVariant = <Key extends keyof Variant>(
+    index: number,
+    field: Key,
+    value: Variant[Key]
+  ) => {
     const newVariants = [...formData.variants];
     newVariants[index] = { ...newVariants[index], [field]: value };
     setFormData(prev => ({ ...prev, variants: newVariants }));

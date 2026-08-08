@@ -9,8 +9,8 @@ const {
   reportReview
 } = require('../controllers/reviewController');
 
-// Public routes
-router.post('/:id/report', reportReview);
+// Flagging changes moderation state and is therefore an admin operation.
+router.post('/:id/report', protect, admin, reportReview);
 
 // Admin routes
 router.get('/stats', protect, admin, getReviewStats);

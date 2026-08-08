@@ -5,9 +5,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { Search, Package, ShoppingBag, ArrowLeft, Loader } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
-import axios from 'axios';
+import api from '@/lib/api';
 import OrderCard from '@/components/OrderCard';
 import Toast from '@/components/Toast';
+import type { Order as OrderCardOrder } from '@/data/mockOrders';
 
 interface OrderItem {
   id: string;
@@ -17,6 +18,51 @@ interface OrderItem {
   image: string;
   sku?: string;
   variant?: string;
+}
+
+interface ApiOrderItem {
+  _id?: string;
+  id?: string;
+  product?: string;
+  name?: string;
+  price?: number;
+  quantity?: number;
+  image?: string;
+  sku?: string;
+  label?: string;
+  variant?: string;
+}
+
+interface ApiOrder {
+  _id: string;
+  orderId?: string;
+  orderNumber?: string;
+  orderStatus?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  totalAmount?: number;
+  createdAt?: string;
+  orderDate?: string;
+  estimatedDelivery?: string;
+  subtotal?: number;
+  shippingCost?: number;
+  shipping?: number;
+  tax?: number;
+  discount?: number;
+  statusTimeline?: TimelineEvent[];
+  timeline?: TimelineEvent[];
+  items?: ApiOrderItem[];
+  shippingAddress?: {
+    fullName?: string;
+    name?: string;
+    phone?: string;
+    address?: string;
+    city?: string;
+    province?: string;
+    postalCode?: string;
+  };
+  trackingNumber?: string;
+  courier?: string;
 }
 
 interface TimelineEvent {
@@ -38,7 +84,7 @@ interface Order {
   totalAmount: number;
   createdAt: string;
   orderDate: string;  // ✅ REQUIRED (not optional)
-  estimatedDelivery?: string;
+  estimatedDelivery: string;
   subtotal: number;  // ✅ REQUIRED (not optional)
   shipping: number;  // ✅ REQUIRED (not optional)
   tax: number;  // ✅ REQUIRED (not optional)
@@ -76,41 +122,36 @@ export default function OrdersPage() {
       }
 
       try {
-        const { data } = await axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL}/orders/my-orders`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
+        const { data } = await api.get('/orders/my-orders');
         if (data.success) {
+          const orderRows = data.data?.orders || [];
           // ✅ Map backend data ensuring ALL required fields are ALWAYS present
-          const mappedOrders: Order[] = data.data.map((order: any) => ({
+          const mappedOrders: Order[] = orderRows.map((order: ApiOrder) => ({
             _id: order._id,
             id: order._id || '',
             orderId: order.orderId || '',
             orderNumber: order.orderId || order.orderNumber || `ORD-${order._id.slice(-6).toUpperCase()}`,  // ✅ ALWAYS provide
-            orderStatus: order.orderStatus || 'Pending',
-            paymentMethod: order.paymentMethod || 'COD',
-            paymentStatus: order.paymentStatus || 'Pending',  // ✅ ALWAYS provide
+            orderStatus: (order.orderStatus || 'Pending').toLowerCase(),
+            paymentMethod: (order.paymentMethod || 'cod').toLowerCase(),
+            paymentStatus: (order.paymentStatus || 'pending').toLowerCase(),  // ✅ ALWAYS provide
             totalAmount: order.totalAmount || 0,
             createdAt: order.createdAt || new Date().toISOString(),
             orderDate: order.createdAt || order.orderDate || new Date().toISOString(),  // ✅ ALWAYS provide
+            estimatedDelivery: order.estimatedDelivery || '',
             subtotal: order.subtotal || order.totalAmount || 0,  // ✅ ALWAYS provide
             shipping: order.shippingCost || order.shipping || 0,  // ✅ ALWAYS provide
             tax: order.tax || 0,  // ✅ ALWAYS provide
             discount: order.discount || 0,  // ✅ ALWAYS provide
             productCount: order.items?.length || 0,  // ✅ ALWAYS provide
             timeline: order.statusTimeline || order.timeline || [],
-            items: order.items?.map((item: any) => ({
+            items: order.items?.map((item: ApiOrderItem) => ({
               id: item._id || item.id || item.product || '',
               name: item.name || 'Product',
               price: item.price || 0,
               quantity: item.quantity || 1,
               image: item.image || '/placeholder.png',
               sku: item.sku || '',
-              variant: item.variant || ''
+              variant: item.label || item.variant || ''
             })) || [],
             shippingAddress: {
               fullName: order.shippingAddress?.fullName || 'Customer',
@@ -168,10 +209,30 @@ export default function OrdersPage() {
     return ordersList;
   }, [orders, searchQuery, sortBy, paymentFilter]);
 
-  const handleAction = (action: string, orderId: string) => {
+  const handleAction = async (action: string, orderId: string) => {
+    if (action === 'cancel') {
+      try {
+        await api.post(`/orders/${orderId}/cancel`, {});
+        setOrders(current => current.map(order => (
+          order._id === orderId
+            ? { ...order, orderStatus: 'cancelled' }
+            : order
+        )));
+        setToast({ message: 'Order cancelled successfully', type: 'info' });
+      } catch (error: unknown) {
+        const apiError = error as {
+          response?: { data?: { error?: { message?: string } } };
+        };
+        setToast({
+          message: apiError.response?.data?.error?.message || 'Failed to cancel order',
+          type: 'error'
+        });
+      }
+      return;
+    }
+
     const messages: Record<string, { message: string; type: 'success' | 'error' | 'info' }> = {
       'buy-again': { message: '✅ Items added to cart!', type: 'success' },
-      'cancel': { message: '❌ Order cancelled successfully', type: 'info' },
       'return': { message: '🔄 Return request submitted', type: 'success' },
       'invoice': { message: ' Invoice downloaded', type: 'success' },
       'track': { message: '📦 Tracking details loaded', type: 'info' },
@@ -237,10 +298,8 @@ export default function OrdersPage() {
             <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value)}
               style={{ padding: '12px 16px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '14px', outline: 'none', backgroundColor: 'white', cursor: 'pointer' }}>
               <option value="all">All Payments</option>
-              <option value="COD">Cash on Delivery</option>
-              <option value="jazzcash">JazzCash</option>
-              <option value="visa">Visa Card</option>
-              <option value="mastercard">MasterCard</option>
+              <option value="cod">Cash on Delivery</option>
+              <option value="stripe">Card via Stripe</option>
             </select>
 
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
@@ -279,7 +338,11 @@ export default function OrdersPage() {
               Showing {filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'}
             </div>
             {filteredOrders.map(order => (
-              <OrderCard key={order._id} order={order} onAction={handleAction} />
+              <OrderCard
+                key={order._id}
+                order={order as unknown as OrderCardOrder}
+                onAction={handleAction}
+              />
             ))}
           </>
         )}

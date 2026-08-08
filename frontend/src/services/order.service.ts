@@ -1,68 +1,107 @@
 import api from '@/lib/api';
 import { CartItem } from '@/store/cartStore';
-import { PricingResult } from '@/lib/checkout/pricing';
 
-interface ShippingAddress {
+import type { PaymentProvider } from '@/services/payment.service';
+
+export type OrderPaymentMethod = PaymentProvider;
+
+export interface ShippingAddress {
   fullName: string;
   phone: string;
   address: string;
+  addressLine2?: string;
   city: string;
-  postalCode: string;
+  province: string;
+  postalCode?: string;
+  country: string;
 }
 
-interface SecureOrderPayload {
+export interface SecureOrderPayload {
   items: Array<{
-    product: string;
+    productId: string;
     quantity: number;
+    variantId?: string;
   }>;
   shippingAddress: ShippingAddress;
-  paymentMethod: string;
+  paymentMethod: OrderPaymentMethod;
+  currency?: string;
   couponCode?: string;
-  notes?: string;
+  customerNote?: string;
+}
+
+export interface OrderSnapshot {
+  _id: string;
+  orderId: string;
+  totalAmount: number;
+  paymentMethod: OrderPaymentMethod;
+  paymentStatus: string;
+  orderStatus: string;
 }
 
 interface SecureOrderResponse {
   success: boolean;
   data: {
-    _id: string;
-    orderId: string;
-    orderNumber: string;
-    totalAmount: number;
+    order: OrderSnapshot;
+    idempotentReplay: boolean;
   };
-  message?: string;
+  meta: {
+    requestId: string;
+  };
 }
 
+export const buildOrderPayload = (
+  items: CartItem[],
+  address: ShippingAddress,
+  paymentMethod: OrderPaymentMethod,
+  currency?: string,
+  couponCode?: string,
+  customerNote?: string
+): SecureOrderPayload => ({
+  items: items.map((item) => ({
+    productId: item._id || item.id,
+    quantity: item.quantity,
+    variantId: item.variantId || undefined
+  })),
+  shippingAddress: {
+    fullName: address.fullName,
+    phone: address.phone,
+    address: address.address,
+    addressLine2: address.addressLine2 || undefined,
+    city: address.city,
+    province: address.province,
+    postalCode: address.postalCode || undefined,
+    country: address.country
+  },
+  paymentMethod,
+  currency: currency || undefined,
+  couponCode: couponCode || undefined,
+  customerNote: customerNote || undefined
+});
+
 export const secureOrderService = {
-  /**
-   * Create order with server-side pricing calculation
-   * Client only sends product IDs and quantities
-   * Server calculates all prices, discounts, and totals
-   */
   createSecureOrder: async (
     items: CartItem[],
     address: ShippingAddress,
-    paymentMethod: string,
+    paymentMethod: OrderPaymentMethod,
+    idempotencyKey: string,
+    currency?: string,
     couponCode?: string,
-    notes?: string
+    customerNote?: string
   ): Promise<SecureOrderResponse> => {
-    const orderData: SecureOrderPayload = {
-      items: items.map(item => ({
-        product: item._id || item.id,
-        quantity: item.quantity
-      })),
-      shippingAddress: {
-        fullName: address.fullName,
-        phone: address.phone,
-        address: address.address,
-        city: address.city,
-        postalCode: address.postalCode
-      },
+    const orderData = buildOrderPayload(
+      items,
+      address,
       paymentMethod,
-      couponCode: couponCode || undefined,
-      notes: notes || undefined
-    };
+      currency,
+      couponCode,
+      customerNote
+    );
 
-    const response = await api.post('/orders', orderData);
+    const response = await api.post('/orders', orderData, {
+      headers: {
+        'Idempotency-Key': idempotencyKey
+      }
+    });
     return response.data;
   },
 
@@ -73,26 +112,16 @@ export const secureOrderService = {
     try {
       const response = await api.get(`/orders/${orderId}`);
       return response.data.success;
-    } catch (error) {
+    } catch {
       return false;
     }
   },
 
-  /**
-   * Get order summary (prices calculated server-side)
-   */
-  getOrderSummary: async (
-    items: CartItem[],
-    couponCode?: string
-  ): Promise<PricingResult> => {
-    const response = await api.post('/orders/validate', {
-      items: items.map(item => ({
-        product: item._id || item.id,
-        quantity: item.quantity
-      })),
-      couponCode
-    });
-    
-    return response.data.pricing;
+  getOrder: async (
+    orderId: string,
+    signal?: AbortSignal
+  ): Promise<OrderSnapshot> => {
+    const response = await api.get(`/orders/${orderId}`, { signal });
+    return response.data.data.order;
   }
 };

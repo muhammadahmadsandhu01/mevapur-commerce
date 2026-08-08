@@ -51,7 +51,7 @@ export default function CouponsPage() {
     fetchCoupons();
   }, []);
 
-  const fetchCoupons = async () => {
+  async function fetchCoupons() {
     setLoading(true);
     try {
       const response = await api.get('/coupons');
@@ -63,7 +63,7 @@ export default function CouponsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -278,7 +278,7 @@ export default function CouponsPage() {
 
         <select
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value as any)}
+          onChange={(e) => setFilterType(e.target.value as typeof filterType)}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -621,7 +621,10 @@ export default function CouponsPage() {
                   </label>
                   <select
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      type: e.target.value as typeof formData.type
+                    })}
                     style={{
                       width: '100%',
                       padding: '12px 16px',

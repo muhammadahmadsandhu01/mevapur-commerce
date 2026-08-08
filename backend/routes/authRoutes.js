@@ -1,125 +1,114 @@
 const express = require('express');
-const { body } = require('express-validator');
-
 const {
   register,
   login,
+  refresh,
+  getCsrfToken,
   getMe,
+  logout,
+  logoutAll,
+  getSessions,
+  revokeSession,
   forgotPassword,
   resetPassword,
+  changePassword
 } = require('../controllers/authController');
-
 const { protect } = require('../middleware/auth');
+const { csrfProtection } = require('../middleware/csrf');
+const validate = require('../middleware/validate');
 const { limiter } = require('../middleware/security');
+const ERROR_CODES = require('../constants/errorCodes');
+const {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  changePasswordSchema
+} = require('../validators/authValidator');
+const { revokeSessionSchema } = require('../validators/sessionValidator');
 
 const router = express.Router();
+const authValidation = (schema, source = 'body') => validate(schema, {
+  source,
+  code: ERROR_CODES.AUTH_VALIDATION_FAILED
+});
 
-/*
-|--------------------------------------------------------------------------
-| Validation Rules
-|--------------------------------------------------------------------------
-*/
-
-const registerValidation = [
-  body('fullName')
-    .trim()
-    .notEmpty()
-    .withMessage('Full name is required')
-    .isLength({ min: 3, max: 100 })
-    .withMessage('Full name must be between 3 and 100 characters'),
-
-  body('email')
-    .trim()
-    .normalizeEmail()
-    .isEmail()
-    .withMessage('Please provide a valid email address'),
-
-  body('password')
-    .isLength({ min: 6, max: 100 })
-    .withMessage('Password must be between 6 and 100 characters'),
-
-  body('phone')
-    .optional()
-    .trim()
-    .isLength({ min: 8, max: 20 })
-    .withMessage('Invalid phone number'),
-];
-
-const loginValidation = [
-  body('email')
-    .trim()
-    .normalizeEmail()
-    .isEmail()
-    .withMessage('Please provide a valid email address'),
-
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required'),
-];
-
-const forgotPasswordValidation = [
-  body('email')
-    .trim()
-    .normalizeEmail()
-    .isEmail()
-    .withMessage('Please provide a valid email address'),
-];
-
-const resetPasswordValidation = [
-  body('resetToken')
-    .trim()
-    .notEmpty()
-    .withMessage('Reset token is required'),
-
-  body('newPassword')
-    .isLength({ min: 6, max: 100 })
-    .withMessage('Password must be between 6 and 100 characters'),
-];
-
-/*
-|--------------------------------------------------------------------------
-| Public Routes
-|--------------------------------------------------------------------------
-*/
+router.get('/csrf-token', getCsrfToken);
 
 router.post(
   '/register',
   limiter,
-  registerValidation,
+  authValidation(registerSchema),
   register
 );
 
 router.post(
   '/login',
   limiter,
-  loginValidation,
+  authValidation(loginSchema),
   login
+);
+
+router.post(
+  '/refresh',
+  csrfProtection,
+  refresh
 );
 
 router.post(
   '/forgot-password',
   limiter,
-  forgotPasswordValidation,
+  authValidation(forgotPasswordSchema),
   forgotPassword
 );
 
 router.post(
   '/reset-password',
   limiter,
-  resetPasswordValidation,
+  authValidation(resetPasswordSchema),
   resetPassword
 );
-
-/*
-|--------------------------------------------------------------------------
-| Protected Routes
-|--------------------------------------------------------------------------
-*/
 
 router.get(
   '/me',
   protect,
   getMe
+);
+
+router.post(
+  '/logout',
+  csrfProtection,
+  protect,
+  logout
+);
+
+router.post(
+  '/logout-all',
+  csrfProtection,
+  protect,
+  logoutAll
+);
+
+router.get(
+  '/sessions',
+  protect,
+  getSessions
+);
+
+router.delete(
+  '/sessions/:sessionId',
+  csrfProtection,
+  protect,
+  authValidation(revokeSessionSchema, 'params'),
+  revokeSession
+);
+
+router.post(
+  '/change-password',
+  csrfProtection,
+  protect,
+  authValidation(changePasswordSchema),
+  changePassword
 );
 
 module.exports = router;

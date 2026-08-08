@@ -1,0 +1,157 @@
+﻿ M admin-panel/src/app/layout.tsx
+ M admin-panel/src/app/login/page.tsx
+ M admin-panel/src/app/orders/[id]/page.tsx
+ M admin-panel/src/app/orders/page.tsx
+ M admin-panel/src/app/refunds/page.tsx
+ M admin-panel/src/components/admin/AdminGuard.tsx
+ M admin-panel/src/components/layout/Sidebar.tsx
+ M admin-panel/src/lib/api.ts
+ M admin-panel/src/store/authStore.ts
+ M admin-panel/src/types/index.ts
+ D backend-structure.txt
+ D backend.zip
+ M backend/__tests__/auth.test.js
+ M backend/common/errors/AppError.js
+ M backend/config/auth.config.js
+ M backend/constants/errorCodes.js
+ M backend/controllers/authController.js
+ M backend/controllers/orderController.js
+ M backend/controllers/paymentController.js
+ M backend/controllers/refundController.js
+ M backend/jest.config.js
+ M backend/middleware/auth.js
+ M backend/middleware/authenticate.js
+ M backend/middleware/csrf.js
+ M backend/middleware/errorHandler.js
+ M backend/middleware/requestId.js
+ M backend/middleware/validate.js
+ M backend/models/AuditLog.js
+ M backend/models/Coupon.js
+ M backend/models/InventoryTransaction.js
+ M backend/models/Order.js
+ M backend/models/Payment.js
+ M backend/models/Refund.js
+ M backend/models/Session.js
+ M backend/models/User.js
+ M backend/repositories/AuditLogRepository.js
+ M backend/repositories/SessionRepository.js
+ M backend/repositories/UserRepository.js
+ M backend/routes/authRoutes.js
+ M backend/routes/orderRoutes.js
+ M backend/routes/paymentRoutes.js
+ M backend/routes/refundRoutes.js
+ M backend/server.js
+ M backend/services/AuditService.js
+ M backend/services/AuthService.js
+ M backend/services/SessionService.js
+ M backend/services/TokenService.js
+ M backend/services/emailService.js
+ M backend/services/order/CouponService.js
+ M backend/services/order/InventoryService.js
+ M backend/services/order/OrderService.js
+ M backend/services/payment/PaymentProvider.js
+ M backend/services/payment/PaymentService.js
+ M backend/services/payment/providers/JazzCashProvider.js
+ M backend/services/payment/providers/StripeProvider.js
+ M backend/services/payment/stateMachine/PaymentStateMachine.js
+ M backend/tests/Unit/services/auth.service.test.js
+ M backend/tests/Unit/services/token.service.test.js
+ M backend/tests/e2e/auth.e2e.test.js
+ M backend/tests/integration/auth.integration.test.js
+ M backend/tests/setup.js
+ M backend/validators/authValidator.js
+ M backend/validators/orderValidator.js
+ M backend/validators/sessionValidator.js
+ M docs/PROJECT_AUDIT_REPORT.md
+ M frontend/src/app/checkout/page.tsx
+ M frontend/src/app/layout.tsx
+ M frontend/src/app/order-success/page.tsx
+ M frontend/src/app/orders/[id]/page.tsx
+ M frontend/src/app/orders/page.tsx
+ M frontend/src/app/products/[id]/page.tsx
+ M frontend/src/components/OrderCard.tsx
+ M frontend/src/components/ProductCard.tsx
+ M frontend/src/components/admin/AdminGuard.tsx
+ M frontend/src/components/checkout/OrderSummary.tsx
+ M frontend/src/components/checkout/PaymentModal.tsx
+ M frontend/src/components/checkout/StripePaymentForm.tsx
+ M frontend/src/hooks/useCheckout.ts
+ M frontend/src/lib/adminApi.ts
+ M frontend/src/lib/api.ts
+ M frontend/src/lib/payments/jazzcash.ts
+ M frontend/src/lib/payments/stripe.ts
+ M frontend/src/services/order.service.ts
+ M frontend/src/services/payment.service.ts
+ M frontend/src/store/authStore.ts
+ M frontend/src/store/cartStore.ts
+ M frontend/src/types/product.ts
+ D project-structure.txt
+?? admin-panel/src/lib/authSession.ts
+?? admin-panel/src/modules/
+?? backend/app.js
+?? backend/config/email.config.js
+?? backend/config/payment-editions/
+?? backend/config/payment.config.js
+?? backend/constants/orderConstants.js
+?? backend/constants/paymentConstants.js
+?? backend/middleware/cookies.js
+?? backend/models/PaymentWebhookEvent.js
+?? backend/modules/
+?? backend/services/payment/RefundService.js
+?? backend/tests/globalSetup.js
+?? backend/tests/globalTeardown.js
+?? backend/tests/integration/multi-provider-payment.integration.test.js
+?? backend/tests/integration/order.integration.test.js
+?? backend/tests/integration/payment.integration.test.js
+?? backend/tests/unit/contracts/
+?? backend/tests/unit/models/
+?? backend/tests/unit/services/order.service.test.js
+?? backend/tests/unit/services/payment-provider-registry.test.js
+?? backend/tests/unit/services/stripe.provider.test.js
+?? backend/tests/unit/validators/
+?? backend/validators/paymentValidator.js
+?? docs/BANK_TRANSFER_PAYMENT_PROVIDER.md
+?? docs/COD_PAYMENT_PROVIDER.md
+?? docs/EASYPAISA_PAYMENT_PROVIDER.md
+?? docs/JAZZCASH_PAYMENT_PROVIDER.md
+?? docs/P0_AUTH_CONTRACT_MAP.md
+?? docs/P0_AUTH_STABILISATION_REPORT.md
+?? docs/P0_BASELINE_RESULTS.md
+?? docs/P0_RECOVERY_VERIFICATION.md
+?? docs/P1_ORDER_BASELINE_RESULTS.md
+?? docs/P1_ORDER_CONTRACT_MAP.md
+?? docs/P1_ORDER_RECOVERY_CHECKPOINT.md
+?? docs/P1_ORDER_STABILISATION_REPORT.md
+?? docs/P1_PRE_ORDER_GIT_STATUS.txt
+?? docs/P1_PRE_ORDER_WORKING_TREE.patch
+?? docs/P2_2_MULTI_PROVIDER_PAYMENT_REPORT.md
+?? docs/P2_2_PAYMENT_PROVIDER_ARCHITECTURE.md
+?? docs/P2_2_PRE_PROVIDER_GIT_STATUS.txt
+?? docs/P2_2_PRE_PROVIDER_WORKING_TREE.patch
+?? docs/P2_2_PROVIDER_BASELINE_RESULTS.md
+?? docs/P2_2_PROVIDER_RECOVERY_CHECKPOINT.md
+?? docs/P2_PAYMENT_BASELINE_RESULTS.md
+?? docs/P2_PAYMENT_CONTRACT_MAP.md
+?? docs/P2_PAYMENT_INDEX_MIGRATION.md
+?? docs/P2_PAYMENT_RECOVERY_CHECKPOINT.md
+?? docs/P2_PAYMENT_STABILISATION_REPORT.md
+?? docs/P2_PRE_PAYMENT_GIT_STATUS.txt
+?? docs/P2_PRE_PAYMENT_WORKING_TREE.patch
+?? docs/P3_PRE_STAGING_WORKING_TREE.patch
+?? docs/PAYMENT_EDITION_MANIFESTS.md
+?? docs/PAYMENT_MERCHANT_ONBOARDING_CHECKLIST.md
+?? docs/PAYMENT_PROVIDER_ACTIVATION_RUNBOOK.md
+?? docs/PAYMENT_PROVIDER_CONFIGURATION.md
+?? docs/PAYMENT_PROVIDER_CONTRACT.md
+?? docs/PAYMENT_PROVIDER_REGISTRY.md
+?? docs/PAYMENT_PROVIDER_SECURITY_CHECKLIST.md
+?? docs/PRE_P0_GIT_STATUS.txt
+?? docs/PRE_P0_WORKING_TREE.patch
+?? docs/RAAST_PAYMENT_PROVIDER.md
+?? docs/STRIPE_PAYMENT_PROVIDER.md
+?? frontend/src/app/payment-instructions/
+?? frontend/src/app/payment-result/
+?? frontend/src/components/AuthBootstrap.tsx
+?? frontend/src/lib/authSession.ts
+?? frontend/src/modules/
+?? logs/

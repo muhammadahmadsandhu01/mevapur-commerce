@@ -1,6 +1,14 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import axios from 'axios';
+import {
+  acceptAuthentication,
+  authHttp,
+  clearAuthentication,
+  logoutAuthentication,
+  refreshAuthentication,
+  setInvalidationHandler,
+  type AuthPayload,
+} from '@/lib/authSession';
 
 export interface User {
   id: string;
@@ -12,155 +20,188 @@ export interface User {
   createdAt?: string;
 }
 
+interface AuthResult {
+  success: boolean;
+  message: string;
+}
+
 interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string, rememberMe: boolean) => Promise<{ success: boolean; message: string }>;
-  register: (data: { fullName: string; email: string; phone?: string; password: string }) => Promise<{ success: boolean; message: string }>;
-  logout: () => void;
-  forgotPassword: (email: string) => Promise<{ success: boolean; message: string }>;
-  resetPassword: (token: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+  isInitialized: boolean;
+  bootstrap: () => Promise<void>;
+  login: (
+    email: string,
+    password: string,
+    rememberMe: boolean
+  ) => Promise<AuthResult>;
+  register: (data: {
+    fullName: string;
+    email: string;
+    phone?: string;
+    password: string;
+  }) => Promise<AuthResult>;
+  logout: () => Promise<void>;
+  forgotPassword: (email: string) => Promise<AuthResult>;
+  resetPassword: (token: string, newPassword: string) => Promise<AuthResult>;
   updateUser: (data: Partial<User>) => void;
-  checkAuth: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
+interface ErrorResponse {
+  error?: { message?: string };
+  message?: string;
+}
+
+const errorMessage = (error: unknown, fallback: string) => {
+  if (!axios.isAxiosError<ErrorResponse>(error)) return fallback;
+  return error.response?.data?.error?.message
+    || error.response?.data?.message
+    || fallback;
+};
+
+let bootstrapInFlight: Promise<void> | null = null;
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  user: null,
+  token: null,
+  isAuthenticated: false,
+  isInitialized: false,
+
+  bootstrap: async () => {
+    if (get().isInitialized) return;
+    if (bootstrapInFlight) return bootstrapInFlight;
+
+    bootstrapInFlight = (async () => {
+      try {
+        const payload = await refreshAuthentication(true) as
+          AuthPayload<User> | null;
+        if (payload) {
+          set({
+            user: payload.user,
+            token: payload.accessToken,
+            isAuthenticated: true,
+          });
+        } else {
+          set({ user: null, token: null, isAuthenticated: false });
+        }
+      } catch {
+        clearAuthentication();
+        set({ user: null, token: null, isAuthenticated: false });
+      } finally {
+        set({ isInitialized: true });
+        bootstrapInFlight = null;
+      }
+    })();
+
+    return bootstrapInFlight;
+  },
+
+  login: async (email, password, rememberMe) => {
+    void rememberMe;
+    try {
+      const response = await authHttp.post('/auth/login', { email, password });
+      const payload = acceptAuthentication(
+        response.data.data as AuthPayload<User>
+      );
+      set({
+        user: payload.user,
+        token: payload.accessToken,
+        isAuthenticated: true,
+        isInitialized: true,
+      });
+      return { success: true, message: 'Login successful!' };
+    } catch (error) {
+      clearAuthentication();
+      return {
+        success: false,
+        message: errorMessage(error, 'Invalid email or password'),
+      };
+    }
+  },
+
+  register: async (data) => {
+    try {
+      const response = await authHttp.post('/auth/register', data);
+      const payload = acceptAuthentication(
+        response.data.data as AuthPayload<User>
+      );
+      set({
+        user: payload.user,
+        token: payload.accessToken,
+        isAuthenticated: true,
+        isInitialized: true,
+      });
+      return { success: true, message: 'Registration successful!' };
+    } catch (error) {
+      clearAuthentication();
+      return {
+        success: false,
+        message: errorMessage(error, 'Registration failed'),
+      };
+    }
+  },
+
+  forgotPassword: async (email) => {
+    try {
+      const response = await authHttp.post('/auth/forgot-password', { email });
+      return {
+        success: true,
+        message: response.data.message
+          || 'Password reset instructions have been sent',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: errorMessage(error, 'Failed to send reset instructions'),
+      };
+    }
+  },
+
+  resetPassword: async (resetToken, newPassword) => {
+    try {
+      await authHttp.post('/auth/reset-password', {
+        resetToken,
+        newPassword,
+      });
+      clearAuthentication();
+      set({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isInitialized: true,
+      });
+      return { success: true, message: 'Password reset successful!' };
+    } catch (error) {
+      return {
+        success: false,
+        message: errorMessage(error, 'Password reset failed'),
+      };
+    }
+  },
+
+  logout: async () => {
+    const request = logoutAuthentication();
+    set({
       user: null,
       token: null,
       isAuthenticated: false,
+      isInitialized: true,
+    });
+    await request.catch(() => undefined);
+  },
 
-      // ✅ REAL BACKEND API CALL
-      login: async (email, password, rememberMe) => {
-        try {
-          const response = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/auth/login`,
-            { email, password },
-            { withCredentials: true }
-          );
+  updateUser: (data) => {
+    const currentUser = get().user;
+    if (currentUser) set({ user: { ...currentUser, ...data } });
+  },
+}));
 
-          if (response.data.success) {
-            const { user, token } = response.data.data;
-            
-            set({
-              user: {
-                id: user.id,
-                fullName: user.fullName,
-                email: user.email,
-                phone: user.phone,
-                role: user.role,
-                isVerified: true
-              },
-              token,
-              isAuthenticated: true
-            });
-
-            return { success: true, message: 'Login successful!' };
-          } else {
-            return { success: false, message: response.data.message || 'Login failed' };
-          }
-        } catch (error: any) {
-          const message = error.response?.data?.message || 'Invalid email or password';
-          return { success: false, message };
-        }
-      },
-
-      // ✅ REAL BACKEND API CALL
-      register: async (data) => {
-        try {
-          const response = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/auth/register`,
-            data,
-            { withCredentials: true }
-          );
-
-          if (response.data.success) {
-            const { user, token } = response.data.data;
-            
-            set({
-              user: {
-                id: user.id,
-                fullName: user.fullName,
-                email: user.email,
-                phone: user.phone,
-                role: user.role,
-                isVerified: true
-              },
-              token,
-              isAuthenticated: true
-            });
-
-            return { success: true, message: 'Registration successful!' };
-          } else {
-            return { success: false, message: response.data.message || 'Registration failed' };
-          }
-        } catch (error: any) {
-          const message = error.response?.data?.message || 'Registration failed';
-          return { success: false, message };
-        }
-      },
-
-      forgotPassword: async (email) => {
-        try {
-          const response = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/auth/forgot-password`,
-            { email }
-          );
-          return { success: true, message: 'Password reset link sent to your email' };
-        } catch (error: any) {
-          return { success: false, message: error.response?.data?.message || 'Failed to send reset link' };
-        }
-      },
-
-      resetPassword: async (token, newPassword) => {
-        try {
-          const response = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/auth/reset-password`,
-            { token, newPassword }
-          );
-          return { success: true, message: 'Password reset successful!' };
-        } catch (error: any) {
-          return { success: false, message: error.response?.data?.message || 'Reset failed' };
-        }
-      },
-
-      logout: () => {
-        set({
-          user: null,
-          token: null,
-          isAuthenticated: false
-        });
-        // Clear localStorage
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('mevapur-auth-storage');
-        }
-      },
-
-      updateUser: (data) => {
-        const currentUser = get().user;
-        if (currentUser) {
-          set({
-            user: { ...currentUser, ...data }
-          });
-        }
-      },
-
-      checkAuth: () => {
-        const state = get();
-        if (state.token && state.user) {
-          set({ isAuthenticated: true });
-        }
-      }
-    }),
-    {
-      name: 'mevapur-auth-storage',
-      partialize: (state) => ({ 
-        user: state.user, 
-        token: state.token,
-        isAuthenticated: state.isAuthenticated
-      }),
-    }
-  )
-);
+setInvalidationHandler(() => {
+  useAuthStore.setState({
+    user: null,
+    token: null,
+    isAuthenticated: false,
+    isInitialized: true,
+  });
+});

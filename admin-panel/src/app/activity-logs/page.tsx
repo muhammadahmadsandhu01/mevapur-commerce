@@ -18,7 +18,7 @@ interface ActivityLog {
   } | null;
   action: string;
   description: string;
-  details: any;
+  details: Record<string, unknown> | null;
   ipAddress: string;
   userAgent: string;
   browser: string;
@@ -35,6 +35,12 @@ interface PaginationInfo {
   hasPrev: boolean;
 }
 
+interface ActivityLogStats {
+  totalLogs: number;
+  todayLogs: number;
+  weekLogs: number;
+}
+
 export default function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,7 +50,7 @@ export default function ActivityLogsPage() {
   const [dateTo, setDateTo] = useState('');
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<ActivityLogStats | null>(null);
   const [cleaning, setCleaning] = useState(false);
 
   useEffect(() => {
@@ -53,10 +59,13 @@ export default function ActivityLogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, search, actionFilter, dateFrom, dateTo]);
 
-  const fetchLogs = async () => {
+  async function fetchLogs() {
     try {
       setLoading(true);
-      const params: any = { page: currentPage, limit: 20 };
+      const params: Record<string, string | number> = {
+        page: currentPage,
+        limit: 20
+      };
       if (search) params.search = search;
       if (actionFilter) params.action = actionFilter;
       if (dateFrom) params.startDate = dateFrom;
@@ -72,9 +81,9 @@ export default function ActivityLogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const fetchStats = async () => {
+  async function fetchStats() {
     try {
       const response = await api.get('/activity-logs/stats');
       if (response.data.success) {
@@ -83,7 +92,7 @@ export default function ActivityLogsPage() {
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
-  };
+  }
 
   const handleCleanup = async () => {
     if (!confirm('Are you sure you want to delete logs older than 90 days? This action cannot be undone.')) return;
@@ -106,7 +115,7 @@ export default function ActivityLogsPage() {
 
   const handleExport = async () => {
     try {
-      const params: any = { limit: 10000 }; // Export up to 10k records
+      const params: Record<string, string | number> = { limit: 10000 };
       if (search) params.search = search;
       if (actionFilter) params.action = actionFilter;
       

@@ -10,6 +10,7 @@ export interface CartItem {
   image: string;
   quantity: number;
   stock?: number | null;
+  variantId?: string;
   variant?: string;
   sku?: string;
 }
@@ -23,6 +24,7 @@ export interface WishlistItem {
   variant?: string;
   slug?: string;
   stock?: number | null;
+  variantId?: string;
   sku?: string;
 }
 
@@ -44,6 +46,13 @@ interface CartStore {
 export const useCartStore = create<CartStore>()(
   persist(
     (set, get) => {
+      const matchesCartLine = (
+        item: Pick<CartItem, 'id' | 'variantId' | 'variant'>,
+        id: string,
+        variant?: string
+      ) => item.id === id
+        && (variant === undefined || (item.variantId || item.variant) === variant);
+
       const store: CartStore = {
         items: [],
         wishlist: [],
@@ -57,7 +66,7 @@ export const useCartStore = create<CartStore>()(
             return;
           }
           const existingItem = state.items.find(
-            i => i.id === item.id && i.variant === item.variant
+            i => matchesCartLine(i, item.id, item.variantId || item.variant)
           );
           
           if (existingItem) {
@@ -66,7 +75,7 @@ export const useCartStore = create<CartStore>()(
               return;
             }
             const updatedItems = state.items.map(i => 
-              i.id === item.id && i.variant === item.variant
+              matchesCartLine(i, item.id, item.variantId || item.variant)
                 ? { ...i, quantity: i.quantity + 1 }
                 : i
             );
@@ -85,7 +94,7 @@ export const useCartStore = create<CartStore>()(
 
         removeFromCart: (id: string, variant?: string) => {
           const newItems = get().items.filter(item => 
-            variant ? !(item.id === id && item.variant === variant) : item.id !== id
+            !matchesCartLine(item, id, variant)
           );
           set({
             items: newItems,
@@ -100,11 +109,7 @@ export const useCartStore = create<CartStore>()(
           }
           
           const newItems = get().items.map(item => {
-            if (
-              variant
-                ? item.id === id && item.variant === variant
-                : item.id === id
-            ) {
+            if (matchesCartLine(item, id, variant)) {
               const maxQty =
                 item.stock !== undefined && item.stock !== null
                   ? Math.min(quantity, item.stock)
@@ -137,7 +142,10 @@ export const useCartStore = create<CartStore>()(
 
         addToWishlist: (item: WishlistItem) => {
           const state = get();
-          const exists = state.wishlist.find(i => i.id === item.id && i.variant === item.variant);
+          const exists = state.wishlist.find(
+            i => i.id === item.id
+              && (i.variantId || i.variant) === (item.variantId || item.variant)
+          );
           if (!exists) {
             set({ wishlist: [...state.wishlist, item] });
           }
@@ -164,6 +172,7 @@ export const useCartStore = create<CartStore>()(
               price: Number(item.price) || 0,
               image: item.image,
               variant: item.variant,
+              variantId: item.variantId,
               stock: item.stock,
               sku: item.sku
             });

@@ -44,7 +44,7 @@ export default function InventoryPage() {
     fetchInventory();
   }, []);
 
-  const fetchInventory = async () => {
+  async function fetchInventory() {
     setLoading(true);
     try {
       const response = await api.get('/inventory');
@@ -56,14 +56,20 @@ export default function InventoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleBulkUpdate = async () => {
     if (!bulkAction || selectedItems.length === 0) return;
 
     try {
       if (bulkAction === 'update-stock' && editingId) {
-        await api.put(`/inventory/${editingId}`, { stock: editStock });
+        await api.post('/inventory/adjust', {
+          productId: editingId,
+          type: 'adjustment',
+          quantity: editStock,
+          reason: 'Admin stock correction',
+          operationKey: crypto.randomUUID()
+        });
         await fetchInventory();
         setEditingId(null);
       }
@@ -296,7 +302,7 @@ export default function InventoryPage() {
 
         <select
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value as any)}
+          onChange={(e) => setFilterType(e.target.value as typeof filterType)}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -316,7 +322,7 @@ export default function InventoryPage() {
 
         <select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -384,7 +390,7 @@ export default function InventoryPage() {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <select
               value={bulkAction}
-              onChange={(e) => setBulkAction(e.target.value as any)}
+              onChange={(e) => setBulkAction(e.target.value as typeof bulkAction)}
               style={{
                 padding: '8px 12px',
                 borderRadius: '8px',

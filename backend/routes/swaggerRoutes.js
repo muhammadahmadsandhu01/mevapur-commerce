@@ -9,7 +9,7 @@ router.use('/api-docs', swaggerUi.serve);
 router.get('/api-docs', swaggerUi.setup(swaggerSpec, {
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'MevaPur API Docs'
+  customSiteTitle: 'HARZAAR API Docs'
 }));
 
 // Protected JSON Spec (Optional: Remove protect for public docs)

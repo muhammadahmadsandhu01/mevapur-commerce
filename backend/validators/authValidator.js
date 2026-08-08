@@ -19,7 +19,7 @@ const registerSchema = z.object({
     .regex(/^03\d{9}$/, 'Valid Pakistani phone number required (e.g., 03001234567)')
     .optional()
     .or(z.literal(''))
-});
+}).strict();
 
 // Login Schema
 const loginSchema = z.object({
@@ -30,7 +30,7 @@ const loginSchema = z.object({
   
   password: z.string()
     .min(1, 'Password is required')
-});
+}).strict();
 
 // Forgot Password Schema
 const forgotPasswordSchema = z.object({
@@ -38,7 +38,7 @@ const forgotPasswordSchema = z.object({
     .email('Invalid email address')
     .toLowerCase()
     .trim()
-});
+}).strict();
 
 // Reset Password Schema
 const resetPasswordSchema = z.object({
@@ -46,7 +46,7 @@ const resetPasswordSchema = z.object({
     .min(1, 'Reset token is required'),
   
   newPassword: passwordSchema
-});
+}).strict();
 
 // Update Profile Schema
 const updateProfileSchema = z.object({
@@ -73,7 +73,7 @@ const changePasswordSchema = z.object({
     .min(1, 'Current password is required'),
   
   newPassword: passwordSchema
-});
+}).strict();
 
 module.exports = {
   registerSchema,

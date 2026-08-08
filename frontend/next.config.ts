@@ -1,35 +1,8 @@
 import type { NextConfig } from 'next';
+import nextConfigSource from './next.config.js';
 
-const nextConfig: NextConfig = {
-  output: 'standalone',
-  
-  // ✅ FIXED: Removed 'eslint' property (not valid in NextConfig type)
-  typescript: {
-    ignoreBuildErrors: false, // ✅ Enable TS checks for production
-  },
-  
-  experimental: {
-    serverMinification: false,
-  },
-  
-  images: {
-    unoptimized: false, // ✅ Enable Next.js Image Optimization
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'res.cloudinary.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'mevapur-backend.onrender.com',
-      },
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-        port: '5000',
-      }
-    ]
-  },
-};
+// Next 16 resolves next.config.js before this compatibility file. Keep both
+// paths aligned without selecting an artifact mode or changing image hosts.
+const nextConfig: NextConfig = nextConfigSource;
 
 export default nextConfig;

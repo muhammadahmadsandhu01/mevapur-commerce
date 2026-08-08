@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState, useEffect } from "react";
+import { FormEvent, useState } from "react";
 import {
   PaymentElement,
   useStripe,
@@ -8,28 +8,20 @@ import {
 } from "@stripe/react-stripe-js";
 
 interface StripePaymentFormProps {
-    paymentIntentId: string;
-    onSuccess: (paymentIntentId: string) => void;
+    paymentId: string;
+    orderId: string;
+    onSubmitted: (paymentId: string) => void;
 }
 
 export default function StripePaymentForm({
-  paymentIntentId,
-  onSuccess,
+  paymentId,
+  orderId,
+  onSubmitted,
 }: StripePaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
 
   const [isReady, setIsReady] = useState(false);
-
-  useEffect(() => {
-    if (!elements) return;
-
-    const paymentElement = elements.getElement("payment");
-
-    if (paymentElement) {
-        setIsReady(true);
-    }
-  }, [elements]);
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -45,8 +37,11 @@ export default function StripePaymentForm({
     setErrorMessage("");
 
     try {
-        const { error, paymentIntent } = await stripe.confirmPayment({
+        const { error } = await stripe.confirmPayment({
         elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/payment-result?paymentId=${encodeURIComponent(paymentId)}&orderId=${encodeURIComponent(orderId)}`,
+        },
         redirect: "if_required",
         });
 
@@ -55,36 +50,8 @@ export default function StripePaymentForm({
         return;
         }
 
-        if (!paymentIntent) {
-        setErrorMessage("Unable to verify payment.");
-        return;
-        }
-
-        switch (paymentIntent.status) {
-        case "succeeded":
-            onSuccess(paymentIntentId);
-            break;
-
-        case "processing":
-            setErrorMessage(
-            "Payment is processing. Please wait a few moments."
-            );
-            break;
-
-        case "requires_payment_method":
-            setErrorMessage(
-            "Payment failed. Please use another payment method."
-            );
-            break;
-
-        default:
-            setErrorMessage("Unexpected payment status.");
-        }
-    } catch (err) {
-        if (process.env.NODE_ENV === "development") {
-            console.error(err);
-        }
-
+        onSubmitted(paymentId);
+    } catch {
         setErrorMessage("Something went wrong while processing payment.");
     } finally {
         setLoading(false);
@@ -94,7 +61,10 @@ export default function StripePaymentForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
 
-        <PaymentElement options={{layout: "tabs",}}/>
+        <PaymentElement
+          options={{ layout: "tabs" }}
+          onReady={() => setIsReady(true)}
+        />
 
         {errorMessage && (
         <div
@@ -113,9 +83,7 @@ export default function StripePaymentForm({
         {loading ? (
             "Processing Secure Payment..."
         ) : (
-            `Pay Rs. ${Number(
-                paymentIntentId ? 1 : 1
-            ) && ""} Securely`
+            "Pay Securely"
         )}
         </button>
 

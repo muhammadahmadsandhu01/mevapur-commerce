@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import ProductCard from './ProductCard';
 import { Clock } from 'lucide-react';
+import type { Product } from '@/types/product';
 
 export default function RecentlyViewed() {
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

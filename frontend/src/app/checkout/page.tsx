@@ -1,21 +1,32 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { isAxiosError } from 'axios';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
-  MapPin, CreditCard, Mail, CheckCircle, Loader, ArrowLeft, Shield, 
-  Truck, RotateCcw, Headphones, Tag, Package, Building2, Lock, AlertCircle, Globe // ✅ FIX: Globe added
+  MapPin, CreditCard, CheckCircle, Loader, ArrowLeft, Shield,
+  Truck, RotateCcw, Tag, Package, Building2, Lock, AlertCircle, Globe // ✅ FIX: Globe added
 } from 'lucide-react';
 
 // --- Enterprise Services & Utils ---
 import { calculatePricing } from "@/lib/checkout/pricing";
+import { commerceService, type ShippingQuote } from '@/services/commerce.service';
 import { secureValidation } from "@/lib/checkout/secure-validation"; // ✅ File created in Step 1
-import { secureOrderService } from "@/services/order.service"; // ✅ File created in Step 1
-// import { paymentService } from "@/services/payment.service"; // Optional for now
+import {
+  secureOrderService,
+  OrderPaymentMethod
+} from "@/services/order.service";
+import {
+  AvailablePaymentMethod,
+  paymentService
+} from "@/services/payment.service";
+import PaymentMethodSelector from '@/modules/payments/core/PaymentMethodSelector';
+import { accountService, type Address } from '@/services/account.service';
+import api from '@/lib/api';
 
 // --- Components ---
 import PaymentModal from '@/components/checkout/PaymentModal';
@@ -23,9 +34,8 @@ import Toast from '@/components/Toast';
 import ContactForm from '@/components/checkout/ContactForm';
 
 // --- Types ---
-type PaymentMethod = 'COD' | 'visa' | 'mastercard' | 'jazzcash';
-
 interface FormData {
+  [key: string]: string;
   fullName: string;
   email: string;
   phone: string;
@@ -34,13 +44,13 @@ interface FormData {
   city: string;
   country: string;
   postalCode: string;
-  paymentMethod: PaymentMethod;
+  paymentMethod: OrderPaymentMethod;
   notes: string;
 }
 
 export default function CheckoutPage() {
   // --- State Management ---
-  const { items, clearCart, updateQuantity, removeFromCart } = useCartStore();
+  const { items, clearCart, updateQuantity } = useCartStore();
   const { isAuthenticated, token } = useAuthStore();
   const router = useRouter();
 
@@ -52,9 +62,23 @@ export default function CheckoutPage() {
 
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
-  const [displayDiscount, setDisplayDiscount] = useState(0); 
+  const [displayDiscount, setDisplayDiscount] = useState(0);
+  const [couponPending, setCouponPending] = useState(false);
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentOrder, setPaymentOrder] = useState<{
+    id: string;
+    amount: number;
+    method: 'stripe';
+    publishableKey?: string;
+  } | null>(null);
+  const [availableMethods, setAvailableMethods] = useState<AvailablePaymentMethod[]>([]);
+  const [currency, setCurrency] = useState('PKR');
+  const [shippingQuote, setShippingQuote] = useState<ShippingQuote | null>(null);
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
+  const [methodsLoading, setMethodsLoading] = useState(true);
+  const submissionRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const submittingRef = useRef(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
@@ -64,17 +88,76 @@ export default function CheckoutPage() {
     address: '',
     province: 'Punjab',
     city: 'Lahore',
-    country: 'Pakistan',
+    country: 'PK',
     postalCode: '',
-    paymentMethod: 'COD',
+    paymentMethod: 'cod',
     notes: ''
   });
+  const cartSubtotal = items.reduce(
+    (sum, item) => sum + Number(item.price) * item.quantity,
+    0
+  );
 
   useEffect(() => {
     if (!isAuthenticated) {
       router.push('/login?redirect=/checkout');
     }
   }, [isAuthenticated, router]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const timer = window.setTimeout(() => {
+      void accountService.addresses().then((result) => setSavedAddresses(result.addresses)).catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    commerceService.getMarket(controller.signal).then((configuredMarket) => {
+      setCurrency(configuredMarket.defaultCurrency);
+      setFormData((current) => ({ ...current, country: configuredMarket.homeCountry }));
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    paymentService.getAvailableMethods(
+      formData.country,
+      currency,
+      shippingQuote ? cartSubtotal + shippingQuote.shippingAmount : cartSubtotal,
+      controller.signal
+    ).then((methods) => {
+      setAvailableMethods(methods);
+      setFormData((current) => {
+        if (methods.some((method) => method.code === current.paymentMethod)) {
+          return current;
+        }
+        return methods[0]
+          ? { ...current, paymentMethod: methods[0].code }
+          : current;
+      });
+    }).catch(() => {
+      setAvailableMethods([]);
+    }).finally(() => {
+      if (!controller.signal.aborted) setMethodsLoading(false);
+    });
+    return () => controller.abort();
+  }, [formData.country, currency, shippingQuote, cartSubtotal]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    commerceService.quoteShipping({
+      country: formData.country,
+      currency,
+      subtotal: cartSubtotal,
+      city: formData.city,
+      region: formData.province,
+      postalCode: formData.postalCode || undefined
+    }, controller.signal).then(setShippingQuote).catch(() => setShippingQuote(null));
+    return () => controller.abort();
+  }, [formData.country, currency, formData.city, formData.province, formData.postalCode, cartSubtotal]);
 
   if (items.length === 0 && !loading) {
     return (
@@ -88,13 +171,45 @@ export default function CheckoutPage() {
     );
   }
 
-  const cartSubtotal = useMemo(() => 
-    items.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0), 
-  [items]);
+  const localPricing = calculatePricing(cartSubtotal, 0);
+  const pricing = {
+    ...localPricing,
+    shippingCost: shippingQuote?.shippingAmount ?? 0,
+    grandTotal: Number((cartSubtotal - localPricing.discountAmount + (shippingQuote?.shippingAmount ?? 0)).toFixed(2))
+  };
+  const submissionFingerprint = JSON.stringify({
+    items: items.map(item => ({
+      productId: item._id || item.id,
+      variantId: item.variantId || null,
+      quantity: item.quantity
+    })),
+    shippingAddress: {
+      fullName: formData.fullName,
+      phone: formData.phone,
+      address: formData.address,
+      province: formData.province,
+      city: formData.city,
+      country: formData.country,
+      postalCode: formData.postalCode
+    },
+    paymentMethod: formData.paymentMethod,
+    currency,
+    couponCode: appliedCoupon,
+    customerNote: formData.notes
+  });
 
-  const pricing = useMemo(() => 
-    calculatePricing(cartSubtotal, displayDiscount), 
-  [cartSubtotal, displayDiscount]);
+  const getIdempotencyKey = () => {
+    if (
+      !submissionRef.current
+      || submissionRef.current.fingerprint !== submissionFingerprint
+    ) {
+      submissionRef.current = {
+        fingerprint: submissionFingerprint,
+        key: globalThis.crypto.randomUUID()
+      };
+    }
+    return submissionRef.current.key;
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -104,7 +219,7 @@ export default function CheckoutPage() {
 
   const handleFieldBlur = (fieldName: string) => () => {
     setTouched(prev => ({ ...prev, [fieldName]: true }));
-    const error = secureValidation.validateField(fieldName, formData[fieldName as keyof FormData]);
+    const error = secureValidation.validateFieldSecure(fieldName, formData[fieldName as keyof FormData]);
     setErrors(prev => ({ ...prev, [fieldName]: error || '' }));
   };
 
@@ -120,80 +235,137 @@ export default function CheckoutPage() {
     return result.isValid;
   };
 
-  const handleApplyCoupon = () => {
+  const handleApplyCoupon = async () => {
     if (!couponCode.trim()) {
       setToast({ message: 'Enter a coupon code', type: 'info' });
       return;
     }
-    const validCoupons: Record<string, number> = {
-      'MEVA20': 20, 'FIRSTORDER': 15, 'RAMADAN': 25, 'WELCOME': 10
-    };
-    const upperCode = couponCode.toUpperCase();
-    if (validCoupons[upperCode]) {
-      setDisplayDiscount(validCoupons[upperCode]);
-      setAppliedCoupon(upperCode);
-      setToast({ message: `Coupon ${upperCode} applied successfully!`, type: 'success' });
-    } else {
-      setToast({ message: 'Invalid coupon code.', type: 'error' });
-    }
+    setCouponPending(true);
+    try {
+      const response = await api.post('/coupons/validate', { code: couponCode.toUpperCase(), subtotal: cartSubtotal });
+      const preview = response.data.data;
+      setAppliedCoupon(preview.code); setDisplayDiscount(Number(preview.discountAmount) || 0);
+      setToast({ message: `Coupon accepted for preview. Final discount is confirmed by the server when you place the order.`, type: 'success' });
+    } catch (error) {
+      const message = isAxiosError(error) ? error.response?.data?.message : 'Coupon could not be validated';
+      setAppliedCoupon(null); setDisplayDiscount(0); setToast({ message: message || 'Coupon could not be validated', type: 'error' });
+    } finally { setCouponPending(false); }
   };
 
-  const processOrder = async (transactionId?: string) => {
+  const createOrder = async () => {
     if (!token) throw new Error('Authentication required');
-    try {
-      setLoading(true);
-      const response = await secureOrderService.createSecureOrder(
-        items,
-        {
-          fullName: formData.fullName,
-          phone: formData.phone,
-          address: formData.address,
-          city: formData.city,
-          postalCode: formData.postalCode
-        },
-        formData.paymentMethod,
-        appliedCoupon || undefined,
-        formData.notes
-      );
 
-      if (response.success && response.data) {
-        clearCart();
-        router.push(`/order-success?orderId=${response.data._id}`);
-      }
-    } catch (error: any) {
-      console.error('Order failed:', error);
-      throw error;
-    } finally {
-      setLoading(false);
+    const response = await secureOrderService.createSecureOrder(
+      items,
+      {
+        fullName: formData.fullName,
+        phone: formData.phone,
+        address: formData.address,
+        addressLine2: undefined,
+        city: formData.city,
+        province: formData.province,
+        postalCode: formData.postalCode || undefined,
+        country: formData.country
+      },
+      formData.paymentMethod,
+      getIdempotencyKey(),
+      currency,
+      appliedCoupon || undefined,
+      formData.notes
+    );
+
+    if (!response.success || !response.data?.order) {
+      throw new Error('Failed to place order');
     }
+
+    return response.data.order;
+  };
+
+  const finishCheckout = (orderId: string) => {
+    clearCart();
+    router.push(`/order-success?orderId=${orderId}`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || submittingRef.current) return;
     if (!validateForm()) {
       setToast({ message: 'Please fix the errors in the form', type: 'error' });
       return;
     }
 
     try {
-      if (formData.paymentMethod === 'COD') {
-        await processOrder(`COD-${Date.now()}`);
-      } else {
+      if (formData.paymentMethod === 'stripe' && paymentOrder) {
         setShowPaymentModal(true);
+        return;
       }
-    } catch (error: any) {
-      setToast({ message: error.response?.data?.message || 'Failed to place order', type: 'error' });
+
+      submittingRef.current = true;
+      setLoading(true);
+      const order = await createOrder();
+
+      if (formData.paymentMethod === 'stripe') {
+        const stripeMethod = availableMethods.find(
+          (method) => method.code === 'stripe'
+        );
+        setPaymentOrder({
+          id: order._id,
+          amount: Number(order.totalAmount),
+          method: 'stripe',
+          publishableKey: stripeMethod?.metadata.publishableKey
+        });
+        setShowPaymentModal(true);
+      } else {
+        const paymentResponse = await paymentService.createPaymentSession(
+          {
+            orderId: order._id,
+            provider: formData.paymentMethod
+          },
+          `checkout-payment-${getIdempotencyKey()}`
+        );
+        const payment = paymentResponse.data.payment;
+        if (payment.paymentType === 'manual') {
+          clearCart();
+          router.push(
+            `/payment-instructions?paymentId=${encodeURIComponent(payment._id)}&orderId=${encodeURIComponent(order._id)}`
+          );
+        } else {
+          finishCheckout(order._id);
+        }
+      }
+    } catch (error: unknown) {
+      const apiError = error as {
+        response?: {
+          data?: {
+            error?: { message?: string };
+            message?: string;
+          };
+        };
+      };
+      setToast({
+        message: apiError.response?.data?.error?.message ||
+          apiError.response?.data?.message ||
+          (error instanceof Error ? error.message : 'Failed to place order'),
+        type: 'error'
+      });
+    } finally {
+      submittingRef.current = false;
+      setLoading(false);
     }
   };
 
-  // ✅ FIX: Function signature matches PaymentModal props
-  const handlePaymentSuccess = async (transactionId: string) => {
-    try {
-      await processOrder(transactionId);
-      setShowPaymentModal(false);
-    } catch (error: any) {
-      setToast({ message: error.message || 'Payment successful but order creation failed.', type: 'error' });
+  // Stripe submission opens a backend-authoritative result page.
+  const handlePaymentSubmitted = (paymentId: string) => {
+    if (!paymentOrder || !paymentId) {
+      setToast({ message: 'Payment was submitted, but its status page could not be opened.', type: 'error' });
+      return;
     }
+
+    setShowPaymentModal(false);
+    clearCart();
+    router.push(
+      `/payment-result?paymentId=${encodeURIComponent(paymentId)}&orderId=${encodeURIComponent(paymentOrder.id)}`
+    );
   };
 
   const steps = [
@@ -281,6 +453,9 @@ export default function CheckoutPage() {
               <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <MapPin size={22} color="#0F766E" /> Shipping Address
               </h3>
+              {savedAddresses.length > 0 && <label style={{ display: 'grid', gap: 8, marginBottom: 20, fontWeight: 600 }}>Use a saved address
+                <select defaultValue="" onChange={(event) => { const selected = savedAddresses.find((entry) => entry.id === event.target.value); if (selected) setFormData((current) => ({ ...current, fullName: selected.fullName, phone: selected.phone, address: selected.address, province: selected.province, city: selected.city, postalCode: selected.postalCode || '', country: selected.country })); }}><option value="">Use a one-time address</option>{savedAddresses.map((entry) => <option key={entry.id} value={entry.id}>{entry.fullName} — {entry.city}</option>)}</select>
+              </label>}
               
               <div style={{ marginBottom: '20px', position: 'relative' }}>
                 <label style={{ 
@@ -364,10 +539,8 @@ export default function CheckoutPage() {
                   <Truck size={20} color="#0F766E" />
                   <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>Estimated Delivery</span>
                 </div>
-                <p style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>📦 2-4 Business Days to {formData.city}</p>
-                <p style={{ fontSize: '13px', color: '#0F766E', fontWeight: '600' }}>
-                  <RotateCcw size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }}/> Free Returns within 7 days
-                </p>
+                <p style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>{shippingQuote ? `${shippingQuote.deliveryMinDays}-${shippingQuote.deliveryMaxDays} business days to ${formData.city}` : 'Enter your address to calculate shipping and delivery.'}</p>
+                <p style={{ fontSize: '13px', color: '#0F766E', fontWeight: '600' }}>Return eligibility is confirmed against your delivered order.</p>
               </div>
             </div>
 
@@ -376,11 +549,20 @@ export default function CheckoutPage() {
               <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <CreditCard size={22} color="#0F766E" /> Payment Method
               </h3>
+              <PaymentMethodSelector
+                methods={availableMethods}
+                value={formData.paymentMethod}
+                loading={methodsLoading}
+                onChange={(paymentMethod) => setFormData((current) => ({
+                  ...current,
+                  paymentMethod
+                }))}
+              />
+              {false && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 {[
-                    {id: "COD", label: "Cash on Delivery", icon: "💵", color: "#0F766E"},
-                    {id: "jazzcash", label: "JazzCash", icon: "📱", color: "#7C3AED"},
-                    {id: "visa", label: "Visa / MasterCard", icon: "💳", color: "#2563EB"}                
+                    {id: "cod", label: "Cash on Delivery", icon: "💵", color: "#0F766E"},
+                    {id: "stripe", label: "Credit / Debit Card (Stripe)", icon: "💳", color: "#2563EB"}
                 ].map(method => (
                   <label key={method.id} style={{ 
                     display: 'flex', alignItems: 'center', gap: '12px', padding: '18px', borderRadius: '14px', 
@@ -398,7 +580,27 @@ export default function CheckoutPage() {
                     <span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{method.icon} {method.label}</span>
                   </label>
                 ))}
+                <div
+                  aria-disabled="true"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '18px',
+                    borderRadius: '14px',
+                    border: '2px dashed #D1D5DB',
+                    backgroundColor: '#F9FAFB',
+                    color: '#6B7280',
+                    cursor: 'not-allowed'
+                  }}
+                >
+                  <span aria-hidden="true">📱</span>
+                  <span style={{ fontSize: '14px', fontWeight: '600' }}>
+                    JazzCash — temporarily unavailable
+                  </span>
+                </div>
               </div>
+              )}
             </div>
           </div>
 
@@ -416,9 +618,9 @@ export default function CheckoutPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', lineHeight: '1.3', marginBottom: '4px' }}>{item.name}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <button type="button" onClick={() => updateQuantity(item._id || item.id, Math.max(1, item.quantity - 1))} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>−</button>
+                        <button type="button" onClick={() => updateQuantity(item._id || item.id, Math.max(1, item.quantity - 1), item.variantId || item.variant)} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>−</button>
                         <span style={{ fontWeight: '700', minWidth: '24px', textAlign: 'center', fontSize: '14px' }}>{item.quantity}</span>
-                        <button type="button" onClick={() => updateQuantity(item._id || item.id, item.quantity + 1)} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>+</button>
+                        <button type="button" onClick={() => updateQuantity(item._id || item.id, item.quantity + 1, item.variantId || item.variant)} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>+</button>
                       </div>
                       <div style={{ fontSize: '15px', fontWeight: '800', color: '#0F766E' }}>
                         Rs. {(parseFloat(String(item.price)) * item.quantity).toFixed(0)}
@@ -437,8 +639,8 @@ export default function CheckoutPage() {
                     <input type="text" placeholder="MEVA20" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                       style={{ flex: 1, padding: '12px 16px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '14px', outline: 'none', fontWeight: '600' }}
                     />
-                    <button type="button" onClick={handleApplyCoupon} style={{ backgroundColor: '#F59E0B', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
-                      Apply
+                    <button type="button" disabled={couponPending} onClick={() => void handleApplyCoupon()} style={{ backgroundColor: '#F59E0B', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
+                      {couponPending ? 'Checking…' : 'Apply'}
                     </button>
                   </div>
                 </div>
@@ -446,7 +648,7 @@ export default function CheckoutPage() {
                 <div style={{ backgroundColor: '#D1FAE5', borderRadius: '12px', padding: '14px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '2px solid #0F766E' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Tag size={18} color="#0F766E" />
-                    <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>{appliedCoupon} applied ({displayDiscount}% OFF)</span>
+                    <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>{appliedCoupon} applied (preview discount PKR {displayDiscount.toFixed(2)})</span>
                   </div>
                   <button onClick={() => { setAppliedCoupon(null); setDisplayDiscount(0); }} className="text-xs text-red-600 font-bold hover:underline">Remove</button>
                 </div>
@@ -459,8 +661,8 @@ export default function CheckoutPage() {
                 </div>
                 {displayDiscount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#0F766E' }}>
-                    <span>Discount ({displayDiscount}%)</span>
-                    <span style={{ fontWeight: '700' }}>-Rs. {pricing.discountAmount.toFixed(2)}</span>
+                    <span>Coupon preview (final order is server-authoritative)</span>
+                    <span style={{ fontWeight: '700' }}>-PKR {displayDiscount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px' }}>
@@ -511,10 +713,9 @@ export default function CheckoutPage() {
 
               <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                 {[
-                  { icon: <Shield size={16} color="#0F766E" />, text: '256-bit SSL Secure' },
-                  { icon: <RotateCcw size={16} color="#0F766E" />, text: 'Easy Returns' },
-                  { icon: <Headphones size={16} color="#0F766E" />, text: '24/7 Support' },
-                  { icon: <Truck size={16} color="#0F766E" />, text: 'Fast Delivery' }
+                  { icon: <Shield size={16} color="#0F766E" />, text: 'Secure payment flow' },
+                  { icon: <RotateCcw size={16} color="#0F766E" />, text: 'Order-based return eligibility' },
+                  { icon: <Truck size={16} color="#0F766E" />, text: 'Configured shipping quote' }
                 ].map((badge, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#6B7280', padding: '10px', backgroundColor: '#F8FAFC', borderRadius: '10px' }}>
                     {badge.icon}
@@ -529,11 +730,12 @@ export default function CheckoutPage() {
       </div>
 
       <PaymentModal 
-        isOpen={showPaymentModal} 
+        isOpen={showPaymentModal && Boolean(paymentOrder)}
         onClose={() => setShowPaymentModal(false)} 
-        paymentMethod={formData.paymentMethod} 
-        amount={pricing.grandTotal} 
-        onSuccess={handlePaymentSuccess}
+        orderId={paymentOrder?.id || ''}
+        amount={paymentOrder?.amount || pricing.grandTotal}
+        publishableKey={paymentOrder?.publishableKey}
+        onSubmitted={handlePaymentSubmitted}
       />
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

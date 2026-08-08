@@ -1,45 +1,53 @@
 const mongoose = require('mongoose');
+const logger = require('../common/utils/logger');
 
-let isConnected = false;
-let reconnectTimer = null;
+let connectionPromise = null;
+let closePromise = null;
 
 // ===============================
 // Connect MongoDB
 // ===============================
 const connectDB = async () => {
-  try {
-    if (isConnected) {
-      return mongoose.connection;
-    }
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+  if (connectionPromise) return connectionPromise;
 
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+  if (
+    typeof process.env.MONGODB_URI !== 'string'
+    || process.env.MONGODB_URI.trim() === ''
+  ) {
+    const error = new Error('Database configuration is unavailable');
+    error.code = 'DATABASE_CONFIGURATION_MISSING';
+    throw error;
+  }
+
+  closePromise = null;
+  connectionPromise = mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
       maxPoolSize: 20,
       minPoolSize: 5,
       retryWrites: true,
       autoIndex: process.env.NODE_ENV !== 'production',
+    })
+    .then((connection) => {
+      logger.info('Database connection established', {
+        reasonCode: 'DATABASE_CONNECTED'
+      });
+      return connection;
+    })
+    .catch((error) => {
+      logger.error('Database connection failed', {
+        reasonCode: 'DATABASE_CONNECT_FAILED'
+      });
+      throw error;
+    })
+    .finally(() => {
+      connectionPromise = null;
     });
 
-    isConnected = true;
-
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-
-    return conn;
-  } catch (error) {
-    isConnected = false;
-
-    console.error(`❌ MongoDB Connection Error: ${error.message}`);
-
-    if (!reconnectTimer) {
-      console.log('🔄 Retrying MongoDB connection in 10 seconds...');
-
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        connectDB();
-      }, 10000);
-    }
-  }
+  return connectionPromise;
 };
 
 // ===============================
@@ -47,50 +55,46 @@ const connectDB = async () => {
 // ===============================
 
 mongoose.connection.on('connected', () => {
-  isConnected = true;
-  console.log('🟢 MongoDB connection established');
+  logger.info('Database connection event', {
+    reasonCode: 'DATABASE_CONNECTED'
+  });
 });
 
 mongoose.connection.on('disconnected', () => {
-  isConnected = false;
-
-  console.warn('⚠ MongoDB disconnected');
-
-  if (!reconnectTimer) {
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      connectDB();
-    }, 5000);
-  }
+  logger.warn('Database disconnected', {
+    reasonCode: 'DATABASE_DISCONNECTED'
+  });
 });
 
 mongoose.connection.on('reconnected', () => {
-  isConnected = true;
-  console.log('✅ MongoDB reconnected');
+  logger.info('Database reconnected', {
+    reasonCode: 'DATABASE_RECONNECTED'
+  });
 });
 
-mongoose.connection.on('error', (err) => {
-  console.error(`❌ MongoDB Error: ${err.message}`);
+mongoose.connection.on('error', () => {
+  logger.error('Database connection event', {
+    reasonCode: 'DATABASE_CONNECTION_ERROR'
+  });
 });
 
 // ===============================
 // Graceful Shutdown
 // ===============================
 
-process.on('SIGINT', async () => {
-  await mongoose.connection.close();
-
-  console.log('🔴 MongoDB connection closed');
-
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  await mongoose.connection.close();
-
-  console.log('🔴 MongoDB connection closed');
-
-  process.exit(0);
-});
+const closeDatabase = () => {
+  if (!closePromise) {
+    closePromise = (async () => {
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+      }
+      logger.info('Database connection closed', {
+        reasonCode: 'DATABASE_CLOSED'
+      });
+    })();
+  }
+  return closePromise;
+};
 
 module.exports = connectDB;
+module.exports.closeDatabase = closeDatabase;

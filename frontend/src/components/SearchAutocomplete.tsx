@@ -51,15 +51,18 @@ export default function SearchAutocomplete({
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
+    const timer = window.setTimeout(() => {
+      const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
 
-    if (stored) {
-      try {
-        setRecentSearches(JSON.parse(stored));
-      } catch {
-        localStorage.removeItem(RECENT_SEARCHES_KEY);
+      if (stored) {
+        try {
+          setRecentSearches(JSON.parse(stored));
+        } catch {
+          localStorage.removeItem(RECENT_SEARCHES_KEY);
+        }
       }
-    }
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   // Close dropdown on outside click

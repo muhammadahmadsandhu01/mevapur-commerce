@@ -11,52 +11,29 @@ exports.getProducts = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const query = { isActive: true }; // Only show active products on frontend
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // 1. Text Search
     if (req.query.keyword) {
       query.$or = [
-        { name: { $regex: req.query.keyword, $options: 'i' } },
-        { sku: { $regex: req.query.keyword, $options: 'i' } },
-        { description: { $regex: req.query.keyword, $options: 'i' } }
+        { name: { $regex: escapeRegex(req.query.keyword), $options: 'i' } },
+        { sku: { $regex: escapeRegex(req.query.keyword), $options: 'i' } },
+        { description: { $regex: escapeRegex(req.query.keyword), $options: 'i' } }
       ];
     }
 
     // 2. Category Filter
     if (req.query.category) {
-      const categoryIds = req.query.category
-        .split(",")
-        .filter(id => mongoose.Types.ObjectId.isValid(id));
-
-      if (categoryIds.length > 0) {
-        query.category = {
-          $in: categoryIds.map(id => new mongoose.Types.ObjectId(id))
-        };
-      }
+      query.category = new mongoose.Types.ObjectId(req.query.category);
     }
 
     if (req.query.subcategory) {
-      const subcategoryIds = req.query.subcategory
-        .split(",")
-        .filter(id => mongoose.Types.ObjectId.isValid(id));
-
-      if (subcategoryIds.length > 0) {
-        query.subcategory = {
-          $in: subcategoryIds.map(id => new mongoose.Types.ObjectId(id))
-        };
-      }
+      query.subcategory = new mongoose.Types.ObjectId(req.query.subcategory);
     }
 
     // 3. Brand Filter
     if (req.query.brand) {
-      const brandIds = req.query.brand
-        .split(",")
-        .filter(id => mongoose.Types.ObjectId.isValid(id));
-
-      if (brandIds.length > 0) {
-        query.brand = {
-          $in: brandIds.map(id => new mongoose.Types.ObjectId(id))
-        };
-      }
+      query.brand = new mongoose.Types.ObjectId(req.query.brand);
     }
 
     // 4. Price Range Filter

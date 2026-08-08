@@ -1,6 +1,4 @@
 const mongoose = require('mongoose');
-const crypto = require('crypto');
-
 const sessionSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -13,7 +11,14 @@ const sessionSchema = new mongoose.Schema({
   refreshTokenHash: {
     type: String,
     required: true,
+    match: /^[a-f0-9]{64}$/,
     select: false
+  },
+
+  tokenFamilyId: {
+    type: String,
+    required: true,
+    index: true
   },
 
   // Device Info
@@ -27,6 +32,7 @@ const sessionSchema = new mongoose.Schema({
 
   // Location & Network
   ipAddress: String,
+  userAgent: String,
   country: String,
   city: String,
 
@@ -49,6 +55,10 @@ const sessionSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
+  lastRotatedAt: {
+    type: Date,
+    default: null
+  },
   expiresAt: {
     type: Date,
     required: true,
@@ -59,21 +69,7 @@ const sessionSchema = new mongoose.Schema({
 });
 
 // Index for finding active sessions per user
-sessionSchema.index({ user: 1, isActive: 1 });
-
-// Helper to hash token before saving
-sessionSchema.pre('save', function(next) {
-  if (this.isModified('refreshTokenHash')) {
-    // Already hashed by service, just ensure it's set
-  }
-  next();
-});
-
-// Method to verify token
-sessionSchema.methods.verifyToken = async function(token) {
-  const crypto = require('crypto');
-  const hash = crypto.createHash('sha256').update(token).digest('hex');
-  return hash === this.refreshTokenHash;
-};
+sessionSchema.index({ user: 1, isActive: 1, isRevoked: 1 });
+sessionSchema.index({ user: 1, tokenFamilyId: 1 });
 
 module.exports = mongoose.model('Session', sessionSchema);

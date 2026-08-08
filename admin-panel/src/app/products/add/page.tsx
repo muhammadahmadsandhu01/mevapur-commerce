@@ -9,6 +9,8 @@ import {
   Search, Globe, BarChart3, Link as LinkIcon, MessageSquare
 } from 'lucide-react';
 import api, { getCategories, getBrands, getProducts } from '@/lib/api';
+import axios from 'axios';
+import type { LucideIcon } from 'lucide-react';
 
 // Types
 interface Variant {
@@ -27,6 +29,17 @@ interface Variant {
 interface Attribute {
   name: string;
   value: string;
+}
+
+interface CategoryOption {
+  _id: string;
+  name: string;
+  parentId?: string | null;
+}
+
+interface BrandOption {
+  _id: string;
+  name: string;
 }
 
 interface ProductFormData {
@@ -161,7 +174,7 @@ const Section = ({
   onSave
 }: { 
   title: string; 
-  icon: any; 
+  icon: LucideIcon;
   children: React.ReactNode; 
   defaultOpen?: boolean;
   onSave?: () => void;
@@ -281,34 +294,40 @@ export default function AddProductPage() {
   const [formData, setFormData] = useState<ProductFormData>(initialFormData);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [brands, setBrands] = useState<any[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tagInput, setTagInput] = useState('');
   const [activeTab, setActiveTab] = useState<'basic' | 'variants' | 'media'>('basic');
 
   // Auto-generate slug from name
   useEffect(() => {
-    if (formData.name && !formData.slug) {
-      const slug = formData.name
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .substring(0, 60);
-      setFormData(prev => ({ ...prev, slug }));
-    }
-  }, [formData.name]);
+    const timer = window.setTimeout(() => {
+      if (formData.name && !formData.slug) {
+        const slug = formData.name
+          .toLowerCase()
+          .replace(/[^\w\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .substring(0, 60);
+        setFormData(prev => ({ ...prev, slug }));
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [formData.name, formData.slug]);
 
   // Auto-generate SKU
   useEffect(() => {
-    if (formData.name && !formData.sku) {
-      const sku = formData.name
-        .toUpperCase()
-        .replace(/[^\w]/g, '')
-        .substring(0, 8) + '-' + Date.now().toString().slice(-4);
-      setFormData(prev => ({ ...prev, sku }));
-    }
-  }, [formData.name]);
+    const timer = window.setTimeout(() => {
+      if (formData.name && !formData.sku) {
+        const sku = formData.name
+          .toUpperCase()
+          .replace(/[^\w]/g, '')
+          .substring(0, 8) + '-' + Date.now().toString().slice(-4);
+        setFormData(prev => ({ ...prev, sku }));
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [formData.name, formData.sku]);
 
   // Fetch categories and brands
   useEffect(() => {
@@ -327,17 +346,7 @@ export default function AddProductPage() {
     fetchData();
   }, []);
 
-  // Auto-save every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (formData.name && formData.status === 'draft') {
-        handleAutoSave();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [formData]);
-
-  const handleAutoSave = async () => {
+  async function handleAutoSave() {
     setSaving(true);
     try {
       // In real implementation, this would save to backend
@@ -348,7 +357,17 @@ export default function AddProductPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }
+
+  // Auto-save every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (formData.name && formData.status === 'draft') {
+        handleAutoSave();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [formData]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -380,8 +399,13 @@ export default function AddProductPage() {
         alert(status === 'published' ? 'Product published successfully!' : 'Draft saved successfully!');
         router.push('/admin/products');
       }
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to save product');
+    } catch (error: unknown) {
+      alert(
+        axios.isAxiosError(error)
+        && typeof error.response?.data?.message === 'string'
+          ? error.response.data.message
+          : 'Failed to save product'
+      );
     } finally {
       setLoading(false);
     }
@@ -431,7 +455,11 @@ export default function AddProductPage() {
     }));
   };
 
-  const updateVariant = (index: number, field: keyof Variant, value: any) => {
+  const updateVariant = <Key extends keyof Variant>(
+    index: number,
+    field: Key,
+    value: Variant[Key]
+  ) => {
     const newVariants = [...formData.variants];
     newVariants[index] = { ...newVariants[index], [field]: value };
     setFormData(prev => ({ ...prev, variants: newVariants }));

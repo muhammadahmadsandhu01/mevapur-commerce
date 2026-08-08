@@ -44,7 +44,7 @@ export interface Order {
   };
   paymentMethod: string;
   orderStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
-  paymentStatus: 'Pending' | 'Paid' | 'Failed';
+  paymentStatus: 'Pending' | 'Paid' | 'Failed' | 'PartiallyRefunded' | 'Refunded';
   subtotal: number;
   shippingCost: number;
   discount: number;

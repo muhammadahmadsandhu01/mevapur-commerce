@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, User, Phone, CheckCircle, XCircle, Loader, AlertCircle, Shield } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
+import BrandLogo from '@/components/brand/BrandLogo';
+import { branding } from '@/config/branding';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -153,12 +155,14 @@ export default function RegisterPage() {
           <div style={{ position: 'absolute', bottom: '-80px', left: '-80px', width: '300px', height: '300px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)' }} />
 
           <div style={{ position: 'relative', zIndex: 1 }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🌰</div>
+            <div style={{ marginBottom: '24px' }}>
+              <BrandLogo theme="light" height={38} />
+            </div>
             <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '16px', lineHeight: '1.2' }}>
-              Join MevaPur
+              Join {branding.siteName}
             </h1>
             <p style={{ fontSize: '16px', opacity: '0.9', marginBottom: '40px', lineHeight: '1.6' }}>
-              Create your account and start shopping premium dry fruits with exclusive member benefits.
+              Create your account to explore available products across the marketplace.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

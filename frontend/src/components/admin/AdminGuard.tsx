@@ -1,37 +1,35 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { Loader } from 'lucide-react';
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, token } = useAuthStore();
+  const {
+    user,
+    token,
+    isAuthenticated,
+    isInitialized,
+    bootstrap,
+  } = useAuthStore();
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   useEffect(() => {
-    const checkAuth = async () => {
-      if (!isAuthenticated || !token) {
-        router.push('/login?redirect=/admin');
-        return;
-      }
+    if (!isInitialized) void bootstrap();
+  }, [bootstrap, isInitialized]);
 
-      // Check if user has admin role
-      const isAdmin = user?.role === 'admin' || user?.role === 'super_admin' || user?.isAdmin;
-      
-      if (!isAdmin) {
-        router.push('/'); // Redirect to home if not admin
-        return;
-      }
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!isAuthenticated || !token) {
+      router.replace('/login');
+      return;
+    }
+    if (!isAdmin) router.replace('/');
+  }, [isAdmin, isAuthenticated, isInitialized, router, token]);
 
-      setLoading(false);
-    };
-
-    checkAuth();
-  }, [isAuthenticated, token, user, router]);
-
-  if (loading) {
+  if (!isInitialized || !isAuthenticated || !token || !isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">

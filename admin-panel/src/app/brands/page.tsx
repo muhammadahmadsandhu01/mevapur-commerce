@@ -51,7 +51,7 @@ export default function BrandsPage() {
     fetchBrands();
   }, []);
 
-  const fetchBrands = async () => {
+  async function fetchBrands() {
     setLoading(true);
     try {
       const response = await api.get('/brands');
@@ -63,7 +63,7 @@ export default function BrandsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

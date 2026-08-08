@@ -21,13 +21,16 @@ import {
   Lock
 } from 'lucide-react';
 import api from '@/lib/api';
+import axios from 'axios';
+
+type StaffRole = 'super_admin' | 'admin' | 'manager' | 'support' | 'inventory';
 
 interface StaffUser {
   _id: string;
   fullName: string;
   email: string;
   phone: string;
-  role: 'super_admin' | 'admin' | 'manager' | 'support' | 'inventory';
+  role: StaffRole;
   isBlocked: boolean;
   createdAt: string;
 }
@@ -42,7 +45,13 @@ export default function UsersPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    fullName: string;
+    email: string;
+    phone: string;
+    role: StaffRole;
+    password: string;
+  }>({
     fullName: '',
     email: '',
     phone: '',
@@ -54,10 +63,10 @@ export default function UsersPage() {
     fetchUsers();
   }, [search, roleFilter]);
 
-  const fetchUsers = async () => {
+  async function fetchUsers() {
     try {
       setLoading(true);
-      const params: any = {};
+      const params: Record<string, string> = {};
       if (search) params.search = search;
       if (roleFilter) params.role = roleFilter;
 
@@ -70,7 +79,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleSubmit = async () => {
     setError('');
@@ -102,8 +111,13 @@ export default function UsersPage() {
           await fetchUsers();
         }
       }
-    } catch (error: any) {
-      setError(error.response?.data?.message || 'Failed to save user');
+    } catch (error: unknown) {
+      setError(
+        axios.isAxiosError(error)
+        && typeof error.response?.data?.message === 'string'
+          ? error.response.data.message
+          : 'Failed to save user'
+      );
     } finally {
       setSaving(false);
     }
@@ -117,8 +131,13 @@ export default function UsersPage() {
       if (response.data.success) {
         await fetchUsers();
       }
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to delete user');
+    } catch (error: unknown) {
+      alert(
+        axios.isAxiosError(error)
+        && typeof error.response?.data?.message === 'string'
+          ? error.response.data.message
+          : 'Failed to delete user'
+      );
     }
   };
 
@@ -130,8 +149,13 @@ export default function UsersPage() {
       if (response.data.success) {
         await fetchUsers();
       }
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to update user');
+    } catch (error: unknown) {
+      alert(
+        axios.isAxiosError(error)
+        && typeof error.response?.data?.message === 'string'
+          ? error.response.data.message
+          : 'Failed to update user'
+      );
     }
   };
 
@@ -645,7 +669,10 @@ export default function UsersPage() {
                 </label>
                 <select
                   value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    role: e.target.value as StaffRole
+                  })}
                   style={inputStyle}
                 >
                   <option value="admin">Admin (Full Access)</option>

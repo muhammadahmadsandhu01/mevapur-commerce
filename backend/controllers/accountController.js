@@ -1,0 +1,24 @@
+const service = require('../services/CustomerCommerceService');
+const success = (res, status, data, requestId) => res.status(status).json({ success: true, data, meta: { requestId: requestId || 'unknown' } });
+
+exports.getProfile = async (req, res, next) => { try { return success(res, 200, { profile: await service.getProfile(req.user.id) }, req.requestId); } catch (error) { return next(error); } };
+exports.updateProfile = async (req, res, next) => { try { return success(res, 200, { profile: await service.updateProfile(req.user.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
+exports.listAddresses = async (req, res, next) => { try { return success(res, 200, { addresses: await service.listAddresses(req.user.id) }, req.requestId); } catch (error) { return next(error); } };
+exports.createAddress = async (req, res, next) => { try { return success(res, 201, { address: await service.createAddress(req.user.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
+exports.updateAddress = async (req, res, next) => { try { return success(res, 200, { address: await service.updateAddress(req.user.id, req.params.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
+exports.deleteAddress = async (req, res, next) => { try { await service.deleteAddress(req.user.id, req.params.id); return res.status(204).end(); } catch (error) { return next(error); } };
+exports.listWishlist = async (req, res, next) => { try { return success(res, 200, { items: await service.listWishlist(req.user.id) }, req.requestId); } catch (error) { return next(error); } };
+exports.addWishlist = async (req, res, next) => { try { return success(res, 201, { item: await service.addWishlist(req.user.id, req.params.productId) }, req.requestId); } catch (error) { return next(error); } };
+exports.removeWishlist = async (req, res, next) => { try { await service.removeWishlist(req.user.id, req.params.productId); return res.status(204).end(); } catch (error) { return next(error); } };
+exports.listPublicReviews = async (req, res, next) => { try { return success(res, 200, await service.listPublicReviews(req.params.productId, req.query), req.requestId); } catch (error) { return next(error); } };
+exports.submitReview = async (req, res, next) => { try { return success(res, 201, { review: await service.submitReview(req.user.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
+exports.updateReview = async (req, res, next) => { try { return success(res, 200, { review: await service.updateReview(req.user.id, req.params.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
+exports.deleteReview = async (req, res, next) => { try { await service.deleteReview(req.user.id, req.params.id); return res.status(204).end(); } catch (error) { return next(error); } };
+exports.listReturns = async (req, res, next) => { try { return success(res, 200, await service.listReturns(req.user.id, req.query), req.requestId); } catch (error) { return next(error); } };
+exports.requestReturn = async (req, res, next) => { try { return success(res, 201, { return: await service.requestReturn(req.user.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
+exports.listRefunds = async (req, res, next) => { try { return success(res, 200, await service.listRefunds(req.user.id, req.query), req.requestId); } catch (error) { return next(error); } };
+exports.invoice = async (req, res, next) => { try { return success(res, 200, { invoice: await service.invoice(req.user.id, req.params.id) }, req.requestId); } catch (error) { return next(error); } };
+exports.tracking = async (req, res, next) => { try { return success(res, 200, { tracking: await service.tracking(req.user.id, req.params.id) }, req.requestId); } catch (error) { return next(error); } };
+exports.notifications = async (req, res, next) => { try { return success(res, 200, await service.listNotifications(req.user.id, req.query), req.requestId); } catch (error) { return next(error); } };
+exports.markNotificationRead = async (req, res, next) => { try { return success(res, 200, { notification: await service.markNotificationRead(req.user.id, req.params.id) }, req.requestId); } catch (error) { return next(error); } };
+exports.markAllNotificationsRead = async (req, res, next) => { try { await service.markAllNotificationsRead(req.user.id); return success(res, 200, {}, req.requestId); } catch (error) { return next(error); } };

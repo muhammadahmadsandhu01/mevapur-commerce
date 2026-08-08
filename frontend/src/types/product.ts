@@ -4,6 +4,7 @@ export interface ProductAttribute {
 }
 
 export interface ProductVariant {
+  _id?: string;
   sku: string;
   barcode?: string;
   attributes: ProductAttribute[]; // e.g., [{ name: "Weight", value: "500g" }]

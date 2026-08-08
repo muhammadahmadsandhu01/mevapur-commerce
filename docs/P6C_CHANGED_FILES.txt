@@ -1,0 +1,12 @@
+admin-panel/src/app/commerce/page.tsx
+docs/P6C_CHANGED_FILES.txt
+docs/P6C_MODERN_UX_IMPLEMENTATION.md
+frontend/src/app/cart/page.tsx
+frontend/src/app/checkout/page.tsx
+frontend/src/app/globals.css
+frontend/src/app/page.tsx
+frontend/src/app/products/[id]/page.tsx
+frontend/src/app/wishlist/page.tsx
+frontend/src/components/Footer.tsx
+frontend/src/components/Navbar.tsx
+frontend/src/components/products/ProductCard.tsx

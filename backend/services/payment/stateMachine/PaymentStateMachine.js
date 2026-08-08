@@ -1,55 +1,100 @@
-const { AppError } = require('../../../errors/AppError');
+const { AppError } = require('../../../utils/errors/AppError');
+const { PAYMENT_STATUSES } = require('../../../constants/paymentConstants');
+
+const transitions = Object.freeze({
+  [PAYMENT_STATUSES.PENDING]: [
+    PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT,
+    PAYMENT_STATUSES.AWAITING_VERIFICATION,
+    PAYMENT_STATUSES.PROCESSING,
+    PAYMENT_STATUSES.COMPLETED,
+    PAYMENT_STATUSES.FAILED,
+    PAYMENT_STATUSES.CANCELLED
+  ],
+  [PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT]: [
+    PAYMENT_STATUSES.AWAITING_VERIFICATION,
+    PAYMENT_STATUSES.CANCELLED,
+    PAYMENT_STATUSES.EXPIRED
+  ],
+  [PAYMENT_STATUSES.AWAITING_VERIFICATION]: [
+    PAYMENT_STATUSES.COMPLETED,
+    PAYMENT_STATUSES.REJECTED,
+    PAYMENT_STATUSES.CANCELLED,
+    PAYMENT_STATUSES.EXPIRED
+  ],
+  [PAYMENT_STATUSES.PROCESSING]: [
+    PAYMENT_STATUSES.COMPLETED,
+    PAYMENT_STATUSES.FAILED,
+    PAYMENT_STATUSES.CANCELLED
+  ],
+  [PAYMENT_STATUSES.FAILED]: [
+    PAYMENT_STATUSES.PROCESSING,
+    PAYMENT_STATUSES.COMPLETED,
+    PAYMENT_STATUSES.CANCELLED
+  ],
+  [PAYMENT_STATUSES.REJECTED]: [],
+  [PAYMENT_STATUSES.EXPIRED]: [],
+  [PAYMENT_STATUSES.COMPLETED]: [
+    PAYMENT_STATUSES.PARTIALLY_REFUNDED,
+    PAYMENT_STATUSES.REFUNDED
+  ],
+  [PAYMENT_STATUSES.PARTIALLY_REFUNDED]: [
+    PAYMENT_STATUSES.REFUNDED
+  ],
+  [PAYMENT_STATUSES.REFUNDED]: [],
+  [PAYMENT_STATUSES.CANCELLED]: []
+});
 
 class PaymentStateMachine {
-  constructor() {
-    // Define valid transitions
-    this.transitions = {
-      'Pending': ['Processing', 'Failed', 'Cancelled'],
-      'Processing': ['RequiresAction', 'Authorized', 'Captured', 'Completed', 'Failed'],
-      'RequiresAction': ['Processing', 'Authorized', 'Failed', 'Cancelled'],
-      'Authorized': ['Captured', 'Completed', 'Cancelled', 'Failed'],
-      'Captured': ['Completed', 'RefundPending', 'Refunded'],
-      'Completed': ['RefundPending', 'Refunded'],
-      'Failed': ['Pending'], // Allow retry logic if needed
-      'RefundPending': ['Refunded', 'Failed'],
-      'Refunded': [], // Terminal state
-      'Cancelled': [] // Terminal state
-    };
+  canTransition(currentStatus, nextStatus) {
+    if (currentStatus === nextStatus) {
+      return true;
+    }
+
+    return Boolean(transitions[currentStatus]?.includes(nextStatus));
   }
 
-  canTransition(currentStatus, newStatus) {
-    const allowedNextStates = this.transitions[currentStatus];
-    return allowedNextStates && allowedNextStates.includes(newStatus);
-  }
-
-  async transition(payment, newStatus, metadata = {}) {
-    if (!this.canTransition(payment.status, newStatus)) {
+  apply(payment, nextStatus, {
+    source = 'system',
+    providerEventId = '',
+    errorCode = '',
+    at = new Date()
+  } = {}) {
+    if (!this.canTransition(payment.status, nextStatus)) {
       throw new AppError(
-        `Invalid status transition from ${payment.status} to ${newStatus}`,
-        400,
-        'INVALID_STATE_TRANSITION'
+        'The payment status transition is not permitted',
+        409,
+        'PAYMENT_STATUS_TRANSITION_INVALID'
       );
     }
 
-    const previousStatus = payment.status;
-    payment.status = newStatus;
-    
-    // Add audit log
-    payment.auditLogs.push({
-      action: 'STATUS_CHANGE',
-      status: newStatus,
-      previousStatus,
-      timestamp: new Date(),
-      metadata
-    });
-
-    if (newStatus === 'Completed') {
-      payment.completedAt = new Date();
-    } else if (newStatus === 'Failed' && metadata.reason) {
-      payment.failureReason = metadata.reason;
+    if (payment.status === nextStatus) {
+      return payment;
     }
 
-    await payment.save();
+    const previousStatus = payment.status;
+    payment.status = nextStatus;
+    payment.history.push({
+      previousStatus,
+      newStatus: nextStatus,
+      source,
+      providerEventId,
+      errorCode,
+      timestamp: at
+    });
+
+    if (nextStatus === PAYMENT_STATUSES.COMPLETED) {
+      payment.completedAt = payment.completedAt || at;
+      payment.failureCode = '';
+    } else if (
+      nextStatus === PAYMENT_STATUSES.FAILED
+      || nextStatus === PAYMENT_STATUSES.REJECTED
+    ) {
+      payment.failedAt = at;
+      payment.failureCode = errorCode;
+    } else if (nextStatus === PAYMENT_STATUSES.CANCELLED) {
+      payment.cancelledAt = at;
+    }
+
     return payment;
   }
 }

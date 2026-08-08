@@ -1,0 +1,13 @@
+{
+  "code": "full",
+  "displayName": "Full",
+  "baseCurrency": "PKR",
+  "providers": [
+    "cod",
+    "bank_transfer",
+    "raast",
+    "jazzcash",
+    "easypaisa",
+    "stripe"
+  ]
+}

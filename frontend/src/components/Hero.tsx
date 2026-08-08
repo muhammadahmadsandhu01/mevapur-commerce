@@ -20,7 +20,7 @@ export default function Hero() {
                 Shop Fresh
               </Link>
               <Link href="/deals" className="bg-white hover:bg-gray-100 text-gray-900 font-bold py-3 px-8 rounded-lg transition-colors">
-                Today's Deals
+                Today&apos;s Deals
               </Link>
             </div>
           </div>

@@ -2,7 +2,7 @@ const AuditLog = require('../models/AuditLog');
 
 class AuditLogRepository {
   async create(data) {
-    return await AuditLog.create(data);
+    return AuditLog.create(data);
   }
 
   async findByUserId(userId, limit = 50) {
@@ -12,7 +12,7 @@ class AuditLogRepository {
   }
 
   async findByAction(action, limit = 50) {
-    return await AuditLog.find({ action })
+    return AuditLog.find({ eventName: action })
       .sort({ createdAt: -1 })
       .limit(limit);
   }

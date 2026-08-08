@@ -1,134 +1,20 @@
 'use client';
-export const dynamic = 'force-dynamic';
 
-import { useCartStore } from '@/store/cartStore';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ShoppingCart, Trash2, Heart, ShoppingBag } from 'lucide-react';
+import { Heart, ShoppingCart, Trash2 } from 'lucide-react';
+import { useCartStore, type WishlistItem } from '@/store/cartStore';
+import { useAuthStore } from '@/store/authStore';
+import { accountService } from '@/services/account.service';
 
+type RemoteItem = { id: string; product: { _id: string; name: string; slug?: string; price: number; salePrice?: number; images?: string[]; stock?: number } };
 export default function WishlistPage() {
-  const { wishlist, removeFromWishlist, moveWishlistToCart, clearCart } = useCartStore();
-
-  if (wishlist.length === 0) {
-    return (
-      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' }}>
-        <div style={{ textAlign: 'center', padding: '40px' }}>
-          <div style={{ fontSize: '120px', marginBottom: '24px' }}>💝</div>
-          <h1 style={{ fontSize: '32px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>Your Wishlist is Empty</h1>
-          <p style={{ fontSize: '16px', color: '#6B7280', marginBottom: '32px' }}>Save your favorite items here for later!</p>
-          <Link href="/" style={{
-            backgroundColor: '#0F766E', color: 'white', padding: '16px 32px',
-            borderRadius: '50px', fontWeight: '700', textDecoration: 'none',
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            boxShadow: '0 4px 12px rgba(15,118,110,0.3)',
-            transition: 'all 0.3s'
-          }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#115E59'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#0F766E'; e.currentTarget.style.transform = 'translateY(0)'; }}
-          >
-            <ArrowLeft size={18} /> Continue Shopping
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', padding: '40px 20px' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        
-        {/* Header */}
-        <div style={{ marginBottom: '32px' }}>
-          <Link href="/" style={{ color: '#0F766E', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '600', marginBottom: '16px' }}>
-            <ArrowLeft size={16} /> Continue Shopping
-          </Link>
-          <h1 style={{ fontSize: '32px', fontWeight: '800', color: '#111827', marginBottom: '8px' }}>My Wishlist</h1>
-          <p style={{ color: '#6B7280' }}>{wishlist.length} {wishlist.length === 1 ? 'item' : 'items'} saved</p>
-        </div>
-
-        {/* Wishlist Items */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-          {wishlist.map(item => (
-            <div key={item.id} style={{
-              backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden',
-              boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB',
-              transition: 'all 0.3s'
-            }}
-              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)'; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.06)'; }}
-            >
-              <Link href={`/products/${item.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div style={{ position: 'relative', height: '240px', backgroundColor: '#F3F4F6' }}>
-                  <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              </Link>
-              
-              <div style={{ padding: '20px' }}>
-                <Link href={`/products/${item.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#111827', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.name}
-                  </h3>
-                </Link>
-                
-                {item.variant && (
-                  <div style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
-                    Variant: {item.variant}
-                  </div>
-                )}
-                
-                <div style={{ fontSize: '20px', fontWeight: '800', color: '#0F766E', marginBottom: '16px' }}>
-                  Rs. {parseFloat(Number(item.price).toFixed(0)).toLocaleString()}
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => moveWishlistToCart(item.id)}
-                    style={{
-                      flex: 1, padding: '12px', backgroundColor: '#0F766E', color: 'white',
-                      border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#115E59'; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#0F766E'; }}
-                  >
-                    <ShoppingCart size={16} /> Add to Cart
-                  </button>
-                  <button onClick={() => removeFromWishlist(item.id)}
-                    style={{
-                      padding: '12px', backgroundColor: '#FEE2E2', color: '#DC2626',
-                      border: 'none', borderRadius: '10px', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#FECACA'; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#FEE2E2'; }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Bottom Actions */}
-        <div style={{ marginTop: '40px', textAlign: 'center' }}>
-          <Link href="/" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '10px',
-            backgroundColor: '#0F766E', color: 'white',
-            padding: '16px 32px', borderRadius: '50px',
-            fontWeight: '700', fontSize: '16px',
-            textDecoration: 'none',
-            boxShadow: '0 4px 12px rgba(15,118,110,0.3)',
-            transition: 'all 0.3s'
-          }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#115E59'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#0F766E'; e.currentTarget.style.transform = 'translateY(0)'; }}
-          >
-            <ArrowLeft size={18} /> Continue Shopping
-          </Link>
-        </div>
-
-      </div>
-    </div>
-  );
+  const { wishlist: localItems, removeFromWishlist: removeLocal, moveWishlistToCart, addToCart } = useCartStore();
+  const { isAuthenticated } = useAuthStore();
+  const [items, setItems] = useState<RemoteItem[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const load = useCallback(async () => { if (!isAuthenticated) return; setLoading(true); setError(''); try { const result = await accountService.wishlist(); setItems(result.items as RemoteItem[]); } catch { setError('Saved products could not be loaded. Please try again.'); } finally { setLoading(false); } }, [isAuthenticated]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  const remove = async (item: RemoteItem | WishlistItem) => { if (isAuthenticated && 'product' in item) { await accountService.removeWishlist(item.product._id); await load(); } else removeLocal(item.id); };
+  const display = isAuthenticated ? items : localItems;
+  return <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8"><p className="text-sm font-semibold text-[#ff8a00]">SAVED PRODUCTS</p><h1 className="mt-1 text-3xl font-bold text-[#0b132b]">Your wishlist</h1><p className="mt-2 text-sm text-slate-600">{isAuthenticated ? 'Saved to your account and available across your signed-in devices.' : 'This temporary wishlist is saved in this browser. Sign in to keep it with your account.'}</p>{error && <div role="alert" className="mt-5 border border-amber-300 bg-amber-50 p-4 text-sm"><p>{error}</p><button type="button" onClick={() => void load()} className="mt-2 font-semibold underline">Retry</button></div>}{loading ? <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-52 animate-pulse bg-slate-200" />)}</div> : display.length === 0 ? <section className="mt-6 border border-dashed border-slate-300 bg-white p-10 text-center"><Heart className="mx-auto text-[#ff8a00]" /><h2 className="mt-3 font-semibold">Nothing saved yet</h2><p className="mt-1 text-sm text-slate-600">Save available products to return to them later.</p><Link href="/products" className="mt-5 inline-block rounded-md bg-[#0b132b] px-4 py-2 text-sm font-semibold text-white">Browse products</Link></section> : <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{display.map((item) => { const remote = 'product' in item ? item.product : null; const local = item as WishlistItem; const id = remote ? remote._id : local.id; const name = remote ? remote.name : local.name; const price = Number(remote ? remote.salePrice ?? remote.price : local.price); const available = remote ? Number(remote.stock ?? 0) > 0 : true; return <article key={'product' in item ? item.id : local.id} className="border border-slate-200 bg-white p-4"><div className="flex items-start justify-between gap-4"><div><Link href={`/products/${id}`} className="font-semibold text-[#0b132b] hover:underline">{name}</Link><p className="mt-2 text-sm font-bold">PKR {price.toLocaleString()}</p><p className={`mt-1 text-xs font-medium ${available ? 'text-emerald-700' : 'text-slate-500'}`}>{available ? 'Available to order' : 'Currently unavailable'}</p></div><Heart className="text-[#ff8a00]" /></div><div className="mt-5 flex gap-3"><button type="button" disabled={!available} onClick={() => { if (remote) addToCart({ id, name, price, image: remote.images?.[0] || '', stock: remote.stock }); else moveWishlistToCart(local.id); }} className="inline-flex items-center gap-2 rounded-md bg-[#0b132b] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><ShoppingCart size={16} /> Add to cart</button><button type="button" onClick={() => void remove(item)} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-600 hover:text-red-700"><Trash2 size={16} /> Remove</button></div></article>; })}</section>}</main>;
 }

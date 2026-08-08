@@ -2,8 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --brand-primary: #0B132B;
+  --brand-accent: #FF8A00;
+  --brand-surface: #F7F7F5;
+  --brand-muted: #6B7280;
+}
+
 body {
-  background-color: #f3f3f3;
+  background-color: var(--brand-surface);
+}
+
+* { box-sizing: border-box; }
+html, body { max-width: 100%; overflow-x: clip; }
+
+:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
 }
 
 /* Hide scrollbar for tabs */

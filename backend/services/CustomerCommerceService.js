@@ -1,0 +1,104 @@
+const User = require('../models/User');
+const Product = require('../models/Product');
+const Wishlist = require('../models/Wishlist');
+const Review = require('../models/Review');
+const Return = require('../models/Return');
+const Refund = require('../models/Refund');
+const Notification = require('../models/Notification');
+const Order = require('../models/Order');
+const MarketService = require('./MarketService');
+const { AppError } = require('../common/errors/AppError');
+const ERROR_CODES = require('../constants/errorCodes');
+
+const RETURN_POLICY = Object.freeze({ eligibleStatus: 'Delivered', windowDays: 30 });
+const customerProfile = (user) => ({
+  id: String(user._id), fullName: user.fullName, email: user.email, phone: user.phone || '',
+  avatar: user.avatar || '', isVerified: Boolean(user.isVerified), createdAt: user.createdAt
+});
+const addressView = (address) => ({ id: String(address._id), fullName: address.fullName, phone: address.phone, address: address.address, addressLine2: address.addressLine2 || '', city: address.city, province: address.state || address.province || '', postalCode: address.postalCode || '', country: address.country, isDefault: Boolean(address.isDefault) });
+const returnView = (entry) => ({ id: String(entry._id), returnNumber: entry.returnNumber, order: entry.order, items: entry.items.map((item) => ({ product: item.product, name: item.name, quantity: item.quantity, price: item.price, reason: item.reason, reasonDetails: item.reasonDetails || '' })), status: entry.status, refundMethod: entry.refundMethod, refundAmount: entry.refundAmount, customerNotes: entry.customerNotes || '', rejectedReason: entry.rejectedReason || '', createdAt: entry.createdAt, approvedAt: entry.approvedAt || null, refundedAt: entry.refundedAt || null });
+const refundView = (entry) => ({ id: String(entry._id), refundNumber: entry.refundNumber, order: entry.order, amount: entry.amount, currency: entry.currency, status: entry.status, reason: entry.reason || '', completedAt: entry.completedAt || null, createdAt: entry.createdAt });
+const ownOrder = async (userId, reference) => {
+  const references = [{ orderId: reference }];
+  if (/^[a-fA-F0-9]{24}$/.test(reference)) references.unshift({ _id: reference });
+  const order = await Order.findOne({ user: userId, $or: references });
+  if (!order) throw new AppError('Order not found', 404, ERROR_CODES.ORDER_NOT_FOUND);
+  return order;
+};
+
+class CustomerCommerceService {
+  async getProfile(userId) { return customerProfile(await User.findById(userId)); }
+  async updateProfile(userId, input) {
+    const user = await User.findById(userId);
+    if (!user) throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
+    if (input.fullName !== undefined) user.fullName = input.fullName;
+    if (input.phone !== undefined) user.phone = input.phone;
+    if (input.avatar !== undefined) user.avatar = input.avatar;
+    await user.save();
+    return customerProfile(user);
+  }
+
+  async listAddresses(userId) { const user = await User.findById(userId); return (user?.addresses || []).map(addressView); }
+  async assertEligibleCountry(country) { const market = await MarketService.getConfig(); await MarketService.assertEligible({ country, currency: market.defaultCurrency }); }
+  async createAddress(userId, input) {
+    await this.assertEligibleCountry(input.country);
+    const user = await User.findById(userId);
+    if (!user) throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
+    if (input.isDefault || user.addresses.length === 0) user.addresses.forEach((address) => { address.isDefault = false; });
+    user.addresses.push({ fullName: input.fullName, phone: input.phone, address: input.address, addressLine2: input.addressLine2 || '', city: input.city, state: input.province, postalCode: input.postalCode || '', country: input.country, isDefault: input.isDefault || user.addresses.length === 0 });
+    await user.save(); return addressView(user.addresses[user.addresses.length - 1]);
+  }
+  async updateAddress(userId, addressId, input) {
+    if (input.country) await this.assertEligibleCountry(input.country);
+    const user = await User.findById(userId); const address = user?.addresses.id(addressId);
+    if (!address) throw new AppError('Address not found', 404, ERROR_CODES.CUSTOMER_ADDRESS_NOT_FOUND);
+    Object.assign(address, { ...(input.fullName !== undefined && { fullName: input.fullName }), ...(input.phone !== undefined && { phone: input.phone }), ...(input.address !== undefined && { address: input.address }), ...(input.addressLine2 !== undefined && { addressLine2: input.addressLine2 }), ...(input.city !== undefined && { city: input.city }), ...(input.province !== undefined && { state: input.province }), ...(input.postalCode !== undefined && { postalCode: input.postalCode }), ...(input.country !== undefined && { country: input.country }) });
+    if (input.isDefault) { user.addresses.forEach((entry) => { entry.isDefault = String(entry._id) === String(address._id); }); }
+    await user.save(); return addressView(address);
+  }
+  async deleteAddress(userId, addressId) {
+    const user = await User.findById(userId); const address = user?.addresses.id(addressId);
+    if (!address) throw new AppError('Address not found', 404, ERROR_CODES.CUSTOMER_ADDRESS_NOT_FOUND);
+    const wasDefault = address.isDefault; address.deleteOne();
+    if (wasDefault && user.addresses.length) user.addresses[0].isDefault = true;
+    await user.save();
+  }
+
+  async listWishlist(userId) { return Wishlist.find({ user: userId }).populate({ path: 'product', match: { isActive: true }, select: 'name slug price salePrice images stock' }).sort({ createdAt: -1 }).then((items) => items.filter((item) => item.product).map((item) => ({ id: String(item._id), product: item.product }))); }
+  async addWishlist(userId, productId) {
+    const product = await Product.findOne({ _id: productId, isActive: true });
+    if (!product) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
+    try { const item = await Wishlist.findOneAndUpdate({ user: userId, product: productId }, { $setOnInsert: { user: userId, product: productId } }, { new: true, upsert: true, setDefaultsOnInsert: true }); return { id: String(item._id), product }; }
+    catch (error) { if (error?.code === 11000) return this.addWishlist(userId, productId); throw error; }
+  }
+  async removeWishlist(userId, productId) { const result = await Wishlist.deleteOne({ user: userId, product: productId }); if (!result.deletedCount) throw new AppError('Wishlist item not found', 404, ERROR_CODES.CUSTOMER_WISHLIST_NOT_FOUND); }
+
+  async listPublicReviews(productId, query) { const [items, total, summary] = await Promise.all([Review.find({ product: productId, isApproved: true, isFlagged: false }).populate('user', 'fullName').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit), Review.countDocuments({ product: productId, isApproved: true, isFlagged: false }), Review.aggregate([{ $match: { product: require('mongoose').Types.ObjectId.createFromHexString(productId), isApproved: true, isFlagged: false } }, { $group: { _id: null, averageRating: { $avg: '$rating' }, count: { $sum: 1 } } }])]); return { reviews: items.map((item) => ({ id: String(item._id), rating: item.rating, title: item.title, comment: item.comment, isVerifiedPurchase: item.isVerifiedPurchase, createdAt: item.createdAt, user: { fullName: item.user?.fullName || 'Customer' }, adminReply: item.adminReply || '' })), pagination: { page: query.page, limit: query.limit, total }, summary: { count: summary[0]?.count || 0, averageRating: summary[0]?.averageRating || 0 } }; }
+  async submitReview(userId, input) {
+    const purchased = await Order.exists({ user: userId, orderStatus: 'Delivered', 'items.product': input.productId });
+    if (!purchased) throw new AppError('A delivered purchase is required to review this product', 403, ERROR_CODES.CUSTOMER_REVIEW_NOT_ELIGIBLE);
+    const product = await Product.findOne({ _id: input.productId, isActive: true }); if (!product) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
+    try { return await Review.create({ product: input.productId, user: userId, rating: input.rating, title: input.title || '', comment: input.comment, isVerifiedPurchase: true, isApproved: false }); }
+    catch (error) { if (error?.code === 11000) throw new AppError('You have already reviewed this product', 409, ERROR_CODES.CUSTOMER_REVIEW_EXISTS); throw error; }
+  }
+  async updateReview(userId, reviewId, input) { const review = await Review.findOne({ _id: reviewId, user: userId }); if (!review) throw new AppError('Review not found', 404, ERROR_CODES.CUSTOMER_REVIEW_NOT_FOUND); if (input.rating !== undefined) review.rating = input.rating; if (input.title !== undefined) review.title = input.title; if (input.comment !== undefined) review.comment = input.comment; review.isApproved = false; await review.save(); return review; }
+  async deleteReview(userId, reviewId) { const result = await Review.deleteOne({ _id: reviewId, user: userId }); if (!result.deletedCount) throw new AppError('Review not found', 404, ERROR_CODES.CUSTOMER_REVIEW_NOT_FOUND); }
+
+  async listReturns(userId, query) { const result = await Return.find({ customer: userId }).sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { returns: result.map(returnView), total: await Return.countDocuments({ customer: userId }) }; }
+  async requestReturn(userId, input) {
+    const order = await ownOrder(userId, input.orderId);
+    if (order.orderStatus !== RETURN_POLICY.eligibleStatus || !order.deliveredAt || Date.now() - order.deliveredAt.getTime() > RETURN_POLICY.windowDays * 86400000) throw new AppError('This order is not eligible for a return request', 409, ERROR_CODES.CUSTOMER_RETURN_NOT_ELIGIBLE);
+    if (await Return.exists({ order: order._id, customer: userId, status: { $nin: ['rejected', 'cancelled'] } })) throw new AppError('An active return request already exists for this order', 409, ERROR_CODES.CUSTOMER_RETURN_EXISTS);
+    const items = input.items.map((requestItem) => { const orderItem = order.items.find((item) => String(item.product) === requestItem.productId); if (!orderItem || requestItem.quantity > orderItem.quantity) throw new AppError('Return item is not eligible', 400, ERROR_CODES.CUSTOMER_RETURN_NOT_ELIGIBLE); return { product: orderItem.product, name: orderItem.name, quantity: requestItem.quantity, price: orderItem.price, reason: requestItem.reason, reasonDetails: requestItem.reasonDetails || '', condition: requestItem.condition || 'new' }; });
+    return Return.create({ order: order._id, customer: userId, items, refundMethod: input.refundMethod || 'original_payment', refundAmount: items.reduce((sum, item) => sum + item.price * item.quantity, 0), customerNotes: input.customerNotes || '' });
+  }
+  async listRefunds(userId, query) { const items = await Refund.find({ customer: userId }).select('refundNumber order amount currency status reason completedAt createdAt').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { refunds: items.map(refundView), total: await Refund.countDocuments({ customer: userId }) }; }
+
+  async invoice(userId, reference) { const order = await ownOrder(userId, reference); return { orderNumber: order.orderId, date: order.createdAt, customer: { fullName: order.shippingAddress.fullName }, shippingAddress: order.shippingAddress, items: order.items.map((item) => ({ name: item.name, sku: item.sku, quantity: item.quantity, unitPrice: item.price, lineTotal: item.lineTotal })), subtotal: order.subtotal, discount: order.discount, shipping: order.shippingCost, tax: order.taxAmount, total: order.totalAmount, currency: order.payment.currency, paymentMethod: order.paymentMethod, paymentStatus: order.paymentStatus }; }
+  async tracking(userId, reference) { const order = await ownOrder(userId, reference); return { orderNumber: order.orderId, orderStatus: order.orderStatus, timeline: order.statusTimeline.map((entry) => ({ status: entry.status, timestamp: entry.timestamp, note: entry.note || '' })), courierCompany: order.courierCompany || '', trackingNumber: order.trackingNumber || '' }; }
+  async listNotifications(userId, query) { const notifications = await Notification.find({ recipient: userId }).select('type title message isRead priority actionUrl createdAt').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { notifications, total: await Notification.countDocuments({ recipient: userId }), unreadCount: await Notification.countDocuments({ recipient: userId, isRead: false }) }; }
+  async markNotificationRead(userId, notificationId) { const result = await Notification.findOneAndUpdate({ _id: notificationId, recipient: userId }, { $set: { isRead: true } }, { new: true }); if (!result) throw new AppError('Notification not found', 404, ERROR_CODES.CUSTOMER_NOTIFICATION_NOT_FOUND); return result; }
+  async markAllNotificationsRead(userId) { await Notification.updateMany({ recipient: userId, isRead: false }, { $set: { isRead: true } }); }
+}
+
+module.exports = new CustomerCommerceService();

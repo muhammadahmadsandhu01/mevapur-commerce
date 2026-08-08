@@ -1,16 +1,40 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { 
+import {
   Store, Truck, Percent, CreditCard, Save, CheckCircle,
   AlertCircle, Loader, Globe, Share2, Link as LinkIcon,
   MessageCircle, AtSign, ExternalLink, AlertTriangle, Shield
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import api from '@/lib/api';
 
 // --- Reusable UI Components for Clean Code ---
 
-const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', icon: Icon, error }: any) => (
+interface InputGroupProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+  icon?: LucideIcon;
+  error?: string;
+}
+
+interface ToggleFieldProps {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  activeColor?: string;
+}
+
+interface ValidationMessageProps {
+  valid: boolean;
+  message?: string;
+}
+
+const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', icon: Icon, error }: InputGroupProps) => (
   <div>
     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
       {Icon && <Icon size={16} />}
@@ -39,7 +63,7 @@ const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', i
   </div>
 );
 
-const ToggleField = ({ label, description, checked, onChange, activeColor = 'var(--primary)' }: any) => (
+const ToggleField = ({ label, description, checked, onChange, activeColor = 'var(--primary)' }: ToggleFieldProps) => (
   <div style={{ 
     display: 'flex', 
     alignItems: 'center', 
@@ -81,7 +105,7 @@ const ToggleField = ({ label, description, checked, onChange, activeColor = 'var
   </div>
 );
 
-const ValidationMessage = ({ valid, message }: any) => {
+const ValidationMessage = ({ valid, message }: ValidationMessageProps) => {
   if (!message) return null;
   return (
     <div style={{
@@ -135,11 +159,7 @@ export default function SettingsPage() {
 
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
+  async function fetchSettings() {
     setLoading(true);
     try {
       const response = await api.get('/settings');
@@ -156,7 +176,14 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchSettings();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ✅ ENTERPRISE-LEVEL VALIDATION (Fixed logical errors from previous version)
   const validatePaymentData = () => {
@@ -184,7 +211,7 @@ export default function SettingsPage() {
     return Object.keys(errors).length === 0;
   };
 
-  const handleSave = async (group: string, data: any) => {
+  const handleSave = async (group: string, data: object) => {
     if (group === 'payment' && !validatePaymentData()) {
       setMessage({ type: 'error', text: 'Please fix the validation errors in the payment fields.' });
       setTimeout(() => setMessage(null), 5000);

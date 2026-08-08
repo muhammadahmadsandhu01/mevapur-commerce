@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useCartStore } from "@/store/cartStore";
-import { calculateTotals } from "@/lib/checkout/pricing";
-import { validateField, validateAll } from "@/lib/checkout/validation";
+import { calculatePricing } from "@/lib/checkout/pricing";
+import { validateField, validateAll } from "@/lib/checkout/secure-validation";
 
 const COUPONS: Record<string, number> = {
   MEVA20: 20,
@@ -39,7 +39,11 @@ export const useCheckout = () => {
   }, [appliedCoupon]);
 
   const totals = useMemo(() => {
-    return calculateTotals(items, discountPercent);
+    const subtotal = items.reduce(
+      (sum, item) => sum + Number(item.price) * item.quantity,
+      0
+    );
+    return calculatePricing(subtotal, discountPercent);
   }, [items, discountPercent]);
 
   // Handlers

@@ -24,8 +24,12 @@ class AuthorizationError extends AppError {
 }
 
 class ValidationError extends AppError {
-  constructor(message = 'Validation failed', details = []) {
-    super(message, 400, errorCodes.VALIDATION_ERROR, details);
+  constructor(
+    message = 'Validation failed',
+    details = [],
+    code = errorCodes.VALIDATION_ERROR
+  ) {
+    super(message, 400, code, details);
   }
 }
 

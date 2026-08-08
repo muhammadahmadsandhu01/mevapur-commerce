@@ -3,417 +3,514 @@ const SessionService = require('./SessionService');
 const TokenService = require('./TokenService');
 const AuditService = require('./AuditService');
 const EmailService = require('./EmailService');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { AppError } = require('../common/errors/AppError');
-const { ERROR_CODES } = require('../constants/errorCodes');
-const logger = require('../common/logger');
+const ERROR_CODES = require('../constants/errorCodes');
+const logger = require('../common/utils/logger');
 const config = require('../config/auth.config');
 
 class AuthService {
-  /**
-   * Register New User
-   */
-  async register(userData, ipAddress, userAgent) {
-    const requestId = uuidv4();
+  publicUser(user) {
+    const data = typeof user.toJSON === 'function'
+      ? user.toJSON()
+      : { ...user };
 
-    // Check if email already exists
-    const existingUser = await UserRepository.findByEmail(userData.email);
+    data.id = String(data.id || data._id);
+    delete data._id;
+    delete data.password;
+    delete data.loginAttempts;
+    delete data.lockUntil;
+    delete data.tokenVersion;
+    delete data.resetPasswordTokenHash;
+    delete data.resetPasswordExpiresAt;
+    delete data.isDeleted;
+    delete data.__v;
+    return data;
+  }
+
+  auditContext({ requestId, ipAddress, userAgent }) {
+    return {
+      requestId: requestId || uuidv4(),
+      ipAddress: ipAddress || 'unknown',
+      userAgent: userAgent || 'unknown'
+    };
+  }
+
+  assertActiveUser(user) {
+    if (!user || user.isDeleted) {
+      throw new AppError(
+        'Authentication account is unavailable',
+        401,
+        ERROR_CODES.AUTH_ACCOUNT_INACTIVE
+      );
+    }
+
+    if (user.isBlocked) {
+      throw new AppError(
+        'Account has been blocked',
+        403,
+        ERROR_CODES.AUTH_ACCOUNT_BLOCKED
+      );
+    }
+  }
+
+  async createAuthenticatedSession({
+    user,
+    deviceInfo,
+    ipAddress,
+    userAgent
+  }) {
+    const sessionId = SessionService.createSessionId();
+    const tokenFamilyId = uuidv4();
+    const tokenVersion = Number(user.tokenVersion || 0);
+    const refreshToken = TokenService.generateRefreshToken({
+      userId: user._id,
+      sessionId,
+      tokenVersion,
+      tokenFamilyId
+    });
+    const session = await SessionService.createSession({
+      sessionId,
+      userId: user._id,
+      refreshToken,
+      tokenFamilyId,
+      deviceInfo,
+      ipAddress,
+      userAgent
+    });
+    const accessToken = TokenService.generateAccessToken({
+      userId: user._id,
+      sessionId,
+      tokenVersion
+    });
+
+    return { session, accessToken, refreshToken };
+  }
+
+  async register({
+    fullName,
+    email,
+    password,
+    phone,
+    deviceInfo,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const existingUser = await UserRepository.findByEmail(email);
     if (existingUser) {
       await AuditService.log({
-        requestId,
-        action: 'AUTH.REGISTER',
+        ...audit,
+        eventName: 'AUTH.REGISTER',
         status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'Email already registered',
-        metadata: { email: userData.email }
+        errorCode: ERROR_CODES.AUTH_EMAIL_EXISTS,
+        metadata: { emailSupplied: true }
       });
-
-      throw new AppError('Email already registered', 409, ERROR_CODES.AUTH_EMAIL_EXISTS);
+      throw new AppError(
+        'Email is already registered',
+        409,
+        ERROR_CODES.AUTH_EMAIL_EXISTS
+      );
     }
 
-    // Create user
-    const user = await UserRepository.create({
-      fullName: userData.fullName,
-      email: userData.email,
-      phone: userData.phone,
-      password: userData.password,
-      role: userData.role || 'customer',
-      isVerified: config.autoVerifyEmail ? true : false
-    });
-
-    // Send verification email if needed
-    if (!config.autoVerifyEmail) {
-      const verificationToken = uuidv4();
-      await UserRepository.update(user._id, { verificationToken });
-      
-      await EmailService.sendVerificationEmail(user.email, user.fullName, verificationToken);
+    let user;
+    try {
+      user = await UserRepository.create({
+        fullName,
+        email,
+        password,
+        phone,
+        role: 'customer',
+        isVerified: config.email.autoVerify
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AppError(
+          'Email is already registered',
+          409,
+          ERROR_CODES.AUTH_EMAIL_EXISTS
+        );
+      }
+      throw error;
     }
 
-    await AuditService.log({
-      requestId,
-      userId: user._id,
-      action: 'AUTH.REGISTER',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { email: user.email }
-    });
-
-    logger.info('User registered', { userId: user._id, email: user.email });
-
-    return {
+    const authSession = await this.createAuthenticatedSession({
       user,
-      requiresVerification: !config.autoVerifyEmail
+      deviceInfo,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent
+    });
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      sessionId: authSession.session._id,
+      eventName: 'AUTH.REGISTER',
+      status: 'SUCCESS',
+      metadata: { sessionCreated: true }
+    });
+
+    logger.info('User registered', { userId: String(user._id) });
+    return {
+      user: this.publicUser(user),
+      ...authSession,
+      expiresIn: TokenService.getAccessTokenExpiry()
     };
   }
 
-  /**
-   * Login User
-   */
-  async login(email, password, deviceInfo, ipAddress, userAgent) {
-    const requestId = uuidv4();
-
-    // Find user by email
+  async login({
+    email,
+    password,
+    deviceInfo,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
     const user = await UserRepository.findByEmailWithPassword(email);
-    
+
     if (!user) {
       await AuditService.log({
-        requestId,
-        action: 'AUTH.LOGIN.FAILED',
+        ...audit,
+        eventName: 'AUTH.LOGIN.FAILED',
         status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'User not found',
-        metadata: { email }
+        errorCode: ERROR_CODES.AUTH_INVALID_CREDENTIALS
       });
-      throw new AppError('Invalid credentials', 401, ERROR_CODES.AUTH_INVALID_CREDENTIALS);
+      throw new AppError(
+        'Invalid email or password',
+        401,
+        ERROR_CODES.AUTH_INVALID_CREDENTIALS
+      );
     }
 
-    // Check if account is blocked
-    if (user.isBlocked) {
+    this.assertActiveUser(user);
+
+    if (!user.isVerified) {
+      throw new AppError(
+        'Email address has not been verified',
+        403,
+        ERROR_CODES.AUTH_EMAIL_NOT_VERIFIED
+      );
+    }
+
+    if (user.isAccountLocked()) {
       await AuditService.log({
-        requestId,
+        ...audit,
         userId: user._id,
-        action: 'AUTH.LOGIN.FAILED',
-        status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'Account blocked',
-        metadata: { email }
-      });
-      throw new AppError('Account has been blocked', 403, ERROR_CODES.AUTH_ACCOUNT_BLOCKED);
-    }
-
-    // Check if account is locked due to failed attempts
-    if (user.isAccountLocked && user.isAccountLocked()) {
-      await AuditService.log({
-        requestId,
-        userId: user._id,
-        action: 'AUTH.LOGIN.FAILED',
-        status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'Account locked',
-        metadata: { email, lockUntil: user.lockUntil }
-      });
-      throw new AppError('Account temporarily locked due to multiple failed attempts', 423, ERROR_CODES.AUTH_ACCOUNT_LOCKED);
-    }
-
-    // Verify password
-    const isPasswordValid = await user.matchPassword(password);
-    
-    if (!isPasswordValid) {
-      await user.incrementLoginAttempts();
-      
-      await AuditService.log({
-        requestId,
-        userId: user._id,
-        action: 'AUTH.LOGIN.FAILED',
-        status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'Invalid password',
-        metadata: { email }
-      });
-
-      throw new AppError('Invalid credentials', 401, ERROR_CODES.AUTH_INVALID_CREDENTIALS);
-    }
-
-    // Reset login attempts on successful login
-    if (user.loginAttempts > 0) {
-      await UserRepository.update(user._id, { 
-        loginAttempts: 0, 
-        lockUntil: null 
-      });
-    }
-
-    // Create session
-    const session = await SessionService.createSession(user._id, deviceInfo, ipAddress);
-
-    // Generate tokens
-    const accessToken = TokenService.generateAccessToken(user._id, user.role, session.sessionId);
-    const refreshToken = TokenService.generateRefreshToken();
-
-    // Store refresh token hash in session
-    await SessionService.updateRefreshToken(session._id, refreshToken);
-
-    // Update user last login
-    await UserRepository.update(user._id, { lastLogin: new Date() });
-
-    await AuditService.log({
-      requestId,
-      userId: user._id,
-      action: 'AUTH.LOGIN.SUCCESS',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { 
-        sessionId: session.sessionId,
-        deviceId: session.deviceInfo.deviceId
-      }
-    });
-
-    logger.info('User logged in', { 
-      userId: user._id, 
-      email: user.email,
-      sessionId: session.sessionId 
-    });
-
-    return {
-      user,
-      session,
-      tokens: {
-        accessToken,
-        refreshToken,
-        expiresIn: TokenService.getTokenExpiry()
-      }
-    };
-  }
-
-  /**
-   * Refresh Access Token
-   */
-  async refreshTokens(refreshToken, ipAddress, userAgent) {
-    const requestId = uuidv4();
-
-    if (!refreshToken) {
-      throw new AppError('Refresh token required', 400, ERROR_CODES.AUTH_TOKEN_REQUIRED);
-    }
-
-    // Decode to get session ID
-    const decoded = TokenService.decodeAccessToken(refreshToken);
-    // Note: In real implementation, you'd extract sessionId from refresh token structure
-    // For now, assuming we have a way to get sessionId
-    
-    // Validate refresh token and session
-    // This is simplified - actual implementation would extract sessionId from DB
-    const session = await SessionService.validateRefreshToken(decoded.sid, refreshToken);
-
-    // Generate new tokens
-    const newAccessToken = TokenService.generateAccessToken(
-      session.user, 
-      session.user.role, 
-      session.sessionId
-    );
-    
-    const newRefreshToken = TokenService.generateRefreshToken();
-    
-    // Rotate refresh token
-    await SessionService.updateRefreshToken(session._id, newRefreshToken);
-
-    await AuditService.log({
-      requestId,
-      userId: session.user,
-      action: 'AUTH.TOKEN.REFRESHED',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { sessionId: session.sessionId }
-    });
-
-    return {
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-      expiresIn: TokenService.getTokenExpiry()
-    };
-  }
-
-  /**
-   * Logout User
-   */
-  async logout(sessionId, userId, ipAddress, userAgent) {
-    const requestId = uuidv4();
-
-    await SessionService.revokeSession(sessionId, 'USER_LOGOUT');
-
-    await AuditService.log({
-      requestId,
-      userId,
-      action: 'AUTH.LOGOUT',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { sessionId }
-    });
-
-    logger.info('User logged out', { userId, sessionId });
-
-    return { success: true };
-  }
-
-  /**
-   * Logout from All Devices
-   */
-  async logoutAll(userId, ipAddress, userAgent) {
-    const requestId = uuidv4();
-
-    const count = await SessionService.revokeAllSessions(userId, 'USER_LOGOUT_ALL');
-
-    await AuditService.log({
-      requestId,
-      userId,
-      action: 'AUTH.LOGOUT_ALL',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { sessionsRevoked: count }
-    });
-
-    logger.info('User logged out from all devices', { userId, count });
-
-    return { success: true, sessionsRevoked: count };
-  }
-
-  /**
-   * Verify Email
-   */
-  async verifyEmail(token, ipAddress, userAgent) {
-    const requestId = uuidv4();
-
-    const user = await UserRepository.findByVerificationToken(token);
-    
-    if (!user) {
-      await AuditService.log({
-        requestId,
-        action: 'AUTH.EMAIL.VERIFICATION_FAILED',
-        status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'Invalid verification token'
-      });
-      throw new AppError('Invalid or expired verification token', 400, ERROR_CODES.AUTH_INVALID_TOKEN);
-    }
-
-    await UserRepository.update(user._id, {
-      isVerified: true,
-      verificationToken: undefined
-    });
-
-    await AuditService.log({
-      requestId,
-      userId: user._id,
-      action: 'AUTH.EMAIL.VERIFIED',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { email: user.email }
-    });
-
-    logger.info('Email verified', { userId: user._id, email: user.email });
-
-    return { success: true };
-  }
-
-  /**
-   * Forgot Password
-   */
-  async forgotPassword(email, ipAddress, userAgent) {
-    const requestId = uuidv4();
-
-    const user = await UserRepository.findByEmail(email);
-    
-    // Always return success to prevent email enumeration
-    if (!user) {
-      await AuditService.log({
-        requestId,
-        action: 'AUTH.PASSWORD.RESET_REQUESTED',
+        eventName: 'AUTH.ACCOUNT.LOCKED',
         status: 'WARNING',
-        ipAddress,
-        userAgent,
-        errorMessage: 'User not found',
-        metadata: { email }
+        errorCode: ERROR_CODES.AUTH_ACCOUNT_LOCKED
       });
-      return { success: true, message: 'If email exists, reset link has been sent' };
+      throw new AppError(
+        'Account is temporarily locked',
+        423,
+        ERROR_CODES.AUTH_ACCOUNT_LOCKED
+      );
     }
 
-    const resetToken = uuidv4();
-    const resetExpiry = Date.now() + (15 * 60 * 1000); // 15 minutes
+    if (!(await user.matchPassword(password))) {
+      await UserRepository.recordFailedLogin(
+        user._id,
+        config.security.maxLoginAttempts,
+        config.security.lockoutDurationMs
+      );
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.LOGIN.FAILED',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.AUTH_INVALID_CREDENTIALS
+      });
+      throw new AppError(
+        'Invalid email or password',
+        401,
+        ERROR_CODES.AUTH_INVALID_CREDENTIALS
+      );
+    }
 
-    await UserRepository.update(user._id, {
-      resetPasswordToken: resetToken,
-      resetPasswordExpire: resetExpiry
+    if (user.loginAttempts > 0 || user.lockUntil) {
+      await UserRepository.resetFailedLogin(user._id);
+    }
+
+    const authSession = await this.createAuthenticatedSession({
+      user,
+      deviceInfo,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent
     });
-
-    await EmailService.sendPasswordResetEmail(user.email, user.fullName, resetToken);
-
+    await UserRepository.updateLastLogin(user._id);
     await AuditService.log({
-      requestId,
+      ...audit,
       userId: user._id,
-      action: 'AUTH.PASSWORD.RESET_REQUESTED',
+      sessionId: authSession.session._id,
+      eventName: 'AUTH.LOGIN.SUCCESS',
       status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { email }
+      metadata: { sessionCreated: true }
     });
 
-    logger.info('Password reset requested', { userId: user._id, email });
+    logger.info('User logged in', {
+      userId: String(user._id),
+      sessionId: String(authSession.session._id)
+    });
 
-    return { success: true, message: 'If email exists, reset link has been sent' };
+    return {
+      user: this.publicUser(user),
+      ...authSession,
+      expiresIn: TokenService.getAccessTokenExpiry()
+    };
   }
 
-  /**
-   * Reset Password
-   */
-  async resetPassword(token, newPassword, ipAddress, userAgent) {
-    const requestId = uuidv4();
+  async refreshTokens({
+    refreshToken,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const decoded = TokenService.verifyRefreshToken(refreshToken);
+    await SessionService.assertRefreshSession({
+      sessionId: decoded.sid,
+      userId: decoded.sub,
+      tokenFamilyId: decoded.tokenFamilyId,
+      refreshToken,
+      auditContext: audit
+    });
 
-    const user = await UserRepository.findByResetToken(token);
-    
-    if (!user || user.resetPasswordExpire < Date.now()) {
-      await AuditService.log({
-        requestId,
-        action: 'AUTH.PASSWORD.RESET_FAILED',
-        status: 'FAILURE',
-        ipAddress,
-        userAgent,
-        errorMessage: 'Invalid or expired reset token'
-      });
-      throw new AppError('Invalid or expired reset token', 400, ERROR_CODES.AUTH_INVALID_TOKEN);
+    const user = await UserRepository.findByIdWithTokenVersion(decoded.sub);
+    this.assertActiveUser(user);
+
+    if (Number(user.tokenVersion) !== decoded.tokenVersion) {
+      throw new AppError(
+        'Authentication token has been invalidated',
+        401,
+        ERROR_CODES.AUTH_TOKEN_VERSION_MISMATCH
+      );
     }
 
-    await UserRepository.update(user._id, {
-      password: newPassword,
-      resetPasswordToken: undefined,
-      resetPasswordExpire: undefined,
-      tokenVersion: user.tokenVersion + 1 // Invalidate all existing tokens
+    const nextRefreshToken = TokenService.generateRefreshToken({
+      userId: user._id,
+      sessionId: decoded.sid,
+      tokenVersion: user.tokenVersion,
+      tokenFamilyId: decoded.tokenFamilyId
     });
-
-    // Revoke all sessions
-    await SessionService.revokeAllSessions(user._id, 'PASSWORD_CHANGED');
+    await SessionService.rotateRefreshToken({
+      sessionId: decoded.sid,
+      userId: user._id,
+      tokenFamilyId: decoded.tokenFamilyId,
+      currentRefreshToken: refreshToken,
+      nextRefreshToken,
+      auditContext: audit
+    });
+    const accessToken = TokenService.generateAccessToken({
+      userId: user._id,
+      sessionId: decoded.sid,
+      tokenVersion: user.tokenVersion
+    });
 
     await AuditService.log({
-      requestId,
+      ...audit,
       userId: user._id,
-      action: 'AUTH.PASSWORD.RESET',
-      status: 'SUCCESS',
-      ipAddress,
-      userAgent,
-      metadata: { email: user.email }
+      sessionId: decoded.sid,
+      eventName: 'AUTH.SESSION.REFRESHED',
+      status: 'SUCCESS'
     });
 
-    logger.info('Password reset successfully', { userId: user._id, email });
+    return {
+      user: this.publicUser(user),
+      accessToken,
+      refreshToken: nextRefreshToken,
+      expiresIn: TokenService.getAccessTokenExpiry()
+    };
+  }
 
+  async logout({ sessionId, userId, ipAddress, userAgent, requestId }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    await SessionService.revokeOwnedSession(
+      sessionId,
+      userId,
+      'USER_LOGOUT'
+    );
+    await AuditService.log({
+      ...audit,
+      userId,
+      sessionId,
+      eventName: 'AUTH.LOGOUT',
+      status: 'SUCCESS'
+    });
+    return { success: true };
+  }
+
+  async logoutAll({ userId, ipAddress, userAgent, requestId }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    await UserRepository.incrementTokenVersion(userId);
+    const sessionsRevoked = await SessionService.revokeAllSessions(
+      userId,
+      'USER_LOGOUT_ALL'
+    );
+    await AuditService.log({
+      ...audit,
+      userId,
+      eventName: 'AUTH.SESSION.REVOKED_ALL',
+      status: 'SUCCESS',
+      metadata: { sessionsRevoked }
+    });
+    return { success: true, sessionsRevoked };
+  }
+
+  async getSessions({ userId, currentSessionId }) {
+    return SessionService.getActiveSessions(userId, currentSessionId);
+  }
+
+  async revokeSession({
+    sessionId,
+    userId,
+    currentSessionId,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    await SessionService.revokeOwnedSession(
+      sessionId,
+      userId,
+      'USER_SESSION_REVOKE'
+    );
+    await AuditService.log({
+      ...audit,
+      userId,
+      sessionId,
+      eventName: 'AUTH.SESSION.REVOKED',
+      status: 'SUCCESS'
+    });
+    return { revoked: true, revokedCurrent: String(sessionId) === String(currentSessionId) };
+  }
+
+  async forgotPassword({ email, ipAddress, userAgent, requestId }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const user = await UserRepository.findByEmail(email);
+
+    if (!user || user.isDeleted) {
+      await AuditService.log({
+        ...audit,
+        eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+        status: 'WARNING',
+        metadata: { accountMatched: false }
+      });
+      return { success: true };
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = SessionService.hashToken(resetToken);
+    const expiresAt = new Date(
+      Date.now() + config.security.resetTokenExpiryMs
+    );
+    await UserRepository.setPasswordResetToken(
+      user._id,
+      resetTokenHash,
+      expiresAt
+    );
+    await EmailService.sendPasswordResetEmail(
+      user.email,
+      user.fullName,
+      resetToken
+    );
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+      status: 'SUCCESS',
+      metadata: { accountMatched: true }
+    });
+
+    return { success: true };
+  }
+
+  async resetPassword({
+    resetToken,
+    newPassword,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const resetTokenHash = SessionService.hashToken(resetToken);
+    const user = await UserRepository.findByValidPasswordResetToken(
+      resetTokenHash
+    );
+    if (!user) {
+      await AuditService.log({
+        ...audit,
+        eventName: 'AUTH.PASSWORD.RESET.COMPLETE',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.AUTH_RESET_TOKEN_INVALID
+      });
+      throw new AppError(
+        'Password reset token is invalid or expired',
+        400,
+        ERROR_CODES.AUTH_RESET_TOKEN_INVALID
+      );
+    }
+
+    user.password = newPassword;
+    user.resetPasswordTokenHash = null;
+    user.resetPasswordExpiresAt = null;
+    user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+    await UserRepository.save(user);
+    await SessionService.revokeAllSessions(user._id, 'PASSWORD_CHANGED');
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.PASSWORD.RESET.COMPLETE',
+      status: 'SUCCESS',
+      metadata: { sessionsRevoked: true }
+    });
+
+    return { success: true };
+  }
+
+  async changePassword({
+    userId,
+    currentPassword,
+    newPassword,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const user = await UserRepository.findByIdWithPassword(userId);
+    this.assertActiveUser(user);
+
+    if (!(await user.matchPassword(currentPassword))) {
+      throw new AppError(
+        'Current password is incorrect',
+        401,
+        ERROR_CODES.AUTH_INVALID_CREDENTIALS
+      );
+    }
+
+    if (await user.matchPassword(newPassword)) {
+      throw new AppError(
+        'New password must differ from the current password',
+        400,
+        ERROR_CODES.AUTH_PASSWORD_REUSE
+      );
+    }
+
+    user.password = newPassword;
+    user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+    await UserRepository.save(user);
+    const sessionsRevoked = await SessionService.revokeAllSessions(
+      user._id,
+      'PASSWORD_CHANGED'
+    );
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.PASSWORD.CHANGED',
+      status: 'SUCCESS',
+      metadata: { sessionsRevoked }
+    });
     return { success: true };
   }
 }

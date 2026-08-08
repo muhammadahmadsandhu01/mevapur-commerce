@@ -142,8 +142,8 @@ export default function CheckoutPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     
     if (!validate()) {
       setToast({ message: 'Please fill all required fields correctly', type: 'error' });
@@ -199,9 +199,12 @@ export default function CheckoutPage() {
         clearCart();
         router.push(`/order-success?orderId=${response.data.data._id}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Order error:', error);
-      const message = error.response?.data?.message || 'Failed to place order. Please try again.';
+      const message = axios.isAxiosError(error)
+        && typeof error.response?.data?.message === 'string'
+        ? error.response.data.message
+        : 'Failed to place order. Please try again.';
       setToast({ message, type: 'error' });
     } finally {
       setLoading(false);
@@ -210,7 +213,7 @@ export default function CheckoutPage() {
 
   const handlePaymentSuccess = () => {
     setShowPaymentModal(false);
-    handleSubmit(new Event('submit') as any);
+    void handleSubmit();
   };
 
   const steps = [

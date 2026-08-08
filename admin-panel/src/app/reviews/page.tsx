@@ -47,10 +47,13 @@ export default function ReviewsPage() {
     fetchReviews();
   }, [page, filterType, ratingFilter]);
 
-  const fetchReviews = async () => {
+  async function fetchReviews() {
     setLoading(true);
     try {
-      const params: any = { page, limit: 15 };
+      const params: Record<string, string | number | boolean> = {
+        page,
+        limit: 15
+      };
       if (filterType !== 'all') {
         if (filterType === 'approved') params.isApproved = true;
         else if (filterType === 'pending') params.isApproved = false;
@@ -71,7 +74,7 @@ export default function ReviewsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleApprove = async (id: string) => {
     setActionLoading(id);
@@ -268,7 +271,10 @@ export default function ReviewsPage() {
 
         <select
           value={filterType}
-          onChange={(e) => { setFilterType(e.target.value as any); setPage(1); }}
+          onChange={(e) => {
+            setFilterType(e.target.value as typeof filterType);
+            setPage(1);
+          }}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
@@ -289,7 +295,10 @@ export default function ReviewsPage() {
 
         <select
           value={ratingFilter}
-          onChange={(e) => { setRatingFilter(e.target.value as any); setPage(1); }}
+          onChange={(e) => {
+            setRatingFilter(e.target.value as typeof ratingFilter);
+            setPage(1);
+          }}
           style={{
             padding: '10px 32px 10px 14px',
             borderRadius: '8px',
