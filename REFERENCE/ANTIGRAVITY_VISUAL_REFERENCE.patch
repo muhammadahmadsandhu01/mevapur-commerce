@@ -1,0 +1,989 @@
+﻿diff --git a/admin-panel/src/app/layout.tsx b/admin-panel/src/app/layout.tsx
+index b9949d2a273ba64a3852433517a12b6774f75bf3..133725ab177c4fa44734daba60f361ce442b9b59 100644
+--- a/admin-panel/src/app/layout.tsx
++++ b/admin-panel/src/app/layout.tsx
+@@ -1,31 +1,111 @@
+ 'use client';
+ 
+-import { useEffect, useState } from 'react';
+-import { useRouter, usePathname } from 'next/navigation';
+-import { useAuthStore } from '@/store/authStore';
++import { useEffect, useState, useSyncExternalStore } from 'react';
++import { usePathname } from 'next/navigation';
+ import { useThemeStore } from '@/store/themeStore';
+ import Sidebar from '@/components/layout/Sidebar';
+ import TopBar from '@/components/layout/TopBar';
+ import AdminGuard from '../components/admin/AdminGuard';
++import AdminHelpAssistant from '@/components/assistant/AdminHelpAssistant';
++import { branding } from '@/config/branding';
++
++const subscribeToHydration = () => () => {};
++
++const GLOBAL_CSS = `
++  :root {
++    --primary: #0B132B;
++    --primary-dark: #060A16;
++    --primary-light: rgba(11, 19, 43, 0.12);
++    --accent: #FF8A00;
++    --accent-dark: #e67d00;
++    --accent-light: rgba(255, 138, 0, 0.12);
++    --danger: #DC2626;
++    --danger-light: rgba(220, 38, 38, 0.1);
++    --success: #16A34A;
++    --success-light: rgba(22, 163, 74, 0.1);
++    --warning: #D97706;
++    --warning-light: rgba(217, 119, 6, 0.1);
++  }
++  [data-theme="light"] {
++    --bg-primary: #F7F7F5;
++    --card-bg: #FFFFFF;
++    --sidebar-bg: #0B132B;
++    --sidebar-text: #94A3B8;
++    --sidebar-text-hover: #E2E8F0;
++    --sidebar-text-active: #FFFFFF;
++    --sidebar-active-bg: rgba(255, 138, 0, 0.15);
++    --sidebar-active-accent: #FF8A00;
++    --sidebar-hover-bg: rgba(255, 255, 255, 0.07);
++    --sidebar-border: rgba(255, 255, 255, 0.08);
++    --text-primary: #111827;
++    --text-secondary: #6B7280;
++    --border-color: #E5E7EB;
++    --hover-bg: #F3F4F6;
++    --input-bg: #FFFFFF;
++  }
++  [data-theme="dark"] {
++    --bg-primary: #0F172A;
++    --card-bg: #1E293B;
++    --sidebar-bg: #060A16;
++    --sidebar-text: #64748B;
++    --sidebar-text-hover: #CBD5E1;
++    --sidebar-text-active: #FFFFFF;
++    --sidebar-active-bg: rgba(255, 138, 0, 0.15);
++    --sidebar-active-accent: #FF8A00;
++    --sidebar-hover-bg: rgba(255, 255, 255, 0.05);
++    --sidebar-border: rgba(255, 255, 255, 0.06);
++    --text-primary: #F1F5F9;
++    --text-secondary: #94A3B8;
++    --border-color: #334155;
++    --hover-bg: #334155;
++    --input-bg: #0F172A;
++  }
++  * { box-sizing: border-box; }
++  body {
++    background-color: var(--bg-primary);
++    color: var(--text-primary);
++    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
++  }
++  ::-webkit-scrollbar { width: 6px; height: 6px; }
++  ::-webkit-scrollbar-track { background: transparent; }
++  ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 999px; }
++  ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
++`;
++
+ export default function AdminLayout({
+   children,
+ }: {
+   children: React.ReactNode;
+ }) {
+-  const router = useRouter();
+   const pathname = usePathname();
+-  const { user, isAuthenticated } = useAuthStore();
+   const { isDark } = useThemeStore();
+   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+-  const [mounted, setMounted] = useState(false);
+-
+-  useEffect(() => {
+-    setMounted(true);
+-  }, []);
++  const mounted = useSyncExternalStore(
++    subscribeToHydration,
++    () => true,
++    () => false
++  );
+ 
+   useEffect(() => {
+     if (mounted) {
+       document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
++      document.title = `${branding.siteName} Administration`;
++
++      let favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
++      if (!favicon) {
++        favicon = document.createElement('link');
++        favicon.rel = 'icon';
++        document.head.appendChild(favicon);
++      }
++      favicon.href = branding.faviconPath;
++
++      let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
++      if (!description) {
++        description = document.createElement('meta');
++        description.name = 'description';
++        document.head.appendChild(description);
++      }
++      description.content = branding.shortDescription;
+     }
+   }, [isDark, mounted]);
+ 
+@@ -34,47 +114,8 @@ export default function AdminLayout({
+     return (
+       <html lang="en" data-theme={isDark ? 'dark' : 'light'}>
+         <body style={{ margin: 0, padding: 0 }}>
+-          <style jsx global>{`
+-            :root {
+-              --primary: #0F766E;
+-              --primary-dark: #115E59;
+-              --primary-light: rgba(15, 118, 110, 0.1);
+-              --danger: #EF4444;
+-              --danger-light: rgba(239, 68, 68, 0.1);
+-              --success: #10B981;
+-              --warning: #F59E0B;
+-            }
+-            [data-theme="light"] {
+-              --bg-primary: #F8FAFC;
+-              --card-bg: #FFFFFF;
+-              --sidebar-bg: #FFFFFF;
+-              --text-primary: #111827;
+-              --text-secondary: #6B7280;
+-              --border-color: #E5E7EB;
+-              --hover-bg: #F3F4F6;
+-              --input-bg: #FFFFFF;
+-            }
+-            [data-theme="dark"] {
+-              --bg-primary: #0F172A;
+-              --card-bg: #1E293B;
+-              --sidebar-bg: #1E293B;
+-              --text-primary: #F1F5F9;
+-              --text-secondary: #94A3B8;
+-              --border-color: #334155;
+-              --hover-bg: #334155;
+-              --input-bg: #0F172A;
+-            }
+-            * { box-sizing: border-box; }
+-            body {
+-              background-color: var(--bg-primary);
+-              color: var(--text-primary);
+-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+-            }
+-            ::-webkit-scrollbar { width: 8px; height: 8px; }
+-            ::-webkit-scrollbar-track { background: var(--bg-primary); }
+-            ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+-            ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+-          `}</style>
++          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
++          <style jsx global>{GLOBAL_CSS}</style>
+           {children}
+         </body>
+       </html>
+@@ -85,53 +126,14 @@ export default function AdminLayout({
+   return (
+     <html lang="en" data-theme={isDark ? 'dark' : 'light'}>
+       <body style={{ margin: 0, padding: 0 }}>
+-        <style jsx global>{`
+-          :root {
+-            --primary: #0F766E;
+-            --primary-dark: #115E59;
+-            --primary-light: rgba(15, 118, 110, 0.1);
+-            --danger: #EF4444;
+-            --danger-light: rgba(239, 68, 68, 0.1);
+-            --success: #10B981;
+-            --warning: #F59E0B;
+-          }
+-          [data-theme="light"] {
+-            --bg-primary: #F8FAFC;
+-            --card-bg: #FFFFFF;
+-            --sidebar-bg: #FFFFFF;
+-            --text-primary: #111827;
+-            --text-secondary: #6B7280;
+-            --border-color: #E5E7EB;
+-            --hover-bg: #F3F4F6;
+-            --input-bg: #FFFFFF;
+-          }
+-          [data-theme="dark"] {
+-            --bg-primary: #0F172A;
+-            --card-bg: #1E293B;
+-            --sidebar-bg: #1E293B;
+-            --text-primary: #F1F5F9;
+-            --text-secondary: #94A3B8;
+-            --border-color: #334155;
+-            --hover-bg: #334155;
+-            --input-bg: #0F172A;
+-          }
+-          * { box-sizing: border-box; }
+-          body {
+-            background-color: var(--bg-primary);
+-            color: var(--text-primary);
+-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+-          }
+-          ::-webkit-scrollbar { width: 8px; height: 8px; }
+-          ::-webkit-scrollbar-track { background: var(--bg-primary); }
+-          ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+-          ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+-        `}</style>
++        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
++        <style jsx global>{GLOBAL_CSS}</style>
+ 
+         <AdminGuard>
+           <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-primary)' }}>
+-            <Sidebar 
+-              isOpen={isSidebarOpen} 
+-              onClose={() => setIsSidebarOpen(false)} 
++            <Sidebar
++              isOpen={isSidebarOpen}
++              onClose={() => setIsSidebarOpen(false)}
+             />
+ 
+             <main style={{
+@@ -145,9 +147,10 @@ export default function AdminLayout({
+                 {children}
+               </div>
+             </main>
++            <AdminHelpAssistant />
+           </div>
+         </AdminGuard>
+       </body>
+     </html>
+   );
+-}
+\ No newline at end of file
++}
+diff --git a/admin-panel/src/app/login/page.tsx b/admin-panel/src/app/login/page.tsx
+index 32ee09ad922ac5f81ea201e7a99939fb28f96cbe..1c5585085404241e153a2dc55c38f4583b7d0a42 100644
+--- a/admin-panel/src/app/login/page.tsx
++++ b/admin-panel/src/app/login/page.tsx
+@@ -4,6 +4,8 @@ import { useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { useAuthStore } from '@/store/authStore';
+ import { Lock, Mail } from 'lucide-react';
++import BrandLogo from '@/components/brand/BrandLogo';
++import { branding } from '@/config/branding';
+ 
+ export default function AdminLogin() {
+   const router = useRouter();
+@@ -35,39 +37,69 @@ export default function AdminLogin() {
+   return (
+     <div style={{
+       minHeight: '100vh',
+-      backgroundColor: '#F3F4F6',
++      backgroundColor: '#F7F7F5',
+       display: 'flex',
+       alignItems: 'center',
+       justifyContent: 'center',
+-      padding: '20px'
++      padding: '20px',
++      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+     }}>
++      {/* Background accent */}
++      <div style={{
++        position: 'fixed',
++        top: 0,
++        left: 0,
++        right: 0,
++        height: '240px',
++        background: 'linear-gradient(135deg, #0B132B 0%, #1a2744 100%)',
++        zIndex: 0
++      }} />
++
+       <div style={{
+         backgroundColor: 'white',
+         borderRadius: '20px',
+         padding: '48px',
+-        maxWidth: '440px',
++        maxWidth: '420px',
+         width: '100%',
+-        boxShadow: '0 20px 60px rgba(0,0,0,0.1)'
++        boxShadow: '0 24px 64px rgba(11, 19, 43, 0.15), 0 4px 16px rgba(0,0,0,0.06)',
++        position: 'relative',
++        zIndex: 1,
++        border: '1px solid #E5E7EB'
+       }}>
++        {/* Logo ΓÇö centered */}
++        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
++          <BrandLogo theme="dark" href="" height={32} />
++        </div>
++
+         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+-          <div style={{ fontSize: '48px', marginBottom: '16px' }}></div>
+-          <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '8px' }}>
++          <h1 style={{
++            fontSize: '24px',
++            fontWeight: '800',
++            color: '#0B132B',
++            marginBottom: '6px',
++            letterSpacing: '-0.02em',
++            margin: '0 0 6px'
++          }}>
+             Admin Login
+           </h1>
+-          <p style={{ color: '#6B7280', fontSize: '14px' }}>
+-            MevaPur Administration Panel
++          <p style={{ color: '#6B7280', fontSize: '14px', margin: 0 }}>
++            {branding.siteName} Administration Panel
+           </p>
+         </div>
+ 
+         {error && (
+           <div style={{
+-            backgroundColor: '#FEE2E2',
++            backgroundColor: '#FEF2F2',
+             color: '#DC2626',
+-            padding: '12px',
+-            borderRadius: '8px',
++            padding: '12px 14px',
++            borderRadius: '10px',
+             marginBottom: '20px',
+-            fontSize: '14px',
+-            fontWeight: '600'
++            fontSize: '13.5px',
++            fontWeight: '600',
++            border: '1px solid #FECACA',
++            display: 'flex',
++            alignItems: 'center',
++            gap: '8px'
+           }}>
+             {error}
+           </div>
+@@ -79,12 +111,12 @@ export default function AdminLogin() {
+               display: 'flex',
+               alignItems: 'center',
+               gap: '8px',
+-              fontSize: '14px',
++              fontSize: '13.5px',
+               fontWeight: '600',
+               color: '#111827',
+               marginBottom: '8px'
+             }}>
+-              <Mail size={16} />
++              <Mail size={15} color="#6B7280" />
+               Email Address
+             </label>
+             <input
+@@ -92,31 +124,43 @@ export default function AdminLogin() {
+               required
+               value={formData.email}
+               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+-              placeholder="admin@mevapur.com"
++              placeholder="admin@harzaar.com"
+               style={{
+                 width: '100%',
+-                padding: '14px',
+-                border: '2px solid #E5E7EB',
++                padding: '13px 14px',
++                border: '1.5px solid #E5E7EB',
+                 borderRadius: '10px',
+-                fontSize: '15px',
+-                outline: 'none'
++                fontSize: '14px',
++                outline: 'none',
++                transition: 'border-color 0.15s, box-shadow 0.15s',
++                backgroundColor: '#FAFAFA',
++                color: '#111827',
++                boxSizing: 'border-box'
++              }}
++              onFocus={e => {
++                e.currentTarget.style.borderColor = '#FF8A00';
++                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(255, 138, 0, 0.12)';
++                e.currentTarget.style.backgroundColor = '#FFFFFF';
++              }}
++              onBlur={e => {
++                e.currentTarget.style.borderColor = '#E5E7EB';
++                e.currentTarget.style.boxShadow = 'none';
++                e.currentTarget.style.backgroundColor = '#FAFAFA';
+               }}
+-              onFocus={e => e.currentTarget.style.borderColor = '#0F766E'}
+-              onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'}
+             />
+           </div>
+ 
+-          <div style={{ marginBottom: '24px' }}>
++          <div style={{ marginBottom: '28px' }}>
+             <label style={{
+               display: 'flex',
+               alignItems: 'center',
+               gap: '8px',
+-              fontSize: '14px',
++              fontSize: '13.5px',
+               fontWeight: '600',
+               color: '#111827',
+               marginBottom: '8px'
+             }}>
+-              <Lock size={16} />
++              <Lock size={15} color="#6B7280" />
+               Password
+             </label>
+             <input
+@@ -127,14 +171,26 @@ export default function AdminLogin() {
+               placeholder="ΓÇóΓÇóΓÇóΓÇóΓÇóΓÇóΓÇóΓÇó"
+               style={{
+                 width: '100%',
+-                padding: '14px',
+-                border: '2px solid #E5E7EB',
++                padding: '13px 14px',
++                border: '1.5px solid #E5E7EB',
+                 borderRadius: '10px',
+-                fontSize: '15px',
+-                outline: 'none'
++                fontSize: '14px',
++                outline: 'none',
++                transition: 'border-color 0.15s, box-shadow 0.15s',
++                backgroundColor: '#FAFAFA',
++                color: '#111827',
++                boxSizing: 'border-box'
++              }}
++              onFocus={e => {
++                e.currentTarget.style.borderColor = '#FF8A00';
++                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(255, 138, 0, 0.12)';
++                e.currentTarget.style.backgroundColor = '#FFFFFF';
++              }}
++              onBlur={e => {
++                e.currentTarget.style.borderColor = '#E5E7EB';
++                e.currentTarget.style.boxShadow = 'none';
++                e.currentTarget.style.backgroundColor = '#FAFAFA';
+               }}
+-              onFocus={e => e.currentTarget.style.borderColor = '#0F766E'}
+-              onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'}
+             />
+           </div>
+ 
+@@ -143,36 +199,37 @@ export default function AdminLogin() {
+             disabled={loading}
+             style={{
+               width: '100%',
+-              padding: '16px',
+-              backgroundColor: loading ? '#9CA3AF' : '#0F766E',
+-              color: 'white',
++              padding: '15px',
++              backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
++              color: loading ? 'white' : '#0B132B',
+               border: 'none',
+               borderRadius: '12px',
+-              fontSize: '16px',
++              fontSize: '15px',
+               fontWeight: '700',
+-              cursor: loading ? 'not-allowed' : 'pointer'
++              cursor: loading ? 'not-allowed' : 'pointer',
++              transition: 'all 0.2s ease',
++              letterSpacing: '0.01em',
++              boxShadow: loading ? 'none' : '0 4px 14px rgba(255, 138, 0, 0.35)'
++            }}
++            onMouseEnter={e => {
++              if (!loading) {
++                e.currentTarget.style.backgroundColor = '#e67d00';
++                e.currentTarget.style.transform = 'translateY(-1px)';
++                e.currentTarget.style.boxShadow = '0 6px 20px rgba(255, 138, 0, 0.45)';
++              }
++            }}
++            onMouseLeave={e => {
++              if (!loading) {
++                e.currentTarget.style.backgroundColor = '#FF8A00';
++                e.currentTarget.style.transform = 'translateY(0)';
++                e.currentTarget.style.boxShadow = '0 4px 14px rgba(255, 138, 0, 0.35)';
++              }
+             }}
+           >
+-            {loading ? 'Logging in...' : 'Login to Admin Panel'}
++            {loading ? 'Logging inΓÇª' : 'Login to Admin Panel'}
+           </button>
+         </form>
+-
+-        <div style={{
+-          marginTop: '24px',
+-          padding: '16px',
+-          backgroundColor: '#F0FDFA',
+-          borderRadius: '10px',
+-          border: '1px solid #0F766E'
+-        }}>
+-          <p style={{ fontSize: '13px', color: '#0F766E', fontWeight: '600', marginBottom: '8px' }}>
+-            Demo Credentials:
+-          </p>
+-          <p style={{ fontSize: '12px', color: '#6B7280' }}>
+-            Email: admin@mevapur.com<br />
+-            Password: Admin123!
+-          </p>
+-        </div>
+       </div>
+     </div>
+   );
+-}
+\ No newline at end of file
++}
+diff --git a/admin-panel/src/app/page.tsx b/admin-panel/src/app/page.tsx
+index 34c081d90d3b21cb64547fea9c01c0d18d8e0d01..f2bbaf2c9fcea35911aa490d77aa75a9987970ad 100644
+--- a/admin-panel/src/app/page.tsx
++++ b/admin-panel/src/app/page.tsx
+@@ -166,11 +166,11 @@ export default function Dashboard() {
+   ];
+ 
+   const categoryData = [
+-    { name: 'Dry Fruits', value: 45000, color: '#0F766E' },
++    { name: 'Dry Fruits', value: 45000, color: '#16A34A' },
+     { name: 'Fresh Fruits', value: 32000, color: '#3B82F6' },
+     { name: 'Groceries', value: 28000, color: '#F59E0B' },
+     { name: 'Spices', value: 18000, color: '#8B5CF6' },
+-    { name: 'Others', value: 12000, color: '#EF4444' },
++    { name: 'Others', value: 12000, color: '#DC2626' },
+   ];
+ 
+   const kpiCards = [
+@@ -180,8 +180,8 @@ export default function Dashboard() {
+       change: `+${stats?.revenueGrowth || 12.5}%`,
+       trend: 'up',
+       icon: DollarSign,
+-      color: '#10B981',
+-      bgColor: '#D1FAE5'
++      color: '#FF8A00',
++      bgColor: 'rgba(255, 138, 0, 0.1)'
+     },
+     {
+       title: 'Total Orders',
+@@ -213,10 +213,10 @@ export default function Dashboard() {
+   ];
+ 
+   const orderStats = [
+-    { label: 'Pending', value: stats?.pendingOrders || 0, color: '#F59E0B', icon: Clock },
++    { label: 'Pending', value: stats?.pendingOrders || 0, color: '#D97706', icon: Clock },
+     { label: 'Processing', value: stats?.processingOrders || 0, color: '#3B82F6', icon: Truck },
+-    { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#10B981', icon: CheckCircle },
+-    { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#EF4444', icon: XCircle },
++    { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#FF8A00', icon: CheckCircle },
++    { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#DC2626', icon: XCircle },
+   ];
+ 
+   if (loading) {
+@@ -324,8 +324,8 @@ export default function Dashboard() {
+               </div>
+               <div style={{
+                 display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px',
+-                borderRadius: '20px', backgroundColor: card.trend === 'up' ? '#D1FAE5' : '#FEE2E2',
+-                color: card.trend === 'up' ? '#10B981' : '#EF4444', fontSize: '13px', fontWeight: '700'
++                borderRadius: '20px', backgroundColor: card.trend === 'up' ? 'rgba(255, 138, 0, 0.1)' : '#FEE2E2',
++                color: card.trend === 'up' ? '#FF8A00' : '#DC2626', fontSize: '13px', fontWeight: '700'
+               }}>
+                 {card.trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowUpRight size={14} style={{ transform: 'rotate(90deg)' }} />}
+                 {card.change}
+@@ -403,17 +403,17 @@ export default function Dashboard() {
+               padding: '16px', borderRadius: '12px', backgroundColor: '#FEE2E2',
+               border: '1px solid #EF4444', display: 'flex', alignItems: 'center', gap: '12px'
+             }}>
+-              <XCircle size={24} color="#EF4444" />
++              <XCircle size={24} color="#DC2626" />
+               <div>
+                 <div style={{ fontWeight: '700', color: '#991B1B', marginBottom: '4px' }}>Out of Stock</div>
+                 <div style={{ fontSize: '13px', color: '#991B1B' }}>{stats?.outOfStockProducts || 0} products unavailable</div>
+               </div>
+             </div>
+             <div style={{
+-              padding: '16px', borderRadius: '12px', backgroundColor: '#D1FAE5',
++              padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(255, 138, 0, 0.1)',
+               border: '1px solid #10B981', display: 'flex', alignItems: 'center', gap: '12px'
+             }}>
+-              <TrendingUp size={24} color="#10B981" />
++              <TrendingUp size={24} color="#FF8A00" />
+               <div>
+                 <div style={{ fontWeight: '700', color: '#065F46', marginBottom: '4px' }}>New Customers</div>
+                 <div style={{ fontSize: '13px', color: '#065F46' }}>{stats?.newCustomers || 0} new signups today</div>
+@@ -445,15 +445,15 @@ export default function Dashboard() {
+             <AreaChart data={revenueData}>
+               <defs>
+                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+-                  <stop offset="5%" stopColor="#0F766E" stopOpacity={0.8}/>
+-                  <stop offset="95%" stopColor="#0F766E" stopOpacity={0}/>
++                  <stop offset="5%" stopColor="#FF8A00" stopOpacity={0.8}/>
++                  <stop offset="95%" stopColor="#FF8A00" stopOpacity={0}/>
+                 </linearGradient>
+               </defs>
+               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+               <XAxis dataKey="name" stroke="var(--text-secondary)" />
+               <YAxis stroke="var(--text-secondary)" />
+               <Tooltip contentStyle={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }} />
+-              <Area type="monotone" dataKey="revenue" stroke="#0F766E" fillOpacity={1} fill="url(#colorRevenue)" />
++              <Area type="monotone" dataKey="revenue" stroke="#FF8A00" fillOpacity={1} fill="url(#colorRevenue)" />
+             </AreaChart>
+           </ResponsiveContainer>
+         </div>
+@@ -529,8 +529,8 @@ export default function Dashboard() {
+                       <td style={{ padding: '16px 12px' }}>
+                         <span style={{
+                           padding: '4px 12px',
+-                          backgroundColor: product.stock < 50 ? '#FEE2E2' : '#D1FAE5',
+-                          color: product.stock < 50 ? '#DC2626' : '#0F766E',
++                          backgroundColor: product.stock < 50 ? '#FEE2E2' : 'rgba(255, 138, 0, 0.1)',
++                          color: product.stock < 50 ? '#DC2626' : '#16A34A',
+                           borderRadius: '20px',
+                           fontSize: '12px',
+                           fontWeight: '600'
+@@ -588,11 +588,11 @@ export default function Dashboard() {
+                       <td style={{ padding: '16px 12px' }}>
+                         <span style={{
+                           padding: '6px 12px',
+-                          backgroundColor: order.orderStatus === 'Delivered' ? '#D1FAE5' : 
++                          backgroundColor: order.orderStatus === 'Delivered' ? 'rgba(255, 138, 0, 0.1)' : 
+                                          order.orderStatus === 'Processing' ? '#DBEAFE' :
+                                          order.orderStatus === 'Shipped' ? '#FEF3C7' :
+                                          order.orderStatus === 'Pending' ? '#FEF3C7' : '#FEE2E2',
+-                          color: order.orderStatus === 'Delivered' ? '#0F766E' : 
++                          color: order.orderStatus === 'Delivered' ? '#16A34A' : 
+                                  order.orderStatus === 'Processing' ? '#1E40AF' :
+                                  order.orderStatus === 'Shipped' ? '#92400E' :
+                                  order.orderStatus === 'Pending' ? '#92400E' : '#DC2626',
+@@ -629,7 +629,7 @@ export default function Dashboard() {
+           Revenue Breakdown
+         </h2>
+         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
+-          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)', color: 'white' }}>
++          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0B132B 0%, #1a2744 100%)', color: 'white' }}>
+             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today's Revenue</div>
+             <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.todayRevenue || 0).toLocaleString()}</div>
+             <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.revenueGrowth || 12.5}% from yesterday</div>
+diff --git a/admin-panel/src/components/layout/Sidebar.tsx b/admin-panel/src/components/layout/Sidebar.tsx
+index 7162c165530d683928b2dd74b4a26625f6024d10..8ba777656248fc38bab99d479faa75e348ad7a68 100644
+--- a/admin-panel/src/components/layout/Sidebar.tsx
++++ b/admin-panel/src/components/layout/Sidebar.tsx
+@@ -39,6 +39,10 @@ import {
+   Globe,
+   HelpCircle
+ } from 'lucide-react';
++import type { LucideIcon } from 'lucide-react';
++import BrandLogo from '@/components/brand/BrandLogo';
++import { copyrightLine } from '@/config/branding';
++import { useThemeStore } from '@/store/themeStore';
+ 
+ interface SidebarProps {
+   isOpen: boolean;
+@@ -46,7 +50,7 @@ interface SidebarProps {
+ }
+ 
+ interface MenuItem {
+-  icon: any;
++  icon: LucideIcon;
+   label: string;
+   href: string;
+   badge?: string;
+@@ -101,7 +105,7 @@ const menuItems: MenuItem[] = [
+       { label: 'Rejected', href: '/returns?status=rejected' }
+     ]
+   },
+-  { icon: DollarSign, label: 'Refunds', href: '/returns?view=refunds' },
++  { icon: DollarSign, label: 'Payments & Refunds', href: '/refunds' },
+   { icon: Bell, label: 'Notifications', href: '/notifications' },
+   { 
+     icon: FileSpreadsheet, 
+@@ -114,8 +118,8 @@ const menuItems: MenuItem[] = [
+       { label: 'Orders Report', href: '/reports?tab=orders' }
+     ]
+   },
+-  { icon: BarChart3, label: 'Analytics', href: '/analytics' }, // Γ£à FIXED: Unique href
+-  { icon: Megaphone, label: 'Marketing', href: '/marketing' }, // Γ£à FIXED: Unique href
++  { icon: BarChart3, label: 'Analytics', href: '/analytics' },
++  { icon: Megaphone, label: 'Marketing', href: '/marketing' },
+   { 
+     icon: ImageIcon, 
+     label: 'Content', 
+@@ -127,7 +131,7 @@ const menuItems: MenuItem[] = [
+     ]
+   },
+   { icon: UsersRound, label: 'Users', href: '/users' },
+-  { icon: Shield, label: 'Roles', href: '/roles' }, // Γ£à FIXED: Unique href
++  { icon: Shield, label: 'Roles', href: '/roles' },
+   { icon: History, label: 'Activity Logs', href: '/activity-logs' },
+   { icon: Settings, label: 'Settings', href: '/settings' },
+ ];
+@@ -135,6 +139,7 @@ const menuItems: MenuItem[] = [
+ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+   const pathname = usePathname();
+   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
++  const { isDark } = useThemeStore();
+ 
+   const toggleMenu = (href: string) => {
+     setExpandedMenus(prev => 
+@@ -146,7 +151,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+ 
+   const isActive = (href: string) => {
+     if (href === '/') return pathname === '/';
+-    return pathname.startsWith(href.split('?')[0]); // Γ£à FIXED: Ignore query params for active state
++    return pathname.startsWith(href.split('?')[0]);
+   };
+ 
+   return (
+@@ -158,9 +163,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+           style={{
+             position: 'fixed',
+             inset: 0,
+-            backgroundColor: 'rgba(0,0,0,0.5)',
++            backgroundColor: 'rgba(0,0,0,0.6)',
+             zIndex: 999,
+-            display: 'none'
++            display: 'none',
++            backdropFilter: 'blur(2px)'
+           }}
+           className="mobile-overlay"
+         />
+@@ -177,47 +183,34 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+           zIndex: 1000,
+           overflow: 'hidden',
+-          borderRight: '1px solid var(--border-color)',
++          borderRight: '1px solid var(--sidebar-border)',
+           display: 'flex',
+           flexDirection: 'column'
+         }}
+       >
+-        {/* Logo */}
++        {/* Logo Header */}
+         <div style={{
+-          padding: '24px 20px',
+-          borderBottom: '1px solid var(--border-color)',
++          padding: isOpen ? '20px 20px' : '20px 0',
++          borderBottom: '1px solid var(--sidebar-border)',
+           display: 'flex',
+           alignItems: 'center',
++          justifyContent: isOpen ? 'flex-start' : 'center',
+           gap: '12px',
+-          minHeight: '80px'
++          minHeight: '72px'
+         }}>
+-          <div style={{
+-            width: '40px',
+-            height: '40px',
+-            borderRadius: '10px',
+-            backgroundColor: 'var(--primary)',
+-            display: 'flex',
+-            alignItems: 'center',
+-            justifyContent: 'center',
+-            fontSize: '24px',
+-            flexShrink: 0
+-          }}>
+-            ≡ƒ¢Æ
+-          </div>
++          <BrandLogo
++            variant={isOpen ? 'horizontal' : 'symbol'}
++            theme="light"
++            height={isOpen ? 26 : 32}
++          />
+           {isOpen && (
+-            <div>
++            <div style={{ marginLeft: 'auto' }}>
+               <div style={{ 
+-                fontSize: '18px', 
+-                fontWeight: '800', 
+-                color: 'var(--text-primary)',
+-                lineHeight: 1.2
+-              }}>
+-                MevaPur
+-              </div>
+-              <div style={{ 
+-                fontSize: '11px', 
+-                color: 'var(--text-secondary)',
+-                fontWeight: '600'
++                fontSize: '10px', 
++                color: 'var(--sidebar-text)',
++                fontWeight: '600',
++                letterSpacing: '0.1em',
++                textTransform: 'uppercase'
+               }}>
+                 Admin Panel
+               </div>
+@@ -227,7 +220,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+ 
+         {/* Menu Items */}
+         <nav style={{ 
+-          padding: '16px 12px',
++          padding: '12px 10px',
+           flex: 1,
+           overflowY: 'auto',
+           overflowX: 'hidden'
+@@ -235,9 +228,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+           {menuItems.map((item) => {
+             const isExpanded = expandedMenus.includes(item.href);
+             const hasSubmenu = item.submenu && item.submenu.length > 0;
++            const active = isActive(item.href);
+             
+             return (
+-              <div key={item.href} style={{ marginBottom: '4px' }}>
++              <div key={item.href} style={{ marginBottom: '2px' }}>
+                 <Link
+                   href={item.href}
+                   onClick={(e) => {
+@@ -246,56 +240,61 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+                       toggleMenu(item.href);
+                     }
+                   }}
++                  title={!isOpen ? item.label : undefined}
+                   style={{
+                     display: 'flex',
+                     alignItems: 'center',
+                     gap: '12px',
+-                    padding: '12px 16px',
+-                    color: isActive(item.href) ? 'var(--primary)' : 'var(--text-secondary)',
++                    padding: isOpen ? '10px 14px' : '10px 0',
++                    justifyContent: isOpen ? 'flex-start' : 'center',
++                    color: active ? 'var(--sidebar-text-active)' : 'var(--sidebar-text)',
+                     textDecoration: 'none',
+                     borderRadius: '10px',
+-                    transition: 'all 0.2s',
+-                    backgroundColor: isActive(item.href) ? 'var(--primary-light)' : 'transparent',
+-                    fontWeight: isActive(item.href) ? '600' : '500',
+-                    fontSize: '14px',
++                    transition: 'all 0.15s ease',
++                    backgroundColor: active ? 'var(--sidebar-active-bg)' : 'transparent',
++                    fontWeight: active ? '600' : '500',
++                    fontSize: '13.5px',
+                     position: 'relative',
+-                    cursor: 'pointer'
++                    cursor: 'pointer',
++                    borderLeft: active ? `3px solid var(--sidebar-active-accent)` : '3px solid transparent',
+                   }}
+                   onMouseEnter={e => {
+-                    if (!isActive(item.href)) {
+-                      e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
+-                      e.currentTarget.style.color = 'var(--text-primary)';
++                    if (!active) {
++                      e.currentTarget.style.backgroundColor = 'var(--sidebar-hover-bg)';
++                      e.currentTarget.style.color = 'var(--sidebar-text-hover, #E2E8F0)';
+                     }
+                   }}
+                   onMouseLeave={e => {
+-                    if (!isActive(item.href)) {
++                    if (!active) {
+                       e.currentTarget.style.backgroundColor = 'transparent';
+-                      e.currentTarget.style.color = 'var(--text-secondary)';
++                      e.currentTarget.style.color = 'var(--sidebar-text)';
+                     }
+                   }}
+                 >
+-                  <item.icon size={20} style={{ flexShrink: 0 }} />
++                  <item.icon size={18} style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }} />
+                   {isOpen && (
+                     <>
+                       <span style={{ flex: 1 }}>{item.label}</span>
+                       {item.badge && (
+                         <span style={{
+-                          backgroundColor: 'var(--primary)',
+-                          color: 'white',
+-                          padding: '2px 8px',
+-                          borderRadius: '12px',
+-                          fontSize: '11px',
+-                          fontWeight: '700'
++                          backgroundColor: '#FF8A00',
++                          color: '#0B132B',
++                          padding: '2px 7px',
++                          borderRadius: '999px',
++                          fontSize: '10px',
++                          fontWeight: '700',
++                          letterSpacing: '0.02em'
+                         }}>
+                           {item.badge}
+                         </span>
+                       )}
+                       {hasSubmenu && (
+                         <ChevronDown 
+-                          size={16} 
++                          size={14} 
+                           style={{ 
+                             transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+-                            transition: 'transform 0.2s'
++                            transition: 'transform 0.2s',
++                            opacity: 0.6
+                           }}
+                         />
+                       )}
+@@ -306,10 +305,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+                 {/* Submenu */}
+                 {isOpen && hasSubmenu && isExpanded && (
+                   <div style={{ 
+-                    marginLeft: '20px',
+-                    marginTop: '4px',
+-                    borderLeft: '2px solid var(--border-color)',
+-                    paddingLeft: '12px'
++                    marginLeft: '16px',
++                    marginTop: '2px',
++                    borderLeft: '1px solid var(--sidebar-border)',
++                    paddingLeft: '14px',
++                    marginBottom: '4px'
+                   }}>
+                     {item.submenu!.map((subItem) => (
+                       <Link
+@@ -317,21 +317,21 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+                         href={subItem.href}
+                         style={{
+                           display: 'block',
+-                          padding: '8px 12px',
+-                          color: 'var(--text-secondary)',
++                          padding: '7px 10px',
++                          color: 'var(--sidebar-text)',
+                           textDecoration: 'none',
+-                          borderRadius: '8px',
+-                          fontSize: '13px',
++                          borderRadius: '7px',
++                          fontSize: '12.5px',
+                           fontWeight: '500',
+-                          transition: 'all 0.2s'
++                          transition: 'all 0.15s ease'
+                         }}
+                         onMouseEnter={e => {
+-                          e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
+-                          e.currentTarget.style.color = 'var(--text-primary)';
++                          e.currentTarget.style.backgroundColor = 'var(--sidebar-hover-bg)';
++                          e.currentTarget.style.color = 'var(--sidebar-text-hover, #E2E8F0)';
+                         }}
+                         onMouseLeave={e => {
+                           e.currentTarget.style.backgroundColor = 'transparent';
+-                          e.currentTarget.style.color = 'var(--text-secondary)';
++                          e.currentTarget.style.color = 'var(--sidebar-text)';
+                         }}
+                       >
+                         {subItem.label}
+@@ -346,37 +346,44 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+ 
+         {/* Footer */}
+         <div style={{
+-          padding: '16px 12px',
+-          borderTop: '1px solid var(--border-color)'
++          padding: '12px 10px',
++          borderTop: '1px solid var(--sidebar-border)'
+         }}>
++          {isOpen && (
++            <p style={{ margin: '0 8px 8px', color: 'var(--sidebar-text)', fontSize: '10px', opacity: 0.6 }}>
++              {copyrightLine()}
++            </p>
++          )}
+           <button
+             style={{
+               width: '100%',
+               display: 'flex',
+               alignItems: 'center',
++              justifyContent: isOpen ? 'flex-start' : 'center',
+               gap: '12px',
+-              padding: '12px 16px',
++              padding: isOpen ? '10px 14px' : '10px 0',
+               backgroundColor: 'transparent',
+-              color: 'var(--danger)',
++              color: '#F87171',
+               border: 'none',
+               borderRadius: '10px',
+               cursor: 'pointer',
+               fontWeight: '600',
+-              fontSize: '14px',
+-              transition: 'all 0.2s'
++              fontSize: '13.5px',
++              transition: 'all 0.15s ease'
+             }}
++            title={!isOpen ? 'Logout' : undefined}
+             onMouseEnter={e => {
+-              e.currentTarget.style.backgroundColor = 'var(--danger-light)';
++              e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.12)';
+             }}
+             onMouseLeave={e => {
+               e.currentTarget.style.backgroundColor = 'transparent';
+             }}
+           >
+-            <LogOut size={20} />
++            <LogOut size={18} style={{ flexShrink: 0 }} />
+             {isOpen && <span>Logout</span>}
+           </button>
+         </div>
+       </aside>
+     </>
+   );
+-}
+\ No newline at end of file
++}
