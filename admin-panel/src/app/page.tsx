@@ -166,11 +166,11 @@ export default function Dashboard() {
   ];
 
   const categoryData = [
-    { name: 'Dry Fruits', value: 45000, color: '#0F766E' },
+    { name: 'Dry Fruits', value: 45000, color: '#16A34A' },
     { name: 'Fresh Fruits', value: 32000, color: '#3B82F6' },
     { name: 'Groceries', value: 28000, color: '#F59E0B' },
     { name: 'Spices', value: 18000, color: '#8B5CF6' },
-    { name: 'Others', value: 12000, color: '#EF4444' },
+    { name: 'Others', value: 12000, color: '#DC2626' },
   ];
 
   const kpiCards = [
@@ -180,8 +180,8 @@ export default function Dashboard() {
       change: `+${stats?.revenueGrowth || 12.5}%`,
       trend: 'up',
       icon: DollarSign,
-      color: '#10B981',
-      bgColor: '#D1FAE5'
+      color: '#FF8A00',
+      bgColor: 'rgba(255, 138, 0, 0.1)'
     },
     {
       title: 'Total Orders',
@@ -213,10 +213,10 @@ export default function Dashboard() {
   ];
 
   const orderStats = [
-    { label: 'Pending', value: stats?.pendingOrders || 0, color: '#F59E0B', icon: Clock },
+    { label: 'Pending', value: stats?.pendingOrders || 0, color: '#D97706', icon: Clock },
     { label: 'Processing', value: stats?.processingOrders || 0, color: '#3B82F6', icon: Truck },
-    { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#10B981', icon: CheckCircle },
-    { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#EF4444', icon: XCircle },
+    { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#FF8A00', icon: CheckCircle },
+    { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#DC2626', icon: XCircle },
   ];
 
   if (loading) {
@@ -324,8 +324,8 @@ export default function Dashboard() {
               </div>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px',
-                borderRadius: '20px', backgroundColor: card.trend === 'up' ? '#D1FAE5' : '#FEE2E2',
-                color: card.trend === 'up' ? '#10B981' : '#EF4444', fontSize: '13px', fontWeight: '700'
+                borderRadius: '20px', backgroundColor: card.trend === 'up' ? 'rgba(255, 138, 0, 0.1)' : '#FEE2E2',
+                color: card.trend === 'up' ? '#FF8A00' : '#DC2626', fontSize: '13px', fontWeight: '700'
               }}>
                 {card.trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowUpRight size={14} style={{ transform: 'rotate(90deg)' }} />}
                 {card.change}
@@ -403,17 +403,17 @@ export default function Dashboard() {
               padding: '16px', borderRadius: '12px', backgroundColor: '#FEE2E2',
               border: '1px solid #EF4444', display: 'flex', alignItems: 'center', gap: '12px'
             }}>
-              <XCircle size={24} color="#EF4444" />
+              <XCircle size={24} color="#DC2626" />
               <div>
                 <div style={{ fontWeight: '700', color: '#991B1B', marginBottom: '4px' }}>Out of Stock</div>
                 <div style={{ fontSize: '13px', color: '#991B1B' }}>{stats?.outOfStockProducts || 0} products unavailable</div>
               </div>
             </div>
             <div style={{
-              padding: '16px', borderRadius: '12px', backgroundColor: '#D1FAE5',
+              padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(255, 138, 0, 0.1)',
               border: '1px solid #10B981', display: 'flex', alignItems: 'center', gap: '12px'
             }}>
-              <TrendingUp size={24} color="#10B981" />
+              <TrendingUp size={24} color="#FF8A00" />
               <div>
                 <div style={{ fontWeight: '700', color: '#065F46', marginBottom: '4px' }}>New Customers</div>
                 <div style={{ fontSize: '13px', color: '#065F46' }}>{stats?.newCustomers || 0} new signups today</div>
@@ -445,15 +445,15 @@ export default function Dashboard() {
             <AreaChart data={revenueData}>
               <defs>
                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0F766E" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#0F766E" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#FF8A00" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#FF8A00" stopOpacity={0}/>
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
               <XAxis dataKey="name" stroke="var(--text-secondary)" />
               <YAxis stroke="var(--text-secondary)" />
               <Tooltip contentStyle={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-              <Area type="monotone" dataKey="revenue" stroke="#0F766E" fillOpacity={1} fill="url(#colorRevenue)" />
+              <Area type="monotone" dataKey="revenue" stroke="#FF8A00" fillOpacity={1} fill="url(#colorRevenue)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -529,8 +529,8 @@ export default function Dashboard() {
                       <td style={{ padding: '16px 12px' }}>
                         <span style={{
                           padding: '4px 12px',
-                          backgroundColor: product.stock < 50 ? '#FEE2E2' : '#D1FAE5',
-                          color: product.stock < 50 ? '#DC2626' : '#0F766E',
+                          backgroundColor: product.stock < 50 ? '#FEE2E2' : 'rgba(255, 138, 0, 0.1)',
+                          color: product.stock < 50 ? '#DC2626' : '#16A34A',
                           borderRadius: '20px',
                           fontSize: '12px',
                           fontWeight: '600'
@@ -588,11 +588,11 @@ export default function Dashboard() {
                       <td style={{ padding: '16px 12px' }}>
                         <span style={{
                           padding: '6px 12px',
-                          backgroundColor: order.orderStatus === 'Delivered' ? '#D1FAE5' : 
+                          backgroundColor: order.orderStatus === 'Delivered' ? 'rgba(255, 138, 0, 0.1)' : 
                                          order.orderStatus === 'Processing' ? '#DBEAFE' :
                                          order.orderStatus === 'Shipped' ? '#FEF3C7' :
                                          order.orderStatus === 'Pending' ? '#FEF3C7' : '#FEE2E2',
-                          color: order.orderStatus === 'Delivered' ? '#0F766E' : 
+                          color: order.orderStatus === 'Delivered' ? '#16A34A' : 
                                  order.orderStatus === 'Processing' ? '#1E40AF' :
                                  order.orderStatus === 'Shipped' ? '#92400E' :
                                  order.orderStatus === 'Pending' ? '#92400E' : '#DC2626',
@@ -629,7 +629,7 @@ export default function Dashboard() {
           Revenue Breakdown
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
-          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)', color: 'white' }}>
+          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0B132B 0%, #1a2744 100%)', color: 'white' }}>
             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today's Revenue</div>
             <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.todayRevenue || 0).toLocaleString()}</div>
             <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.revenueGrowth || 12.5}% from yesterday</div>
