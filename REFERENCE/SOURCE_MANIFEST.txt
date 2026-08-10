@@ -1,0 +1,26 @@
+﻿TEMPORARY QWEN UI REVIEW REFERENCE
+
+This is not a production change.
+
+Protected production source branch:
+ai/claude-finish-harzaar-colors
+
+Protected production source commit:
+73bc313ae8d22532c391590b8fe4ac4400acd3df
+
+Temporary review branch:
+ai/qwen-ui-review-light
+
+Recovery original base:
+f5c7c413e11eccc546b5813f97c5940899e46f14
+
+Recovery visual-reference commit:
+fe37aa1c214f566b5581191cea8cd816945f65b7
+
+Rules:
+- REFERENCE/** is strictly read-only.
+- Never apply, restore, merge or copy complete files from the patch.
+- Compare the patch with current active files manually.
+- Preserve all current architecture and functionality.
+- Presentation and color changes only.
+- This temporary branch must never be merged into production.
