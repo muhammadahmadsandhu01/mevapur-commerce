@@ -162,9 +162,13 @@ export default function ReviewsPage() {
   };
 
   const getStatusBadge = (review: Review) => {
-    if (review.isFlagged) return { text: 'Flagged', color: '#DC2626', bg: '#FEE2E2', icon: Flag };
-    if (review.isApproved) return { text: 'Approved', color: '#0F766E', bg: '#D1FAE5', icon: CheckCircle };
-    return { text: 'Pending', color: '#92400E', bg: '#FEF3C7', icon: AlertCircle };
+    if (review.isFlagged) {
+      return { text: 'Flagged', color: 'var(--danger-text)', bg: 'rgba(220, 38, 38, 0.1)', icon: Flag };
+    }
+    if (review.isApproved) {
+      return { text: 'Approved', color: 'var(--success-text)', bg: 'rgba(22, 163, 74, 0.12)', icon: CheckCircle };
+    }
+    return { text: 'Pending', color: 'var(--warning-text)', bg: 'rgba(245, 158, 11, 0.12)', icon: AlertCircle };
   };
 
   return (
@@ -187,8 +191,8 @@ export default function ReviewsPage() {
         marginBottom: '24px'
       }}>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <MessageSquare size={24} color="#3B82F6" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MessageSquare size={24} color="var(--info-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Reviews</div>
@@ -197,8 +201,8 @@ export default function ReviewsPage() {
         </div>
 
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="#10B981" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Approved</div>
@@ -207,8 +211,8 @@ export default function ReviewsPage() {
         </div>
 
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <AlertCircle size={24} color="#F59E0B" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(245, 158, 11, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AlertCircle size={24} color="var(--warning-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Pending</div>
@@ -217,8 +221,8 @@ export default function ReviewsPage() {
         </div>
 
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Flag size={24} color="#EF4444" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(220, 38, 38, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Flag size={24} color="var(--danger-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Flagged</div>
@@ -227,7 +231,7 @@ export default function ReviewsPage() {
         </div>
 
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--warning-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Star size={24} color="#F59E0B" />
           </div>
           <div>
@@ -402,8 +406,8 @@ export default function ReviewsPage() {
                           {review.isVerified && (
                             <span style={{
                               padding: '3px 10px',
-                              backgroundColor: '#DBEAFE',
-                              color: '#1E40AF',
+                              backgroundColor: 'var(--info-light)',
+                              color: 'var(--info-text)',
                               borderRadius: '12px',
                               fontSize: '11px',
                               fontWeight: '700',
@@ -470,7 +474,7 @@ export default function ReviewsPage() {
                         style={{
                           padding: '8px 14px',
                           backgroundColor: 'var(--bg-primary)',
-                          color: 'var(--primary)',
+                          color: 'var(--accent-text)',
                           border: '1px solid var(--border-color)',
                           borderRadius: '8px',
                           cursor: 'pointer',
@@ -490,8 +494,8 @@ export default function ReviewsPage() {
                           disabled={actionLoading === review._id}
                           style={{
                             padding: '8px 14px',
-                            backgroundColor: '#D1FAE5',
-                            color: '#0F766E',
+                            backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                            color: 'var(--success-text)',
                             border: 'none',
                             borderRadius: '8px',
                             cursor: actionLoading === review._id ? 'not-allowed' : 'pointer',
@@ -514,8 +518,8 @@ export default function ReviewsPage() {
                           disabled={actionLoading === review._id}
                           style={{
                             padding: '8px 14px',
-                            backgroundColor: '#FEF3C7',
-                            color: '#92400E',
+                            backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                            color: 'var(--warning-text)',
                             border: 'none',
                             borderRadius: '8px',
                             cursor: actionLoading === review._id ? 'not-allowed' : 'pointer',
@@ -532,13 +536,13 @@ export default function ReviewsPage() {
                       )}
 
                       <button
-                        onClick={() => handleFlagToggle(review._id, review.isFlagged)}
-                        disabled={actionLoading === review._id}
-                        style={{
-                          padding: '8px 14px',
-                          backgroundColor: review.isFlagged ? '#FEE2E2' : 'var(--bg-primary)',
-                          color: review.isFlagged ? '#DC2626' : 'var(--text-secondary)',
-                          border: `1px solid ${review.isFlagged ? '#DC2626' : 'var(--border-color)'}`,
+                          onClick={() => handleFlagToggle(review._id, review.isFlagged)}
+                          disabled={actionLoading === review._id}
+                          style={{
+                            padding: '8px 14px',
+                            backgroundColor: review.isFlagged ? 'rgba(220, 38, 38, 0.1)' : 'var(--bg-primary)',
+                            color: review.isFlagged ? 'var(--danger-text)' : 'var(--text-secondary)',
+                            border: `1px solid ${review.isFlagged ? '#DC2626' : 'var(--border-color)'}`,
                           borderRadius: '8px',
                           cursor: actionLoading === review._id ? 'not-allowed' : 'pointer',
                           fontSize: '12px',
@@ -557,8 +561,8 @@ export default function ReviewsPage() {
                         disabled={actionLoading === review._id}
                         style={{
                           padding: '8px 14px',
-                          backgroundColor: '#FEE2E2',
-                          color: '#DC2626',
+                          backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                          color: 'var(--danger-text)',
                           border: 'none',
                           borderRadius: '8px',
                           cursor: actionLoading === review._id ? 'not-allowed' : 'pointer',
@@ -790,8 +794,8 @@ export default function ReviewsPage() {
                   onClick={() => { handleApprove(selectedReview._id); setShowDetails(false); }}
                   style={{
                     padding: '12px 24px',
-                    backgroundColor: '#D1FAE5',
-                    color: '#0F766E',
+                    backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                    color: 'var(--success-text)',
                     border: 'none',
                     borderRadius: '10px',
                     fontWeight: '700',
@@ -808,8 +812,8 @@ export default function ReviewsPage() {
                 onClick={() => { handleDelete(selectedReview._id); setShowDetails(false); }}
                 style={{
                   padding: '12px 24px',
-                  backgroundColor: '#FEE2E2',
-                  color: '#DC2626',
+                  backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                  color: 'var(--danger-text)',
                   border: 'none',
                   borderRadius: '10px',
                   fontWeight: '700',

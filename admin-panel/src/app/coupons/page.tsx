@@ -141,10 +141,10 @@ export default function CouponsPage() {
     const start = new Date(coupon.startDate);
     const end = new Date(coupon.endDate);
     
-    if (!coupon.isActive) return { text: 'Inactive', color: '#6B7280', bg: '#F3F4F6' };
-    if (now < start) return { text: 'Upcoming', color: '#1E40AF', bg: '#DBEAFE' };
-    if (now > end) return { text: 'Expired', color: '#DC2626', bg: '#FEE2E2' };
-    return { text: 'Active', color: '#0F766E', bg: '#D1FAE5' };
+    if (!coupon.isActive) return { text: 'Inactive', color: 'var(--text-secondary)', bg: 'var(--bg-primary)' };
+    if (now < start) return { text: 'Upcoming', color: 'var(--info-text)', bg: 'var(--info-light)' };
+    if (now > end) return { text: 'Expired', color: 'var(--danger-text)', bg: 'var(--danger-light)' };
+    return { text: 'Active', color: 'var(--success-text)', bg: 'var(--success-light)' };
   };
 
   const filteredCoupons = coupons.filter(coupon => {
@@ -182,7 +182,7 @@ export default function CouponsPage() {
           style={{
             padding: '12px 20px',
             backgroundColor: 'var(--primary)',
-            color: 'white',
+            color: '#0B132B',
             border: 'none',
             borderRadius: '10px',
             fontWeight: '700',
@@ -190,7 +190,7 @@ export default function CouponsPage() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)'
+            boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
           }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -207,8 +207,8 @@ export default function CouponsPage() {
         marginBottom: '24px'
       }}>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Tag size={24} color="#3B82F6" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Coupons</div>
@@ -225,8 +225,8 @@ export default function CouponsPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <TrendingUp size={24} color="#F59E0B" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TrendingUp size={24} color="var(--accent-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Usage</div>
@@ -234,8 +234,8 @@ export default function CouponsPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FDF4FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <DollarSign size={24} color="#A855F7" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <DollarSign size={24} color="var(--accent-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Discount Value</div>
@@ -330,7 +330,7 @@ export default function CouponsPage() {
             style={{
               padding: '12px 24px',
               backgroundColor: 'var(--primary)',
-              color: 'white',
+              color: '#0B132B',
               border: 'none',
               borderRadius: '10px',
               fontWeight: '700',
@@ -372,9 +372,9 @@ export default function CouponsPage() {
                 {/* Top Accent */}
                 <div style={{
                   height: '4px',
-                  background: coupon.type === 'percentage' 
-                    ? 'linear-gradient(90deg, #0F766E, #10B981)' 
-                    : 'linear-gradient(90deg, #3B82F6, #8B5CF6)'
+                  background: coupon.type === 'percentage'
+                    ? '#FF8A00'
+                    : '#0B132B'
                 }} />
 
                 <div style={{ padding: '24px' }}>
@@ -394,8 +394,8 @@ export default function CouponsPage() {
                         </div>
                         <div style={{
                           padding: '6px 10px',
-                          backgroundColor: coupon.type === 'percentage' ? '#FEF3C7' : '#DBEAFE',
-                          color: coupon.type === 'percentage' ? '#92400E' : '#1E40AF',
+                          backgroundColor: coupon.type === 'percentage' ? 'rgba(255, 138, 0, 0.12)' : 'var(--info-light)',
+                          color: coupon.type === 'percentage' ? 'var(--accent-text)' : 'var(--info-text)',
                           borderRadius: '12px',
                           fontSize: '11px',
                           fontWeight: '700',
@@ -425,7 +425,7 @@ export default function CouponsPage() {
                             border: '1px solid var(--border-color)',
                             borderRadius: '6px',
                             cursor: 'pointer',
-                            color: copiedId === coupon._id ? '#10B981' : 'var(--text-secondary)',
+                            color: copiedId === coupon._id ? 'var(--success-text)' : 'var(--text-secondary)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center'
@@ -447,7 +447,7 @@ export default function CouponsPage() {
                     textAlign: 'center'
                   }}>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Discount</div>
-                    <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--primary)' }}>
+                    <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--accent-text)' }}>
                       {coupon.type === 'percentage' ? `${coupon.value}%` : `Rs. ${coupon.value}`}
                     </div>
                     {coupon.maxDiscount && coupon.maxDiscount > 0 && coupon.type === 'percentage' && (
@@ -490,7 +490,7 @@ export default function CouponsPage() {
                         <div style={{
                           width: `${Math.min(usagePercent, 100)}%`,
                           height: '100%',
-                          backgroundColor: usagePercent > 80 ? '#EF4444' : usagePercent > 50 ? '#F59E0B' : '#10B981',
+                          backgroundColor: usagePercent > 80 ? '#DC2626' : usagePercent > 50 ? '#F59E0B' : '#16A34A',
                           borderRadius: '3px',
                           transition: 'width 0.3s'
                         }} />
@@ -512,8 +512,8 @@ export default function CouponsPage() {
                       style={{
                         flex: 1,
                         padding: '10px',
-                        backgroundColor: '#DBEAFE',
-                        color: '#1E40AF',
+                        backgroundColor: 'var(--info-light)',
+                        color: 'var(--info-text)',
                         border: 'none',
                         borderRadius: '8px',
                         cursor: 'pointer',
@@ -531,8 +531,8 @@ export default function CouponsPage() {
                       onClick={() => handleDelete(coupon._id, coupon.code)}
                       style={{
                         padding: '10px 14px',
-                        backgroundColor: '#FEE2E2',
-                        color: '#DC2626',
+                        backgroundColor: 'var(--danger-light)',
+                        color: 'var(--danger-text)',
                         border: 'none',
                         borderRadius: '8px',
                         cursor: 'pointer',
@@ -838,7 +838,7 @@ export default function CouponsPage() {
                   style={{
                     padding: '12px 24px',
                     backgroundColor: 'var(--primary)',
-                    color: 'white',
+                    color: '#0B132B',
                     border: 'none',
                     borderRadius: '10px',
                     fontWeight: '700',

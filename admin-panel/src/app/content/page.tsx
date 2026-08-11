@@ -123,12 +123,12 @@ export default function ContentManagementPage({
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
     if (s === 'published' || s === 'active' || s === 'approved') {
-      return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle, text: status };
+      return { bg: 'var(--warning-light)', color: 'var(--warning-text)', icon: Clock, text: status };
     }
     if (s === 'draft' || s === 'inactive' || s === 'pending') {
-      return { bg: '#FEF3C7', color: '#92400E', icon: Clock, text: status };
+      return { bg: '#FEF3C7', color: 'var(--warning-text)', icon: Clock, text: status };
     }
-    return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle, text: status };
+    return { bg: 'var(--danger-light)', color: 'var(--danger-text)', icon: XCircle, text: status };
   };
 
   const handleDelete = async (id: string, itemName: string) => {
@@ -195,7 +195,7 @@ export default function ContentManagementPage({
         {searchQuery ? 'Try adjusting your search query.' : 'Get started by adding your first item.'}
       </p>
       <button style={{
-        padding: '10px 20px', backgroundColor: 'var(--primary)', color: 'white', border: 'none',
+        padding: '10px 20px', backgroundColor: 'var(--primary)', color: 'var(--info-text)' border: 'none',
         borderRadius: '8px', fontWeight: '600', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px'
       }}>
         <Plus size={16} /> Add New {activeTab.slice(0, -1)}
@@ -216,9 +216,9 @@ export default function ContentManagementPage({
           </p>
         </div>
         <button style={{
-          padding: '12px 20px', backgroundColor: 'var(--primary)', color: 'white', border: 'none',
+          padding: '12px 20px', backgroundColor: 'var(--primary)', color: 'var(--info-text)', border: 'none',
           borderRadius: '10px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-          boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)', transition: 'all 0.2s'
+          boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)', transition: 'all 0.2s'
         }}
         onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
@@ -238,7 +238,7 @@ export default function ContentManagementPage({
               style={{
                 padding: '12px 20px', border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
                 fontSize: '15px', fontWeight: isActive ? '700' : '500',
-                color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
+                color: isActive ? 'var(--accent-text)' : 'var(--text-secondary)',
                 borderBottom: isActive ? '3px solid var(--primary)' : '3px solid transparent',
                 display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
               }}
@@ -271,11 +271,11 @@ export default function ContentManagementPage({
         
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px' }}>
-            <Loader size={40} className="animate-spin text-teal-700" style={{ animation: 'spin 1s linear infinite', marginBottom: '16px' }} />
+            <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00', marginBottom: '16px' }} />
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading content...</p>
           </div>
         ) : error ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center', color: '#DC2626' }}>
+          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--danger-text)' }}>
             <AlertCircle size={48} style={{ margin: '0 auto 16px' }} />
             <p>{error}</p>
           </div>
@@ -310,8 +310,8 @@ export default function ContentManagementPage({
                         <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>{new Date(page.updatedAt).toLocaleDateString()}</td>
                         <td style={{ padding: '16px 20px', display: 'flex', gap: '8px' }}>
                           <button style={{ padding: '8px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-secondary)' }} title="View"><Eye size={16} /></button>
-                          <button style={{ padding: '8px', backgroundColor: '#DBEAFE', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#1E40AF' }} title="Edit"><Edit size={16} /></button>
-                          <button onClick={() => handleDelete(page._id, page.title)} style={{ padding: '8px', backgroundColor: '#FEE2E2', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#DC2626' }} title="Delete"><Trash2 size={16} /></button>
+                          <button style={{ padding: '8px', backgroundColor: 'var(--info-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--info-text)' }} title="Edit"><Edit size={16} /></button>
+                          <button onClick={() => handleDelete(page._id, page.title)} style={{ padding: '8px', backgroundColor: 'var(--danger-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--danger-text)' }} title="Delete"><Trash2 size={16} /></button>
                         </td>
                       </tr>
                     );
@@ -356,8 +356,8 @@ export default function ContentManagementPage({
                         </td>
                         <td style={{ padding: '16px 20px', display: 'flex', gap: '8px' }}>
                           <button style={{ padding: '8px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-secondary)' }} title="View"><Eye size={16} /></button>
-                          <button style={{ padding: '8px', backgroundColor: '#DBEAFE', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#1E40AF' }} title="Edit"><Edit size={16} /></button>
-                          <button onClick={() => handleDelete(banner._id, banner.name)} style={{ padding: '8px', backgroundColor: '#FEE2E2', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#DC2626' }} title="Delete"><Trash2 size={16} /></button>
+                          <button style={{ padding: '8px', backgroundColor: 'var(--info-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--info-text)' }} title="Edit"><Edit size={16} /></button>
+                          <button onClick={() => handleDelete(banner._id, banner.name)} style={{ padding: '8px', backgroundColor: 'var(--danger-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--danger-text)' }} title="Delete"><Trash2 size={16} /></button>
                         </td>
                       </tr>
                     );
@@ -397,8 +397,8 @@ export default function ContentManagementPage({
                           </span>
                         </td>
                         <td style={{ padding: '16px 20px', display: 'flex', gap: '8px' }}>
-                          <button style={{ padding: '8px', backgroundColor: '#DBEAFE', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#1E40AF' }} title="Edit"><Edit size={16} /></button>
-                          <button onClick={() => handleDelete(faq._id, faq.question)} style={{ padding: '8px', backgroundColor: '#FEE2E2', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#DC2626' }} title="Delete"><Trash2 size={16} /></button>
+                          <button style={{ padding: '8px', backgroundColor: 'var(--info-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--info-text)' }} title="Edit"><Edit size={16} /></button>
+                          <button onClick={() => handleDelete(faq._id, faq.question)} style={{ padding: '8px', backgroundColor: 'var(--danger-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--danger-text)' }} title="Delete"><Trash2 size={16} /></button>
                         </td>
                       </tr>
                     );
@@ -440,9 +440,9 @@ export default function ContentManagementPage({
                         </td>
                         <td style={{ padding: '16px 20px', display: 'flex', gap: '8px' }}>
                           {testimonial.status === 'Pending' && (
-                            <button onClick={() => handleStatusToggle(testimonial._id, testimonial.status)} style={{ padding: '8px', backgroundColor: '#D1FAE5', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#0F766E' }} title="Approve"><CheckCircle size={16} /></button>
+                            <button onClick={() => handleStatusToggle(testimonial._id, testimonial.status)} style={{ padding: '8px', backgroundColor: 'var(--success-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--success-text)' }} title="Approve"><CheckCircle size={16} /></button>
                           )}
-                          <button onClick={() => handleDelete(testimonial._id, testimonial.name)} style={{ padding: '8px', backgroundColor: '#FEE2E2', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#DC2626' }} title="Delete"><Trash2 size={16} /></button>
+                          <button onClick={() => handleDelete(testimonial._id, testimonial.name)} style={{ padding: '8px', backgroundColor: 'var(--danger-light)', border: 'none', borderRadius: '6px', cursor: 'pointer', color: 'var(--danger-text)' }} title="Delete"><Trash2 size={16} /></button>
                         </td>
                       </tr>
                     );

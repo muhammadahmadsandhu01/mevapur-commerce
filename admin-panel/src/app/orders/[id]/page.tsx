@@ -144,23 +144,23 @@ export default function OrderDetailPage() {
 
   const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'Delivered': return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle, label: 'Delivered' };
-      case 'Shipped': return { bg: '#DBEAFE', color: '#1E40AF', icon: Truck, label: 'Shipped' };
-      case 'Processing': return { bg: '#FEF3C7', color: '#92400E', icon: Package, label: 'Processing' };
-      case 'Confirmed': return { bg: '#E0F2FE', color: '#075985', icon: CheckCircle, label: 'Confirmed' };
-      case 'Pending': return { bg: '#F3F4F6', color: '#6B7280', icon: Clock, label: 'Pending' };
-      case 'Cancelled': return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle, label: 'Cancelled' };
-      default: return { bg: '#F3F4F6', color: '#6B7280', icon: Clock, label: status };
+      case 'Delivered': return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', icon: CheckCircle, label: 'Delivered' };
+      case 'Shipped': return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: Truck, label: 'Shipped' };
+      case 'Processing': return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', icon: Package, label: 'Processing' };
+      case 'Confirmed': return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: CheckCircle, label: 'Confirmed' };
+      case 'Pending': return { bg: 'var(--bg-primary)', color: 'var(--text-secondary)', icon: Clock, label: 'Pending' };
+      case 'Cancelled': return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', icon: XCircle, label: 'Cancelled' };
+      default: return { bg: 'var(--bg-primary)', color: 'var(--text-secondary)', icon: Clock, label: status };
     }
   };
 
   const getPaymentStatusConfig = (status: string) => {
     switch (status) {
-      case 'Paid': return { bg: '#D1FAE5', color: '#0F766E' };
-      case 'Pending': return { bg: '#FEF3C7', color: '#92400E' };
-      case 'Failed': return { bg: '#FEE2E2', color: '#DC2626' };
-      case 'Refunded': return { bg: '#DBEAFE', color: '#1E40AF' };
-      default: return { bg: '#F3F4F6', color: '#6B7280' };
+      case 'Paid': return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)' };
+      case 'Pending': return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)' };
+      case 'Failed': return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)' };
+      case 'Refunded': return { bg: 'var(--info-light)', color: 'var(--info-text)' };
+      default: return { bg: 'var(--bg-primary)', color: 'var(--text-secondary)' };
     }
   };
 
@@ -191,7 +191,7 @@ export default function OrderDetailPage() {
   if (loading) {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader size={48} className="animate-spin text-teal-700" style={{ animation: 'spin 1s linear infinite' }} />
+        <Loader size={48} className="animate-spin text-[#FF8A00]" style={{ animation: 'spin 1s linear infinite' }} />
       </div>
     );
   }
@@ -211,7 +211,7 @@ export default function OrderDetailPage() {
           style={{
             padding: '12px 24px',
             backgroundColor: 'var(--primary)',
-            color: 'white',
+            color: '#0B132B',
             border: 'none',
             borderRadius: '10px',
             fontWeight: '700',
@@ -344,7 +344,7 @@ export default function OrderDetailPage() {
             style={{
               padding: '12px 20px',
               backgroundColor: 'var(--primary)',
-              color: 'white',
+              color: '#0B132B',
               border: 'none',
               borderRadius: '10px',
               fontWeight: '700',
@@ -352,7 +352,7 @@ export default function OrderDetailPage() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)',
+              boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)',
               transition: 'all 0.2s'
             }}
             onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
@@ -373,7 +373,7 @@ export default function OrderDetailPage() {
           marginBottom: '24px'
         }}>
           <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Truck size={20} color="var(--primary)" /> Order Progress
+            <Truck size={20} color="var(--info-text)" /> Order Progress
           </h2>
           <div style={{ position: 'relative' }}>
             {/* Progress Line */}
@@ -388,7 +388,7 @@ export default function OrderDetailPage() {
               <div style={{
                 height: '100%',
                 width: `${(currentStepIndex / (timelineSteps.length - 1)) * 100}%`,
-                backgroundColor: 'var(--primary)',
+                backgroundColor: '#16A34A',
                 transition: 'width 0.5s ease'
               }} />
             </div>
@@ -411,14 +411,14 @@ export default function OrderDetailPage() {
                       width: '48px',
                       height: '48px',
                       borderRadius: '50%',
-                      backgroundColor: isCompleted ? 'var(--primary)' : 'var(--bg-primary)',
+                      backgroundColor: isCompleted ? '#16A34A' : 'var(--bg-primary)',
                       border: isCurrent ? '3px solid var(--primary)' : '3px solid var(--border-color)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       margin: '0 auto 12px',
                       transition: 'all 0.3s',
-                      boxShadow: isCurrent ? '0 0 0 4px rgba(15, 118, 110, 0.2)' : 'none'
+                      boxShadow: isCurrent ? '0 0 0 4px rgba(255, 138, 0, 0.2)' : 'none'
                     }}>
                       <StepIcon size={20} color={isCompleted ? 'white' : 'var(--text-secondary)'} />
                     </div>
@@ -450,8 +450,8 @@ export default function OrderDetailPage() {
       {/* Cancelled Notice */}
       {order.orderStatus === 'Cancelled' && (
         <div style={{
-          backgroundColor: '#FEE2E2',
-          border: '1px solid #EF4444',
+          backgroundColor: 'rgba(220, 38, 38, 0.1)',
+          border: '1px solid #DC2626',
           borderRadius: '12px',
           padding: '24px',
           marginBottom: '24px',
@@ -461,10 +461,10 @@ export default function OrderDetailPage() {
         }}>
           <XCircle size={32} color="#DC2626" />
           <div>
-            <div style={{ fontWeight: '700', color: '#991B1B', fontSize: '16px', marginBottom: '4px' }}>
+            <div style={{ fontWeight: '700', color: 'var(--danger-text)', fontSize: '16px', marginBottom: '4px' }}>
               This order has been cancelled
             </div>
-            <div style={{ color: '#991B1B', fontSize: '14px' }}>
+            <div style={{ color: 'var(--danger-text)', fontSize: '14px' }}>
               {order.statusTimeline?.find(t => t.status === 'Cancelled')?.note || 'No cancellation reason provided.'}
             </div>
           </div>
@@ -483,7 +483,7 @@ export default function OrderDetailPage() {
             border: '1px solid var(--border-color)'
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <ShoppingBag size={20} color="var(--primary)" /> Order Items ({order.items.length})
+              <ShoppingBag size={20} color="var(--info-text)" /> Order Items ({order.items.length})
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {order.items.map((item, index) => {
@@ -517,7 +517,7 @@ export default function OrderDetailPage() {
                           display: 'inline-block',
                           padding: '3px 10px',
                           backgroundColor: 'var(--primary-light)',
-                          color: 'var(--primary)',
+                          color: 'var(--accent-text)',
                           borderRadius: '12px',
                           fontSize: '11px',
                           fontWeight: '600',
@@ -535,7 +535,7 @@ export default function OrderDetailPage() {
                         <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                           Qty: <strong style={{ color: 'var(--text-primary)' }}>{item.quantity}</strong> × Rs. {item.price.toLocaleString()}
                         </div>
-                        <div style={{ fontWeight: '800', color: 'var(--primary)', fontSize: '16px' }}>
+                        <div style={{ fontWeight: '800', color: 'var(--text-primary)', fontSize: '16px' }}>
                           Rs. {(item.price * item.quantity).toLocaleString()}
                         </div>
                       </div>
@@ -554,14 +554,14 @@ export default function OrderDetailPage() {
             border: '1px solid var(--border-color)'
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <MapPin size={20} color="var(--primary)" /> Shipping Address
+              <MapPin size={20} color="var(--info-text)" /> Shipping Address
             </h2>
             <div style={{ display: 'flex', gap: '16px' }}>
               <div style={{
                 width: '64px',
                 height: '64px',
                 borderRadius: '50%',
-                backgroundColor: '#0F766E',
+                backgroundColor: '#0B132B',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -604,7 +604,7 @@ export default function OrderDetailPage() {
               border: '1px solid var(--border-color)'
             }}>
               <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Edit3 size={20} color="var(--primary)" /> Notes
+                <Edit3 size={20} color="var(--info-text)" /> Notes
               </h2>
               {order.notes && (
                 <div style={{ marginBottom: '12px' }}>
@@ -621,7 +621,7 @@ export default function OrderDetailPage() {
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', marginBottom: '6px', textTransform: 'uppercase' }}>
                     Admin Notes
                   </div>
-                  <div style={{ padding: '12px', backgroundColor: '#FEF3C7', borderRadius: '8px', color: '#92400E', fontSize: '14px', lineHeight: '1.6', border: '1px solid #F59E0B' }}>
+                  <div style={{ padding: '12px', backgroundColor: '#FEF3C7', borderRadius: '8px', color: 'var(--warning-text)', fontSize: '14px', lineHeight: '1.6', border: '1px solid #F59E0B' }}>
                     {order.adminNotes}
                   </div>
                 </div>
@@ -640,7 +640,7 @@ export default function OrderDetailPage() {
             border: '1px solid var(--border-color)'
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <User size={20} color="var(--primary)" /> Customer
+              <User size={20} color="var(--info-text)" /> Customer
             </h2>
             {order.user ? (
               <div>
@@ -649,7 +649,7 @@ export default function OrderDetailPage() {
                     width: '48px',
                     height: '48px',
                     borderRadius: '50%',
-                    backgroundColor: '#0F766E',
+                    backgroundColor: '#0B132B',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -697,7 +697,7 @@ export default function OrderDetailPage() {
             border: '1px solid var(--border-color)'
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <CreditCard size={20} color="var(--primary)" /> Payment
+              <CreditCard size={20} color="var(--info-text)" /> Payment
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
@@ -731,7 +731,7 @@ export default function OrderDetailPage() {
             border: '1px solid var(--border-color)'
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <DollarSign size={20} color="var(--primary)" /> Order Summary
+              <DollarSign size={20} color="var(--info-text)" /> Order Summary
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
@@ -739,14 +739,14 @@ export default function OrderDetailPage() {
                 <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>Rs. {order.subtotal.toLocaleString()}</span>
               </div>
               {order.discount > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#10B981' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--accent-text)' }}>
                   <span>Discount</span>
                   <span style={{ fontWeight: '600' }}>-Rs. {order.discount.toLocaleString()}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Shipping</span>
-                <span style={{ fontWeight: '600', color: order.shippingCost === 0 ? '#10B981' : 'var(--text-primary)' }}>
+                <span style={{ fontWeight: '600', color: order.shippingCost === 0 ? 'var(--success-text)' : 'var(--text-primary)' }}>
                   {order.shippingCost === 0 ? 'FREE' : `Rs. ${order.shippingCost.toLocaleString()}`}
                 </span>
               </div>
@@ -755,7 +755,7 @@ export default function OrderDetailPage() {
                 justifyContent: 'space-between',
                 fontSize: '20px',
                 fontWeight: '800',
-                color: 'var(--primary)',
+                color: 'var(--text-primary)',
                 paddingTop: '16px',
                 borderTop: '2px solid var(--border-color)',
                 marginTop: '8px'
@@ -783,7 +783,7 @@ export default function OrderDetailPage() {
                   width: '100%',
                   padding: '12px',
                   backgroundColor: 'var(--primary)',
-                  color: 'white',
+                  color: '#0B132B',
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: '700',
@@ -981,7 +981,7 @@ export default function OrderDetailPage() {
                 style={{
                   padding: '12px 24px',
                   backgroundColor: updating ? 'var(--text-secondary)' : 'var(--primary)',
-                  color: 'white',
+                  color: updating ? '#FFFFFF' : '#0B132B',
                   border: 'none',
                   borderRadius: '10px',
                   fontWeight: '700',
@@ -1079,7 +1079,7 @@ export default function OrderDetailPage() {
                 style={{
                   padding: '12px 24px',
                   backgroundColor: 'var(--primary)',
-                  color: 'white',
+                  color: '#0B132B',
                   border: 'none',
                   borderRadius: '10px',
                   fontWeight: '700',

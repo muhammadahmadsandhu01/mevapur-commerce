@@ -125,22 +125,22 @@ export default function NotificationsPage() {
 
   const getTypeConfig = (type: string) => {
     switch (type) {
-      case 'order': return { label: 'Order', color: '#3B82F6', bg: '#DBEAFE', icon: Package };
-      case 'stock': return { label: 'Stock Alert', color: '#F59E0B', bg: '#FEF3C7', icon: AlertTriangle };
-      case 'review': return { label: 'Review', color: '#8B5CF6', bg: '#EDE9FE', icon: Star };
-      case 'customer': return { label: 'Customer', color: '#10B981', bg: '#D1FAE5', icon: User };
-      case 'payment': return { label: 'Payment', color: '#06B6D4', bg: '#CFFAFE', icon: CreditCard };
-      case 'system': return { label: 'System', color: '#6B7280', bg: '#F3F4F6', icon: Settings };
-      default: return { label: type, color: '#6B7280', bg: '#F3F4F6', icon: Bell };
+      case 'order': return { label: 'Order', color: 'var(--info-text)', bg: 'var(--info-light)', icon: Package };
+      case 'stock': return { label: 'Stock Alert', color: 'var(--warning-text)', bg: 'rgba(245, 158, 11, 0.12)', icon: AlertTriangle };
+      case 'review': return { label: 'Review', color: 'var(--accent-text)', bg: 'rgba(255, 138, 0, 0.12)', icon: Star };
+      case 'customer': return { label: 'Customer', color: 'var(--success-text)', bg: 'rgba(22, 163, 74, 0.12)', icon: User };
+      case 'payment': return { label: 'Payment', color: 'var(--info-text)', bg: 'var(--info-light)', icon: CreditCard };
+      case 'system': return { label: 'System', color: 'var(--text-secondary)', bg: 'var(--bg-primary)', icon: Settings };
+      default: return { label: type, color: 'var(--text-secondary)', bg: 'var(--bg-primary)', icon: Bell };
     }
   };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'urgent': return '#EF4444';
+      case 'urgent': return '#DC2626';
       case 'high': return '#F59E0B';
-      case 'medium': return '#3B82F6';
-      case 'low': return '#10B981';
+      case 'medium': return '#0B132B';
+      case 'low': return '#16A34A';
       default: return '#6B7280';
     }
   };
@@ -188,7 +188,7 @@ export default function NotificationsPage() {
               onClick={handleDeleteAll}
               style={{
                 padding: '12px 20px',
-                backgroundColor: '#EF4444',
+                backgroundColor: '#DC2626',
                 color: 'white',
                 border: 'none',
                 borderRadius: '10px',
@@ -218,8 +218,8 @@ export default function NotificationsPage() {
               alignItems: 'center',
               gap: '16px'
             }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Bell size={24} color="#3B82F6" />
+              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Bell size={24} color="var(--info-text)" />
               </div>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total</div>
@@ -236,8 +236,8 @@ export default function NotificationsPage() {
               alignItems: 'center',
               gap: '16px'
             }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Eye size={24} color="#EF4444" />
+              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Eye size={24} color="var(--accent-text)" />
               </div>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Unread</div>
@@ -254,8 +254,8 @@ export default function NotificationsPage() {
               alignItems: 'center',
               gap: '16px'
             }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle size={24} color="#10B981" />
+              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CheckCircle size={24} color="var(--success-text)" />
               </div>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Read</div>
@@ -288,7 +288,7 @@ export default function NotificationsPage() {
                 style={{
                   padding: '8px 16px',
                   backgroundColor: filter === f ? 'var(--primary)' : 'var(--card-bg)',
-                  color: filter === f ? 'white' : 'var(--text-secondary)',
+                  color: filter === f ? '#0B132B' : 'var(--text-secondary)',
                   border: '1px solid var(--border-color)',
                   borderRadius: '8px',
                   cursor: 'pointer',
@@ -307,7 +307,7 @@ export default function NotificationsPage() {
       {/* Notifications List */}
       {loading ? (
         <div style={{ backgroundColor: 'var(--card-bg)', padding: '60px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} color="var(--primary)" />
+          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} color="#FF8A00" />
           <p style={{ color: 'var(--text-secondary)' }}>Loading notifications...</p>
         </div>
       ) : filteredNotifications.length === 0 ? (
@@ -325,9 +325,9 @@ export default function NotificationsPage() {
               <div
                 key={notification._id}
                 style={{
-                  backgroundColor: notification.isRead ? 'var(--card-bg)' : '#EFF6FF',
+                  backgroundColor: notification.isRead ? 'var(--card-bg)' : 'rgba(255, 138, 0, 0.06)',
                   borderRadius: '12px',
-                  border: notification.isRead ? '1px solid var(--border-color)' : '2px solid #3B82F6',
+                  border: notification.isRead ? '1px solid var(--border-color)' : '2px solid #FF8A00',
                   padding: '20px',
                   display: 'flex',
                   gap: '16px',
@@ -379,7 +379,7 @@ export default function NotificationsPage() {
                           onClick={() => handleMarkAsRead(notification._id)}
                           style={{
                             padding: '6px 12px',
-                            backgroundColor: '#10B981',
+                            backgroundColor: '#16A34A',
                             color: 'white',
                             border: 'none',
                             borderRadius: '6px',
@@ -399,7 +399,7 @@ export default function NotificationsPage() {
                         onClick={() => handleDelete(notification._id)}
                         style={{
                           padding: '6px 12px',
-                          backgroundColor: '#EF4444',
+                          backgroundColor: '#DC2626',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',

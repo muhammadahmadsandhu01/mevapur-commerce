@@ -103,12 +103,12 @@ export default function InventoryPage() {
 
   const getStatusBadge = (item: InventoryItem) => {
     if (item.stock === 0) {
-      return { bg: '#FEE2E2', color: '#DC2626', text: 'Out of Stock', icon: X };
+      return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', text: 'Out of Stock', icon: X };
     }
     if (item.stock < item.lowStockThreshold) {
-      return { bg: '#FEF3C7', color: '#92400E', text: 'Low Stock', icon: AlertTriangle };
+      return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', text: 'Low Stock', icon: AlertTriangle };
     }
-    return { bg: '#D1FAE5', color: '#0F766E', text: 'In Stock', icon: CheckCircle };
+    return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', text: 'In Stock', icon: CheckCircle };
   };
 
   const filteredInventory = inventory.filter(item => {
@@ -170,7 +170,7 @@ export default function InventoryPage() {
             style={{
               padding: '12px 20px',
               backgroundColor: 'var(--primary)',
-              color: 'white',
+              color: '#0B132B',
               border: 'none',
               borderRadius: '10px',
               fontWeight: '700',
@@ -178,7 +178,7 @@ export default function InventoryPage() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)'
+              boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
             }}
             onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
             onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -204,8 +204,8 @@ export default function InventoryPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Package size={24} color="#3B82F6" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Package size={24} color="var(--info-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Products</div>
@@ -222,8 +222,8 @@ export default function InventoryPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="#10B981" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>In Stock</div>
@@ -240,8 +240,8 @@ export default function InventoryPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <AlertTriangle size={24} color="#F59E0B" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(245, 158, 11, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AlertTriangle size={24} color="var(--warning-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Low Stock</div>
@@ -258,8 +258,8 @@ export default function InventoryPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <X size={24} color="#EF4444" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(220, 38, 38, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <X size={24} color="var(--danger-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Out of Stock</div>
@@ -352,8 +352,8 @@ export default function InventoryPage() {
             style={{
               padding: '10px 14px',
               border: 'none',
-              backgroundColor: viewMode === 'list' ? 'var(--primary)' : 'transparent',
-              color: viewMode === 'list' ? 'white' : 'var(--text-secondary)',
+              backgroundColor: viewMode === 'list' ? 'var(--hover-bg)' : 'transparent',
+              color: viewMode === 'list' ? 'var(--info-text)' : 'var(--text-secondary)'
               cursor: 'pointer'
             }}
           >
@@ -365,10 +365,10 @@ export default function InventoryPage() {
       {/* Bulk Actions */}
       {selectedItems.length > 0 && (
         <div style={{
-          backgroundColor: '#F0FDFA',
+          backgroundColor: 'var(--hover-bg)',
           borderRadius: '12px',
           padding: '16px 20px',
-          border: '1px solid #0F766E',
+          border: '1px solid var(--accent-text)',
           marginBottom: '24px',
           display: 'flex',
           alignItems: 'center',
@@ -383,7 +383,7 @@ export default function InventoryPage() {
               onChange={(e) => setSelectedItems(e.target.checked ? filteredInventory.map(i => i._id) : [])}
               style={{ width: '20px', height: '20px', cursor: 'pointer' }}
             />
-            <span style={{ fontWeight: '600', color: '#0F766E' }}>
+            <span style={{ fontWeight: '600', color: 'var(--info-text)' }}>
               {selectedItems.length} item(s) selected
             </span>
           </div>
@@ -395,7 +395,8 @@ export default function InventoryPage() {
                 padding: '8px 12px',
                 borderRadius: '8px',
                 border: '1px solid var(--border-color)',
-                backgroundColor: 'white',
+                backgroundColor: 'var(--input-bg)',
+                color: 'var(--text-primary)',
                 fontSize: '14px'
               }}
             >
@@ -421,8 +422,8 @@ export default function InventoryPage() {
                   onClick={handleBulkUpdate}
                   style={{
                     padding: '8px 16px',
-                    backgroundColor: '#0F766E',
-                    color: 'white',
+                    backgroundColor: 'var(--primary)',
+                    color: '#0B132B',
                     border: 'none',
                     borderRadius: '8px',
                     fontWeight: '600',
@@ -568,7 +569,11 @@ export default function InventoryPage() {
                           <div style={{
                             flex: 1,
                             height: '8px',
-                            backgroundColor: item.stock < item.lowStockThreshold ? '#FEE2E2' : '#D1FAE5',
+                            backgroundColor: item.stock === 0
+                              ? 'rgba(220, 38, 38, 0.1)'
+                              : item.stock < item.lowStockThreshold
+                                ? 'rgba(245, 158, 11, 0.12)'
+                                : 'rgba(22, 163, 74, 0.12)',
                             borderRadius: '4px',
                             overflow: 'hidden',
                             maxWidth: '100px'
@@ -576,7 +581,11 @@ export default function InventoryPage() {
                             <div style={{
                               width: `${Math.min((item.stock / item.lowStockThreshold) * 100, 100)}%`,
                               height: '100%',
-                              backgroundColor: item.stock < item.lowStockThreshold ? '#EF4444' : '#10B981',
+                              backgroundColor: item.stock === 0
+                                ? '#DC2626'
+                                : item.stock < item.lowStockThreshold
+                                  ? '#F59E0B'
+                                  : '#16A34A',
                               borderRadius: '4px'
                             }} />
                           </div>
@@ -614,7 +623,7 @@ export default function InventoryPage() {
                           style={{
                             padding: '8px 12px',
                             backgroundColor: 'var(--primary)',
-                            color: 'white',
+                            color: '#0B132B',
                             border: 'none',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -699,14 +708,22 @@ export default function InventoryPage() {
                   </div>
                   <div style={{
                     height: '8px',
-                    backgroundColor: item.stock < item.lowStockThreshold ? '#FEE2E2' : '#D1FAE5',
+                    backgroundColor: item.stock === 0
+                      ? 'rgba(220, 38, 38, 0.1)'
+                      : item.stock < item.lowStockThreshold
+                        ? 'rgba(245, 158, 11, 0.12)'
+                        : 'rgba(22, 163, 74, 0.12)',
                     borderRadius: '4px',
                     overflow: 'hidden'
                   }}>
                     <div style={{
                       width: `${Math.min((item.stock / item.lowStockThreshold) * 100, 100)}%`,
                       height: '100%',
-                      backgroundColor: item.stock < item.lowStockThreshold ? '#EF4444' : '#10B981',
+                      backgroundColor: item.stock === 0
+                        ? '#DC2626'
+                        : item.stock < item.lowStockThreshold
+                          ? '#F59E0B'
+                          : '#16A34A',
                       borderRadius: '4px',
                       transition: 'width 0.3s'
                     }} />
@@ -723,7 +740,7 @@ export default function InventoryPage() {
                       flex: 1,
                       padding: '10px',
                       backgroundColor: 'var(--primary)',
-                      color: 'white',
+                      color: '#0B132B',
                       border: 'none',
                       borderRadius: '8px',
                       cursor: 'pointer',
@@ -737,7 +754,7 @@ export default function InventoryPage() {
                     style={{
                       padding: '10px',
                       backgroundColor: 'var(--bg-primary)',
-                      color: 'var(--text-primary)',
+                      color: 'var(--accent-text)',
                       border: '1px solid var(--border-color)',
                       borderRadius: '8px',
                       cursor: 'pointer',

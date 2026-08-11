@@ -54,14 +54,6 @@ interface Product {
   images: string[];
 }
 
-interface ProductApi extends Omit<Product, 'soldCount' | 'images'> {
-  soldCount?: number;
-  numReviews?: number;
-  reviewCount?: number;
-  images?: string[];
-  gallery?: string[];
-}
-
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
@@ -113,7 +105,7 @@ export default function Dashboard() {
         try {
           const productsRes = await api.get('/products?sortBy=best-selling&limit=5');
           if (productsRes.data.success) {
-            setTopProducts(productsRes.data.data.map((p: ProductApi) => ({
+            setTopProducts(productsRes.data.data.map((p: any) => ({
               _id: p._id,
               name: p.name,
               price: p.price,
@@ -174,11 +166,11 @@ export default function Dashboard() {
   ];
 
   const categoryData = [
-    { name: 'Dry Fruits', value: 45000, color: '#0F766E' },
-    { name: 'Fresh Fruits', value: 32000, color: '#3B82F6' },
-    { name: 'Groceries', value: 28000, color: '#F59E0B' },
-    { name: 'Spices', value: 18000, color: '#8B5CF6' },
-    { name: 'Others', value: 12000, color: '#EF4444' },
+    { name: 'Dry Fruits', value: 45000, color: '#FF8A00' },
+    { name: 'Fresh Fruits', value: 32000, color: 'var(--info-text)' },
+    { name: 'Groceries', value: 28000, color: '#16A34A' },
+    { name: 'Spices', value: 18000, color: 'var(--warning)' },
+    { name: 'Others', value: 12000, color: '#64748B' },
   ];
 
   const kpiCards = [
@@ -188,8 +180,8 @@ export default function Dashboard() {
       change: `+${stats?.revenueGrowth || 12.5}%`,
       trend: 'up',
       icon: DollarSign,
-      color: '#10B981',
-      bgColor: '#D1FAE5'
+      color: 'var(--accent-text)',
+      bgColor: 'rgba(255, 138, 0, 0.1)'
     },
     {
       title: 'Total Orders',
@@ -197,8 +189,8 @@ export default function Dashboard() {
       change: `+${stats?.ordersGrowth || 8.2}%`,
       trend: 'up',
       icon: ShoppingCart,
-      color: '#3B82F6',
-      bgColor: '#DBEAFE'
+      color: 'var(--info-text)',
+      bgColor: 'var(--info-light)',
     },
     {
       title: 'Total Customers',
@@ -206,8 +198,8 @@ export default function Dashboard() {
       change: `+${stats?.customersGrowth || 15.3}%`,
       trend: 'up',
       icon: Users,
-      color: '#8B5CF6',
-      bgColor: '#EDE9FE'
+      color: 'var(--success-text)',
+      bgColor: 'rgba(22, 163, 74, 0.1)'
     },
     {
       title: 'Total Products',
@@ -215,17 +207,17 @@ export default function Dashboard() {
       change: `+${stats?.productsGrowth || 3.1}%`,
       trend: 'up',
       icon: Package,
-      color: '#F59E0B',
-      bgColor: '#FEF3C7'
+      color: 'var(--warning-text)',
+      bgColor: 'rgba(245, 158, 11, 0.1)'
     },
   ];
 
-  const orderStats = [
-    { label: 'Pending', value: stats?.pendingOrders || 0, color: '#F59E0B', icon: Clock },
-    { label: 'Processing', value: stats?.processingOrders || 0, color: '#3B82F6', icon: Truck },
-    { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#10B981', icon: CheckCircle },
-    { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#EF4444', icon: XCircle },
-  ];
+    const orderStats = [
+      { label: 'Pending', value: stats?.pendingOrders || 0, color: '#F59E0B', icon: Clock },
+      { label: 'Processing', value: stats?.processingOrders || 0, color: 'var(--warning)', icon: Truck },
+      { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#16A34A', icon: CheckCircle },
+      { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#DC2626', icon: XCircle },
+    ];
 
   if (loading) {
     return (
@@ -259,7 +251,7 @@ export default function Dashboard() {
               Dashboard Overview
             </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              Welcome back! Here&apos;s what&apos;s happening with your store today.
+              Welcome back! Here's what's happening with your store today.
             </p>
           </div>
           
@@ -271,7 +263,7 @@ export default function Dashboard() {
                 style={{
                   padding: '8px 16px',
                   backgroundColor: timeRange === range ? 'var(--primary)' : 'var(--card-bg)',
-                  color: timeRange === range ? 'white' : 'var(--text-primary)',
+                  color: timeRange === range ? '#0B132B' : 'var(--text-primary)',
                   border: '1px solid var(--border-color)',
                   borderRadius: '8px',
                   cursor: 'pointer',
@@ -332,8 +324,8 @@ export default function Dashboard() {
               </div>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px',
-                borderRadius: '20px', backgroundColor: card.trend === 'up' ? '#D1FAE5' : '#FEE2E2',
-                color: card.trend === 'up' ? '#10B981' : '#EF4444', fontSize: '13px', fontWeight: '700'
+                                borderRadius: '20px', backgroundColor: card.trend === 'up' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+                                color: card.trend === 'up' ? 'var(--success-text)' : 'var(--danger-text)', fontSize: '13px', fontWeight: '700'
               }}>
                 {card.trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowUpRight size={14} style={{ transform: 'rotate(90deg)' }} />}
                 {card.change}
@@ -398,33 +390,33 @@ export default function Dashboard() {
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{
-              padding: '16px', borderRadius: '12px', backgroundColor: '#FEF3C7',
+              padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(245, 158, 11, 0.12)',
               border: '1px solid #F59E0B', display: 'flex', alignItems: 'center', gap: '12px'
             }}>
-              <AlertCircle size={24} color="#F59E0B" />
+              <AlertCircle size={24} color="var(--warning-text)" />
               <div>
-                <div style={{ fontWeight: '700', color: '#92400E', marginBottom: '4px' }}>Low Stock Alert</div>
-                <div style={{ fontSize: '13px', color: '#92400E' }}>{stats?.lowStockProducts || 0} products need restocking</div>
+                <div style={{ fontWeight: '700', color: 'var(--warning-text)', marginBottom: '4px' }}>Low Stock Alert</div>
+                <div style={{ fontSize: '13px', color: 'var(--warning-text)' }}>{stats?.lowStockProducts || 0} products need restocking</div>
               </div>
             </div>
             <div style={{
-              padding: '16px', borderRadius: '12px', backgroundColor: '#FEE2E2',
-              border: '1px solid #EF4444', display: 'flex', alignItems: 'center', gap: '12px'
+              padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(220, 38, 38, 0.1)',
+              border: '1px solid #DC2626', display: 'flex', alignItems: 'center', gap: '12px'
             }}>
-              <XCircle size={24} color="#EF4444" />
+              <XCircle size={24} color="var(--danger-text)" />
               <div>
-                <div style={{ fontWeight: '700', color: '#991B1B', marginBottom: '4px' }}>Out of Stock</div>
-                <div style={{ fontSize: '13px', color: '#991B1B' }}>{stats?.outOfStockProducts || 0} products unavailable</div>
+                <div style={{ fontWeight: '700', color: 'var(--danger-text)', marginBottom: '4px' }}>Out of Stock</div>
+                <div style={{ fontSize: '13px', color: 'var(--danger-text)' }}>{stats?.outOfStockProducts || 0} products unavailable</div>
               </div>
             </div>
             <div style={{
-              padding: '16px', borderRadius: '12px', backgroundColor: '#D1FAE5',
-              border: '1px solid #10B981', display: 'flex', alignItems: 'center', gap: '12px'
+              padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(22, 163, 74, 0.12)',
+              border: '1px solid #16A34A', display: 'flex', alignItems: 'center', gap: '12px'
             }}>
-              <TrendingUp size={24} color="#10B981" />
+              <TrendingUp size={24} color="var(--success-text)" />
               <div>
-                <div style={{ fontWeight: '700', color: '#065F46', marginBottom: '4px' }}>New Customers</div>
-                <div style={{ fontSize: '13px', color: '#065F46' }}>{stats?.newCustomers || 0} new signups today</div>
+                <div style={{ fontWeight: '700', color: 'var(--success-text)', marginBottom: '4px' }}>New Customers</div>
+                <div style={{ fontSize: '13px', color: 'var(--success-text)' }}>{stats?.newCustomers || 0} new signups today</div>
               </div>
             </div>
           </div>
@@ -453,15 +445,15 @@ export default function Dashboard() {
             <AreaChart data={revenueData}>
               <defs>
                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0F766E" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#0F766E" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#FF8A00" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#FF8A00" stopOpacity={0}/>
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
               <XAxis dataKey="name" stroke="var(--text-secondary)" />
               <YAxis stroke="var(--text-secondary)" />
               <Tooltip contentStyle={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-              <Area type="monotone" dataKey="revenue" stroke="#0F766E" fillOpacity={1} fill="url(#colorRevenue)" />
+              <Area type="monotone" dataKey="revenue" stroke="#FF8A00" fillOpacity={1} fill="url(#colorRevenue)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -486,7 +478,7 @@ export default function Dashboard() {
                 labelLine={false}
                 label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
                 outerRadius={100}
-                fill="#8884d8"
+                fill="#64748B"
                 dataKey="value"
               >
                 {categoryData.map((entry, index) => (
@@ -537,8 +529,8 @@ export default function Dashboard() {
                       <td style={{ padding: '16px 12px' }}>
                         <span style={{
                           padding: '4px 12px',
-                          backgroundColor: product.stock < 50 ? '#FEE2E2' : '#D1FAE5',
-                          color: product.stock < 50 ? '#DC2626' : '#0F766E',
+                          backgroundColor: product.stock < 50 ? 'rgba(220, 38, 38, 0.1)' : 'rgba(22, 163, 74, 0.12)',
+                          color: product.stock < 50 ? 'var(--danger-text)' : 'var(--success-text)',
                           borderRadius: '20px',
                           fontSize: '12px',
                           fontWeight: '600'
@@ -584,7 +576,7 @@ export default function Dashboard() {
                 <tbody>
                   {recentOrders.map((order, index) => (
                     <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--primary)' }}>
+                      <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--accent-text)' }}>
                         {order.orderId || order._id.slice(-8).toUpperCase()}
                       </td>
                       <td style={{ padding: '16px 12px', color: 'var(--text-secondary)' }}>
@@ -596,14 +588,14 @@ export default function Dashboard() {
                       <td style={{ padding: '16px 12px' }}>
                         <span style={{
                           padding: '6px 12px',
-                          backgroundColor: order.orderStatus === 'Delivered' ? '#D1FAE5' : 
-                                         order.orderStatus === 'Processing' ? '#DBEAFE' :
-                                         order.orderStatus === 'Shipped' ? '#FEF3C7' :
-                                         order.orderStatus === 'Pending' ? '#FEF3C7' : '#FEE2E2',
-                          color: order.orderStatus === 'Delivered' ? '#0F766E' : 
-                                 order.orderStatus === 'Processing' ? '#1E40AF' :
-                                 order.orderStatus === 'Shipped' ? '#92400E' :
-                                 order.orderStatus === 'Pending' ? '#92400E' : '#DC2626',
+                          backgroundColor: order.orderStatus === 'Delivered' ? 'rgba(22, 163, 74, 0.12)' : 
+                                         order.orderStatus === 'Processing' ? 'var(--warning-light)' :
+                                         order.orderStatus === 'Shipped' ? 'rgba(255, 138, 0, 0.12)' :
+                                         order.orderStatus === 'Pending' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+                          color: order.orderStatus === 'Delivered' ? 'var(--success-text)' : 
+                                 order.orderStatus === 'Processing' ? 'var(--warning-text)' :
+                                 order.orderStatus === 'Shipped' ? 'var(--accent-text)' :
+                                 order.orderStatus === 'Pending' ? 'var(--warning-text)' : 'var(--danger-text)',
                           borderRadius: '20px',
                           fontSize: '12px',
                           fontWeight: '600'
@@ -637,17 +629,17 @@ export default function Dashboard() {
           Revenue Breakdown
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
-          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)', color: 'white' }}>
-            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today&apos;s Revenue</div>
+            <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0B132B 0%, #060A16 100%)', color: 'white' }}>
+            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today's Revenue</div>
             <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.todayRevenue || 0).toLocaleString()}</div>
             <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.revenueGrowth || 12.5}% from yesterday</div>
           </div>
-          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%)', color: 'white' }}>
+            <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #FF8A00 0%, #E67D00 100%)', color: '#0B132B' }}>
             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Monthly Revenue</div>
             <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.monthlyRevenue || 0).toLocaleString()}</div>
             <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.ordersGrowth || 8.2}% from last month</div>
           </div>
-          <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)', color: 'white' }}>
+            <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #166534 0%, #14532D 100%)', color: 'white' }}>
             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Total Revenue</div>
             <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.totalRevenue || 0).toLocaleString()}</div>
             <div style={{ fontSize: '13px', opacity: 0.8 }}>All time</div>

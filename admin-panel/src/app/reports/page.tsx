@@ -80,7 +80,7 @@ export default function ReportsPage() {
             <option value="30">Last 30 Days</option>
             <option value="90">Last 3 Months</option>
           </select>
-          <button style={{ padding: '10px 16px', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+          <button style={{ padding: '10px 16px', backgroundColor: 'var(--primary)', color: '#0B132B', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
             <Download size={16} /> Export
           </button>
         </div>
@@ -94,8 +94,11 @@ export default function ReportsPage() {
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               style={{
-                padding: '12px 20px', border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
-                fontSize: '15px', fontWeight: '600', color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
+                padding: '12px 20px', border: 'none',
+                backgroundColor: isActive ? 'var(--hover-bg)' : 'transparent',
+                cursor: 'pointer',
+                fontSize: '15px', fontWeight: '600',
+                color: isActive ? 'var(--info-text)' : 'var(--text-secondary)',
                 borderBottom: isActive ? '3px solid var(--primary)' : '3px solid transparent',
                 display: 'flex', alignItems: 'center', gap: '8px'
               }}>
@@ -108,30 +111,30 @@ export default function ReportsPage() {
       {/* Content */}
       {loading ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
-          <Loader size={48} className="animate-spin text-teal-700" style={{ animation: 'spin 1s linear infinite' }} />
+          <Loader size={48} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
         </div>
       ) : reportData ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
             {activeTab === 'sales' && reportData.summary && (
               <>
-                <KPICard label="Total Revenue" value={`Rs. ${(reportData.summary.totalRevenue || 0).toLocaleString()}`} icon={TrendingUp} color="#10B981" bg="#D1FAE5" />
-                <KPICard label="Total Orders" value={(reportData.summary.totalOrders || 0).toString()} icon={FileText} color="#3B82F6" bg="#DBEAFE" />
-                <KPICard label="Avg Order Value" value={`Rs. ${(reportData.summary.averageOrderValue || 0).toLocaleString()}`} icon={BarChart3} color="#F59E0B" bg="#FEF3C7" />
+                <KPICard label="Total Revenue" value={`Rs. ${(reportData.summary.totalRevenue || 0).toLocaleString()}`} icon={TrendingUp} color="var(--success-text)" bg="var(--success-light)" />
+                <KPICard label="Total Orders" value={(reportData.summary.totalOrders || 0).toString()} icon={FileText} color="var(--info-text)" bg="var(--info-light)" />
+                <KPICard label="Avg Order Value" value={`Rs. ${(reportData.summary.averageOrderValue || 0).toLocaleString()}`} icon={BarChart3} color="var(--warning-text)" bg="var(--warning-light)" />
               </>
             )}
             {activeTab === 'inventory' && (
               <>
-                <KPICard label="Total Products" value={(reportData.totalProducts || 0).toString()} icon={Package} color="#3B82F6" bg="#DBEAFE" />
-                <KPICard label="Low Stock Items" value={(reportData.lowStockProducts?.length || 0).toString()} icon={AlertCircle} color="#EF4444" bg="#FEE2E2" />
-                <KPICard label="Out of Stock" value={(reportData.outOfStockCount || 0).toString()} icon={AlertCircle} color="#DC2626" bg="#FEE2E2" />
+                <KPICard label="Total Products" value={(reportData.totalProducts || 0).toString()} icon={Package} color="var(--info-text)" bg="var(--info-light)" />
+                <KPICard label="Low Stock Items" value={(reportData.lowStockProducts?.length || 0).toString()} icon={AlertCircle} color="var(--warning-text)" bg="var(--warning-light)" />
+                <KPICard label="Out of Stock" value={(reportData.outOfStockCount || 0).toString()} icon={AlertCircle} color="var(--danger-text)" bg="var(--danger-light)" />
               </>
             )}
             {activeTab === 'customers' && reportData.summary && (
               <>
-                <KPICard label="Total Customers" value={(reportData.summary.totalCustomers || 0).toString()} icon={Users} color="#3B82F6" bg="#DBEAFE" />
-                <KPICard label="New This Period" value={(reportData.summary.newCustomers || 0).toString()} icon={TrendingUp} color="#10B981" bg="#D1FAE5" />
-                <KPICard label="Growth Rate" value={`${reportData.summary.growthRate || 0}%`} icon={CheckCircle} color="#10B981" bg="#D1FAE5" />
+                <KPICard label="Total Customers" value={(reportData.summary.totalCustomers || 0).toString()} icon={Users} color="var(--info-text)" bg="var(--info-light)" />
+                <KPICard label="New This Period" value={(reportData.summary.newCustomers || 0).toString()} icon={TrendingUp} color="var(--success-text)" bg="var(--success-light)" />
+                <KPICard label="Growth Rate" value={`${reportData.summary.growthRate || 0}%`} icon={CheckCircle} color="var(--success-text)" bg="var(--success-light)" />
               </>
             )}
           </div>
@@ -156,21 +159,21 @@ export default function ReportsPage() {
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px 24px', fontWeight: '600', color: 'var(--text-primary)' }}>{item.date}</td>
                     <td style={{ padding: '16px 24px', color: 'var(--text-secondary)' }}>{item.orders} Orders</td>
-                    <td style={{ padding: '16px 24px', fontWeight: '700', color: 'var(--primary)' }}>Rs. {(item.revenue || 0).toLocaleString()}</td>
+                    <td style={{ padding: '16px 24px', fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {(item.revenue || 0).toLocaleString()}</td>
                   </tr>
                 ))}
                 {activeTab === 'inventory' && reportData.lowStockProducts?.slice(0, 10).map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px 24px', fontWeight: '600', color: 'var(--text-primary)' }}>{item.name}</td>
                     <td style={{ padding: '16px 24px', color: 'var(--text-secondary)' }}>Stock: {item.stock}</td>
-                    <td style={{ padding: '16px 24px', fontWeight: '700', color: '#EF4444' }}>Low Stock Alert</td>
+                    <td style={{ padding: '16px 24px', fontWeight: '700', color: 'var(--warning-text)' }}>Low Stock Alert</td>
                   </tr>
                 ))}
                 {activeTab === 'customers' && reportData.topSpenders?.slice(0, 10).map((item, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '16px 24px', fontWeight: '600', color: 'var(--text-primary)' }}>{item.fullName}</td>
                     <td style={{ padding: '16px 24px', color: 'var(--text-secondary)' }}>{item.orderCount} Orders</td>
-                    <td style={{ padding: '16px 24px', fontWeight: '700', color: 'var(--primary)' }}>Rs. {(item.totalSpent || 0).toLocaleString()}</td>
+                    <td style={{ padding: '16px 24px', fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {(item.totalSpent || 0).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

@@ -164,7 +164,7 @@ export default function BrandsPage() {
           style={{
             padding: '12px 20px',
             backgroundColor: 'var(--primary)',
-            color: 'white',
+            color: '#0B132B',
             border: 'none',
             borderRadius: '10px',
             fontWeight: '700',
@@ -172,7 +172,7 @@ export default function BrandsPage() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)'
+            boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
           }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -189,8 +189,8 @@ export default function BrandsPage() {
         marginBottom: '24px'
       }}>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Tag size={24} color="#3B82F6" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Tag size={24} color="var(--info-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Brands</div>
@@ -198,8 +198,8 @@ export default function BrandsPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="#10B981" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Brands</div>
@@ -207,8 +207,8 @@ export default function BrandsPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Tag size={24} color="#F59E0B" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Tag size={24} color="var(--accent-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>With Products</div>
@@ -319,11 +319,11 @@ export default function BrandsPage() {
                     width: '80px',
                     height: '80px',
                     borderRadius: '50%',
-                    backgroundColor: '#0F766E',
+                    backgroundColor: '#0B132B',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: 'white',
+                    color: '#FFFFFF',
                     fontWeight: '700',
                     fontSize: '32px'
                   }}>
@@ -335,8 +335,8 @@ export default function BrandsPage() {
                     position: 'absolute',
                     top: '12px',
                     right: '12px',
-                    backgroundColor: '#F59E0B',
-                    color: 'white',
+                    backgroundColor: '#FF8A00',
+                    color: '#0B132B',
                     padding: '4px 10px',
                     borderRadius: '6px',
                     fontSize: '10px',
@@ -355,8 +355,8 @@ export default function BrandsPage() {
                   </h3>
                   <div style={{
                     padding: '4px 10px',
-                    backgroundColor: brand.isActive ? '#D1FAE5' : '#FEE2E2',
-                    color: brand.isActive ? '#0F766E' : '#DC2626',
+                    backgroundColor: brand.isActive ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+                    color: brand.isActive ? 'var(--success-text)' : 'var(--danger-text)',
                     borderRadius: '12px',
                     fontSize: '11px',
                     fontWeight: '700'
@@ -396,8 +396,8 @@ export default function BrandsPage() {
                     style={{
                       flex: 1,
                       padding: '10px',
-                      backgroundColor: '#DBEAFE',
-                      color: '#1E40AF',
+                      backgroundColor: 'var(--info-light)',
+                      color: 'var(--info-text)',
                       border: 'none',
                       borderRadius: '8px',
                       cursor: 'pointer',
@@ -415,8 +415,8 @@ export default function BrandsPage() {
                     onClick={() => handleDelete(brand._id, brand.name)}
                     style={{
                       padding: '10px 14px',
-                      backgroundColor: '#FEE2E2',
-                      color: '#DC2626',
+                      backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                      color: 'var(--danger-text)',
                       border: 'none',
                       borderRadius: '8px',
                       cursor: 'pointer',
@@ -695,7 +695,7 @@ export default function BrandsPage() {
                   style={{
                     padding: '12px 24px',
                     backgroundColor: 'var(--primary)',
-                    color: 'white',
+                    color: '#0B132B',
                     border: 'none',
                     borderRadius: '10px',
                     fontWeight: '700',

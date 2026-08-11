@@ -57,15 +57,15 @@ const badgeFor = (status: PaymentStatus | RefundStatus) => {
   switch (status) {
     case 'Completed':
     case 'Refunded':
-      return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
+      return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', icon: CheckCircle };
     case 'Failed':
     case 'Cancelled':
-      return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
+      return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', icon: XCircle };
     case 'Pending':
     case 'Processing':
-      return { bg: '#FEF3C7', color: '#92400E', icon: Clock };
+      return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', icon: Clock };
     default:
-      return { bg: '#E0F2FE', color: '#0369A1', icon: AlertCircle };
+      return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: AlertCircle };
   }
 };
 
@@ -256,9 +256,9 @@ export default function RefundsPage() {
             marginBottom: '20px',
             padding: '14px 16px',
             borderRadius: '10px',
-            border: `1px solid ${message.kind === 'success' ? '#A7F3D0' : '#FECACA'}`,
-            background: message.kind === 'success' ? '#ECFDF5' : '#FEF2F2',
-            color: message.kind === 'success' ? '#065F46' : '#991B1B'
+            border: `1px solid ${message.kind === 'success' ? '#16A34A' : '#DC2626'}`,
+            background: message.kind === 'success' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+            color: message.kind === 'success' ? 'var(--success-text)' : 'var(--danger-text)'
           }}
         >
           {message.text}
@@ -326,7 +326,8 @@ export default function RefundsPage() {
               padding: '9px 12px',
               borderRadius: '8px',
               border: '1px solid var(--border-color)',
-              background: 'var(--input-bg)'
+              background: 'var(--input-bg)',
+              color: 'var(--text-primary)'
             }}
           >
             <option value="all">All providers</option>
@@ -410,7 +411,7 @@ export default function RefundsPage() {
                               borderRadius: '8px',
                               padding: '9px 12px',
                               background: 'var(--primary)',
-                              color: 'white',
+                              color: '#0B132B',
                               fontWeight: '700',
                               cursor: refundableStatuses.has(payment.status)
                                 ? 'pointer'
@@ -471,7 +472,8 @@ export default function RefundsPage() {
                   padding: '11px',
                   borderRadius: '8px',
                   border: '1px solid var(--border-color)',
-                  background: 'var(--input-bg)'
+                  background: 'var(--input-bg)',
+                  color: 'var(--text-primary)'
                 }}
               />
             </label>
@@ -488,7 +490,8 @@ export default function RefundsPage() {
                   padding: '11px',
                   borderRadius: '8px',
                   border: '1px solid var(--border-color)',
-                  background: 'var(--input-bg)'
+                  background: 'var(--input-bg)',
+                  color: 'var(--text-primary)'
                 }}
               />
             </label>
@@ -503,7 +506,8 @@ export default function RefundsPage() {
                   padding: '11px',
                   borderRadius: '8px',
                   border: '1px solid var(--border-color)',
-                  background: 'var(--input-bg)'
+                  background: 'var(--input-bg)',
+                  color: 'var(--text-primary)'
                 }}
               />
             </label>
@@ -520,7 +524,7 @@ export default function RefundsPage() {
               borderRadius: '8px',
               padding: '11px 16px',
               background: 'var(--primary)',
-              color: 'white',
+              color: '#0B132B',
               fontWeight: '700',
               cursor: submitting ? 'wait' : 'pointer'
             }}
@@ -558,7 +562,8 @@ export default function RefundsPage() {
               padding: '9px 12px',
               borderRadius: '8px',
               border: '1px solid var(--border-color)',
-              background: 'var(--input-bg)'
+              background: 'var(--input-bg)',
+              color: 'var(--text-primary)'
             }}
           >
             <option value="all">All statuses</option>
@@ -572,7 +577,7 @@ export default function RefundsPage() {
 
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center' }}>
-            <Loader className="animate-spin" size={28} />
+            <Loader className="animate-spin" size={28} color="#FF8A00" />
           </div>
         ) : refunds.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-secondary)' }}>

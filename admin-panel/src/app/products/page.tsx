@@ -110,12 +110,12 @@ export default function ProductsPage() {
 
   const getStatusBadge = (product: Product) => {
     if (product.stock === 0) {
-      return { bg: '#FEE2E2', color: '#DC2626', text: 'Out of Stock', icon: XCircle };
+      return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', text: 'Out of Stock', icon: XCircle };
     }
     if (product.stock < 10) {
-      return { bg: '#FEF3C7', color: '#92400E', text: 'Low Stock', icon: AlertCircle };
+      return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', text: 'Low Stock', icon: AlertCircle };
     }
-    return { bg: '#D1FAE5', color: '#0F766E', text: 'In Stock', icon: CheckCircle };
+    return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', text: 'In Stock', icon: CheckCircle };
   };
 
   const hasActiveFilters = searchQuery || categoryFilter || sortBy !== 'newest';
@@ -136,7 +136,7 @@ export default function ProductsPage() {
           onClick={() => router.push('/admin/products/add')}
           style={{
             backgroundColor: 'var(--primary)',
-            color: 'white',
+            color: '#0B132B',
             border: 'none',
             padding: '12px 20px',
             borderRadius: '10px',
@@ -147,7 +147,7 @@ export default function ProductsPage() {
             alignItems: 'center',
             gap: '8px',
             transition: 'all 0.2s',
-            boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)'
+            boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
           }}
           onMouseEnter={e => {
             e.currentTarget.style.backgroundColor = 'var(--primary-dark)';
@@ -180,9 +180,9 @@ export default function ProductsPage() {
         }}>
           <div style={{
             width: '48px', height: '48px', borderRadius: '10px',
-            backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <Package size={24} color="#3B82F6" />
+            backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <Package size={24} color="var(--info-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Products</div>
@@ -201,9 +201,9 @@ export default function ProductsPage() {
         }}>
           <div style={{
             width: '48px', height: '48px', borderRadius: '10px',
-            backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <TrendingUp size={24} color="#10B981" />
+            backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <TrendingUp size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Products</div>
@@ -320,7 +320,7 @@ export default function ProductsPage() {
                 gap: '6px',
                 transition: 'all 0.2s'
               }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#FEE2E2'; e.currentTarget.style.color = '#DC2626'; e.currentTarget.style.borderColor = '#DC2626'; }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.1)'; e.currentTarget.style.color = 'var(--danger-text)'; e.currentTarget.style.borderColor = '#DC2626'; }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--input-bg)'; e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
             >
               <X size={16} /> Clear
@@ -341,7 +341,7 @@ export default function ProductsPage() {
                 padding: '10px 14px',
                 border: 'none',
                 backgroundColor: viewMode === 'list' ? 'var(--primary)' : 'transparent',
-                color: viewMode === 'list' ? 'white' : 'var(--text-secondary)',
+                color: viewMode === 'list' ? '#0B132B' : 'var(--text-secondary)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -358,7 +358,7 @@ export default function ProductsPage() {
                 border: 'none',
                 borderLeft: '1px solid var(--border-color)',
                 backgroundColor: viewMode === 'grid' ? 'var(--primary)' : 'transparent',
-                color: viewMode === 'grid' ? 'white' : 'var(--text-secondary)',
+                color: viewMode === 'grid' ? '#0B132B' : 'var(--text-secondary)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -412,7 +412,7 @@ export default function ProductsPage() {
             onClick={() => router.push('/admin/products/add')}
             style={{
               backgroundColor: 'var(--primary)',
-              color: 'white',
+              color: '#0B132B',
               border: 'none',
               padding: '12px 24px',
               borderRadius: '10px',
@@ -564,7 +564,7 @@ export default function ProductsPage() {
                               justifyContent: 'center',
                               transition: 'all 0.2s'
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.borderColor = '#3B82F6'; }}
+                            onMouseEnter={e => { e.currentTarget.style.color = 'var(--info-text)'; e.currentTarget.style.borderColor = 'var(--info-text)'; }}
                             onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
                             title="Edit"
                           >
@@ -575,8 +575,8 @@ export default function ProductsPage() {
                             disabled={deletingId === product._id}
                             style={{
                               padding: '8px',
-                              backgroundColor: deletingId === product._id ? '#FEE2E2' : 'transparent',
-                              color: deletingId === product._id ? '#DC2626' : 'var(--text-secondary)',
+                              backgroundColor: deletingId === product._id ? 'rgba(220, 38, 38, 0.1)' : 'transparent',
+                              color: deletingId === product._id ? 'var(--danger-text)' : 'var(--text-secondary)',
                               border: `1px solid ${deletingId === product._id ? '#DC2626' : 'var(--border-color)'}`,
                               borderRadius: '6px',
                               cursor: deletingId === product._id ? 'not-allowed' : 'pointer',
@@ -587,8 +587,8 @@ export default function ProductsPage() {
                             }}
                             onMouseEnter={e => {
                               if (deletingId !== product._id) {
-                                e.currentTarget.style.backgroundColor = '#FEE2E2';
-                                e.currentTarget.style.color = '#DC2626';
+                                e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.1)';
+                                e.currentTarget.style.color = 'var(--danger-text)';
                                 e.currentTarget.style.borderColor = '#DC2626';
                               }
                             }}
@@ -698,8 +698,8 @@ export default function ProductsPage() {
                       position: 'absolute',
                       bottom: '12px',
                       left: '12px',
-                      backgroundColor: '#F59E0B',
-                      color: 'white',
+                      backgroundColor: '#FF8A00',
+                      color: '#0B132B',
                       padding: '4px 10px',
                       borderRadius: '6px',
                       fontSize: '10px',
@@ -739,7 +739,7 @@ export default function ProductsPage() {
 
                   <div style={{ marginTop: 'auto' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '16px' }}>
-                      <span style={{ fontSize: '20px', fontWeight: '800', color: 'var(--primary)' }}>
+                      <span style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>
                         Rs. {product.price.toLocaleString()}
                       </span>
                       {product.originalPrice && product.originalPrice > product.price && (
@@ -756,7 +756,7 @@ export default function ProductsPage() {
                           flex: 1,
                           padding: '10px',
                           backgroundColor: 'var(--bg-primary)',
-                          color: 'var(--primary)',
+                          color: 'var(--text-primary)',
                           border: '1px solid var(--border-color)',
                           borderRadius: '8px',
                           cursor: 'pointer',
@@ -770,12 +770,12 @@ export default function ProductsPage() {
                         }}
                         onMouseEnter={e => {
                           e.currentTarget.style.backgroundColor = 'var(--primary)';
-                          e.currentTarget.style.color = 'white';
+                          e.currentTarget.style.color = '#0B132B';
                           e.currentTarget.style.borderColor = 'var(--primary)';
                         }}
                         onMouseLeave={e => {
                           e.currentTarget.style.backgroundColor = 'var(--bg-primary)';
-                          e.currentTarget.style.color = 'var(--primary)';
+                          e.currentTarget.style.color = 'var(--text-primary)';
                           e.currentTarget.style.borderColor = 'var(--border-color)';
                         }}
                       >
@@ -786,8 +786,8 @@ export default function ProductsPage() {
                         style={{
                           flex: 1,
                           padding: '10px',
-                          backgroundColor: '#DBEAFE',
-                          color: '#1E40AF',
+                          backgroundColor: 'var(--info-light)',
+                          color: 'var(--info-text)',
                           border: '1px solid transparent',
                           borderRadius: '8px',
                           cursor: 'pointer',
@@ -800,12 +800,12 @@ export default function ProductsPage() {
                           transition: 'all 0.2s'
                         }}
                         onMouseEnter={e => {
-                          e.currentTarget.style.backgroundColor = '#1E40AF';
-                          e.currentTarget.style.color = 'white';
+                          e.currentTarget.style.backgroundColor = '#0B132B';
+                          e.currentTarget.style.color = '#FFFFFF';
                         }}
                         onMouseLeave={e => {
-                          e.currentTarget.style.backgroundColor = '#DBEAFE';
-                          e.currentTarget.style.color = '#1E40AF';
+                          e.currentTarget.style.backgroundColor = 'var(--info-light)';
+                          e.currentTarget.style.color = 'var(--info-text)';
                         }}
                       >
                         <Edit size={14} /> Edit
@@ -815,8 +815,8 @@ export default function ProductsPage() {
                         disabled={deletingId === product._id}
                         style={{
                           padding: '10px 12px',
-                          backgroundColor: '#FEE2E2',
-                          color: '#DC2626',
+                          backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                          color: 'var(--danger-text)',
                           border: '1px solid transparent',
                           borderRadius: '8px',
                           cursor: deletingId === product._id ? 'not-allowed' : 'pointer',
@@ -831,13 +831,13 @@ export default function ProductsPage() {
                         onMouseEnter={e => {
                           if (deletingId !== product._id) {
                             e.currentTarget.style.backgroundColor = '#DC2626';
-                            e.currentTarget.style.color = 'white';
+                            e.currentTarget.style.color = '#FFFFFF';
                           }
                         }}
                         onMouseLeave={e => {
                           if (deletingId !== product._id) {
-                            e.currentTarget.style.backgroundColor = '#FEE2E2';
-                            e.currentTarget.style.color = '#DC2626';
+                            e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.1)';
+                            e.currentTarget.style.color = 'var(--danger-text)';
                           }
                         }}
                       >

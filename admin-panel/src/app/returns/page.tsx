@@ -80,13 +80,22 @@ export default function ReturnsPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    const s = status.toLowerCase();
+  const s = status.toLowerCase();
     switch (s) {
-      case 'pending': return { bg: '#FEF3C7', color: '#92400E', icon: Clock };
-      case 'approved': case 'received': case 'inspected': return { bg: '#DBEAFE', color: '#1E40AF', icon: CheckCircle };
-      case 'refunded': return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
-      case 'rejected': case 'cancelled': return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
-      default: return { bg: '#F3F4F6', color: '#6B7280', icon: AlertCircle };
+      case 'pending':
+        return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', icon: Clock };
+      case 'approved':
+        return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', icon: CheckCircle };
+      case 'received':
+      case 'inspected':
+        return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: CheckCircle };
+      case 'refunded':
+        return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', icon: CheckCircle };
+      case 'rejected':
+      case 'cancelled':
+        return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', icon: XCircle };
+      default:
+        return { bg: 'var(--bg-primary)', color: 'var(--text-secondary)', icon: AlertCircle };
     }
   };
 
@@ -106,10 +115,10 @@ export default function ReturnsPage() {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         {[
-          { label: 'Total Returns', value: stats.total, color: '#3B82F6', bg: '#DBEAFE', icon: RotateCcw },
-          { label: 'Pending', value: stats.pending, color: '#F59E0B', bg: '#FEF3C7', icon: Clock },
-          { label: 'Approved', value: stats.approved, color: '#1E40AF', bg: '#DBEAFE', icon: CheckCircle },
-          { label: 'Rejected', value: stats.rejected, color: '#EF4444', bg: '#FEE2E2', icon: XCircle },
+          { label: 'Total Returns', value: stats.total, color: 'var(--info-text)', bg: 'var(--info-light)', icon: RotateCcw },
+          { label: 'Pending', value: stats.pending, color: 'var(--warning-text)', bg: 'rgba(245, 158, 11, 0.12)', icon: Clock },
+          { label: 'Approved', value: stats.approved, color: 'var(--success-text)', bg: 'rgba(22, 163, 74, 0.12)', icon: CheckCircle },
+          { label: 'Rejected', value: stats.rejected, color: 'var(--danger-text)', bg: 'rgba(220, 38, 38, 0.1)', icon: XCircle },
         ].map((stat, idx) => (
           <div key={idx} style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
             <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: stat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -178,7 +187,7 @@ export default function ReturnsPage() {
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                       onClick={() => { setSelectedReturn(ret); setShowModal(true); }}>
-                      <td style={{ padding: '16px 20px', fontWeight: '700', color: 'var(--primary)', fontFamily: 'monospace' }}>{ret.returnNumber}</td>
+                      <td style={{ padding: '16px 20px', fontWeight: '700', color: 'var(--accent-text)', fontFamily: 'monospace' }}>{ret.returnNumber}</td>
                       <td style={{ padding: '16px 20px', color: 'var(--text-secondary)' }}>{ret.order?.orderId || 'N/A'}</td>
                       <td style={{ padding: '16px 20px', fontWeight: '600', color: 'var(--text-primary)' }}>{ret.customer?.fullName || 'N/A'}</td>
                       <td style={{ padding: '16px 20px', color: 'var(--text-secondary)' }}>{productName}</td>
@@ -190,7 +199,7 @@ export default function ReturnsPage() {
                         </div>
                       </td>
                       <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                        <button style={{ padding: '8px 12px', backgroundColor: 'var(--bg-primary)', color: 'var(--primary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <button style={{ padding: '8px 12px', backgroundColor: 'var(--bg-primary)', color: 'var(--accent-text)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <Eye size={14} /> View
                         </button>
                       </td>
@@ -215,7 +224,7 @@ export default function ReturnsPage() {
               <div><div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Return #</div><div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{selectedReturn.returnNumber}</div></div>
               <div><div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Order #</div><div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{selectedReturn.order?.orderId || 'N/A'}</div></div>
               <div><div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Customer</div><div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{selectedReturn.customer?.fullName || 'N/A'}</div></div>
-              <div><div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Refund Amount</div><div style={{ fontWeight: '700', color: 'var(--primary)' }}>Rs. {(selectedReturn.refundAmount || 0).toLocaleString()}</div></div>
+              <div><div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Refund Amount</div><div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {(selectedReturn.refundAmount || 0).toLocaleString()}</div></div>
             </div>
             <div style={{ padding: '16px', backgroundColor: 'var(--bg-primary)', borderRadius: '10px', marginBottom: '24px' }}>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>Reason for Return</div>
@@ -225,10 +234,10 @@ export default function ReturnsPage() {
               <button onClick={() => setShowModal(false)} style={{ padding: '12px 24px', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Close</button>
               {selectedReturn.status === 'pending' && (
                 <>
-                  <button onClick={() => handleStatusUpdate(selectedReturn._id, 'rejected')} disabled={actionLoading} style={{ padding: '12px 24px', backgroundColor: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button onClick={() => handleStatusUpdate(selectedReturn._id, 'rejected')} disabled={actionLoading} style={{ padding: '12px 24px', backgroundColor: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {actionLoading ? <Loader size={16} className="animate-spin" /> : <XCircle size={16} />} Reject
                   </button>
-                  <button onClick={() => handleStatusUpdate(selectedReturn._id, 'approved')} disabled={actionLoading} style={{ padding: '12px 24px', backgroundColor: '#D1FAE5', color: '#0F766E', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button onClick={() => handleStatusUpdate(selectedReturn._id, 'approved')} disabled={actionLoading} style={{ padding: '12px 24px', backgroundColor: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {actionLoading ? <Loader size={16} className="animate-spin" /> : <CheckCircle size={16} />} Approve
                   </button>
                 </>

@@ -118,8 +118,8 @@ const menuItems: MenuItem[] = [
       { label: 'Orders Report', href: '/reports?tab=orders' }
     ]
   },
-  { icon: BarChart3, label: 'Analytics', href: '/analytics' }, // ✅ FIXED: Unique href
-  { icon: Megaphone, label: 'Marketing', href: '/marketing' }, // ✅ FIXED: Unique href
+  { icon: BarChart3, label: 'Analytics', href: '/analytics' },
+  { icon: Megaphone, label: 'Marketing', href: '/marketing' },
   { 
     icon: ImageIcon, 
     label: 'Content', 
@@ -131,7 +131,7 @@ const menuItems: MenuItem[] = [
     ]
   },
   { icon: UsersRound, label: 'Users', href: '/users' },
-  { icon: Shield, label: 'Roles', href: '/roles' }, // ✅ FIXED: Unique href
+  { icon: Shield, label: 'Roles', href: '/roles' },
   { icon: History, label: 'Activity Logs', href: '/activity-logs' },
   { icon: Settings, label: 'Settings', href: '/settings' },
 ];
@@ -151,7 +151,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
-    return pathname.startsWith(href.split('?')[0]); // ✅ FIXED: Ignore query params for active state
+    return pathname.startsWith(href.split('?')[0]);
   };
 
   return (
@@ -163,9 +163,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
+            backgroundColor: 'rgba(0,0,0,0.6)',
             zIndex: 999,
-            display: 'none'
+            display: 'none',
+            backdropFilter: 'blur(2px)'
           }}
           className="mobile-overlay"
         />
@@ -182,31 +183,34 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           zIndex: 1000,
           overflow: 'hidden',
-          borderRight: '1px solid var(--border-color)',
+          borderRight: '1px solid var(--sidebar-border)',
           display: 'flex',
           flexDirection: 'column'
         }}
       >
-        {/* Logo */}
+        {/* Logo Header */}
         <div style={{
-          padding: '24px 20px',
-          borderBottom: '1px solid var(--border-color)',
+          padding: isOpen ? '20px 20px' : '20px 0',
+          borderBottom: '1px solid var(--sidebar-border)',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: isOpen ? 'flex-start' : 'center',
           gap: '12px',
-          minHeight: '80px'
+          minHeight: '72px'
         }}>
           <BrandLogo
             variant={isOpen ? 'horizontal' : 'symbol'}
-            theme={isDark ? 'light' : 'dark'}
-            height={isOpen ? 27 : 34}
+            theme="light"
+            height={isOpen ? 26 : 32}
           />
           {isOpen && (
             <div style={{ marginLeft: 'auto' }}>
               <div style={{ 
-                fontSize: '11px', 
-                color: 'var(--text-secondary)',
-                fontWeight: '600'
+                fontSize: '10px', 
+                color: 'var(--sidebar-text)',
+                fontWeight: '600',
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase'
               }}>
                 Admin Panel
               </div>
@@ -216,7 +220,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Menu Items */}
         <nav style={{ 
-          padding: '16px 12px',
+          padding: '12px 10px',
           flex: 1,
           overflowY: 'auto',
           overflowX: 'hidden'
@@ -224,9 +228,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           {menuItems.map((item) => {
             const isExpanded = expandedMenus.includes(item.href);
             const hasSubmenu = item.submenu && item.submenu.length > 0;
+            const active = isActive(item.href);
             
             return (
-              <div key={item.href} style={{ marginBottom: '4px' }}>
+              <div key={item.href} style={{ marginBottom: '2px' }}>
                 <Link
                   href={item.href}
                   onClick={(e) => {
@@ -235,56 +240,61 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                       toggleMenu(item.href);
                     }
                   }}
+                  title={!isOpen ? item.label : undefined}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '12px',
-                    padding: '12px 16px',
-                    color: isActive(item.href) ? 'var(--primary)' : 'var(--text-secondary)',
+                    padding: isOpen ? '10px 14px' : '10px 0',
+                    justifyContent: isOpen ? 'flex-start' : 'center',
+                    color: active ? 'var(--sidebar-text-active)' : 'var(--sidebar-text)',
                     textDecoration: 'none',
                     borderRadius: '10px',
-                    transition: 'all 0.2s',
-                    backgroundColor: isActive(item.href) ? 'var(--primary-light)' : 'transparent',
-                    fontWeight: isActive(item.href) ? '600' : '500',
-                    fontSize: '14px',
+                    transition: 'all 0.15s ease',
+                    backgroundColor: active ? 'var(--sidebar-active-bg)' : 'transparent',
+                    fontWeight: active ? '600' : '500',
+                    fontSize: '13.5px',
                     position: 'relative',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    borderLeft: active ? `3px solid var(--sidebar-active-accent)` : '3px solid transparent',
                   }}
                   onMouseEnter={e => {
-                    if (!isActive(item.href)) {
-                      e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
-                      e.currentTarget.style.color = 'var(--text-primary)';
+                    if (!active) {
+                      e.currentTarget.style.backgroundColor = 'var(--sidebar-hover-bg)';
+                      e.currentTarget.style.color = 'var(--sidebar-text-hover, #E2E8F0)';
                     }
                   }}
                   onMouseLeave={e => {
-                    if (!isActive(item.href)) {
+                    if (!active) {
                       e.currentTarget.style.backgroundColor = 'transparent';
-                      e.currentTarget.style.color = 'var(--text-secondary)';
+                      e.currentTarget.style.color = 'var(--sidebar-text)';
                     }
                   }}
                 >
-                  <item.icon size={20} style={{ flexShrink: 0 }} />
+                  <item.icon size={18} style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }} />
                   {isOpen && (
                     <>
                       <span style={{ flex: 1 }}>{item.label}</span>
                       {item.badge && (
                         <span style={{
-                          backgroundColor: 'var(--primary)',
-                          color: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          fontSize: '11px',
-                          fontWeight: '700'
+                          backgroundColor: '#FF8A00',
+                          color: '#0B132B',
+                          padding: '2px 7px',
+                          borderRadius: '999px',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          letterSpacing: '0.02em'
                         }}>
                           {item.badge}
                         </span>
                       )}
                       {hasSubmenu && (
                         <ChevronDown 
-                          size={16} 
+                          size={14} 
                           style={{ 
                             transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.2s'
+                            transition: 'transform 0.2s',
+                            opacity: 0.6
                           }}
                         />
                       )}
@@ -295,10 +305,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 {/* Submenu */}
                 {isOpen && hasSubmenu && isExpanded && (
                   <div style={{ 
-                    marginLeft: '20px',
-                    marginTop: '4px',
-                    borderLeft: '2px solid var(--border-color)',
-                    paddingLeft: '12px'
+                    marginLeft: '16px',
+                    marginTop: '2px',
+                    borderLeft: '1px solid var(--sidebar-border)',
+                    paddingLeft: '14px',
+                    marginBottom: '4px'
                   }}>
                     {item.submenu!.map((subItem) => (
                       <Link
@@ -306,21 +317,21 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         href={subItem.href}
                         style={{
                           display: 'block',
-                          padding: '8px 12px',
-                          color: 'var(--text-secondary)',
+                          padding: '7px 10px',
+                          color: 'var(--sidebar-text)',
                           textDecoration: 'none',
-                          borderRadius: '8px',
-                          fontSize: '13px',
+                          borderRadius: '7px',
+                          fontSize: '12.5px',
                           fontWeight: '500',
-                          transition: 'all 0.2s'
+                          transition: 'all 0.15s ease'
                         }}
                         onMouseEnter={e => {
-                          e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
-                          e.currentTarget.style.color = 'var(--text-primary)';
+                          e.currentTarget.style.backgroundColor = 'var(--sidebar-hover-bg)';
+                          e.currentTarget.style.color = 'var(--sidebar-text-hover, #E2E8F0)';
                         }}
                         onMouseLeave={e => {
                           e.currentTarget.style.backgroundColor = 'transparent';
-                          e.currentTarget.style.color = 'var(--text-secondary)';
+                          e.currentTarget.style.color = 'var(--sidebar-text)';
                         }}
                       >
                         {subItem.label}
@@ -335,11 +346,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Footer */}
         <div style={{
-          padding: '16px 12px',
-          borderTop: '1px solid var(--border-color)'
+          padding: '12px 10px',
+          borderTop: '1px solid var(--sidebar-border)'
         }}>
           {isOpen && (
-            <p style={{ margin: '0 8px 8px', color: 'var(--text-secondary)', fontSize: '10px' }}>
+            <p style={{ margin: '0 8px 8px', color: 'var(--sidebar-text)', fontSize: '10px', opacity: 0.6 }}>
               {copyrightLine()}
             </p>
           )}
@@ -348,25 +359,27 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               width: '100%',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: isOpen ? 'flex-start' : 'center',
               gap: '12px',
-              padding: '12px 16px',
+              padding: isOpen ? '10px 14px' : '10px 0',
               backgroundColor: 'transparent',
-              color: 'var(--danger)',
+              color: '#F87171',
               border: 'none',
               borderRadius: '10px',
               cursor: 'pointer',
               fontWeight: '600',
-              fontSize: '14px',
-              transition: 'all 0.2s'
+              fontSize: '13.5px',
+              transition: 'all 0.15s ease'
             }}
+            title={!isOpen ? 'Logout' : undefined}
             onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = 'var(--danger-light)';
+              e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.12)';
             }}
             onMouseLeave={e => {
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <LogOut size={20} />
+            <LogOut size={18} style={{ flexShrink: 0 }} />
             {isOpen && <span>Logout</span>}
           </button>
         </div>

@@ -184,12 +184,12 @@ export default function UsersPage() {
 
   const getRoleConfig = (role: string) => {
     switch (role) {
-      case 'super_admin': return { label: 'Super Admin', color: '#7C3AED', bg: '#EDE9FE', icon: ShieldAlert };
-      case 'admin': return { label: 'Admin', color: '#1E40AF', bg: '#DBEAFE', icon: ShieldCheck };
-      case 'manager': return { label: 'Manager', color: '#0F766E', bg: '#D1FAE5', icon: Shield };
-      case 'support': return { label: 'Support', color: '#B45309', bg: '#FEF3C7', icon: UserCheck };
-      case 'inventory': return { label: 'Inventory', color: '#4338CA', bg: '#E0E7FF', icon: Users };
-      default: return { label: role, color: '#6B7280', bg: '#F3F4F6', icon: Users };
+      case 'super_admin': return { label: 'Super Admin', color: 'var(--accent-text)', bg: 'rgba(255, 138, 0, 0.12)', icon: ShieldAlert };
+      case 'admin': return { label: 'Admin', color: 'var(--info-text)', bg: 'var(--info-light)', icon: ShieldCheck };
+      case 'manager': return { label: 'Manager', color: 'var(--success-text)', bg: 'rgba(22, 163, 74, 0.12)', icon: Shield };
+      case 'support': return { label: 'Support', color: 'var(--warning-text)', bg: 'rgba(245, 158, 11, 0.12)', icon: UserCheck };
+      case 'inventory': return { label: 'Inventory', color: 'var(--text-secondary)', bg: 'var(--bg-primary)', icon: Users };
+      default: return { label: role, color: 'var(--text-secondary)', bg: 'var(--bg-primary)', icon: Users };
     }
   };
 
@@ -229,8 +229,8 @@ export default function UsersPage() {
               setShowModal(true);
             }}
             style={{
-              backgroundColor: 'var(--primary)',
-              color: 'white',
+              backgroundColor: 'var(--info-light)',
+              color: 'var(--info-text)',
               padding: '12px 24px',
               borderRadius: '10px',
               border: 'none',
@@ -358,7 +358,7 @@ export default function UsersPage() {
           border: '1px solid var(--border-color)',
           textAlign: 'center'
         }}>
-          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} color="var(--primary)" />
+          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} color="#FF8A00" />
           <p style={{ color: 'var(--text-secondary)' }}>Loading staff members...</p>
         </div>
       ) : users.length === 0 ? (
@@ -453,8 +453,8 @@ export default function UsersPage() {
                       <td style={{ padding: '16px' }}>
                         <span style={{
                           padding: '6px 12px',
-                          backgroundColor: user.isBlocked ? '#FEE2E2' : '#D1FAE5',
-                          color: user.isBlocked ? '#DC2626' : '#0F766E',
+                          backgroundColor: user.isBlocked ? 'rgba(220, 38, 38, 0.1)' : 'rgba(22, 163, 74, 0.12)',
+                          color: user.isBlocked ? 'var(--danger-text)' : 'var(--success-text)',
                           borderRadius: '20px',
                           fontSize: '12px',
                           fontWeight: '600'
@@ -475,8 +475,8 @@ export default function UsersPage() {
                             onClick={() => openEditModal(user)}
                             style={{
                               padding: '8px 12px',
-                              backgroundColor: '#F59E0B',
-                              color: 'white',
+                              backgroundColor: 'var(--info-light)',
+                              color: 'var(--info-text)',
                               border: 'none',
                               borderRadius: '8px',
                               cursor: 'pointer',
@@ -493,7 +493,7 @@ export default function UsersPage() {
                             onClick={() => handleToggleBlock(user)}
                             style={{
                               padding: '8px 12px',
-                              backgroundColor: user.isBlocked ? '#10B981' : '#6B7280',
+                              backgroundColor: user.isBlocked ? '#16A34A' : '#6B7280',
                               color: 'white',
                               border: 'none',
                               borderRadius: '8px',
@@ -511,7 +511,7 @@ export default function UsersPage() {
                             onClick={() => handleDelete(user._id)}
                             style={{
                               padding: '8px 12px',
-                              backgroundColor: '#EF4444',
+                              backgroundColor: '#DC2626',
                               color: 'white',
                               border: 'none',
                               borderRadius: '8px',
@@ -588,11 +588,11 @@ export default function UsersPage() {
             {error && (
               <div style={{
                 padding: '12px',
-                backgroundColor: '#FEE2E2',
-                border: '1px solid #EF4444',
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                border: '1px solid #DC2626',
                 borderRadius: '8px',
                 marginBottom: '20px',
-                color: '#DC2626',
+                color: 'var(--danger-text)',
                 fontSize: '14px',
                 display: 'flex',
                 alignItems: 'center',
@@ -716,7 +716,7 @@ export default function UsersPage() {
                     flex: 1,
                     padding: '14px',
                     backgroundColor: saving ? '#9CA3AF' : 'var(--primary)',
-                    color: 'white',
+                    color: saving ? '#FFFFFF' : '#0B132B',
                     border: 'none',
                     borderRadius: '10px',
                     cursor: saving ? 'not-allowed' : 'pointer',

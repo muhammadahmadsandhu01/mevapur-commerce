@@ -48,7 +48,7 @@ const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', i
       style={{
         width: '100%',
         padding: '12px 16px',
-        border: error ? '1px solid #EF4444' : '1px solid var(--border-color)',
+        border: error ? '1px solid #DC2626' : '1px solid var(--border-color)',
         borderRadius: '10px',
         fontSize: '14px',
         outline: 'none',
@@ -59,7 +59,7 @@ const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', i
       onFocus={(e) => !error && (e.currentTarget.style.borderColor = 'var(--primary)')}
       onBlur={(e) => !error && (e.currentTarget.style.borderColor = 'var(--border-color)')}
     />
-    {error && <p style={{ fontSize: '12px', color: '#EF4444', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={12} /> {error}</p>}
+    {error && <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={12} /> {error}</p>}
   </div>
 );
 
@@ -111,11 +111,11 @@ const ValidationMessage = ({ valid, message }: ValidationMessageProps) => {
     <div style={{
       marginTop: '8px',
       padding: '10px 14px',
-      backgroundColor: valid ? '#D1FAE5' : '#FEE2E2',
-      border: `1px solid ${valid ? '#10B981' : '#EF4444'}`,
+      backgroundColor: valid ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+      border: `1px solid ${valid ? '#16A34A' : '#DC2626'}`,
       borderRadius: '8px',
       fontSize: '13px',
-      color: valid ? '#065F46' : '#991B1B',
+      color: valid ? 'var(--success-text)' : 'var(--danger-text)',
       display: 'flex',
       alignItems: 'center',
       gap: '8px'
@@ -259,14 +259,14 @@ export default function SettingsPage() {
       {message && (
         <div style={{
           padding: '16px',
-          backgroundColor: message.type === 'success' ? '#D1FAE5' : '#FEE2E2',
-          border: `1px solid ${message.type === 'success' ? '#10B981' : '#EF4444'}`,
+          backgroundColor: message.type === 'success' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+          border: `1px solid ${message.type === 'success' ? '#16A34A' : '#DC2626'}`,
           borderRadius: '12px',
           marginBottom: '24px',
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
-          color: message.type === 'success' ? '#065F46' : '#991B1B',
+          color: message.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)',
           animation: 'slideDown 0.3s ease-out'
         }}>
           {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
@@ -286,7 +286,7 @@ export default function SettingsPage() {
               style={{
                 padding: '12px 20px',
                 backgroundColor: isActive ? 'var(--primary)' : 'transparent',
-                color: isActive ? 'white' : 'var(--text-secondary)',
+                color: isActive ? '#0B132B' : 'var(--text-secondary)',
                 border: 'none',
                 borderRadius: '8px 8px 0 0',
                 cursor: 'pointer',
@@ -308,7 +308,7 @@ export default function SettingsPage() {
       {/* Content Area */}
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}>
-          <Loader size={40} className="animate-spin text-teal-700" style={{ animation: 'spin 1s linear infinite' }} />
+          <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
         </div>
       ) : (
         <div style={{
@@ -337,7 +337,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button onClick={() => handleSave('store', storeData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button onClick={() => handleSave('store', storeData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                   Save Store Info
                 </button>
@@ -354,7 +354,7 @@ export default function SettingsPage() {
               </div>
               <InputGroup label="Estimated Delivery Days" type="number" value={shippingData.delivery_days} onChange={(v: string) => setShippingData({ ...shippingData, delivery_days: v })} icon={Shield} />
               <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button onClick={() => handleSave('shipping', shippingData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button onClick={() => handleSave('shipping', shippingData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                   Save Shipping Settings
                 </button>
@@ -377,7 +377,7 @@ export default function SettingsPage() {
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button onClick={() => handleSave('tax', taxData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button onClick={() => handleSave('tax', taxData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                   Save Tax Settings
                 </button>
@@ -389,7 +389,7 @@ export default function SettingsPage() {
           {activeTab === 'payment' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               
-              <ToggleField label="Cash on Delivery (COD)" description="Customer pays cash when order is delivered" checked={paymentData.cod_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, cod_enabled: v })} activeColor="#10B981" />
+              <ToggleField label="Cash on Delivery (COD)" description="Customer pays cash when order is delivered" checked={paymentData.cod_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, cod_enabled: v })} activeColor="#16A34A" />
 
               {/* JazzCash */}
               <div style={{ padding: '24px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px', border: `2px solid ${paymentData.jazzcash_enabled ? '#FF0080' : 'var(--border-color)'}` }}>
@@ -431,7 +431,7 @@ export default function SettingsPage() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button onClick={() => handleSave('payment', paymentData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button onClick={() => handleSave('payment', paymentData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                   Save Payment Settings
                 </button>
@@ -451,7 +451,7 @@ export default function SettingsPage() {
                 <InputGroup label="Website URL" type="url" value={socialData.website} onChange={(v: string) => setSocialData({ ...socialData, website: v })} icon={Globe} placeholder="https://yourstore.com" />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button onClick={() => handleSave('social', socialData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button onClick={() => handleSave('social', socialData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                   Save Social Media
                 </button>

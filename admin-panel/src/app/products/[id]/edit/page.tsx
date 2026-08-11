@@ -256,7 +256,7 @@ const TagInput = ({ tags, onChange }: { tags: string[]; onChange: (tags: string[
           <span key={index} style={{
             padding: '6px 12px',
             backgroundColor: 'var(--primary-light)',
-            color: 'var(--primary)',
+            color: 'var(--accent-text)',
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: '600',
@@ -578,7 +578,7 @@ export default function EditProductPage() {
   if (loading) {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader size={48} className="animate-spin text-teal-700" />
+        <Loader size={48} className="animate-spin text-[#FF8A00]" />
       </div>
     );
   }
@@ -647,7 +647,7 @@ export default function EditProductPage() {
             style={{
               padding: '12px 24px',
               backgroundColor: loading || saving ? 'var(--text-secondary)' : 'var(--primary)',
-              color: 'white',
+              color: loading || saving ? '#FFFFFF' : '#0B132B', 
               border: 'none',
               borderRadius: '10px',
               fontWeight: '700',
@@ -655,7 +655,7 @@ export default function EditProductPage() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              boxShadow: '0 4px 12px rgba(15, 118, 110, 0.3)',
+              boxShadow: '0 4px 12px rgba(255, 138, 0, 0.3)',
               transition: 'all 0.2s'
             }}
             onMouseEnter={e => {
@@ -705,7 +705,7 @@ export default function EditProductPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Product Name <span style={{ color: '#EF4444' }}>*</span>
+                  Product Name <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -715,7 +715,7 @@ export default function EditProductPage() {
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    border: errors.name ? '2px solid #EF4444' : '1px solid var(--border-color)',
+                    border: errors.name ? '2px solid #DC2626' : '1px solid var(--border-color)',
                     borderRadius: '8px',
                     backgroundColor: 'var(--input-bg)',
                     color: 'var(--text-primary)',
@@ -723,12 +723,12 @@ export default function EditProductPage() {
                     outline: 'none'
                   }}
                 />
-                {errors.name && <p style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{errors.name}</p>}
+                {errors.name && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.name}</p>}
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Product Slug <span style={{ color: '#EF4444' }}>*</span>
+                  Product Slug <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -742,7 +742,7 @@ export default function EditProductPage() {
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    border: errors.slug ? '2px solid #EF4444' : '1px solid var(--border-color)',
+                    border: errors.slug ? '2px solid #DC2626' : '1px solid var(--border-color)',
                     borderRadius: '8px',
                     backgroundColor: 'var(--input-bg)',
                     color: 'var(--text-primary)',
@@ -754,7 +754,7 @@ export default function EditProductPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  SKU <span style={{ color: '#EF4444' }}>*</span>
+                  SKU <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -776,7 +776,7 @@ export default function EditProductPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Category <span style={{ color: '#EF4444' }}>*</span>
+                  Category <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <select
                   value={formData.category}
@@ -784,7 +784,7 @@ export default function EditProductPage() {
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    border: errors.category ? '2px solid #EF4444' : '1px solid var(--border-color)',
+                    border: errors.category ? '2px solid #DC2626' : '1px solid var(--border-color)',
                     borderRadius: '8px',
                     backgroundColor: 'var(--input-bg)',
                     color: 'var(--text-primary)',
@@ -798,7 +798,7 @@ export default function EditProductPage() {
                     <option key={cat._id} value={cat._id}>{cat.name}</option>
                   ))}
                 </select>
-                {errors.category && <p style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{errors.category}</p>}
+                {errors.category && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.category}</p>}
               </div>
 
               <div>
@@ -916,7 +916,7 @@ export default function EditProductPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Selling Price (Rs.) <span style={{ color: '#EF4444' }}>*</span>
+                  Selling Price (Rs.) <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <input
                   type="number"
@@ -926,7 +926,7 @@ export default function EditProductPage() {
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    border: errors.price ? '2px solid #EF4444' : '1px solid var(--border-color)',
+                    border: errors.price ? '2px solid #DC2626' : '1px solid var(--border-color)',
                     borderRadius: '8px',
                     backgroundColor: 'var(--input-bg)',
                     color: 'var(--text-primary)',
@@ -934,7 +934,7 @@ export default function EditProductPage() {
                     outline: 'none'
                   }}
                 />
-                {errors.price && <p style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{errors.price}</p>}
+                {errors.price && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.price}</p>}
               </div>
 
               <div>
@@ -967,8 +967,8 @@ export default function EditProductPage() {
                   padding: '12px 16px',
                   border: '1px solid var(--border-color)',
                   borderRadius: '8px',
-                  backgroundColor: discount > 0 ? '#D1FAE5' : 'var(--input-bg)',
-                  color: discount > 0 ? '#0F766E' : 'var(--text-secondary)',
+                  backgroundColor: discount > 0 ? 'rgba(255, 138, 0, 0.12)' : 'var(--input-bg)',
+                  color: discount > 0 ? 'var(--accent-text)' : 'var(--text-secondary)',
                   fontSize: '14px',
                   fontWeight: '700'
                 }}>
@@ -1081,11 +1081,11 @@ export default function EditProductPage() {
               {errors.variants && (
                 <div style={{
                   padding: '12px',
-                  backgroundColor: '#FEE2E2',
-                  border: '1px solid #EF4444',
+                  backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                  border: '1px solid #DC2626',
                   borderRadius: '8px',
                   marginBottom: '20px',
-                  color: '#DC2626',
+                  color: 'var(--danger-text)',
                   fontSize: '13px',
                   fontWeight: '600'
                 }}>
@@ -1102,7 +1102,7 @@ export default function EditProductPage() {
                   style={{
                     padding: '10px 20px',
                     backgroundColor: 'var(--primary)',
-                    color: 'white',
+                    color: '#0B132B',
                     border: 'none',
                     borderRadius: '8px',
                     fontWeight: '700',
@@ -1132,8 +1132,8 @@ export default function EditProductPage() {
                       onClick={() => removeVariant(index)}
                       style={{
                         padding: '8px',
-                        backgroundColor: '#FEE2E2',
-                        color: '#DC2626',
+                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                        color: 'var(--danger-text)',
                         border: 'none',
                         borderRadius: '6px',
                         cursor: 'pointer'
@@ -1255,7 +1255,7 @@ export default function EditProductPage() {
                             updateVariant(index, 'attributes', newAttrs);
                             setHasChanges(true);
                           }}
-                          style={{ padding: '8px', backgroundColor: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                          style={{ padding: '8px', backgroundColor: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
                         >
                           <X size={14} />
                         </button>
@@ -1270,7 +1270,7 @@ export default function EditProductPage() {
                       style={{
                         padding: '8px 16px',
                         backgroundColor: 'var(--bg-primary)',
-                        color: 'var(--primary)',
+                        color: 'var(--text-primary)',
                         border: '1px solid var(--border-color)',
                         borderRadius: '6px',
                         fontSize: '12px',
@@ -1355,7 +1355,7 @@ export default function EditProductPage() {
                         top: '8px',
                         right: '8px',
                         padding: '6px',
-                        backgroundColor: 'rgba(239, 68, 68, 0.9)',
+                        backgroundColor: 'rgba(220, 38, 38, 0.9)',
                         color: 'white',
                         border: 'none',
                         borderRadius: '6px',
@@ -1372,7 +1372,7 @@ export default function EditProductPage() {
                         right: '0',
                         padding: '6px',
                         backgroundColor: 'var(--primary)',
-                        color: 'white',
+                        color: '#0B132B',
                         textAlign: 'center',
                         fontSize: '11px',
                         fontWeight: '700'
@@ -1799,7 +1799,7 @@ export default function EditProductPage() {
             </h3>
 
             <div style={{
-              backgroundColor: 'white',
+              backgroundColor: 'var(--card-bg)',
               borderRadius: '12px',
               overflow: 'hidden',
               border: '1px solid var(--border-color)',
@@ -1821,7 +1821,7 @@ export default function EditProductPage() {
                 {formData.isFeatured && (
                   <div style={{
                     position: 'absolute', top: '12px', left: '12px',
-                    backgroundColor: '#F59E0B', color: 'white',
+                    backgroundColor: '#FF8A00', color: '#0B132B',
                     padding: '6px 12px', borderRadius: '6px',
                     fontSize: '11px', fontWeight: '700'
                   }}>
@@ -1849,7 +1849,7 @@ export default function EditProductPage() {
                 )}
 
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '20px', fontWeight: '800', color: 'var(--primary)' }}>
+                  <span style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>
                     Rs. {formData.price.toLocaleString()}
                   </span>
                   {formData.originalPrice && formData.originalPrice > formData.price && (
@@ -1862,8 +1862,8 @@ export default function EditProductPage() {
                 {formData.stock > 0 ? (
                   <div style={{
                     padding: '6px 12px',
-                    backgroundColor: '#D1FAE5',
-                    color: '#0F766E',
+                    backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                    color: 'var(--success-text)',
                     borderRadius: '6px',
                     fontSize: '12px',
                     fontWeight: '600',
@@ -1874,8 +1874,8 @@ export default function EditProductPage() {
                 ) : (
                   <div style={{
                     padding: '6px 12px',
-                    backgroundColor: '#FEE2E2',
-                    color: '#DC2626',
+                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                    color: 'var(--danger-text)',
                     borderRadius: '6px',
                     fontSize: '12px',
                     fontWeight: '600',
@@ -1910,7 +1910,7 @@ export default function EditProductPage() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Discount</span>
-                <span style={{ fontSize: '13px', fontWeight: '700', color: discount > 0 ? '#10B981' : 'var(--text-primary)' }}>
+                <span style={{ fontSize: '13px', fontWeight: '700', color: discount > 0 ? 'var(--accent-text)' : 'var(--text-primary)' }}>
                   {discount > 0 ? `${discount}%` : 'None'}
                 </span>
               </div>
@@ -1921,8 +1921,8 @@ export default function EditProductPage() {
                   borderRadius: '12px',
                   fontSize: '11px',
                   fontWeight: '700',
-                  backgroundColor: formData.status === 'published' ? '#D1FAE5' : formData.status === 'scheduled' ? '#FEF3C7' : '#F3F4F6',
-                  color: formData.status === 'published' ? '#0F766E' : formData.status === 'scheduled' ? '#92400E' : '#6B7280'
+                  backgroundColor: formData.status === 'published' ? 'rgba(22, 163, 74, 0.12)' : formData.status === 'scheduled' ? 'rgba(245, 158, 11, 0.12)': 'var(--bg-primary)',
+                  color: formData.status === 'published' ? 'var(--success-text)' : formData.status === 'scheduled'  ? 'var(--warning-text)'  : 'var(--text-secondary)'
                 }}>
                   {formData.status.charAt(0).toUpperCase() + formData.status.slice(1)}
                 </span>
@@ -1932,15 +1932,15 @@ export default function EditProductPage() {
 
           {/* Help & Support */}
           <div style={{
-            backgroundColor: '#F0FDFA',
-            borderRadius: '12px',
-            padding: '20px',
-            border: '1px solid #0F766E'
-          }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#0F766E', marginBottom: '12px' }}>
-              💡 Need Help?
-            </h3>
-            <p style={{ fontSize: '13px', color: '#0F766E', marginBottom: '16px', lineHeight: '1.5' }}>
+              backgroundColor: 'var(--info-light)',
+              borderRadius: '12px',
+              padding: '20px',
+              border: '1px solid var(--border-color)'
+            }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--info-text)', marginBottom: '12px' }}>
+                💡 Need Help?
+              </h3>
+              <p style={{ fontSize: '13px', color: 'var(--info-text)', marginBottom: '16px', lineHeight: '1.5' }}>
               Check our documentation for detailed guides on editing products with variants.
             </p>
             <button
@@ -1948,8 +1948,8 @@ export default function EditProductPage() {
               style={{
                 width: '100%',
                 padding: '10px',
-                backgroundColor: '#0F766E',
-                color: 'white',
+                backgroundColor: '#FF8A00',
+                color: '#0B132B',
                 border: 'none',
                 borderRadius: '8px',
                 fontWeight: '700',

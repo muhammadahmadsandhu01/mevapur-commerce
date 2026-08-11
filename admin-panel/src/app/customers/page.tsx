@@ -113,15 +113,15 @@ export default function CustomersPage() {
 
   const getCustomerBadge = (customer: Customer) => {
     if (customer.totalSpent > 50000) {
-      return { bg: '#FDF4FF', color: '#A855F7', text: 'VIP Customer', icon: Star };
+      return { bg: 'rgba(255, 138, 0, 0.12)', color: 'var(--accent-text)', text: 'VIP Customer', icon: Star };
     }
     if (customer.totalOrders > 10) {
-      return { bg: '#DBEAFE', color: '#3B82F6', text: 'Loyal', icon: CheckCircle };
+      return { bg: 'var(--info-light)', color: 'var(--info-text)', text: 'Loyal', icon: CheckCircle };
     }
     if (!customer.isActive) {
-      return { bg: '#FEE2E2', color: '#EF4444', text: 'Inactive', icon: XCircle };
+      return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', text: 'Inactive', icon: XCircle };
     }
-    return { bg: '#D1FAE5', color: '#10B981', text: 'Active', icon: CheckCircle };
+    return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', text: 'Active', icon: CheckCircle };
   };
 
   return (
@@ -174,8 +174,8 @@ export default function CustomersPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Users size={24} color="#3B82F6" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Users size={24} color="var(--info-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Customers</div>
@@ -192,8 +192,8 @@ export default function CustomersPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="#10B981" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Customers</div>
@@ -210,8 +210,8 @@ export default function CustomersPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FDF4FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Star size={24} color="#A855F7" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Star size={24} color="var(--accent-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>VIP Customers</div>
@@ -228,8 +228,8 @@ export default function CustomersPage() {
           alignItems: 'center',
           gap: '16px'
         }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <TrendingUp size={24} color="#F59E0B" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TrendingUp size={24} color="var(--accent-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Revenue</div>
@@ -378,9 +378,9 @@ export default function CustomersPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <div style={{
                             width: '48px', height: '48px', borderRadius: '50%',
-                            backgroundColor: '#0F766E',
+                            backgroundColor: '#0B132B',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: 'white', fontWeight: '700', fontSize: '18px',
+                            color: '#FFFFFF', fontWeight: '700', fontSize: '18px',
                             flexShrink: 0
                           }}>
                             {customer.fullName.charAt(0).toUpperCase()}
@@ -431,7 +431,7 @@ export default function CustomersPage() {
                         </div>
                       </td>
                       <td style={{ padding: '16px 20px' }}>
-                        <div style={{ fontWeight: '800', color: 'var(--primary)', fontSize: '15px' }}>
+                        <div style={{ fontWeight: '800', color: 'var(--text-primary)', fontSize: '15px' }}>
                           Rs. {customer.totalSpent.toLocaleString()}
                         </div>
                       </td>
@@ -460,7 +460,7 @@ export default function CustomersPage() {
                           style={{
                             padding: '8px 12px',
                             backgroundColor: 'var(--bg-primary)',
-                            color: 'var(--primary)',
+                            color: 'var(--accent-text)',
                             border: '1px solid var(--border-color)',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -511,9 +511,9 @@ export default function CustomersPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
                   width: '64px', height: '64px', borderRadius: '50%',
-                  backgroundColor: '#0F766E',
+                  backgroundColor: '#0B132B',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'white', fontWeight: '700', fontSize: '24px'
+                  color: '#FFFFFF', fontWeight: '700', fontSize: '24px'
                 }}>
                   {selectedCustomer.fullName.charAt(0).toUpperCase()}
                 </div>
@@ -598,7 +598,7 @@ export default function CustomersPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Spent</div>
-                    <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--primary)' }}>Rs. {selectedCustomer.totalSpent.toLocaleString()}</div>
+                    <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {selectedCustomer.totalSpent.toLocaleString()}</div>
                   </div>
                   <div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Avg Order Value</div>
@@ -632,7 +632,7 @@ export default function CustomersPage() {
                 style={{
                   padding: '12px 24px',
                   backgroundColor: 'var(--primary)',
-                  color: 'white',
+                  color: '#0B132B',
                   border: 'none',
                   borderRadius: '10px',
                   fontWeight: '700',

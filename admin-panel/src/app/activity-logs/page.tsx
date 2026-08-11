@@ -146,11 +146,11 @@ export default function ActivityLogsPage() {
   };
 
   const getActionColor = (action: string) => {
-    if (action.includes('CREATE') || action.includes('APPROVE')) return { bg: '#D1FAE5', color: '#0F766E', icon: CheckCircle };
-    if (action.includes('UPDATE')) return { bg: '#DBEAFE', color: '#1E40AF', icon: Activity };
-    if (action.includes('DELETE') || action.includes('REJECT')) return { bg: '#FEE2E2', color: '#DC2626', icon: XCircle };
-    if (action.includes('LOGIN') || action.includes('LOGOUT')) return { bg: '#FEF3C7', color: '#92400E', icon: User };
-    return { bg: '#F3F4F6', color: '#6B7280', icon: History };
+    if (action.includes('CREATE') || action.includes('APPROVE')) return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', icon: CheckCircle };
+    if (action.includes('UPDATE')) return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: Activity };
+    if (action.includes('DELETE') || action.includes('REJECT')) return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', icon: XCircle };
+    if (action.includes('LOGIN') || action.includes('LOGOUT')) return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: User };
+    return { bg: 'var(--bg-primary)', color: 'var(--text-secondary)', icon: History };
   };
 
   const getActionIcon = (action: string) => {
@@ -207,7 +207,7 @@ export default function ActivityLogsPage() {
               onClick={handleCleanup}
               disabled={cleaning}
               style={{
-                backgroundColor: cleaning ? '#9CA3AF' : '#EF4444',
+                backgroundColor: cleaning ? '#9CA3AF' : '#DC2626',
                 color: 'white',
                 padding: '12px 20px',
                 borderRadius: '10px',
@@ -231,8 +231,8 @@ export default function ActivityLogsPage() {
         {stats && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '24px' }}>
             <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <History size={24} color="#3B82F6" />
+              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <History size={24} color="var(--info-text)" />
               </div>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Logs</div>
@@ -241,8 +241,8 @@ export default function ActivityLogsPage() {
             </div>
 
             <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Calendar size={24} color="#10B981" />
+              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Calendar size={24} color="var(--accent-text)" />
               </div>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Today</div>
@@ -251,8 +251,8 @@ export default function ActivityLogsPage() {
             </div>
 
             <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Calendar size={24} color="#F59E0B" />
+              <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Calendar size={24} color="var(--accent-text)" />
               </div>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>This Week</div>
@@ -331,7 +331,7 @@ export default function ActivityLogsPage() {
       {/* Logs Table */}
       {loading ? (
         <div style={{ backgroundColor: 'var(--card-bg)', padding: '60px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-          <Loader size={40} className="animate-spin text-teal-700" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
+          <Loader size={40} className="animate-spin" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: '#FF8A00' }} />
           <p style={{ color: 'var(--text-secondary)' }}>Loading activity logs...</p>
         </div>
       ) : logs.length === 0 ? (

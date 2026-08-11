@@ -222,8 +222,8 @@ export default function CategoriesPage() {
               alignItems: 'center',
               gap: '6px',
               padding: '6px 12px',
-              backgroundColor: category.isActive ? '#D1FAE5' : '#FEE2E2',
-              color: category.isActive ? '#0F766E' : '#DC2626',
+              backgroundColor: category.isActive ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+              color: category.isActive ? 'var(--success-text)' : 'var(--danger-text)',
               borderRadius: '20px',
               fontSize: '12px',
               fontWeight: '700'
@@ -244,8 +244,8 @@ export default function CategoriesPage() {
                 onClick={() => openModal(category)}
                 style={{
                   padding: '8px 12px',
-                  backgroundColor: '#DBEAFE',
-                  color: '#1E40AF',
+                  backgroundColor: 'var(--info-light)',
+                  color: 'var(--info-text)',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -262,8 +262,8 @@ export default function CategoriesPage() {
                 onClick={() => handleDelete(category._id, category.name)}
                 style={{
                   padding: '8px 12px',
-                  backgroundColor: '#FEE2E2',
-                  color: '#DC2626',
+                  backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                  color: 'var(--danger-text)',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -301,7 +301,7 @@ export default function CategoriesPage() {
           style={{
             padding: '12px 20px',
             backgroundColor: 'var(--primary)',
-            color: 'white',
+            color: '#0B132B',
             border: 'none',
             borderRadius: '10px',
             fontWeight: '700',
@@ -309,7 +309,7 @@ export default function CategoriesPage() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)'
+            boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
           }}
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--primary-dark)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--primary)'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -326,8 +326,8 @@ export default function CategoriesPage() {
         marginBottom: '24px'
       }}>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <FolderTree size={24} color="#3B82F6" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <FolderTree size={24} color="var(--info-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Categories</div>
@@ -335,8 +335,8 @@ export default function CategoriesPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="#10B981" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="var(--success-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active</div>
@@ -344,8 +344,8 @@ export default function CategoriesPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Star size={24} color="#F59E0B" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Star size={24} color="var(--accent-text)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Featured</div>
@@ -644,7 +644,7 @@ export default function CategoriesPage() {
                   style={{
                     padding: '12px 24px',
                     backgroundColor: 'var(--primary)',
-                    color: 'white',
+                    color: '#0B132B',
                     border: 'none',
                     borderRadius: '10px',
                     fontWeight: '700',

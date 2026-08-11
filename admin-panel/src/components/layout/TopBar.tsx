@@ -143,7 +143,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
             onClick={() => setShowQuickCreate(!showQuickCreate)}
             style={{
               backgroundColor: 'var(--primary)',
-              color: 'white',
+              color: '#0B132B',
               border: 'none',
               padding: '10px 16px',
               borderRadius: '10px',
@@ -377,7 +377,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
                 <button style={{
                   background: 'none',
                   border: 'none',
-                  color: 'var(--primary)',
+                  color: 'var(--accent-text)',
                   cursor: 'pointer',
                   fontWeight: '600',
                   fontSize: '14px'
@@ -509,7 +509,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
                 <button style={{
                   background: 'none',
                   border: 'none',
-                  color: 'var(--primary)',
+                  color: 'var(--accent-text)',
                   cursor: 'pointer',
                   fontWeight: '600',
                   fontSize: '14px'
@@ -551,7 +551,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'white',
+              color: '#0B132B',
               fontSize: '16px',
               fontWeight: '700'
             }}>
