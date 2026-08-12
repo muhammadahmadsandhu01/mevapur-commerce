@@ -5,6 +5,7 @@ const TokenService = require('../../services/TokenService');
 const Session = require('../../models/Session');
 const Product = require('../../models/Product');
 const Order = require('../../models/Order');
+const Payment = require('../../models/Payment');
 const Review = require('../../models/Review');
 const Return = require('../../models/Return');
 const Refund = require('../../models/Refund');
@@ -73,8 +74,10 @@ describe('P6B customer commerce ownership contracts', () => {
     expect((await request(app).post('/api/coupons/validate').send({ code: 'P6B10', subtotal: 10 })).status).toBe(400);
   });
   test('operational return restock is transaction-guarded and cannot run twice', async () => {
-    const [customer, admin, item] = await Promise.all([auth(), auth('admin'), product()]); const placed = await order(customer.user, item); const entry = await Return.create({ order: placed._id, customer: customer.user._id, items: [{ product: item._id, name: item.name, quantity: 1, price: 100, reason: 'damaged' }], status: 'approved', refundAmount: 100 });
-    await request(app).post(`/api/returns/${entry._id}/refund`).set('Authorization', admin.authorization).send({ refundAmount: 100 }); expect((await Product.findById(item._id)).stock).toBe(21);
-    await request(app).put(`/api/returns/${entry._id}/status`).set('Authorization', admin.authorization).send({ status: 'refunded' }); expect((await Product.findById(item._id)).stock).toBe(21);
+    const [customer, admin, item] = await Promise.all([auth(), auth('admin'), product()]); const placed = await order(customer.user, item); placed.paymentStatus = 'Paid'; await placed.save();
+    await Payment.create({ order: placed._id, user: customer.user._id, provider: 'cod', providerPaymentId: `COD-${placed._id}`, providerDisplayName: 'Cash on Delivery', paymentType: 'offline', status: 'Completed', amount: 100, paidAmount: 100, currency: 'PKR', idempotencyKey: crypto.randomUUID(), requestHash: crypto.randomBytes(32).toString('hex'), providerIdempotencyKey: crypto.randomUUID(), providerAttemptStatus: 'Ready', completedAt: new Date() });
+    const entry = await Return.create({ order: placed._id, customer: customer.user._id, items: [{ product: item._id, name: item.name, quantity: 1, price: 100, reason: 'damaged' }], status: 'approved', refundAmount: 100 });
+    expect((await request(app).post(`/api/returns/${entry._id}/refund`).set('Authorization', admin.authorization).send({})).status).toBe(200); expect((await Product.findById(item._id)).stock).toBe(21);
+    expect((await request(app).put(`/api/returns/${entry._id}/status`).set('Authorization', admin.authorization).send({ status: 'refunded' })).status).toBe(200); expect((await Product.findById(item._id)).stock).toBe(21); expect(await Refund.countDocuments({ order: placed._id })).toBe(1);
   });
 });

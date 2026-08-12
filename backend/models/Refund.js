@@ -107,6 +107,21 @@ const refundSchema = new mongoose.Schema({
   providerClaimToken: { type: String, default: '', select: false, maxlength: 128 },
   providerClaimedAt: { type: Date, default: null, select: false },
   reservationActive: { type: Boolean, default: false, select: false },
+  processingMode: {
+    type: String,
+    enum: ['provider', 'manual'],
+    default: 'provider',
+    required: true,
+    select: false,
+    immutable: true
+  },
+  providerOutcome: {
+    type: String,
+    enum: ['unattempted', 'pending', 'succeeded', 'failed', 'canceled', 'unknown', 'manual_confirmed'],
+    default: 'unattempted',
+    required: true,
+    select: false
+  },
   processedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -135,6 +150,8 @@ const refundSchema = new mongoose.Schema({
       delete value.providerClaimToken;
       delete value.providerClaimedAt;
       delete value.reservationActive;
+      delete value.processingMode;
+      delete value.providerOutcome;
       delete value.returnId;
       delete value.orderId;
       delete value.method;
@@ -166,6 +183,10 @@ refundSchema.index(
   }
 );
 refundSchema.index({ status: 1, createdAt: -1 });
+refundSchema.index(
+  { returnId: 1 },
+  { unique: true, sparse: true, name: 'unique_refund_return' }
+);
 
 refundSchema.statics.generateRefundNumber = generateRefundNumber;
 

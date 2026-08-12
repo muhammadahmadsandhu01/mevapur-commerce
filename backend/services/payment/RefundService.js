@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
 const Refund = require('../../models/Refund');
+const Return = require('../../models/Return');
+const ReturnInventoryService = require('../ReturnInventoryService');
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
 const paymentStateMachine = require('./stateMachine/PaymentStateMachine');
 const { AppError } = require('../../common/errors/AppError');
@@ -40,14 +42,77 @@ class RefundService {
     amount,
     reason = '',
     adminId,
-    idempotencyKey
+    idempotencyKey,
+    returnId = null,
+    method = 'original_payment'
   }) {
-    const requestHash = stableHash({ paymentId, amount, reason });
+    return this.createRefundRecord({
+      paymentId,
+      amount,
+      reason,
+      adminId,
+      idempotencyKey,
+      returnId,
+      method
+    }, 'provider');
+  }
+
+  async createManualRefund({
+    paymentId,
+    amount,
+    reason = '',
+    adminId,
+    idempotencyKey,
+    returnId,
+    method = 'original_payment'
+  }) {
+    if (!returnId) {
+      throw new AppError(
+        'A manual refund must be linked to an approved return',
+        400,
+        'RETURN_REFUND_STATE_UNAVAILABLE'
+      );
+    }
+    return this.createRefundRecord({
+      paymentId,
+      amount,
+      reason,
+      adminId,
+      idempotencyKey,
+      returnId,
+      method
+    }, 'manual');
+  }
+
+  async createRefundRecord({
+    paymentId,
+    amount,
+    reason,
+    adminId,
+    idempotencyKey,
+    returnId,
+    method
+  }, processingMode) {
+    const requestHash = stableHash({
+      paymentId: String(paymentId),
+      amount,
+      reason,
+      returnId: returnId ? String(returnId) : null,
+      method,
+      processingMode
+    });
     let refund = await this.findByIdempotency(paymentId, idempotencyKey);
 
     if (refund) {
       this.assertIdempotencyMatch(refund, requestHash);
-      return this.resumeRefund(refund, true);
+      if (refund.processingMode !== processingMode) {
+        throw new AppError(
+          'The refund processing mode conflicts with the existing request',
+          409,
+          'REFUND_IDEMPOTENCY_CONFLICT'
+        );
+      }
+      return this.resumeByMode(refund, true);
     }
 
     const payment = await Payment.findById(paymentId)
@@ -70,6 +135,21 @@ class RefundService {
       );
     }
 
+    if (processingMode === 'provider') {
+      this.getProvider(payment.provider);
+    } else {
+      const providerManifest = paymentProviderRegistry
+        .getInstalled(payment.provider)
+        .getManifest();
+      if (!['offline', 'manual'].includes(providerManifest.paymentType)) {
+        throw new AppError(
+          'This payment requires its provider refund operation',
+          409,
+          'PAYMENT_PROVIDER_OPERATION_UNAVAILABLE'
+        );
+      }
+    }
+
     try {
       refund = await Refund.create({
         payment: payment._id,
@@ -82,8 +162,12 @@ class RefundService {
         idempotencyKey,
         requestHash,
         providerIdempotencyKey: `refund:${payment._id}:${idempotencyKey}`,
+        processingMode,
+        providerOutcome: 'unattempted',
         processedBy: adminId,
         reason,
+        returnId: returnId || undefined,
+        method,
         history: [{
           status: REFUND_STATUSES.PENDING,
           source: 'admin',
@@ -99,7 +183,7 @@ class RefundService {
         throw error;
       }
       this.assertIdempotencyMatch(refund, requestHash);
-      return this.resumeRefund(refund, true);
+      return this.resumeByMode(refund, true);
     }
 
     try {
@@ -117,7 +201,13 @@ class RefundService {
       throw error;
     }
     refund = await this.findInternal(refund._id);
-    return this.resumeRefund(refund, false);
+    return this.resumeByMode(refund, false);
+  }
+
+  resumeByMode(refund, idempotentReplay) {
+    return refund.processingMode === 'manual'
+      ? this.resumeManualRefund(refund, idempotentReplay)
+      : this.resumeRefund(refund, idempotentReplay);
   }
 
   async findByIdempotency(paymentId, idempotencyKey) {
@@ -127,7 +217,7 @@ class RefundService {
     }).select(
       '+idempotencyKey +requestHash +providerIdempotencyKey '
       + '+providerAttemptStatus +providerClaimToken +providerClaimedAt '
-      + '+reservationActive'
+      + '+reservationActive +processingMode +providerOutcome +returnId +method'
     );
   }
 
@@ -135,7 +225,7 @@ class RefundService {
     const query = Refund.findById(refundId).select(
       '+idempotencyKey +requestHash +providerIdempotencyKey '
       + '+providerAttemptStatus +providerClaimToken +providerClaimedAt '
-      + '+reservationActive'
+      + '+reservationActive +processingMode +providerOutcome +returnId +method'
     );
     return session ? query.session(session) : query;
   }
@@ -158,7 +248,31 @@ class RefundService {
         if (!refund || refund.status === REFUND_STATUSES.COMPLETED) {
           return;
         }
+
+        let returnEntry = null;
+        if (refund.returnId) {
+          returnEntry = await Return.findById(refund.returnId)
+            .select('+refund +inventoryRestockedAt')
+            .session(session);
+          if (
+            !returnEntry
+            || String(returnEntry.order) !== String(refund.order)
+            || !['approved', 'inspected'].includes(returnEntry.status)
+            || Number(returnEntry.refundAmount.toFixed(2))
+              !== Number(refund.amount.toFixed(2))
+            || (returnEntry.refund
+              && String(returnEntry.refund) !== String(refund._id))
+          ) {
+            throw new AppError(
+              'Return refund reconciliation state is unavailable',
+              503,
+              'RETURN_REFUND_STATE_UNAVAILABLE'
+            );
+          }
+          returnEntry.refund = refund._id;
+        }
         if (refund.reservationActive) {
+          if (returnEntry?.isModified()) await returnEntry.save({ session });
           return;
         }
 
@@ -211,7 +325,10 @@ class RefundService {
         refund.status = REFUND_STATUSES.PENDING;
         refund.providerAttemptStatus = PROVIDER_ATTEMPT_STATUSES.UNCLAIMED;
         refund.failureCode = '';
-        await refund.save({ session });
+        await Promise.all([
+          refund.save({ session }),
+          returnEntry ? returnEntry.save({ session }) : Promise.resolve()
+        ]);
       });
     } finally {
       await session.endSession();
@@ -223,6 +340,15 @@ class RefundService {
       return {
         idempotentReplay,
         refund: this.toPublicRefund(refund)
+      };
+    }
+
+    if (refund.providerOutcome === 'succeeded') {
+      await this.completeRefund(refund._id, { source: 'provider' });
+      const completed = await Refund.findById(refund._id);
+      return {
+        idempotentReplay: true,
+        refund: this.toPublicRefund(completed)
       };
     }
 
@@ -283,7 +409,7 @@ class RefundService {
       new: true
     }).select(
       '+providerIdempotencyKey +providerAttemptStatus +providerClaimToken '
-      + '+reservationActive'
+      + '+reservationActive +processingMode +providerOutcome +returnId +method'
     );
 
     if (!claimed) {
@@ -294,10 +420,10 @@ class RefundService {
       };
     }
 
-    const payment = await Payment.findById(claimed.payment);
-    const provider = this.getProvider(claimed.provider);
-
+    let providerConfirmed = false;
     try {
+      const payment = await Payment.findById(claimed.payment);
+      const provider = this.getProvider(claimed.provider);
       const providerResult = await provider.refundPayment({
         providerPaymentId: payment.providerPaymentId,
         amount: claimed.amount,
@@ -306,6 +432,9 @@ class RefundService {
         orderId: payment.order,
         idempotencyKey: claimed.providerIdempotencyKey
       });
+      const providerOutcome = ['succeeded', 'failed', 'canceled'].includes(
+        providerResult.status
+      ) ? providerResult.status : 'pending';
 
       const persisted = await Refund.updateOne({
         _id: claimed._id,
@@ -313,7 +442,8 @@ class RefundService {
       }, {
         $set: {
           providerRefundId: providerResult.providerRefundId,
-          providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.READY
+          providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.READY,
+          providerOutcome
         }
       });
       if (persisted.matchedCount !== 1) {
@@ -325,6 +455,7 @@ class RefundService {
       }
 
       if (providerResult.status === 'succeeded') {
+        providerConfirmed = true;
         await this.completeRefund(claimed._id, {
           source: 'provider'
         });
@@ -340,11 +471,89 @@ class RefundService {
         refund: this.toPublicRefund(current)
       };
     } catch (error) {
-      await this.failRefund(claimed._id, 'REFUND_PROVIDER_ERROR', {
-        source: 'system'
-      });
+      if (!providerConfirmed) {
+        await this.markRefundIndeterminate(claimed._id);
+      }
       throw error;
     }
+  }
+
+  async resumeManualRefund(refund, idempotentReplay) {
+    if (refund.status === REFUND_STATUSES.COMPLETED) {
+      return {
+        idempotentReplay,
+        refund: this.toPublicRefund(refund)
+      };
+    }
+
+    if (
+      [REFUND_STATUSES.PENDING, REFUND_STATUSES.FAILED].includes(refund.status)
+      && !refund.reservationActive
+    ) {
+      try {
+        await this.reserveRefundAmount(refund._id);
+      } catch (error) {
+        await Refund.updateOne({ _id: refund._id }, {
+          $set: {
+            status: REFUND_STATUSES.FAILED,
+            providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.FAILED,
+            failureCode: typeof error.code === 'string'
+              ? error.code
+              : 'REFUND_AMOUNT_EXCEEDS_AVAILABLE'
+          }
+        });
+        throw error;
+      }
+      refund = await this.findInternal(refund._id);
+    }
+
+    const claimed = await Refund.findOneAndUpdate({
+      _id: refund._id,
+      processingMode: 'manual',
+      reservationActive: true,
+      status: { $ne: REFUND_STATUSES.COMPLETED },
+      providerAttemptStatus: {
+        $in: [
+          PROVIDER_ATTEMPT_STATUSES.UNCLAIMED,
+          PROVIDER_ATTEMPT_STATUSES.FAILED
+        ]
+      }
+    }, {
+      $set: {
+        providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.READY,
+        providerOutcome: 'manual_confirmed',
+        status: REFUND_STATUSES.PROCESSING,
+        failureCode: ''
+      },
+      $push: {
+        history: {
+          status: REFUND_STATUSES.PROCESSING,
+          source: 'admin',
+          timestamp: new Date()
+        }
+      }
+    }, { new: true }).select(
+      '+processingMode +providerOutcome +reservationActive +returnId +method'
+    );
+
+    if (!claimed) {
+      const current = await this.findInternal(refund._id);
+      if (current?.providerOutcome === 'manual_confirmed') {
+        await this.completeRefund(current._id, { source: 'admin' });
+      }
+      const reconciled = await Refund.findById(refund._id);
+      return {
+        idempotentReplay: true,
+        refund: this.toPublicRefund(reconciled)
+      };
+    }
+
+    await this.completeRefund(claimed._id, { source: 'admin' });
+    const completed = await Refund.findById(claimed._id);
+    return {
+      idempotentReplay,
+      refund: this.toPublicRefund(completed)
+    };
   }
 
   async completeRefund(refundId, {
@@ -358,13 +567,40 @@ class RefundService {
         if (!refund || refund.status === REFUND_STATUSES.COMPLETED) {
           return;
         }
+        const confirmed = refund.processingMode === 'manual'
+          ? refund.providerOutcome === 'manual_confirmed'
+          : refund.providerOutcome === 'succeeded';
+        if (!confirmed) {
+          throw new AppError(
+            'Refund completion has not been financially confirmed',
+            409,
+            'REFUND_CONFIRMATION_REQUIRED'
+          );
+        }
 
         const payment = await Payment.findById(refund.payment)
           .select('+refundReservedAmount')
           .session(session);
         const order = await Order.findById(refund.order).session(session);
+        const returnEntry = refund.returnId
+          ? await Return.findById(refund.returnId)
+            .select('+refund +inventoryRestockedAt')
+            .session(session)
+          : null;
 
-        if (!payment || !order || !refund.reservationActive) {
+        if (
+          !payment
+          || !order
+          || !refund.reservationActive
+          || (refund.returnId && (
+            !returnEntry
+            || String(returnEntry.order) !== String(order._id)
+            || String(returnEntry.refund) !== String(refund._id)
+            || !['approved', 'inspected'].includes(returnEntry.status)
+            || Number(returnEntry.refundAmount.toFixed(2))
+              !== Number(refund.amount.toFixed(2))
+          ))
+        ) {
           throw new AppError(
             'Refund reconciliation state is unavailable',
             503,
@@ -409,10 +645,22 @@ class RefundService {
           ? 'Refunded'
           : 'PartiallyRefunded';
 
+        if (returnEntry) {
+          await ReturnInventoryService.restockInTransaction(returnEntry, {
+            session,
+            adminId: refund.processedBy,
+            refundId: refund._id
+          });
+          returnEntry.status = 'refunded';
+          returnEntry.refundedAt = returnEntry.refundedAt || new Date();
+          returnEntry.refund = refund._id;
+        }
+
         await Promise.all([
           payment.save({ session }),
           refund.save({ session }),
-          order.save({ session })
+          order.save({ session }),
+          returnEntry ? returnEntry.save({ session }) : Promise.resolve()
         ]);
       });
     } finally {
@@ -420,9 +668,32 @@ class RefundService {
     }
   }
 
+  async markRefundIndeterminate(refundId) {
+    await Refund.updateOne({
+      _id: refundId,
+      status: { $ne: REFUND_STATUSES.COMPLETED }
+    }, {
+      $set: {
+        status: REFUND_STATUSES.PROCESSING,
+        providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.FAILED,
+        providerOutcome: 'unknown',
+        failureCode: 'REFUND_PROVIDER_OUTCOME_UNKNOWN'
+      },
+      $push: {
+        history: {
+          status: REFUND_STATUSES.PROCESSING,
+          source: 'system',
+          errorCode: 'REFUND_PROVIDER_OUTCOME_UNKNOWN',
+          timestamp: new Date()
+        }
+      }
+    });
+  }
+
   async failRefund(refundId, errorCode, {
     source,
-    providerEventId = ''
+    providerEventId = '',
+    providerOutcome = null
   }) {
     const session = await mongoose.startSession();
     try {
@@ -450,6 +721,7 @@ class RefundService {
         refund.reservationActive = false;
         refund.status = REFUND_STATUSES.FAILED;
         refund.providerAttemptStatus = PROVIDER_ATTEMPT_STATUSES.FAILED;
+        if (providerOutcome) refund.providerOutcome = providerOutcome;
         refund.failureCode = errorCode;
         refund.history.push({
           status: REFUND_STATUSES.FAILED,
@@ -512,12 +784,29 @@ class RefundService {
       );
     }
 
+    if (refund.status === REFUND_STATUSES.COMPLETED) {
+      return {
+        outcome: providerRefund.status === 'succeeded' ? 'processed' : 'ignored'
+      };
+    }
+
+    const providerOutcome = ['succeeded', 'failed', 'canceled'].includes(
+      providerRefund.status
+    ) ? providerRefund.status : 'pending';
     if (providerRefund.id && !refund.providerRefundId) {
       refund.providerRefundId = providerRefund.id;
+    }
+    if (refund.providerOutcome !== providerOutcome) {
+      refund.providerOutcome = providerOutcome;
+    }
+    if (refund.isModified()) {
       await refund.save();
     }
 
     if (providerRefund.status === 'succeeded') {
+      if (!refund.reservationActive) {
+        await this.reserveRefundAmount(refund._id);
+      }
       await this.completeRefund(refund._id, {
         source: 'provider',
         providerEventId: event.id

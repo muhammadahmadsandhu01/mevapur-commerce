@@ -182,7 +182,8 @@ const orderSchema = new mongoose.Schema({
   cancelledAt: { type: Date, default: null },
   cancelReason: { type: String, default: '', maxlength: 500 },
   inventoryRestoredAt: { type: Date, default: null },
-  couponRestoredAt: { type: Date, default: null }
+  couponRestoredAt: { type: Date, default: null },
+  returnReservationVersion: { type: Number, default: 0, select: false }
 }, {
   timestamps: true,
   toJSON: {
