@@ -3,5 +3,5 @@
 import ContentPage from '../page';
 
 export default function BlogsPage() {
-  return <ContentPage defaultType="blog" />;
+  return <ContentPage />;
 }
