@@ -80,7 +80,6 @@ const contentSchema = new mongoose.Schema({
 
 // Indexes for better performance
 contentSchema.index({ type: 1, isActive: 1, position: 1 });
-contentSchema.index({ slug: 1 });
 contentSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Content', contentSchema);

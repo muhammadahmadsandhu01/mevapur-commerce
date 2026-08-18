@@ -25,6 +25,4 @@ brandSchema.pre('save', function(next) {
   next();
 });
 
-brandSchema.index({ slug: 1 });
-
 module.exports = mongoose.model('Brand', brandSchema);
