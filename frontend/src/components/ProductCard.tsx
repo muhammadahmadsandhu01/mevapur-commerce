@@ -148,7 +148,7 @@ export default function ProductCard({ product }: ProductCardProps) {
 
         {/* Product Info */}
         <div className="p-4 flex flex-col flex-grow">
-          <h3 className="font-semibold text-gray-800 mb-2 line-clamp-2 min-h-[2.5rem] group-hover:text-teal-700 transition-colors">
+          <h3 className="font-semibold text-gray-800 mb-2 line-clamp-2 min-h-[2.5rem] group-hover:text-[#ff8a00] transition-colors">
             {product.name || "Unnamed Product"}
           </h3>
 
@@ -172,7 +172,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           <div className="mt-auto flex items-center justify-between">
             <div className="flex flex-col">
               {/* ✅ Fix #4: Safe price formatting */}
-              <span className="text-lg font-bold text-teal-700">
+              <span className="text-lg font-bold text-[#ff8a00]">
                 PKR {Number(product.price || 0).toLocaleString()}
               </span>
               
@@ -190,10 +190,10 @@ export default function ProductCard({ product }: ProductCardProps) {
               onClick={handleAddToCart}
               title="Add to Cart"
               disabled={isOutOfStock}
-              className={`p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+              className={`p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff8a00] ${
                 isOutOfStock 
                   ? 'bg-gray-300 cursor-not-allowed text-gray-500' 
-                  : 'bg-teal-600 text-white hover:bg-teal-700'
+                  : 'bg-[#ff8a00] text-[#0b132b] hover:bg-[#e67c00]'
               }`}
               aria-label="Add to cart"
             >

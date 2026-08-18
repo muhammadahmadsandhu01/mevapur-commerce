@@ -57,7 +57,7 @@ export default function PaymentModal({ isOpen, onClose, paymentMethod, amount, o
         
         {/* Header */}
         <div style={{
-          background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)',
+          background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
           padding: '24px', color: 'white', position: 'relative'
         }}>
           <button onClick={onClose} style={{
@@ -87,19 +87,19 @@ export default function PaymentModal({ isOpen, onClose, paymentMethod, amount, o
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}> Account Number</label>
                 <input name="accountNumber" value={formData.accountNumber} onChange={handleInputChange} placeholder="03XX-XXXXXXX" required
                   style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none' }}
-                  onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                  onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
               </div>
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>👤 Account Title</label>
                 <input name="accountTitle" value={formData.accountTitle} onChange={handleInputChange} placeholder="e.g. Ahmed Khan" required
                   style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none' }}
-                  onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                  onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
               </div>
               <div style={{ marginBottom: '24px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>🔐 Payment PIN / OTP</label>
                 <input name="pin" type="password" value={formData.pin} onChange={handleInputChange} placeholder="Enter 4-digit PIN" maxLength={4} required
                   style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none', letterSpacing: '4px' }}
-                  onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                  onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
               </div>
             </>
           )}
@@ -112,26 +112,26 @@ export default function PaymentModal({ isOpen, onClose, paymentMethod, amount, o
                   onChange={e => setFormData({...formData, cardNumber: formatCardNumber(e.target.value)})} 
                   placeholder="1234 5678 9012 3456" maxLength={19} required
                   style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none', fontFamily: 'monospace' }}
-                  onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                  onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
               </div>
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>👤 Card Holder Name</label>
                 <input name="cardHolder" value={formData.cardHolder} onChange={handleInputChange} placeholder="AHMED KHAN" required
                   style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none', textTransform: 'uppercase' }}
-                  onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                  onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}> Expiry</label>
                   <input name="expiry" value={formData.expiry} onChange={handleInputChange} placeholder="MM/YY" maxLength={5} required
                     style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none' }}
-                    onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                    onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>🔒 CVV</label>
                   <input name="cvv" type="password" value={formData.cvv} onChange={handleInputChange} placeholder="123" maxLength={4} required
                     style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '2px solid #E5E7EB', fontSize: '15px', outline: 'none' }}
-                    onFocus={e => e.currentTarget.style.borderColor = '#0F766E'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
+                    onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'} onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'} />
                 </div>
               </div>
             </>
@@ -139,12 +139,12 @@ export default function PaymentModal({ isOpen, onClose, paymentMethod, amount, o
 
           {/* Security Badge */}
           <div style={{
-            backgroundColor: '#F0FDFA', borderRadius: '10px', padding: '12px',
-            display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px', border: '1px solid #0F766E'
+            backgroundColor: '#F7F7F5', borderRadius: '10px', padding: '12px',
+            display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px', border: '1px solid #D1D5DB'
           }}>
-            <Shield size={18} color="#0F766E" />
+            <Shield size={18} color="#FF8A00" />
             <div>
-              <p style={{ fontSize: '12px', fontWeight: '700', color: '#0F766E', margin: 0 }}>256-bit SSL Encrypted</p>
+              <p style={{ fontSize: '12px', fontWeight: '700', color: '#0B132B', margin: 0 }}>256-bit SSL Encrypted</p>
               <p style={{ fontSize: '11px', color: '#6B7280', margin: 0 }}>Your data is safe and secure</p>
             </div>
           </div>
@@ -163,13 +163,13 @@ export default function PaymentModal({ isOpen, onClose, paymentMethod, amount, o
             </button>
             <button type="submit" disabled={loading} style={{
               flex: 2, padding: '14px', borderRadius: '10px', border: 'none',
-              backgroundColor: loading ? '#9CA3AF' : '#0F766E', color: 'white',
+              backgroundColor: loading ? '#9CA3AF' : '#FF8A00', color: '#0B132B',
               fontWeight: '700', fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-              boxShadow: '0 4px 12px rgba(15,118,110,0.3)', transition: 'all 0.3s'
+              boxShadow: '0 4px 12px rgba(255,138,0,0.3)', transition: 'all 0.3s'
             }}
-              onMouseEnter={e => { if(!loading) { e.currentTarget.style.backgroundColor = '#115E59'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
-              onMouseLeave={e => { if(!loading) { e.currentTarget.style.backgroundColor = '#0F766E'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+              onMouseEnter={e => { if(!loading) { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+              onMouseLeave={e => { if(!loading) { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; } }}
             >
               {loading ? (
                 <>

@@ -16,7 +16,7 @@ export default function Toast({ message, type, onClose }: ToastProps) {
   }, [onClose]);
 
   const colors = {
-    success: { bg: '#D1FAE5', border: '#0F766E', text: '#0F766E', icon: <CheckCircle size={20} /> },
+    success: { bg: '#DCFCE7', border: '#16A34A', text: '#166534', icon: <CheckCircle size={20} /> },
     error: { bg: '#FEE2E2', border: '#DC2626', text: '#DC2626', icon: <XCircle size={20} /> },
     info: { bg: '#DBEAFE', border: '#2563EB', text: '#2563EB', icon: <AlertCircle size={20} /> }
   };

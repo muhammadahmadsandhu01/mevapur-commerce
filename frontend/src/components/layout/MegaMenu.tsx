@@ -51,7 +51,7 @@ export default function MegaMenu() {
               >
                 <Link
                   href={`/products/category/${category.slug}`}
-                  className="text-gray-700 hover:text-teal-700 px-3 py-2 text-sm font-medium transition-colors"
+                  className="text-gray-700 hover:text-[#ff8a00] px-3 py-2 text-sm font-medium transition-colors"
                 >
                   {category.name}
                 </Link>
@@ -73,7 +73,7 @@ export default function MegaMenu() {
                         <p className="text-sm text-gray-600">{category.description}</p>
                         <Link
                           href={`/products/category/${category.slug}`}
-                          className="inline-block mt-4 text-teal-700 hover:text-teal-800 text-sm font-medium"
+                          className="inline-block mt-4 text-[#0b132b] hover:text-[#ff8a00] text-sm font-medium"
                         >
                           View All →
                         </Link>
@@ -92,12 +92,12 @@ export default function MegaMenu() {
                               className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors group"
                             >
                               <div className="flex-1">
-                                <div className="text-sm font-medium text-gray-900 group-hover:text-teal-700">
+                                <div className="text-sm font-medium text-gray-900 group-hover:text-[#ff8a00]">
                                   {subcat.name}
                                 </div>
                               </div>
                               <svg
-                                className="w-5 h-5 text-gray-400 group-hover:text-teal-700"
+                                className="w-5 h-5 text-gray-400 group-hover:text-[#ff8a00]"
                                 fill="none"
                                 stroke="currentColor"
                                 viewBox="0 0 24 24"
@@ -124,7 +124,7 @@ export default function MegaMenu() {
           <div className="flex items-center space-x-6">
             <Link
               href="/brands"
-              className="text-gray-700 hover:text-teal-700 text-sm font-medium"
+              className="text-gray-700 hover:text-[#ff8a00] text-sm font-medium"
             >
               Brands
             </Link>

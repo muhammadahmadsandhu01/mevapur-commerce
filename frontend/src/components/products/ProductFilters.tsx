@@ -121,9 +121,9 @@ export default function ProductFilters() {
                     .split(",")
                     .includes(category._id)}
                   onChange={() => updateFilter("category", category._id, true)}
-                  className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                  className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
                 />
-                <span className="text-sm text-gray-700 group-hover:text-teal-700 capitalize">
+                <span className="text-sm text-gray-700 group-hover:text-[#ff8a00] capitalize">
                   {category.name}
                 </span>
               </label>
@@ -152,9 +152,9 @@ export default function ProductFilters() {
                     .split(",")
                     .includes(brand._id)}
                   onChange={() => updateFilter("brand", brand._id, true)}
-                  className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                  className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
                 />
-                <span className="text-sm text-gray-700 group-hover:text-teal-700">
+                <span className="text-sm text-gray-700 group-hover:text-[#ff8a00]">
                   {brand.name}
                 </span>
               </label>
@@ -182,7 +182,7 @@ export default function ProductFilters() {
                 value={priceRange.min}
                 onChange={(e) => setPriceRange(prev => ({ ...prev, min: e.target.value }))}
                 onBlur={(e) => updateFilter('minPrice', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-700 focus:border-transparent outline-none"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#ff8a00] focus:border-transparent outline-none"
               />
               <input 
                 type="number" 
@@ -190,30 +190,30 @@ export default function ProductFilters() {
                 value={priceRange.max}
                 onChange={(e) => setPriceRange(prev => ({ ...prev, max: e.target.value }))}
                 onBlur={(e) => updateFilter('maxPrice', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-700 focus:border-transparent outline-none"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#ff8a00] focus:border-transparent outline-none"
               />
             </div>
             {/* Visual Slider (Optional enhancement) */}
             <div className="relative pt-1">
               <div className="flex mb-2 items-center justify-between">
-                <div className="text-xs font-semibold inline-block text-teal-600">
+                <div className="text-xs font-semibold inline-block text-[#ff8a00]">
                   Rs. {priceRange.min || 0}
                 </div>
-                <div className="text-xs font-semibold inline-block text-teal-600">
+                <div className="text-xs font-semibold inline-block text-[#ff8a00]">
                   Rs. {priceRange.max || 10000}
                 </div>
               </div>
-              <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-teal-200">
+              <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-orange-200">
                 <div 
                   style={{ 
                     width: `${((parseInt(priceRange.min) || 0) / 10000) * 100}%`,
                     marginLeft: '0%'
                   }} 
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-teal-500" 
+                  className="shadow-none flex flex-col text-center whitespace-nowrap text-[#0b132b] justify-center bg-[#ff8a00]"
                 />
                 <div 
                   style={{ width: `${((parseInt(priceRange.max) || 10000) / 10000) * 100}%` }} 
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-teal-500" 
+                  className="shadow-none flex flex-col text-center whitespace-nowrap text-[#0b132b] justify-center bg-[#ff8a00]"
                 />
               </div>
             </div>
@@ -240,7 +240,7 @@ export default function ProductFilters() {
                   name="rating"
                   checked={searchParams.get('rating') === rating}
                   onChange={() => updateFilter('rating', rating)}
-                  className="w-4 h-4 text-teal-700 border-gray-300 focus:ring-teal-700"
+                  className="w-4 h-4 text-[#ff8a00] border-gray-300 focus:ring-[#ff8a00]"
                 />
                 <div className="flex items-center gap-1">
                   {[...Array(5)].map((_, i) => (
@@ -275,7 +275,7 @@ export default function ProductFilters() {
                 type="checkbox"
                 checked={searchParams.get('inStock') === 'true'}
                 onChange={() => updateFilter('inStock', searchParams.get('inStock') === 'true' ? '' : 'true')}
-                className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
               />
               <span className="text-sm text-gray-700">In Stock</span>
             </label>
@@ -284,7 +284,7 @@ export default function ProductFilters() {
                 type="checkbox"
                 checked={searchParams.get('inStock') === 'false'}
                 onChange={() => updateFilter('inStock', searchParams.get('inStock') === 'false' ? '' : 'false')}
-                className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
               />
               <span className="text-sm text-gray-700">Out of Stock</span>
             </label>
@@ -310,7 +310,7 @@ export default function ProductFilters() {
                   type="checkbox"
                   checked={searchParams.get('discount') === percent}
                   onChange={() => updateFilter('discount', percent)}
-                  className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                  className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
                 />
                 <span className="text-sm text-gray-700">{percent}% & Above</span>
               </label>
@@ -339,7 +339,7 @@ export default function ProductFilters() {
                     <label key={value} className="flex items-center gap-3 cursor-pointer">
                       <input 
                         type="checkbox"
-                        className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                        className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
                       />
                       <span className="text-sm text-gray-700">{value}</span>
                     </label>
@@ -368,7 +368,7 @@ export default function ProductFilters() {
                 type="checkbox"
                 checked={searchParams.get('freeShipping') === 'true'}
                 onChange={() => updateFilter('freeShipping', searchParams.get('freeShipping') === 'true' ? '' : 'true')}
-                className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
               />
               <span className="text-sm text-gray-700">Free Shipping</span>
             </label>
@@ -377,7 +377,7 @@ export default function ProductFilters() {
                 type="checkbox"
                 checked={searchParams.get('expressDelivery') === 'true'}
                 onChange={() => updateFilter('expressDelivery', searchParams.get('expressDelivery') === 'true' ? '' : 'true')}
-                className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
               />
               <span className="text-sm text-gray-700">Express Delivery</span>
             </label>
@@ -386,7 +386,7 @@ export default function ProductFilters() {
                 type="checkbox"
                 checked={searchParams.get('cod') === 'true'}
                 onChange={() => updateFilter('cod', searchParams.get('cod') === 'true' ? '' : 'true')}
-                className="w-4 h-4 text-teal-700 border-gray-300 rounded focus:ring-teal-700"
+                className="w-4 h-4 text-[#ff8a00] border-gray-300 rounded focus:ring-[#ff8a00]"
               />
               <span className="text-sm text-gray-700">Cash on Delivery</span>
             </label>
@@ -424,7 +424,7 @@ export default function ProductFilters() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-bold text-gray-900">Filters</h2>
             {activeFiltersCount > 0 && (
-              <span className="text-xs font-medium text-teal-700 bg-teal-50 px-2 py-1 rounded-full">
+              <span className="text-xs font-medium text-[#0b132b] bg-orange-50 px-2 py-1 rounded-full">
                 {activeFiltersCount} active
               </span>
             )}

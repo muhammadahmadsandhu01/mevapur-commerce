@@ -204,9 +204,9 @@ export default function SearchAutocomplete({
                 role="option"
                 aria-selected={selectedIndex === index}
                 id={`search-option-${index}`}
-                className={`flex items-center gap-3 px-4 py-3 transition hover:bg-teal-50 ${
+                className={`flex items-center gap-3 px-4 py-3 transition hover:bg-orange-50 ${
                   selectedIndex === index
-                    ? "bg-teal-50"
+                    ? "bg-orange-50"
                     : ""
                 }`}
               >
@@ -230,7 +230,7 @@ export default function SearchAutocomplete({
                   </p>
                 </div>
 
-                <div className="font-semibold text-teal-700 whitespace-nowrap">
+                <div className="font-semibold text-[#ff8a00] whitespace-nowrap">
                   Rs {item.price.toLocaleString()}
                 </div>
               </Link>

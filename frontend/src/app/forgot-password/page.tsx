@@ -59,13 +59,13 @@ export default function ForgotPasswordPage() {
       <Link href="/login" style={{ 
         position: 'fixed', top: '20px', left: '20px',
         display: 'flex', alignItems: 'center', gap: '8px',
-        color: '#0F766E', textDecoration: 'none', fontWeight: '600',
+        color: '#0B132B', textDecoration: 'none', fontWeight: '600',
         fontSize: '14px', padding: '10px 16px',
         backgroundColor: 'white', borderRadius: '10px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         transition: 'all 0.2s'
       }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F0FDFA'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
+        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.transform = 'translateX(0)'; }}
       >
         <ArrowLeft size={16} /> Back to Login
@@ -136,12 +136,12 @@ export default function ForgotPasswordPage() {
                 disabled={loading}
                 style={{
                   width: '100%', padding: '14px',
-                  backgroundColor: loading ? '#9CA3AF' : '#0F766E',
-                  color: 'white', border: 'none',
+                  backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
+                  color: '#0B132B', border: 'none',
                   borderRadius: '10px', fontSize: '15px', fontWeight: '700',
                   cursor: loading ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                  boxShadow: loading ? 'none' : '0 4px 12px rgba(15,118,110,0.3)',
+                  boxShadow: loading ? 'none' : '0 4px 12px rgba(255,138,0,0.3)',
                   transition: 'all 0.3s'
                 }}
               >
@@ -160,7 +160,7 @@ export default function ForgotPasswordPage() {
 
               <div style={{ fontSize: '14px', color: '#6B7280' }}>
                 Remember your password?{' '}
-                <Link href="/login" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '700' }}>
+                <Link href="/login" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
                   Sign In
                 </Link>
               </div>
@@ -171,10 +171,10 @@ export default function ForgotPasswordPage() {
             {/* Success State */}
             <div style={{ 
               width: '80px', height: '80px', borderRadius: '50%',
-              backgroundColor: '#D1FAE5', margin: '0 auto 24px',
+              backgroundColor: '#DCFCE7', margin: '0 auto 24px',
               display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}>
-              <CheckCircle size={40} color="#0F766E" />
+              <CheckCircle size={40} color="#16A34A" />
             </div>
 
             <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>
@@ -182,7 +182,7 @@ export default function ForgotPasswordPage() {
             </h1>
             <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '32px', lineHeight: '1.6' }}>
               We&apos;ve sent a password reset link to{' '}
-              <strong style={{ color: '#0F766E' }}>{email}</strong>.
+              <strong style={{ color: '#0B132B' }}>{email}</strong>.
               <br /><br />
               Please check your inbox and follow the instructions.
             </p>
@@ -199,13 +199,13 @@ export default function ForgotPasswordPage() {
               onClick={() => { setSuccess(false); setEmail(''); }}
               style={{
                 width: '100%', padding: '14px',
-                backgroundColor: 'white', color: '#0F766E',
-                border: '2px solid #0F766E', borderRadius: '10px',
+                backgroundColor: 'white', color: '#0B132B',
+                border: '2px solid #FF8A00', borderRadius: '10px',
                 fontSize: '15px', fontWeight: '700', cursor: 'pointer',
                 marginBottom: '12px',
                 transition: 'all 0.3s'
               }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F0FDFA'; }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
               onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; }}
             >
               Resend Email
@@ -213,14 +213,14 @@ export default function ForgotPasswordPage() {
 
             <Link href="/login" style={{
               display: 'block', width: '100%', padding: '14px',
-              backgroundColor: '#0F766E', color: 'white',
+              backgroundColor: '#FF8A00', color: '#0B132B',
               borderRadius: '10px', fontSize: '15px', fontWeight: '700',
               textDecoration: 'none', textAlign: 'center',
-              boxShadow: '0 4px 12px rgba(15,118,110,0.3)',
+              boxShadow: '0 4px 12px rgba(255,138,0,0.3)',
               transition: 'all 0.3s'
             }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#115E59'; }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#0F766E'; }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#E67C00'; }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#FF8A00'; }}
             >
               Back to Login
             </Link>

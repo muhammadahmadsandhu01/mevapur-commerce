@@ -52,8 +52,8 @@ export default function PaymentMethodSelector({
             key={method.code}
             className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 p-4 transition ${
               selected
-                ? 'border-teal-700 bg-teal-50'
-                : 'border-gray-200 bg-white hover:border-teal-300'
+                ? 'border-[#ff8a00] bg-orange-50'
+                : 'border-gray-200 bg-white hover:border-orange-300'
             }`}
           >
             <input
@@ -77,7 +77,7 @@ export default function PaymentMethodSelector({
                 {method.paymentType} payment
               </span>
             </span>
-            {selected && <CheckCircle className="text-teal-700" size={19} />}
+            {selected && <CheckCircle className="text-[#ff8a00]" size={19} />}
           </label>
         );
       })}

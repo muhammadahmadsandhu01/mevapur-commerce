@@ -101,7 +101,7 @@ function OrderSuccessContent() {
           <div style={{
             width: '60px',
             height: '60px',
-            border: '5px solid #0F766E',
+            border: '5px solid #FF8A00',
             borderTop: '5px solid transparent',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
@@ -118,7 +118,7 @@ function OrderSuccessContent() {
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <p style={{ color: '#6B7280', marginBottom: '20px' }}>Order not found</p>
-          <Link href="/" style={{ color: '#0F766E', fontWeight: '600' }}>← Back to Home</Link>
+          <Link href="/" style={{ color: '#0B132B', fontWeight: '600' }}>← Back to Home</Link>
         </div>
       </div>
     );
@@ -135,7 +135,7 @@ function OrderSuccessContent() {
       {/* Header */}
       <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '20px 0' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px' }}>
-          <Link href="/" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <Link href="/" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <ArrowLeft size={20} /> Back to Home
           </Link>
         </div>
@@ -148,7 +148,7 @@ function OrderSuccessContent() {
           <div style={{
             width: '100px',
             height: '100px',
-            backgroundColor: '#0F766E',
+            backgroundColor: '#16A34A',
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
@@ -163,7 +163,7 @@ function OrderSuccessContent() {
           <p style={{ fontSize: '18px', color: '#6B7280', marginBottom: '8px' }}>
             Thank you for shopping with {branding.siteName}
           </p>
-          <p style={{ fontSize: '14px', color: '#10B981', fontWeight: '600' }}>
+          <p style={{ fontSize: '14px', color: '#166534', fontWeight: '600' }}>
             We&apos;ve sent a confirmation email to your registered email address
           </p>
         </div>
@@ -176,16 +176,16 @@ function OrderSuccessContent() {
           marginBottom: '24px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
           textAlign: 'center',
-          border: '2px solid #0F766E'
+          border: '2px solid #FF8A00'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '12px' }}>
-            <Package size={20} color="#0F766E" />
+            <Package size={20} color="#FF8A00" />
             <span style={{ fontSize: '14px', fontWeight: '600', color: '#6B7280' }}>Your Order ID</span>
           </div>
           <div style={{
             fontSize: '28px',
             fontWeight: '800',
-            color: '#0F766E',
+            color: '#0B132B',
             fontFamily: 'monospace',
             marginBottom: '16px',
             letterSpacing: '1px'
@@ -195,7 +195,7 @@ function OrderSuccessContent() {
           <button
             onClick={copyOrderId}
             style={{
-              backgroundColor: copied ? '#10B981' : '#0F766E',
+              backgroundColor: copied ? '#16A34A' : '#0B132B',
               color: 'white',
               border: 'none',
               padding: '12px 24px',
@@ -209,13 +209,13 @@ function OrderSuccessContent() {
             }}
             onMouseEnter={e => {
               if (!copied) {
-                e.currentTarget.style.backgroundColor = '#115E59';
+                e.currentTarget.style.backgroundColor = '#1A2744';
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }
             }}
             onMouseLeave={e => {
               if (!copied) {
-                e.currentTarget.style.backgroundColor = '#0F766E';
+                e.currentTarget.style.backgroundColor = '#0B132B';
                 e.currentTarget.style.transform = 'translateY(0)';
               }
             }}
@@ -230,7 +230,7 @@ function OrderSuccessContent() {
           {/* Order Details */}
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
             <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Calendar size={20} color="#0F766E" /> Order Details
+              <Calendar size={20} color="#FF8A00" /> Order Details
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
@@ -241,8 +241,8 @@ function OrderSuccessContent() {
                 <span style={{ color: '#6B7280', fontSize: '14px' }}>Order Status</span>
                 <span style={{
                   padding: '4px 12px',
-                  backgroundColor: '#D1FAE5',
-                  color: '#0F766E',
+                  backgroundColor: '#F7F7F5',
+                  color: '#0B132B',
                   borderRadius: '20px',
                   fontWeight: '600',
                   fontSize: '13px'
@@ -254,8 +254,8 @@ function OrderSuccessContent() {
                 <span style={{ color: '#6B7280', fontSize: '14px' }}>Payment Status</span>
                 <span style={{
                   padding: '4px 12px',
-                  backgroundColor: order.paymentStatus === 'Paid' ? '#D1FAE5' : '#FEF3C7',
-                  color: order.paymentStatus === 'Paid' ? '#0F766E' : '#92400E',
+                  backgroundColor: order.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
+                  color: order.paymentStatus === 'Paid' ? '#166534' : '#92400E',
                   borderRadius: '20px',
                   fontWeight: '600',
                   fontSize: '13px'
@@ -269,7 +269,7 @@ function OrderSuccessContent() {
           {/* Payment Method */}
           <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
             <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <CreditCard size={20} color="#0F766E" /> Payment Method
+              <CreditCard size={20} color="#FF8A00" /> Payment Method
             </h3>
             <div style={{ padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
               <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
@@ -285,7 +285,7 @@ function OrderSuccessContent() {
         {/* Shipping Address */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '24px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Truck size={20} color="#0F766E" /> Shipping Address
+            <Truck size={20} color="#FF8A00" /> Shipping Address
           </h3>
           <div style={{ padding: '20px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
             <div style={{ fontWeight: '700', color: '#111827', fontSize: '16px', marginBottom: '8px' }}>
@@ -338,7 +338,7 @@ function OrderSuccessContent() {
                       <div style={{ fontSize: '14px', color: '#6B7280' }}>
                         Quantity: <span style={{ fontWeight: '600', color: '#111827' }}>{item.quantity}</span>
                       </div>
-                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#0F766E' }}>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#FF8A00' }}>
                         Rs. {(Number(item.price) * item.quantity).toFixed(2)}
                       </div>
                     </div>
@@ -361,14 +361,14 @@ function OrderSuccessContent() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
               <span style={{ color: '#6B7280' }}>Shipping</span>
-              <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#0F766E' : '#111827' }}>
+              <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#166534' : '#111827' }}>
                 {shippingCost === 0 ? 'FREE' : `Rs. ${shippingCost.toFixed(2)}`}
               </span>
             </div>
             {discount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
-                <span style={{ color: '#10B981' }}>Discount</span>
-                <span style={{ fontWeight: '600', color: '#10B981' }}>-Rs. {discount.toFixed(2)}</span>
+                <span style={{ color: '#FF8A00' }}>Discount</span>
+                <span style={{ fontWeight: '600', color: '#FF8A00' }}>-Rs. {discount.toFixed(2)}</span>
               </div>
             )}
             <div style={{
@@ -379,7 +379,7 @@ function OrderSuccessContent() {
               borderTop: '2px solid #E5E7EB',
               fontSize: '20px',
               fontWeight: '800',
-              color: '#0F766E'
+              color: '#FF8A00'
             }}>
               <span>Total</span>
               <span>Rs. {totalAmount.toFixed(2)}</span>
@@ -392,8 +392,8 @@ function OrderSuccessContent() {
           <button
             onClick={() => router.push(`/orders/${order._id}`)}
             style={{
-              backgroundColor: '#0F766E',
-              color: 'white',
+              backgroundColor: '#FF8A00',
+              color: '#0B132B',
               border: 'none',
               padding: '16px 32px',
               borderRadius: '12px',
@@ -406,11 +406,11 @@ function OrderSuccessContent() {
               transition: 'all 0.3s'
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = '#115E59';
+              e.currentTarget.style.backgroundColor = '#E67C00';
               e.currentTarget.style.transform = 'translateY(-2px)';
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = '#0F766E';
+              e.currentTarget.style.backgroundColor = '#FF8A00';
               e.currentTarget.style.transform = 'translateY(0)';
             }}
           >
@@ -420,8 +420,8 @@ function OrderSuccessContent() {
             href="/"
             style={{
               backgroundColor: 'white',
-              color: '#0F766E',
-              border: '2px solid #0F766E',
+              color: '#0B132B',
+              border: '2px solid #FF8A00',
               padding: '16px 32px',
               borderRadius: '12px',
               fontWeight: '700',
@@ -433,7 +433,7 @@ function OrderSuccessContent() {
               transition: 'all 0.3s'
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = '#F0FDFA';
+              e.currentTarget.style.backgroundColor = '#F7F7F5';
               e.currentTarget.style.transform = 'translateY(-2px)';
             }}
             onMouseLeave={e => {
@@ -465,7 +465,7 @@ export default function OrderSuccessPage() {
           <div style={{
             width: '60px',
             height: '60px',
-            border: '5px solid #0F766E',
+            border: '5px solid #FF8A00',
             borderTop: '5px solid transparent',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',

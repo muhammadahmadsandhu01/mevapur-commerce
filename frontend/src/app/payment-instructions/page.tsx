@@ -58,7 +58,7 @@ function PaymentInstructionsContent() {
     return (
       <main className="mx-auto max-w-xl p-8">
         <h1 className="text-2xl font-bold">Payment instructions unavailable</h1>
-        <Link href={orderId ? `/orders/${orderId}` : '/orders'} className="mt-4 inline-block text-teal-700 underline">
+        <Link href={orderId ? `/orders/${orderId}` : '/orders'} className="mt-4 inline-block text-[#0b132b] underline">
           View order
         </Link>
       </main>
@@ -79,7 +79,7 @@ function PaymentInstructionsContent() {
         </div>
 
         {submitted ? (
-          <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-teal-900">
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-[#0b132b]">
             <ShieldCheck className="mr-2 inline" size={18} />
             Awaiting verification ({payment.customerReferenceMasked})
           </div>
@@ -105,7 +105,7 @@ function PaymentInstructionsContent() {
                 className="rounded-lg border p-3 font-normal"
               />
             </label>
-            <button disabled={submitting} className="rounded-lg bg-teal-700 p-3 font-semibold text-white disabled:opacity-50">
+            <button disabled={submitting} className="rounded-lg bg-[#ff8a00] p-3 font-semibold text-[#0b132b] disabled:opacity-50">
               {submitting ? 'Submitting…' : 'I have transferred'}
             </button>
           </form>

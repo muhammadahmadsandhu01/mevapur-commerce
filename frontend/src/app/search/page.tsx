@@ -154,7 +154,7 @@ function SearchContent() {
             <div style={{
               width: '60px',
               height: '60px',
-              border: '5px solid #0F766E',
+              border: '5px solid #FF8A00',
               borderTop: '5px solid transparent',
               borderRadius: '50%',
               animation: 'spin 1s linear infinite',
@@ -175,8 +175,8 @@ function SearchContent() {
               onClick={() => router.push('/')}
               style={{
                 padding: '12px 24px',
-                backgroundColor: '#0F766E',
-                color: 'white',
+                backgroundColor: '#FF8A00',
+                color: '#0B132B',
                 border: 'none',
                 borderRadius: '8px',
                 fontWeight: '600',
@@ -219,7 +219,7 @@ export default function SearchPage() {
           <div style={{
             width: '60px',
             height: '60px',
-            border: '5px solid #0F766E',
+            border: '5px solid #FF8A00',
             borderTop: '5px solid transparent',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',

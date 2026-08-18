@@ -50,7 +50,7 @@ export default function CheckoutPage() {
   if (items.length === 0) {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#0F766E' }} />
+        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
       </div>
     );
   }
@@ -235,7 +235,7 @@ export default function CheckoutPage() {
 
   const getPhoneBorderColor = () => {
     if (errors.phone && touched.phone) return '#EF4444';
-    if (touched.phone) return '#0F766E';
+    if (touched.phone) return '#16A34A';
     return '#E5E7EB';
   };
 
@@ -247,13 +247,13 @@ export default function CheckoutPage() {
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
             <div style={{ position: 'absolute', top: '20px', left: '60px', right: '60px', height: '3px', backgroundColor: '#E5E7EB' }}>
-              <div style={{ width: '33%', height: '100%', backgroundColor: '#0F766E', transition: 'width 0.3s ease' }} />
+              <div style={{ width: '33%', height: '100%', backgroundColor: '#FF8A00', transition: 'width 0.3s ease' }} />
             </div>
             {steps.map((step) => (
               <div key={step.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative', zIndex: 1 }}>
                 <div style={{ 
                   width: '40px', height: '40px', borderRadius: '50%', 
-                  backgroundColor: step.status === 'completed' ? '#0F766E' : step.status === 'current' ? '#0F766E' : '#E5E7EB',
+                  backgroundColor: step.status === 'completed' ? '#16A34A' : step.status === 'current' ? '#FF8A00' : '#E5E7EB',
                   color: step.status !== 'upcoming' ? 'white' : '#6B7280',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: '700', fontSize: '14px',
@@ -262,7 +262,7 @@ export default function CheckoutPage() {
                 }}>
                   {step.status === 'completed' ? <CheckCircle size={20} /> : step.id}
                 </div>
-                <span style={{ fontSize: '12px', fontWeight: '600', color: step.status === 'current' ? '#0F766E' : '#6B7280' }}>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: step.status === 'current' ? '#FF8A00' : '#6B7280' }}>
                   {step.name}
                 </span>
               </div>
@@ -275,7 +275,7 @@ export default function CheckoutPage() {
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '32px 20px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <Link href="/cart" style={{ color: '#6B7280', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', transition: 'color 0.2s', fontSize: '14px' }}
-            onMouseEnter={e => e.currentTarget.style.color = '#0F766E'}
+            onMouseEnter={e => e.currentTarget.style.color = '#FF8A00'}
             onMouseLeave={e => e.currentTarget.style.color = '#6B7280'}
           >
             <ArrowLeft size={18} /> Back to Cart
@@ -298,7 +298,7 @@ export default function CheckoutPage() {
             {/* Contact Info */}
             <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB' }}>
               <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Mail size={22} color="#0F766E" /> Contact Information
+                <Mail size={22} color="#FF8A00" /> Contact Information
               </h3>
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -306,7 +306,7 @@ export default function CheckoutPage() {
                   <label style={{ 
                     position: 'absolute', left: '16px', top: formData.fullName ? '-10px' : '14px',
                     fontSize: formData.fullName ? '11px' : '14px', fontWeight: '600',
-                    color: formData.fullName ? '#0F766E' : '#6B7280',
+                    color: formData.fullName ? '#FF8A00' : '#6B7280',
                     backgroundColor: 'white', padding: '0 4px',
                     transition: 'all 0.2s', pointerEvents: 'none'
                   }}>
@@ -315,10 +315,10 @@ export default function CheckoutPage() {
                   <input name="fullName" value={formData.fullName} onChange={handleChange} onBlur={handleFieldBlur('fullName')}
                     style={{ 
                       width: '100%', padding: '16px', paddingTop: formData.fullName ? '24px' : '16px',
-                      borderRadius: '12px', border: `2px solid ${errors.fullName && touched.fullName ? '#EF4444' : touched.fullName ? '#0F766E' : '#E5E7EB'}`,
+                      borderRadius: '12px', border: `2px solid ${errors.fullName && touched.fullName ? '#EF4444' : touched.fullName ? '#16A34A' : '#E5E7EB'}`,
                       fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
                     }}
-                    onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
+                    onFocus={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(255,138,0,0.1)'; }}
                     placeholder=" "
                   />
                   {errors.fullName && touched.fullName && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}> {errors.fullName}</span>}
@@ -328,7 +328,7 @@ export default function CheckoutPage() {
                   <label style={{ 
                     position: 'absolute', left: '16px', top: formData.email ? '-10px' : '14px',
                     fontSize: formData.email ? '11px' : '14px', fontWeight: '600',
-                    color: formData.email ? '#0F766E' : '#6B7280',
+                    color: formData.email ? '#FF8A00' : '#6B7280',
                     backgroundColor: 'white', padding: '0 4px',
                     transition: 'all 0.2s', pointerEvents: 'none'
                   }}>
@@ -337,10 +337,10 @@ export default function CheckoutPage() {
                   <input name="email" type="email" value={formData.email} onChange={handleChange} onBlur={handleFieldBlur('email')}
                     style={{ 
                       width: '100%', padding: '16px', paddingTop: formData.email ? '24px' : '16px',
-                      borderRadius: '12px', border: `2px solid ${errors.email && touched.email ? '#EF4444' : touched.email ? '#0F766E' : '#E5E7EB'}`,
+                      borderRadius: '12px', border: `2px solid ${errors.email && touched.email ? '#EF4444' : touched.email ? '#16A34A' : '#E5E7EB'}`,
                       fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
                     }}
-                    onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
+                    onFocus={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(255,138,0,0.1)'; }}
                     placeholder=" "
                   />
                   {errors.email && touched.email && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}>❌ {errors.email}</span>}
@@ -351,7 +351,7 @@ export default function CheckoutPage() {
                 <label style={{ 
                   position: 'absolute', left: '16px', top: formData.phone ? '-10px' : '14px',
                   fontSize: formData.phone ? '11px' : '14px', fontWeight: '600',
-                  color: formData.phone ? '#0F766E' : '#6B7280',
+                  color: formData.phone ? '#FF8A00' : '#6B7280',
                   backgroundColor: 'white', padding: '0 4px',
                   transition: 'all 0.2s', pointerEvents: 'none'
                 }}>
@@ -378,7 +378,7 @@ export default function CheckoutPage() {
                       borderLeft: 'none',
                       fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
                     }}
-                    onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
+                    onFocus={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(255,138,0,0.1)'; }}
                     placeholder="03XX XXXXXXX"
                   />
                 </div>
@@ -389,14 +389,14 @@ export default function CheckoutPage() {
             {/* Shipping Address */}
             <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB' }}>
               <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <MapPin size={22} color="#0F766E" /> Shipping Address
+                <MapPin size={22} color="#FF8A00" /> Shipping Address
               </h3>
               
               <div style={{ marginBottom: '20px', position: 'relative' }}>
                 <label style={{ 
                   position: 'absolute', left: '16px', top: formData.address ? '-10px' : '14px',
                   fontSize: formData.address ? '11px' : '14px', fontWeight: '600',
-                  color: formData.address ? '#0F766E' : '#6B7280',
+                  color: formData.address ? '#FF8A00' : '#6B7280',
                   backgroundColor: 'white', padding: '0 4px',
                   transition: 'all 0.2s', pointerEvents: 'none'
                 }}>
@@ -405,10 +405,10 @@ export default function CheckoutPage() {
                 <textarea name="address" value={formData.address} onChange={handleChange} onBlur={handleFieldBlur('address')} rows={3}
                   style={{ 
                     width: '100%', padding: '16px', paddingTop: formData.address ? '24px' : '16px',
-                    borderRadius: '12px', border: `2px solid ${errors.address && touched.address ? '#EF4444' : touched.address ? '#0F766E' : '#E5E7EB'}`,
+                    borderRadius: '12px', border: `2px solid ${errors.address && touched.address ? '#EF4444' : touched.address ? '#16A34A' : '#E5E7EB'}`,
                     fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC', resize: 'none'
                   }}
-                  onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
+                  onFocus={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(255,138,0,0.1)'; }}
                   placeholder="House #, Street, Area, Landmark"
                 />
                 {errors.address && touched.address && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}>❌ {errors.address}</span>}
@@ -451,7 +451,7 @@ export default function CheckoutPage() {
                 <label style={{ 
                   position: 'absolute', left: '16px', top: formData.postalCode ? '-10px' : '14px',
                   fontSize: formData.postalCode ? '11px' : '14px', fontWeight: '600',
-                  color: formData.postalCode ? '#0F766E' : '#6B7280',
+                  color: formData.postalCode ? '#FF8A00' : '#6B7280',
                   backgroundColor: 'white', padding: '0 4px',
                   transition: 'all 0.2s', pointerEvents: 'none'
                 }}>
@@ -460,22 +460,22 @@ export default function CheckoutPage() {
                 <input name="postalCode" value={formData.postalCode} onChange={handleChange} onBlur={handleFieldBlur('postalCode')}
                   style={{ 
                     width: '100%', padding: '16px', paddingTop: formData.postalCode ? '24px' : '16px',
-                    borderRadius: '12px', border: `2px solid ${errors.postalCode && touched.postalCode ? '#EF4444' : touched.postalCode ? '#0F766E' : '#E5E7EB'}`,
+                    borderRadius: '12px', border: `2px solid ${errors.postalCode && touched.postalCode ? '#EF4444' : touched.postalCode ? '#16A34A' : '#E5E7EB'}`,
                     fontSize: '15px', outline: 'none', transition: 'all 0.2s', backgroundColor: '#F8FAFC'
                   }}
-                  onFocus={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(15,118,110,0.1)'; }}
+                  onFocus={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.boxShadow = '0 0 0 4px rgba(255,138,0,0.1)'; }}
                   placeholder="54000"
                 />
                 {errors.postalCode && touched.postalCode && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '6px', display: 'block', fontWeight: '500' }}>❌ {errors.postalCode}</span>}
               </div>
 
-              <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#F0FDFA', borderRadius: '12px', border: '1px solid #0F766E' }}>
+              <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#F7F7F5', borderRadius: '12px', border: '1px solid #D1D5DB' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                  <Truck size={20} color="#0F766E" />
-                  <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>Estimated Delivery</span>
+                  <Truck size={20} color="#FF8A00" />
+                  <span style={{ fontWeight: '700', color: '#0B132B', fontSize: '14px' }}>Estimated Delivery</span>
                 </div>
                 <p style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>📦 2-4 Business Days to {formData.city}</p>
-                <p style={{ fontSize: '13px', color: '#0F766E', fontWeight: '600' }}>
+                <p style={{ fontSize: '13px', color: '#6B7280', fontWeight: '600' }}>
                   <RotateCcw size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }}/> Free Returns within 7 days
                 </p>
               </div>
@@ -484,11 +484,11 @@ export default function CheckoutPage() {
             {/* Payment Method */}
             <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB' }}>
               <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <CreditCard size={22} color="#0F766E" /> Payment Method
+                <CreditCard size={22} color="#FF8A00" /> Payment Method
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 {[
-                  { id: 'COD', label: 'Cash on Delivery', icon: '💵', color: '#0F766E' },
+                  { id: 'COD', label: 'Cash on Delivery', icon: '💵', color: '#FF8A00' },
                   { id: 'jazzcash', label: 'JazzCash', icon: '📱', color: '#7C3AED' },
                   { id: 'visa', label: 'Visa Card', icon: '💳', color: '#1E40AF' },
                   { id: 'mastercard', label: 'MasterCard', icon: '💳', color: '#DC2626' }
@@ -517,7 +517,7 @@ export default function CheckoutPage() {
           <div style={{ position: 'sticky', top: '100px' }}>
             <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 10px 40px rgba(0,0,0,0.08)', border: '1px solid #E5E7EB' }}>
               <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#111827', marginBottom: '24px', paddingBottom: '20px', borderBottom: '2px solid #F3F4F6', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Package size={22} color="#0F766E" /> Order Summary
+                <Package size={22} color="#FF8A00" /> Order Summary
               </h3>
               
               <div style={{ marginBottom: '24px', maxHeight: '220px', overflowY: 'auto', paddingRight: '8px' }}>
@@ -531,7 +531,7 @@ export default function CheckoutPage() {
                         <span style={{ fontWeight: '700', minWidth: '24px', textAlign: 'center', fontSize: '14px' }}>{item.quantity}</span>
                         <button type="button" onClick={() => updateQuantity(item._id || item.id, item.quantity + 1)} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>+</button>
                       </div>
-                      <div style={{ fontSize: '15px', fontWeight: '800', color: '#0F766E' }}>
+                      <div style={{ fontSize: '15px', fontWeight: '800', color: '#FF8A00' }}>
                         Rs. {(parseFloat(String(item.price)) * item.quantity).toFixed(0)}
                       </div>
                     </div>
@@ -542,7 +542,7 @@ export default function CheckoutPage() {
               {!appliedCoupon ? (
                 <div style={{ marginBottom: '20px' }}>
                   <label style={{ fontSize: '13px', fontWeight: '700', color: '#111827', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Tag size={16} color="#0F766E" /> Have a Coupon?
+                    <Tag size={16} color="#FF8A00" /> Have a Coupon?
                   </label>
                   <div style={{ display: 'flex', gap: '10px' }}>
                     <input type="text" placeholder="MEVA20" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
@@ -554,10 +554,10 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               ) : (
-                <div style={{ backgroundColor: '#D1FAE5', borderRadius: '12px', padding: '14px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '2px solid #0F766E' }}>
+                <div style={{ backgroundColor: '#DCFCE7', borderRadius: '12px', padding: '14px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '2px solid #16A34A' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Tag size={18} color="#0F766E" />
-                    <span style={{ fontWeight: '700', color: '#0F766E', fontSize: '14px' }}>{appliedCoupon} applied ({discount}% OFF)</span>
+                    <Tag size={18} color="#16A34A" />
+                    <span style={{ fontWeight: '700', color: '#166534', fontSize: '14px' }}>{appliedCoupon} applied ({discount}% OFF)</span>
                   </div>
                 </div>
               )}
@@ -568,32 +568,32 @@ export default function CheckoutPage() {
                   <span style={{ fontWeight: '700', color: '#111827' }}>Rs. {cartSubtotal.toFixed(2)}</span>
                 </div>
                 {discount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#0F766E' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#FF8A00' }}>
                     <span>Discount ({discount}%)</span>
                     <span style={{ fontWeight: '700' }}>-Rs. {discountAmountValue.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Shipping</span>
-                  <span style={{ fontWeight: '700', color: shippingCostValue === 0 ? '#0F766E' : '#111827' }}>
+                  <span style={{ fontWeight: '700', color: shippingCostValue === 0 ? '#166534' : '#111827' }}>
                     {shippingCostValue === 0 ? 'FREE ✓' : `Rs. ${shippingCostValue}`}
                   </span>
                 </div>
                 {totalSavings > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#10B981', fontWeight: '700' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '14px', color: '#FF8A00', fontWeight: '700' }}>
                     <span> You Saved</span>
                     <span>Rs. {totalSavings.toFixed(2)}</span>
                   </div>
                 )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px', fontSize: '24px', fontWeight: '800', color: '#0F766E', paddingTop: '20px', borderTop: '3px solid #E5E7EB' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px', fontSize: '24px', fontWeight: '800', color: '#FF8A00', paddingTop: '20px', borderTop: '3px solid #E5E7EB' }}>
                 <span>Grand Total</span>
                 <span>Rs. {grandTotalValue.toFixed(2)}</span>
               </div>
 
               <button type="submit" disabled={loading} style={{ 
-                width: '100%', backgroundColor: loading ? '#9CA3AF' : '#0F766E', color: 'white', border: 'none', padding: '20px', borderRadius: '14px', 
+                width: '100%', backgroundColor: loading ? '#9CA3AF' : '#FF8A00', color: '#0B132B', border: 'none', padding: '20px', borderRadius: '14px',
                 fontSize: '17px', fontWeight: '800', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px'
               }}>
                 {loading ? (
@@ -609,10 +609,10 @@ export default function CheckoutPage() {
 
               <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                 {[
-                  { icon: <Shield size={16} color="#0F766E" />, text: '256-bit SSL Secure' },
-                  { icon: <RotateCcw size={16} color="#0F766E" />, text: 'Easy Returns' },
-                  { icon: <Headphones size={16} color="#0F766E" />, text: '24/7 Support' },
-                  { icon: <Truck size={16} color="#0F766E" />, text: 'Fast Delivery' }
+                  { icon: <Shield size={16} color="#FF8A00" />, text: '256-bit SSL Secure' },
+                  { icon: <RotateCcw size={16} color="#FF8A00" />, text: 'Easy Returns' },
+                  { icon: <Headphones size={16} color="#FF8A00" />, text: '24/7 Support' },
+                  { icon: <Truck size={16} color="#FF8A00" />, text: 'Fast Delivery' }
                 ].map((badge, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#6B7280', padding: '10px', backgroundColor: '#F8FAFC', borderRadius: '10px' }}>
                     {badge.icon}

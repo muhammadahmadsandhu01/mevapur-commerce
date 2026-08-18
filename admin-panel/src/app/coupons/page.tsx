@@ -216,8 +216,8 @@ export default function CouponsPage() {
           </div>
         </div>
         <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="#10B981" />
+          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#DCFCE7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle size={24} color="#16A34A" />
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Now</div>

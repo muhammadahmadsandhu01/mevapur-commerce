@@ -29,15 +29,15 @@ export default function OrderTimeline({ timeline }: OrderTimelineProps) {
             <div style={{
               position: 'absolute', left: '15px', top: '32px', bottom: '-24px',
               width: '2px',
-              backgroundColor: step.completed ? '#0F766E' : '#E5E7EB'
+              backgroundColor: step.completed ? '#16A34A' : '#E5E7EB'
             }} />
           )}
           
           {/* Icon Circle */}
           <div style={{
             width: '32px', height: '32px', borderRadius: '50%',
-            backgroundColor: step.completed ? '#0F766E' : 'white',
-            border: `2px solid ${step.completed ? '#0F766E' : '#E5E7EB'}`,
+            backgroundColor: step.completed ? '#16A34A' : 'white',
+            border: `2px solid ${step.completed ? '#16A34A' : '#E5E7EB'}`,
             color: step.completed ? 'white' : '#9CA3AF',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0, zIndex: 1

@@ -33,7 +33,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <Loader className="animate-spin text-teal-700 mx-auto mb-4" size={48} />
+          <Loader className="animate-spin text-[#ff8a00] mx-auto mb-4" size={48} />
           <p className="text-gray-600">Loading admin dashboard...</p>
         </div>
       </div>
