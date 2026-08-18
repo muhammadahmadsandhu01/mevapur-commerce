@@ -101,7 +101,12 @@ const ALLOWLIST = Object.freeze([
     collection: 'refunds',
     name: 'unique_provider_refund_reference',
     keys: { provider: 1, providerRefundId: 1 },
-    options: { unique: true, sparse: true }
+    options: {
+      unique: true,
+      partialFilterExpression: {
+        providerRefundId: { $type: 'string', $gt: '' }
+      }
+    }
   },
   {
     collection: 'refunds',
@@ -491,9 +496,18 @@ async function runDataChecks(database) {
     ),
     duplicateProviderRefundReferences: await duplicateGroupCount(
       refunds,
-      { provider: { $type: 'string' }, providerRefundId: { $type: 'string' } },
+      {
+        provider: { $type: 'string' },
+        providerRefundId: { $type: 'string', $gt: '' }
+      },
       { provider: '$provider', reference: '$providerRefundId' }
     ),
+    nullProviderRefundReferences: await refunds.countDocuments({
+      providerRefundId: { $exists: true, $eq: null }
+    }),
+    emptyProviderRefundReferences: await refunds.countDocuments({
+      providerRefundId: { $type: 'string', $eq: '' }
+    }),
     duplicateInventoryOperationKeys: await duplicateGroupCount(
       inventory,
       { operationKey: { $type: 'string' } },
@@ -542,8 +556,12 @@ async function runDataChecks(database) {
     refundProviderReferenceTypeIncompatibilities: await refunds.countDocuments({
       providerRefundId: { $exists: true },
       $or: [
-        { providerRefundId: null },
-        { providerRefundId: { $not: { $type: 'string' } } },
+        {
+          providerRefundId: {
+            $ne: null,
+            $not: { $type: 'string' }
+          }
+        },
         { provider: { $not: { $type: 'string' } } }
       ]
     }),

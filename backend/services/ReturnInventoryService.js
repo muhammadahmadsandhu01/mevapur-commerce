@@ -2,16 +2,7 @@ const Product = require('../models/Product');
 const InventoryTransaction = require('../models/InventoryTransaction');
 const { AppError } = require('../common/errors/AppError');
 
-/**
- * Restore a validated return snapshot inside the caller's refund transaction.
- * This function deliberately has no standalone transaction entry point: stock
- * may only move together with the confirmed refund and Return state changes.
- */
-exports.restockInTransaction = async (entry, {
-  session,
-  adminId,
-  refundId
-}) => {
+const assertTransaction = (session) => {
   if (!session?.inTransaction?.()) {
     throw new AppError(
       'Return inventory restoration requires an active transaction',
@@ -19,17 +10,63 @@ exports.restockInTransaction = async (entry, {
       'RETURN_TRANSACTION_REQUIRED'
     );
   }
+};
+
+const assertQuantity = (item) => {
+  if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+    throw new AppError(
+      'Return inventory quantity is invalid',
+      503,
+      'RETURN_REFUND_STATE_UNAVAILABLE'
+    );
+  }
+};
+
+const assertRestockableInTransaction = async (entry, { session }) => {
+  assertTransaction(session);
   if (entry.inventoryRestockedAt) return false;
 
   for (const item of entry.items) {
-    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+    assertQuantity(item);
+    const product = await Product.findById(item.product)
+      .select('stock variants._id variants.stock')
+      .session(session);
+    if (!product) {
       throw new AppError(
-        'Return inventory quantity is invalid',
-        503,
-        'RETURN_REFUND_STATE_UNAVAILABLE'
+        'The historical return product no longer exists',
+        409,
+        'RETURN_INVENTORY_PRODUCT_MISSING'
       );
     }
+    if (item.variantId && !product.variants.id(item.variantId)) {
+      throw new AppError(
+        'The historical return variant no longer exists',
+        409,
+        'RETURN_INVENTORY_VARIANT_MISSING'
+      );
+    }
+  }
+  return true;
+};
 
+/**
+ * Restore a validated return snapshot inside the caller's refund transaction.
+ * This function deliberately has no standalone transaction entry point: stock
+ * may only move together with the confirmed refund and Return state changes.
+ */
+const restockInTransaction = async (entry, {
+  session,
+  adminId,
+  refundId
+}) => {
+  assertTransaction(session);
+  if (entry.inventoryRestockedAt) return false;
+
+  // Validate every historical reference before the first stock write so a
+  // missing later line can never commit a partial restock.
+  await assertRestockableInTransaction(entry, { session });
+
+  for (const item of entry.items) {
     const query = { _id: item.product };
     const increment = {};
     if (item.variantId) {
@@ -47,7 +84,7 @@ exports.restockInTransaction = async (entry, {
     );
     if (!productBefore) {
       throw new AppError(
-        'Return inventory could not be restored',
+        'Return inventory changed while it was being restored',
         503,
         'RETURN_REFUND_STATE_UNAVAILABLE'
       );
@@ -77,4 +114,9 @@ exports.restockInTransaction = async (entry, {
 
   entry.inventoryRestockedAt = new Date();
   return true;
+};
+
+module.exports = {
+  assertRestockableInTransaction,
+  restockInTransaction
 };

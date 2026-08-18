@@ -147,11 +147,14 @@ exports.updateReturnStatus = async (req, res, next) => {
     );
 
     const providerPending = result?.refund?.status === 'Processing';
-    return res.status(providerPending ? 202 : 200).json({
+    const inventoryReconciliation = returnItem.status === 'inventory_reconciliation';
+    return res.status(providerPending || inventoryReconciliation ? 202 : 200).json({
       success: true,
-      message: providerPending
-        ? 'Refund is awaiting payment-provider confirmation'
-        : 'Return status updated successfully',
+      message: inventoryReconciliation
+        ? 'Financial refund confirmed; inventory reconciliation is required'
+        : providerPending
+          ? 'Refund is awaiting payment-provider confirmation'
+          : 'Return status updated successfully',
       data: returnItem
     });
   } catch (error) {
@@ -177,12 +180,57 @@ exports.processRefund = async (req, res, next) => {
     );
 
     const providerPending = result.refund.status === 'Processing';
-    return res.status(providerPending ? 202 : 200).json({
+    const inventoryReconciliation = returnItem.status === 'inventory_reconciliation';
+    return res.status(providerPending || inventoryReconciliation ? 202 : 200).json({
       success: true,
-      message: providerPending
-        ? 'Refund is awaiting payment-provider confirmation'
-        : 'Refund processed successfully',
+      message: inventoryReconciliation
+        ? 'Financial refund confirmed; inventory reconciliation is required'
+        : providerPending
+          ? 'Refund is awaiting payment-provider confirmation'
+          : 'Refund processed successfully',
       data: returnItem
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// @desc    Reconcile inventory after a financially confirmed refund
+// @route   POST /api/returns/:id/inventory-reconciliation
+// @access  Private/Admin
+exports.reconcileReturnInventory = async (req, res, next) => {
+  try {
+    const result = await ReturnService.reconcileInventory({
+      returnId: req.params.id,
+      adminId: req.user.id,
+      action: req.body.action,
+      note: req.body.note || ''
+    });
+
+    await logActivity(
+      req,
+      'RETURN_INVENTORY_RECONCILIATION',
+      `Inventory reconciliation for return ${result.return.returnNumber}: ${result.inventoryStatus}`,
+      {
+        returnId: result.return._id,
+        refundId: result.refund._id,
+        action: req.body.action,
+        inventoryStatus: result.inventoryStatus,
+        idempotentReplay: result.idempotentReplay
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: result.inventoryStatus === 'restored'
+        ? 'Return inventory restored successfully'
+        : 'Manual inventory resolution recorded successfully',
+      data: {
+        return: result.return,
+        refund: result.refund,
+        inventoryStatus: result.inventoryStatus,
+        idempotentReplay: result.idempotentReplay
+      }
     });
   } catch (error) {
     return next(error);

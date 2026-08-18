@@ -43,7 +43,16 @@ const returnSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['pending', 'approved', 'received', 'inspected', 'refunded', 'rejected', 'cancelled'],
+    enum: [
+      'pending',
+      'approved',
+      'received',
+      'inspected',
+      'inventory_reconciliation',
+      'refunded',
+      'rejected',
+      'cancelled'
+    ],
     default: 'pending'
   },
   refundMethod: {

@@ -127,6 +127,40 @@ const refundSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  manualConfirmedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  manualConfirmedAt: { type: Date, default: null },
+  inventoryReconciliationStatus: {
+    type: String,
+    enum: ['not_required', 'pending', 'restored', 'manual_resolved'],
+    default: 'not_required',
+    required: true
+  },
+  inventoryReconciliationReasonCode: {
+    type: String,
+    enum: [
+      '',
+      'RETURN_INVENTORY_PRODUCT_MISSING',
+      'RETURN_INVENTORY_VARIANT_MISSING'
+    ],
+    default: ''
+  },
+  inventoryReconciliationRequiredAt: { type: Date, default: null },
+  inventoryReconciledAt: { type: Date, default: null },
+  inventoryReconciledBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  inventoryReconciliationNote: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: 500
+  },
   reason: { type: String, default: '', trim: true, maxlength: 200 },
   failureCode: { type: String, default: '', maxlength: 100 },
   completedAt: { type: Date, default: null },
@@ -178,8 +212,10 @@ refundSchema.index(
   { provider: 1, providerRefundId: 1 },
   {
     unique: true,
-    sparse: true,
-    name: 'unique_provider_refund_reference'
+    name: 'unique_provider_refund_reference',
+    partialFilterExpression: {
+      providerRefundId: { $type: 'string', $gt: '' }
+    }
   }
 );
 refundSchema.index({ status: 1, createdAt: -1 });

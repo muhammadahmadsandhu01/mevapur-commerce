@@ -4,6 +4,7 @@ const app = require('../../app');
 const TokenService = require('../../services/TokenService');
 const stripeProvider = require('../../services/payment/providers/StripeProvider');
 const ReturnInventoryService = require('../../services/ReturnInventoryService');
+const RefundService = require('../../services/payment/RefundService');
 const Session = require('../../models/Session');
 const Product = require('../../models/Product');
 const Order = require('../../models/Order');
@@ -39,7 +40,7 @@ const auth = async (role = 'customer') => {
   };
 };
 
-const product = async ({ price = 125, stock = 20 } = {}) => {
+const product = async ({ price = 125, stock = 20, variants = [] } = {}) => {
   sequence += 1;
   return Product.create({
     name: `Return Integrity Product ${sequence}`,
@@ -48,6 +49,7 @@ const product = async ({ price = 125, stock = 20 } = {}) => {
     sku: `RET-INT-${sequence}`,
     price,
     stock,
+    variants,
     isActive: true
   });
 };
@@ -60,8 +62,16 @@ const deliveredOrder = async (user, items, {
   taxAmount = 0,
   coupon
 } = {}) => {
-  const snapshotItems = items.map(({ product: item, quantity, price = item.price }) => ({
+  const snapshotItems = items.map(({
+    product: item,
+    quantity,
+    price = item.price,
+    variantId = null,
+    isDefaultVariant = false
+  }) => ({
     product: item._id,
+    variantId,
+    isDefaultVariant,
     name: item.name,
     sku: item.sku,
     price,
@@ -134,6 +144,16 @@ const processReturn = (admin, entry, body = {}) => request(app)
   .post(`/api/returns/${entry._id}/refund`)
   .set('Authorization', admin.authorization)
   .send(body);
+
+const updateReturnStatus = (admin, entry, status, body = {}) => request(app)
+  .put(`/api/returns/${entry._id}/status`)
+  .set('Authorization', admin.authorization)
+  .send({ status, ...body });
+
+const reconcileInventory = (actor, entry, action, note = '') => request(app)
+  .post(`/api/returns/${entry._id}/inventory-reconciliation`)
+  .set('Authorization', actor.authorization)
+  .send({ action, ...(note ? { note } : {}) });
 
 const trackModelSaves = (models) => {
   let activeSaves = 0;
@@ -797,5 +817,449 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
       status: 'Refunded', refundedAmount: 125
     });
     expect((await Product.findById(item._id)).stock).toBe(21);
+  });
+
+  test('provider-reference index excludes absent/null/empty IDs and rejects a real duplicate', async () => {
+    const schemaIndex = Refund.schema.indexes().find(
+      ([, options]) => options.name === 'unique_provider_refund_reference'
+    );
+    expect(schemaIndex).toEqual([{
+      provider: 1,
+      providerRefundId: 1
+    }, expect.objectContaining({
+      unique: true,
+      partialFilterExpression: {
+        providerRefundId: { $type: 'string', $gt: '' }
+      }
+    })]);
+    expect(schemaIndex[1].sparse).toBeUndefined();
+
+    const [owner, admin, firstItem, secondItem] = await Promise.all([
+      auth(), auth('admin'), product(), product()
+    ]);
+    const firstOrder = await deliveredOrder(owner.user, [{
+      product: firstItem, quantity: 1
+    }]);
+    const secondOrder = await deliveredOrder(owner.user, [{
+      product: secondItem, quantity: 1
+    }]);
+    await completedPayment(owner.user, firstOrder, 'cod');
+    await completedPayment(owner.user, secondOrder, 'cod');
+    const firstReturn = await Return.create({
+      order: firstOrder._id,
+      customer: owner.user._id,
+      items: [{
+        product: firstItem._id,
+        orderLineKey: `${firstItem._id}:root`,
+        name: firstItem.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'other'
+      }],
+      status: 'approved',
+      refundMethod: 'bank_transfer',
+      refundAmount: 125
+    });
+    const secondReturn = await Return.create({
+      order: secondOrder._id,
+      customer: owner.user._id,
+      items: [{
+        product: secondItem._id,
+        orderLineKey: `${secondItem._id}:root`,
+        name: secondItem.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'other'
+      }],
+      status: 'approved',
+      refundMethod: 'bank_transfer',
+      refundAmount: 125
+    });
+
+    expect((await processReturn(admin, firstReturn)).status).toBe(200);
+    const firstRefund = await Refund.findOne({ order: firstOrder._id });
+    await Refund.collection.updateOne(
+      { _id: firstRefund._id },
+      { $set: { providerRefundId: null } }
+    );
+    expect((await processReturn(admin, secondReturn)).status).toBe(200);
+    expect(await Refund.countDocuments({ provider: 'cod' })).toBe(2);
+
+    const secondRefund = await Refund.findOne({ order: secondOrder._id });
+    await Refund.collection.updateOne(
+      { _id: secondRefund._id },
+      { $set: { providerRefundId: '' } }
+    );
+    await Refund.collection.updateOne(
+      { _id: firstRefund._id },
+      { $set: { providerRefundId: '' } }
+    );
+
+    const realReference = 're_phase_1d_unique_reference';
+    await Refund.collection.updateOne(
+      { _id: firstRefund._id },
+      { $set: { provider: 'stripe', providerRefundId: realReference } }
+    );
+    await expect(Refund.collection.updateOne(
+      { _id: secondRefund._id },
+      { $set: { provider: 'stripe', providerRefundId: realReference } }
+    )).rejects.toMatchObject({ code: 11000 });
+  });
+
+  test('catalog hard deletion and destructive variant removal are blocked only for historical references', async () => {
+    const [owner, admin, referenced, unreferenced] = await Promise.all([
+      auth(), auth('admin'), product(), product()
+    ]);
+    await deliveredOrder(owner.user, [{ product: referenced, quantity: 1 }]);
+
+    const blockedDelete = await request(app)
+      .delete(`/api/products/${referenced._id}`)
+      .set('Authorization', admin.authorization);
+    expect(blockedDelete.status).toBe(409);
+    expect(await Product.findById(referenced._id)).not.toBeNull();
+
+    const allowedDelete = await request(app)
+      .delete(`/api/products/${unreferenced._id}`)
+      .set('Authorization', admin.authorization);
+    expect(allowedDelete.status).toBe(200);
+    expect(await Product.findById(unreferenced._id)).toBeNull();
+
+    const variantProduct = await product({
+      variants: [{
+        sku: `RET-INT-VARIANT-${++sequence}`,
+        price: 125,
+        stock: 5,
+        isDefault: true
+      }]
+    });
+    const variantId = variantProduct.variants[0]._id;
+    await deliveredOrder(owner.user, [{
+      product: variantProduct,
+      quantity: 1,
+      variantId,
+      isDefaultVariant: true
+    }]);
+
+    const blockedVariantRemoval = await request(app)
+      .put(`/api/products/${variantProduct._id}`)
+      .set('Authorization', admin.authorization)
+      .send({ variants: [] });
+    expect(blockedVariantRemoval.status).toBe(409);
+    expect((await Product.findById(variantProduct._id)).variants.id(variantId))
+      .not.toBeNull();
+
+    const unreferencedVariantProduct = await product({
+      variants: [{
+        sku: `RET-INT-UNREFERENCED-VARIANT-${++sequence}`,
+        price: 125,
+        stock: 3,
+        isDefault: true
+      }]
+    });
+    const allowedVariantRemoval = await request(app)
+      .put(`/api/products/${unreferencedVariantProduct._id}`)
+      .set('Authorization', admin.authorization)
+      .send({ variants: [] });
+    expect(allowedVariantRemoval.status).toBe(200);
+    expect((await Product.findById(unreferencedVariantProduct._id)).variants)
+      .toHaveLength(0);
+  });
+
+  test('enforces valid return transitions, terminal states and stale concurrent updates', async () => {
+    const [owner, admin, item] = await Promise.all([
+      auth(), auth('admin'), product()
+    ]);
+    const order = await deliveredOrder(owner.user, [{ product: item, quantity: 1 }]);
+    const createEntry = (status = 'pending') => Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: item._id,
+        orderLineKey: `${item._id}:root`,
+        name: item.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'other'
+      }],
+      status,
+      refundAmount: 125
+    });
+
+    const valid = await createEntry();
+    expect((await updateReturnStatus(admin, valid, 'approved')).status).toBe(200);
+    expect((await updateReturnStatus(admin, valid, 'received')).status).toBe(200);
+    expect((await updateReturnStatus(admin, valid, 'inspected')).status).toBe(200);
+
+    const skipped = await createEntry();
+    expect((await updateReturnStatus(admin, skipped, 'received')).status).toBe(409);
+    expect((await Return.findById(skipped._id)).status).toBe('pending');
+
+    const rejected = await createEntry();
+    expect((await updateReturnStatus(admin, rejected, 'rejected')).status).toBe(200);
+    expect((await updateReturnStatus(admin, rejected, 'approved')).status).toBe(409);
+
+    const cancelled = await createEntry();
+    expect((await updateReturnStatus(admin, cancelled, 'cancelled')).status).toBe(200);
+    expect((await updateReturnStatus(admin, cancelled, 'approved')).status).toBe(409);
+
+    const bypass = await createEntry('approved');
+    expect((await updateReturnStatus(admin, bypass, 'refunded')).status).toBe(409);
+    expect((await Return.findById(bypass._id)).status).toBe('approved');
+
+    const stale = await createEntry();
+    const competing = await Promise.all([
+      updateReturnStatus(admin, stale, 'rejected'),
+      updateReturnStatus(admin, stale, 'cancelled')
+    ]);
+    expect(competing.filter((response) => response.status === 200)).toHaveLength(1);
+    expect(competing.filter((response) => response.status === 409)).toHaveLength(1);
+  });
+
+  test('provider-confirmed missing product becomes durable reconciliation and retries exactly once', async () => {
+    const [owner, refundAdmin, reconciliationAdmin, item] = await Promise.all([
+      auth(), auth('admin'), auth('admin'), product()
+    ]);
+    const order = await deliveredOrder(owner.user, [{ product: item, quantity: 1 }], {
+      paymentMethod: 'stripe'
+    });
+    const payment = await completedPayment(owner.user, order, 'stripe');
+    const entry = await Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: item._id,
+        orderLineKey: `${item._id}:root`,
+        name: item.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'damaged'
+      }],
+      status: 'approved',
+      refundAmount: 125
+    });
+    await Product.collection.deleteOne({ _id: item._id });
+
+    const confirmed = await processReturn(refundAdmin, entry);
+    expect(confirmed.status).toBe(202);
+    expect(confirmed.body.data.status).toBe('inventory_reconciliation');
+    expect(fakeStripe.refunds.create).toHaveBeenCalledTimes(1);
+    const refund = await Refund.findOne({ order: order._id })
+      .select('+providerOutcome');
+    expect(refund.status).toBe('Completed');
+    expect(refund.providerOutcome).toBe('succeeded');
+    expect(refund.inventoryReconciliationStatus).toBe('pending');
+    expect(refund.inventoryReconciliationReasonCode)
+      .toBe('RETURN_INVENTORY_PRODUCT_MISSING');
+    expect((await Payment.findById(payment._id))).toMatchObject({
+      status: 'Refunded',
+      refundedAmount: 125
+    });
+    expect(await InventoryTransaction.countDocuments({ order: order._id })).toBe(0);
+
+    const duplicateReturn = await returnRequest(owner, order, [{
+      productId: String(item._id),
+      quantity: 1,
+      reason: 'other'
+    }]);
+    expect(duplicateReturn.status).toBe(409);
+
+    expect((await processReturn(reconciliationAdmin, entry)).status).toBe(202);
+    expect(fakeStripe.refunds.create).toHaveBeenCalledTimes(1);
+
+    await Product.create({
+      _id: item._id,
+      name: item.name,
+      slug: item.slug,
+      description: item.description,
+      sku: item.sku,
+      price: 125,
+      stock: 0,
+      isActive: false
+    });
+    const reconciled = await reconcileInventory(
+      reconciliationAdmin,
+      entry,
+      'retry',
+      'Historical catalog record restored'
+    );
+    expect(reconciled.status).toBe(200);
+    expect(reconciled.body.data.inventoryStatus).toBe('restored');
+    expect((await Product.findById(item._id)).stock).toBe(1);
+    expect(await InventoryTransaction.countDocuments({ order: order._id })).toBe(1);
+
+    const replay = await reconcileInventory(refundAdmin, entry, 'retry');
+    expect(replay.status).toBe(200);
+    expect(replay.body.data.idempotentReplay).toBe(true);
+    expect((await Product.findById(item._id)).stock).toBe(1);
+    expect(await InventoryTransaction.countDocuments({ order: order._id })).toBe(1);
+    expect(String((await Refund.findById(refund._id)).inventoryReconciledBy))
+      .toBe(String(reconciliationAdmin.user._id));
+  });
+
+  test('missing variant supports authorized, attributable and idempotent manual resolution', async () => {
+    const [owner, refundAdmin, resolutionAdmin, other, item] = await Promise.all([
+      auth(),
+      auth('admin'),
+      auth('admin'),
+      auth(),
+      product({
+        variants: [{
+          sku: `RET-INT-MISSING-VARIANT-${++sequence}`,
+          price: 125,
+          stock: 5,
+          isDefault: true
+        }]
+      })
+    ]);
+    const variantId = item.variants[0]._id;
+    const order = await deliveredOrder(owner.user, [{
+      product: item,
+      quantity: 1,
+      variantId,
+      isDefaultVariant: true
+    }], { paymentMethod: 'stripe' });
+    await completedPayment(owner.user, order, 'stripe');
+    const entry = await Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: item._id,
+        variantId,
+        isDefaultVariant: true,
+        orderLineKey: `${item._id}:${variantId}`,
+        name: item.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'damaged'
+      }],
+      status: 'inspected',
+      refundAmount: 125
+    });
+    await Product.collection.updateOne(
+      { _id: item._id },
+      { $set: { variants: [] } }
+    );
+
+    expect((await processReturn(refundAdmin, entry)).status).toBe(202);
+    const refund = await Refund.findOne({ order: order._id });
+    expect(refund.inventoryReconciliationReasonCode)
+      .toBe('RETURN_INVENTORY_VARIANT_MISSING');
+    expect((await reconcileInventory(other, entry, 'manual_resolve', 'Verified')).status)
+      .toBe(403);
+
+    const resolved = await reconcileInventory(
+      resolutionAdmin,
+      entry,
+      'manual_resolve',
+      'Warehouse balance corrected outside the catalog record'
+    );
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.data.inventoryStatus).toBe('manual_resolved');
+    const storedRefund = await Refund.findById(refund._id);
+    expect(String(storedRefund.inventoryReconciledBy))
+      .toBe(String(resolutionAdmin.user._id));
+    expect((await Return.findById(entry._id)).status).toBe('refunded');
+    expect(await InventoryTransaction.countDocuments({ order: order._id })).toBe(0);
+
+    const replay = await reconcileInventory(
+      refundAdmin,
+      entry,
+      'manual_resolve',
+      'Attempted overwrite'
+    );
+    expect(replay.status).toBe(200);
+    expect(replay.body.data.idempotentReplay).toBe(true);
+    expect(String((await Refund.findById(refund._id)).inventoryReconciledBy))
+      .toBe(String(resolutionAdmin.user._id));
+  });
+
+  test('manual confirmation records the actual administrator and preserves attribution across retry', async () => {
+    const [owner, creatorAdmin, confirmingAdmin, item] = await Promise.all([
+      auth(), auth('admin'), auth('admin'), product()
+    ]);
+    const order = await deliveredOrder(owner.user, [{ product: item, quantity: 1 }]);
+    const payment = await completedPayment(owner.user, order, 'cod');
+    const entry = await Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: item._id,
+        orderLineKey: `${item._id}:root`,
+        name: item.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'other'
+      }],
+      status: 'approved',
+      refundMethod: 'bank_transfer',
+      refundAmount: 125
+    });
+    const idempotencyKey = `return:${entry._id}`;
+    const reason = `Approved return ${entry.returnNumber}`;
+    const requestHash = RefundService.stableHash({
+      paymentId: String(payment._id),
+      amount: 125,
+      reason,
+      returnId: String(entry._id),
+      method: 'bank_transfer',
+      processingMode: 'manual'
+    });
+    const refund = await Refund.create({
+      payment: payment._id,
+      order: order._id,
+      customer: owner.user._id,
+      provider: 'cod',
+      amount: 125,
+      currency: 'PKR',
+      status: 'Pending',
+      idempotencyKey,
+      requestHash,
+      providerIdempotencyKey: `refund:${payment._id}:${idempotencyKey}`,
+      providerAttemptStatus: 'Unclaimed',
+      reservationActive: true,
+      processingMode: 'manual',
+      providerOutcome: 'unattempted',
+      processedBy: creatorAdmin.user._id,
+      reason,
+      returnId: entry._id,
+      method: 'bank_transfer',
+      history: [{ status: 'Pending', source: 'admin' }]
+    });
+    await Payment.updateOne(
+      { _id: payment._id },
+      { $set: { refundReservedAmount: 125 } }
+    );
+    entry.refund = refund._id;
+    await entry.save();
+
+    const restock = jest.spyOn(ReturnInventoryService, 'restockInTransaction')
+      .mockRejectedValueOnce(new Error('isolated post-confirmation transaction failure'));
+    expect((await processReturn(confirmingAdmin, entry)).status).toBe(500);
+    expect(String((await Refund.findById(refund._id)).manualConfirmedBy))
+      .toBe(String(confirmingAdmin.user._id));
+
+    expect((await processReturn(creatorAdmin, entry)).status).toBe(200);
+    restock.mockRestore();
+    const completed = await Refund.findById(refund._id);
+    expect(String(completed.processedBy)).toBe(String(creatorAdmin.user._id));
+    expect(String(completed.manualConfirmedBy)).toBe(String(confirmingAdmin.user._id));
+    expect(completed.manualConfirmedAt).toBeInstanceOf(Date);
+    const ledger = await InventoryTransaction.findOne({
+      order: order._id,
+      type: 'return'
+    });
+    expect(String(ledger.performedBy)).toBe(String(confirmingAdmin.user._id));
+
+    expect((await processReturn(creatorAdmin, entry)).status).toBe(200);
+    expect(String((await Refund.findById(refund._id)).manualConfirmedBy))
+      .toBe(String(confirmingAdmin.user._id));
+    expect(await InventoryTransaction.countDocuments({ order: order._id }))
+      .toBe(1);
   });
 });

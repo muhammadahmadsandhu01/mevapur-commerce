@@ -4,6 +4,7 @@ const Payment = require('../models/Payment');
 const Refund = require('../models/Refund');
 const Return = require('../models/Return');
 const RefundService = require('./payment/RefundService');
+const { assertGenericTransition } = require('./ReturnStateMachine');
 const paymentProviderRegistry = require('../modules/payments/core/providerRegistry');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
@@ -22,6 +23,7 @@ const RESERVED_RETURN_STATUSES = Object.freeze([
   'approved',
   'received',
   'inspected',
+  'inventory_reconciliation',
   'refunded'
 ]);
 const ACTIVE_RETURN_STATUSES = Object.freeze([
@@ -284,6 +286,7 @@ class ReturnService {
         'RETURN_REFUND_IN_PROGRESS'
       );
     }
+    assertGenericTransition(entry.status, input.status);
 
     const update = { $set: { status: input.status } };
     if (input.adminNotes) {
@@ -342,7 +345,7 @@ class ReturnService {
     let entry = await Return.findById(returnId).select('+refund');
     if (!entry) throw new AppError('Return not found', 404, 'RETURN_NOT_FOUND');
 
-    if (entry.status === 'refunded') {
+    if (['refunded', 'inventory_reconciliation'].includes(entry.status)) {
       const completed = entry.refund
         ? await Refund.findById(entry.refund)
         : await Refund.findOne({ returnId: entry._id });
@@ -485,6 +488,15 @@ class ReturnService {
 
     const currentReturn = await Return.findById(entry._id);
     return { ...result, return: currentReturn };
+  }
+
+  reconcileInventory({ returnId, adminId, action, note = '' }) {
+    return RefundService.reconcileReturnInventory({
+      returnId,
+      adminId,
+      action,
+      note
+    });
   }
 }
 

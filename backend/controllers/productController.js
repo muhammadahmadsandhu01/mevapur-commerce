@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
+const ProductCatalogIntegrityService = require('../services/ProductCatalogIntegrityService');
 
 // @desc    Get all products with ADVANCED dynamic filtering, sorting, pagination
 // @route   GET /api/products
@@ -210,13 +211,10 @@ exports.createProduct = async (req, res) => {
 // @desc    Update a product
 // @route   PUT /api/products/:id
 // @access  Private/Admin
-exports.updateProduct = async (req, res) => {
+exports.updateProduct = async (req, res, next) => {
+  let session;
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
-    }
-
+    session = await mongoose.startSession();
     // Pre-validation for variants update
     if (req.body.variants?.length > 0) {
       const hasDefault = req.body.variants.some(v => v.isDefault);
@@ -225,54 +223,113 @@ exports.updateProduct = async (req, res) => {
       }
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(
-      req.params.id, 
-      req.body, 
-      { new: true, runValidators: true }
-    ).populate('category', 'name slug').populate('brand', 'name slug');
+    let updatedProduct = null;
+    await session.withTransaction(async () => {
+      updatedProduct = null;
+      const product = await Product.findById(req.params.id).session(session);
+      if (!product) return;
+
+      if (Array.isArray(req.body.variants)) {
+        const retainedVariantIds = new Set(
+          req.body.variants
+            .map((variant) => variant._id)
+            .filter(Boolean)
+            .map(String)
+        );
+        const removedVariantIds = product.variants
+          .filter((variant) => !retainedVariantIds.has(String(variant._id)))
+          .map((variant) => variant._id);
+        await ProductCatalogIntegrityService.assertVariantsRemovable(
+          product._id,
+          removedVariantIds,
+          { session }
+        );
+      }
+
+      updatedProduct = await Product.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        { new: true, runValidators: true, session }
+      );
+    });
+
+    if (!updatedProduct) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    await updatedProduct.populate('category', 'name slug');
+    await updatedProduct.populate('brand', 'name slug');
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
+    if (error.statusCode) return next(error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'Duplicate product detected.' });
     }
     res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (session) await session.endSession();
   }
 };
 
 // @desc    Delete a product
 // @route   DELETE /api/products/:id
 // @access  Private/Admin
-exports.deleteProduct = async (req, res) => {
+exports.deleteProduct = async (req, res, next) => {
+  let session;
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product) {
+    session = await mongoose.startSession();
+    let deleted = false;
+    await session.withTransaction(async () => {
+      deleted = false;
+      const product = await Product.findById(req.params.id).session(session);
+      if (!product) return;
+
+      await ProductCatalogIntegrityService.assertProductsDeletable(
+        [product._id],
+        { session }
+      );
+      const result = await Product.deleteOne({ _id: product._id }, { session });
+      deleted = result.deletedCount === 1;
+    });
+    if (!deleted) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    
-    await product.deleteOne();
     res.json({ success: true, message: 'Product removed successfully' });
   } catch (error) {
+    if (error.statusCode) return next(error);
     res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (session) await session.endSession();
   }
 };
 
 // @desc    Bulk delete products
 // @route   POST /api/products/bulk-delete
 // @access  Private/Admin
-exports.bulkDeleteProducts = async (req, res) => {
+exports.bulkDeleteProducts = async (req, res, next) => {
+  let session;
   try {
+    session = await mongoose.startSession();
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'No product IDs provided' });
     }
     
     const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
-    await Product.deleteMany({ _id: { $in: validIds } });
+    await session.withTransaction(async () => {
+      await ProductCatalogIntegrityService.assertProductsDeletable(
+        validIds,
+        { session }
+      );
+      await Product.deleteMany({ _id: { $in: validIds } }, { session });
+    });
     
     res.json({ success: true, message: `${validIds.length} products deleted successfully` });
   } catch (error) {
+    if (error.statusCode) return next(error);
     res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (session) await session.endSession();
   }
 };
 

@@ -9,6 +9,7 @@ const {
   createReturn,
   updateReturnStatus,
   processRefund,
+  reconcileReturnInventory,
   getReturnStats
 } = require('../controllers/returnController');
 
@@ -21,5 +22,11 @@ router.get('/:id', getReturn);
 router.post('/', checked(schemas.returnRequestSchema), createReturn);
 router.put('/:id/status', checked(schemas.idParam, 'params'), checked(schemas.returnStatusUpdateSchema), updateReturnStatus);
 router.post('/:id/refund', checked(schemas.idParam, 'params'), checked(schemas.returnRefundSchema), processRefund);
+router.post(
+  '/:id/inventory-reconciliation',
+  checked(schemas.idParam, 'params'),
+  checked(schemas.returnInventoryReconciliationSchema),
+  reconcileReturnInventory
+);
 
 module.exports = router;
