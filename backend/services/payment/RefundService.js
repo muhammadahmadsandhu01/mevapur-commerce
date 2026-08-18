@@ -325,10 +325,8 @@ class RefundService {
         refund.status = REFUND_STATUSES.PENDING;
         refund.providerAttemptStatus = PROVIDER_ATTEMPT_STATUSES.UNCLAIMED;
         refund.failureCode = '';
-        await Promise.all([
-          refund.save({ session }),
-          returnEntry ? returnEntry.save({ session }) : Promise.resolve()
-        ]);
+        await refund.save({ session });
+        if (returnEntry) await returnEntry.save({ session });
       });
     } finally {
       await session.endSession();
@@ -656,12 +654,10 @@ class RefundService {
           returnEntry.refund = refund._id;
         }
 
-        await Promise.all([
-          payment.save({ session }),
-          refund.save({ session }),
-          order.save({ session }),
-          returnEntry ? returnEntry.save({ session }) : Promise.resolve()
-        ]);
+        await payment.save({ session });
+        await refund.save({ session });
+        await order.save({ session });
+        if (returnEntry) await returnEntry.save({ session });
       });
     } finally {
       await session.endSession();

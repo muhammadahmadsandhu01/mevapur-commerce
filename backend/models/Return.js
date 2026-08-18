@@ -27,6 +27,7 @@ const returnSchema = new mongoose.Schema({
     name: String,
     quantity: { type: Number, required: true, min: 1, validate: Number.isInteger },
     price: { type: Number, required: true, min: 0 },
+    refundAmount: { type: Number, min: 0, default: 0 },
     reason: {
       type: String,
       enum: ['damaged', 'wrong_item', 'not_as_described', 'not_satisfied', 'duplicate', 'other'],

@@ -54,7 +54,11 @@ const product = async ({ price = 125, stock = 20 } = {}) => {
 
 const deliveredOrder = async (user, items, {
   paymentMethod = 'cod',
-  totalAmount
+  totalAmount,
+  discount = 0,
+  shippingCost = 0,
+  taxAmount = 0,
+  coupon
 } = {}) => {
   const snapshotItems = items.map(({ product: item, quantity, price = item.price }) => ({
     product: item._id,
@@ -87,10 +91,12 @@ const deliveredOrder = async (user, items, {
     paymentStatus: 'Paid',
     orderStatus: 'Delivered',
     subtotal,
-    shippingCost: 0,
-    taxAmount: 0,
-    discount: 0,
-    totalAmount: totalAmount ?? subtotal,
+    shippingCost,
+    taxAmount,
+    discount,
+    coupon,
+    totalAmount: totalAmount
+      ?? (subtotal - discount + shippingCost + taxAmount),
     statusTimeline: [{
       status: 'Delivered',
       actor: user._id,
@@ -128,6 +134,34 @@ const processReturn = (admin, entry, body = {}) => request(app)
   .post(`/api/returns/${entry._id}/refund`)
   .set('Authorization', admin.authorization)
   .send(body);
+
+const trackModelSaves = (models) => {
+  let activeSaves = 0;
+  let concurrent = false;
+  const calls = [];
+  const spies = models.map(([name, Model]) => {
+    const originalSave = Model.prototype.save;
+    return jest.spyOn(Model.prototype, 'save').mockImplementation(
+      async function trackedSave(...args) {
+        activeSaves += 1;
+        concurrent = concurrent || activeSaves > 1;
+        calls.push(name);
+        await new Promise((resolve) => setImmediate(resolve));
+        try {
+          return await originalSave.apply(this, args);
+        } finally {
+          activeSaves -= 1;
+        }
+      }
+    );
+  });
+
+  return {
+    calls,
+    wasConcurrent: () => concurrent,
+    restore: () => spies.forEach((spy) => spy.mockRestore())
+  };
+};
 
 describe('HZ-001/HZ-002 return and refund financial integrity', () => {
   beforeAll(async () => {
@@ -205,7 +239,7 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
       quantity: 1,
       reason: 'not_as_described',
       price: 0.01
-    }], { refundAmount: 999999 });
+    }], { refundAmount: 999999, discount: 999999 });
     expect(manipulated.status).toBe(400);
 
     const valid = await returnRequest(owner, order, [{
@@ -215,6 +249,287 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
     const entry = await Return.findById(valid.body.data.return._id);
     expect(entry.refundAmount).toBe(125);
     expect(entry.items[0].price).toBe(125);
+    expect(entry.items[0].refundAmount).toBe(125);
+  });
+
+  test('allocates an order coupon across lines and is independent of request order', async () => {
+    const [owner, first, second] = await Promise.all([
+      auth(), product({ price: 100 }), product({ price: 100 })
+    ]);
+    const firstOrder = await deliveredOrder(owner.user, [
+      { product: first, quantity: 1 },
+      { product: second, quantity: 1 }
+    ], { discount: 50 });
+    const secondOrder = await deliveredOrder(owner.user, [
+      { product: first, quantity: 1 },
+      { product: second, quantity: 1 }
+    ], { discount: 50 });
+
+    const single = await returnRequest(owner, firstOrder, [{
+      productId: String(first._id), quantity: 1, reason: 'other'
+    }]);
+    expect(single.status).toBe(201);
+    expect(single.body.data.return.refundAmount).toBe(75);
+
+    const together = await returnRequest(owner, secondOrder, [{
+      productId: String(second._id), quantity: 1, reason: 'other'
+    }, {
+      productId: String(first._id), quantity: 1, reason: 'other'
+    }]);
+    expect(together.status).toBe(201);
+    const stored = await Return.findById(together.body.data.return._id);
+    expect(stored.refundAmount).toBe(150);
+    expect(stored.items.reduce((sum, item) => sum + item.refundAmount, 0))
+      .toBe(150);
+    expect(Object.fromEntries(stored.items.map((item) => [
+      String(item.product), item.refundAmount
+    ]))).toEqual({
+      [String(first._id)]: 75,
+      [String(second._id)]: 75
+    });
+  });
+
+  test('separate discounted returns reconcile to the paid merchandise total', async () => {
+    const [owner, admin, first, second] = await Promise.all([
+      auth(), auth('admin'), product({ price: 100 }), product({ price: 100 })
+    ]);
+    const order = await deliveredOrder(owner.user, [
+      { product: first, quantity: 1 },
+      { product: second, quantity: 1 }
+    ], { paymentMethod: 'stripe', discount: 50 });
+    const payment = await completedPayment(owner.user, order, 'stripe');
+    const amounts = [];
+
+    for (const item of [first, second]) {
+      const response = await returnRequest(owner, order, [{
+        productId: String(item._id), quantity: 1, reason: 'other'
+      }]);
+      expect(response.status).toBe(201);
+      const entry = await Return.findById(response.body.data.return._id);
+      amounts.push(entry.refundAmount);
+      entry.status = 'approved';
+      await entry.save();
+      expect((await processReturn(admin, entry)).status).toBe(200);
+    }
+
+    expect(amounts).toEqual([75, 75]);
+    expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(150);
+    expect((await Payment.findById(payment._id))).toMatchObject({
+      status: 'Refunded',
+      refundedAmount: 150
+    });
+  });
+
+  test('partial-quantity returns consume deterministic unit shares exactly once', async () => {
+    const [owner, admin, item] = await Promise.all([
+      auth(), auth('admin'), product({ price: 100 })
+    ]);
+    const order = await deliveredOrder(owner.user, [{
+      product: item, quantity: 3
+    }], { paymentMethod: 'stripe', discount: 100 });
+    const payment = await completedPayment(owner.user, order, 'stripe');
+    const amounts = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      const response = await returnRequest(owner, order, [{
+        productId: String(item._id), quantity: 1, reason: 'other'
+      }]);
+      expect(response.status).toBe(201);
+      const entry = await Return.findById(response.body.data.return._id);
+      amounts.push(entry.refundAmount);
+      entry.status = 'approved';
+      await entry.save();
+      expect((await processReturn(admin, entry)).status).toBe(200);
+    }
+
+    expect(amounts).toEqual([66.67, 66.67, 66.66]);
+    expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(200);
+    expect((await Payment.findById(payment._id)).refundedAmount).toBe(200);
+  });
+
+  test('recorded prior return amounts consume the order merchandise ceiling', async () => {
+    const [owner, first, second] = await Promise.all([
+      auth(), product({ price: 100 }), product({ price: 100 })
+    ]);
+    const order = await deliveredOrder(owner.user, [
+      { product: first, quantity: 1 },
+      { product: second, quantity: 1 }
+    ], { discount: 50, shippingCost: 50 });
+    await Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: first._id,
+        orderLineKey: `${first._id}:root`,
+        name: first.name,
+        quantity: 1,
+        price: 100,
+        refundAmount: 100,
+        reason: 'other'
+      }],
+      status: 'refunded',
+      refundAmount: 100,
+      refundedAt: new Date()
+    });
+
+    const response = await returnRequest(owner, order, [{
+      productId: String(second._id), quantity: 1, reason: 'other'
+    }]);
+    expect(response.status).toBe(409);
+    expect(await Return.countDocuments({ order: order._id })).toBe(1);
+  });
+
+  test('legacy orders without line totals allocate discounts safely', async () => {
+    const [owner, first, second] = await Promise.all([
+      auth(), product({ price: 100 }), product({ price: 100 })
+    ]);
+    const orderId = new (require('mongoose').Types.ObjectId)();
+    await Order.collection.insertOne({
+      _id: orderId,
+      orderId: `LEGACY-${orderId}`,
+      user: owner.user._id,
+      items: [{
+        product: first._id, name: first.name, price: 100, quantity: 1
+      }, {
+        product: second._id, name: second.name, price: 100, quantity: 1
+      }],
+      shippingAddress: {
+        fullName: owner.user.fullName,
+        phone: '03001234567',
+        address: '1 Legacy Street',
+        city: 'Lahore',
+        province: 'Punjab',
+        country: 'PK'
+      },
+      paymentMethod: 'cod',
+      paymentStatus: 'Paid',
+      orderStatus: 'Delivered',
+      subtotal: 200,
+      shippingCost: 0,
+      discount: 50,
+      totalAmount: 150,
+      deliveredAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    const response = await returnRequest(owner, { _id: orderId }, [{
+      productId: String(first._id), quantity: 1, reason: 'other'
+    }]);
+    expect(response.status).toBe(201);
+    expect(response.body.data.return.refundAmount).toBe(75);
+  });
+
+  test('the Payment captured-value cap remains authoritative after allocation', async () => {
+    const [owner, admin, first, second] = await Promise.all([
+      auth(), auth('admin'), product({ price: 100 }), product({ price: 100 })
+    ]);
+    const order = await deliveredOrder(owner.user, [
+      { product: first, quantity: 1 },
+      { product: second, quantity: 1 }
+    ], { paymentMethod: 'stripe', discount: 50 });
+    const payment = await completedPayment(owner.user, order, 'stripe');
+    payment.paidAmount = 50;
+    await payment.save();
+    const created = await returnRequest(owner, order, [{
+      productId: String(first._id), quantity: 1, reason: 'other'
+    }]);
+    const entry = await Return.findById(created.body.data.return._id);
+    entry.status = 'approved';
+    await entry.save();
+
+    const response = await processReturn(admin, entry);
+    expect(response.status).toBe(409);
+    expect(fakeStripe.refunds.create).not.toHaveBeenCalled();
+    expect((await Payment.findById(payment._id)).refundedAmount).toBe(0);
+  });
+
+  test('refund reservation saves sharing a session execute sequentially', async () => {
+    const [owner, admin, item] = await Promise.all([
+      auth(), auth('admin'), product()
+    ]);
+    const order = await deliveredOrder(owner.user, [{
+      product: item, quantity: 1
+    }], { paymentMethod: 'stripe' });
+    await completedPayment(owner.user, order, 'stripe');
+    const entry = await Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: item._id,
+        orderLineKey: `${item._id}:root`,
+        name: item.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'other'
+      }],
+      status: 'approved',
+      refundAmount: 125
+    });
+    fakeStripe.refunds.create.mockResolvedValueOnce({
+      id: 're_sequential_reservation',
+      status: 'pending'
+    });
+    const tracker = trackModelSaves([
+      ['refund', Refund],
+      ['return', Return]
+    ]);
+    let response;
+
+    try {
+      response = await processReturn(admin, entry);
+    } finally {
+      tracker.restore();
+    }
+
+    expect(response.status).toBe(202);
+    expect(tracker.wasConcurrent()).toBe(false);
+    expect(tracker.calls.slice(-2)).toEqual(['refund', 'return']);
+  });
+
+  test('refund completion saves sharing a session execute sequentially', async () => {
+    const [owner, admin, item] = await Promise.all([
+      auth(), auth('admin'), product()
+    ]);
+    const order = await deliveredOrder(owner.user, [{
+      product: item, quantity: 1
+    }], { paymentMethod: 'stripe' });
+    await completedPayment(owner.user, order, 'stripe');
+    const entry = await Return.create({
+      order: order._id,
+      customer: owner.user._id,
+      items: [{
+        product: item._id,
+        orderLineKey: `${item._id}:root`,
+        name: item.name,
+        quantity: 1,
+        price: 125,
+        refundAmount: 125,
+        reason: 'other'
+      }],
+      status: 'approved',
+      refundAmount: 125
+    });
+    const tracker = trackModelSaves([
+      ['payment', Payment],
+      ['refund', Refund],
+      ['order', Order],
+      ['return', Return]
+    ]);
+    let response;
+
+    try {
+      response = await processReturn(admin, entry);
+    } finally {
+      tracker.restore();
+    }
+
+    expect(response.status).toBe(200);
+    expect(tracker.wasConcurrent()).toBe(false);
+    expect(tracker.calls.slice(-4)).toEqual([
+      'payment', 'refund', 'order', 'return'
+    ]);
   });
 
   test.each([0, -1, 0.5, '1'])('rejects invalid return quantity %p', async (quantity) => {

@@ -8,6 +8,13 @@ const paymentProviderRegistry = require('../modules/payments/core/providerRegist
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 const { PAYMENT_STATUSES } = require('../constants/paymentConstants');
+const {
+  allocateOrderMerchandise,
+  amountForQuantityRange,
+  fromMinorUnits,
+  orderLineKey: lineKey,
+  toMinorUnits
+} = require('./ReturnMoneyAllocationService');
 
 const RETURN_POLICY = Object.freeze({ eligibleStatus: 'Delivered', windowDays: 30 });
 const RESERVED_RETURN_STATUSES = Object.freeze([
@@ -25,13 +32,7 @@ const ACTIVE_RETURN_STATUSES = Object.freeze([
 ]);
 const REFUNDABLE_RETURN_STATUSES = Object.freeze(['approved', 'inspected']);
 
-const roundMoney = (value) => (
-  Math.round((Number(value) + Number.EPSILON) * 100) / 100
-);
-
-const lineKey = (productId, variantId) => (
-  `${String(productId)}:${variantId ? String(variantId) : 'root'}`
-);
+const roundMoney = (value) => fromMinorUnits(toMinorUnits(value));
 
 const referenceQuery = (reference) => (
   mongoose.isObjectIdOrHexString(reference)
@@ -83,7 +84,9 @@ class ReturnService {
   }
 
   canonicalizeItems(order, requestedItems, priorReturns) {
+    const allocation = allocateOrderMerchandise(order);
     const seen = new Set();
+    let requestedRefundMinor = 0;
     const items = requestedItems.map((requestItem) => {
       if (!Number.isInteger(requestItem.quantity) || requestItem.quantity <= 0) {
         throw new AppError(
@@ -114,6 +117,23 @@ class ReturnService {
         );
       }
 
+      const allocatedLine = allocation.lines.find(
+        (line) => line.item === orderItem
+      );
+      if (!allocatedLine) {
+        throw new AppError(
+          'Order monetary snapshot is unavailable for return allocation',
+          503,
+          'RETURN_REFUND_STATE_UNAVAILABLE'
+        );
+      }
+      const itemRefundMinor = amountForQuantityRange(
+        allocatedLine,
+        priorQuantity,
+        requestItem.quantity
+      );
+      requestedRefundMinor += itemRefundMinor;
+
       return {
         product: orderItem.product,
         variantId: orderItem.variantId || null,
@@ -122,6 +142,7 @@ class ReturnService {
         name: orderItem.name,
         quantity: requestItem.quantity,
         price: orderItem.price,
+        refundAmount: fromMinorUnits(itemRefundMinor),
         reason: requestItem.reason,
         reasonDetails: requestItem.reasonDetails || '',
         images: requestItem.images || [],
@@ -129,11 +150,46 @@ class ReturnService {
       };
     });
 
+    const allocatedPriorMinor = order.items.reduce((total, orderItem) => {
+      const allocatedLine = allocation.lines.find(
+        (line) => line.item === orderItem
+      );
+      const priorQuantity = this.priorQuantityForLine(priorReturns, orderItem);
+      if (!allocatedLine || priorQuantity > orderItem.quantity) {
+        throw new AppError(
+          'Prior return allocation exceeds the historical order line',
+          503,
+          'RETURN_REFUND_STATE_UNAVAILABLE'
+        );
+      }
+      return total + amountForQuantityRange(
+        allocatedLine,
+        0,
+        priorQuantity
+      );
+    }, 0);
+    const recordedPriorMinor = priorReturns.reduce(
+      (total, priorReturn) => total + toMinorUnits(priorReturn.refundAmount || 0),
+      0
+    );
+    const consumedPriorMinor = Math.max(
+      allocatedPriorMinor,
+      recordedPriorMinor
+    );
+    if (
+      consumedPriorMinor + requestedRefundMinor
+      > allocation.allocatableMinor
+    ) {
+      throw new AppError(
+        'Return amount exceeds the remaining refundable merchandise amount',
+        409,
+        ERROR_CODES.CUSTOMER_RETURN_NOT_ELIGIBLE
+      );
+    }
+
     return {
       items,
-      refundAmount: roundMoney(
-        items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-      )
+      refundAmount: fromMinorUnits(requestedRefundMinor)
     };
   }
 
