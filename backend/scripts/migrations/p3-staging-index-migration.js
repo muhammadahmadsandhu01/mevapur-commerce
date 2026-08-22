@@ -18,6 +18,18 @@ const EXPECTED = Object.freeze({
   allowlistVersion: 'P3-STAGING-INDEX-V1'
 });
 
+const REQUIRED_BACKUP_COLLECTIONS = Object.freeze([
+  'environment_markers',
+  'inventorytransactions',
+  'orders',
+  'payments',
+  'paymentwebhookevents',
+  'refunds',
+  'returns',
+  'sessions',
+  'users'
+]);
+
 const ALLOWLIST = Object.freeze([
   {
     collection: 'users',
@@ -113,6 +125,45 @@ const ALLOWLIST = Object.freeze([
     name: 'status_1_createdAt_-1',
     keys: { status: 1, createdAt: -1 },
     options: {}
+  },
+  {
+    collection: 'refunds',
+    name: 'unique_refund_return',
+    keys: { returnId: 1 },
+    options: { unique: true, sparse: true }
+  },
+  {
+    collection: 'returns',
+    name: 'returnNumber_1',
+    keys: { returnNumber: 1 },
+    options: { unique: true }
+  },
+  {
+    collection: 'returns',
+    name: 'status_1_createdAt_-1',
+    keys: { status: 1, createdAt: -1 },
+    options: {}
+  },
+  {
+    collection: 'returns',
+    name: 'customer_1_createdAt_-1',
+    keys: { customer: 1, createdAt: -1 },
+    options: {}
+  },
+  {
+    collection: 'returns',
+    name: 'order_1',
+    keys: { order: 1 },
+    options: {}
+  },
+  {
+    collection: 'returns',
+    name: 'unique_return_refund',
+    keys: { refund: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { refund: { $type: 'objectId' } }
+    }
   }
 ]);
 
@@ -334,26 +385,16 @@ function validateBackup(backupPath) {
     throw new MigrationRefusal('BACKUP_EVIDENCE_MISSING');
   }
 
-  const expectedCollections = [
-    'environment_markers',
-    'inventorytransactions',
-    'orders',
-    'payments',
-    'paymentwebhookevents',
-    'refunds',
-    'sessions',
-    'users'
-  ];
   const dumpFiles = fs.readdirSync(dumpDatabasePath);
   const dumpedCollections = dumpFiles
     .filter((name) => name.endsWith('.bson.gz'))
     .map((name) => name.slice(0, -'.bson.gz'.length))
     .sort();
-  const allMetadataPresent = expectedCollections.every((collection) =>
+  const allMetadataPresent = REQUIRED_BACKUP_COLLECTIONS.every((collection) =>
     dumpFiles.includes(`${collection}.metadata.json.gz`)
   );
   if (
-    JSON.stringify(dumpedCollections) !== JSON.stringify(expectedCollections) ||
+    JSON.stringify(dumpedCollections) !== JSON.stringify(REQUIRED_BACKUP_COLLECTIONS) ||
     !allMetadataPresent
   ) {
     throw new MigrationRefusal('BACKUP_COLLECTION_SET_MISMATCH');
@@ -446,6 +487,7 @@ async function runDataChecks(database) {
   const payments = database.collection('payments');
   const webhookEvents = database.collection('paymentwebhookevents');
   const refunds = database.collection('refunds');
+  const returns = database.collection('returns');
   const inventory = database.collection('inventorytransactions');
 
   const checks = {
@@ -501,6 +543,21 @@ async function runDataChecks(database) {
         providerRefundId: { $type: 'string', $gt: '' }
       },
       { provider: '$provider', reference: '$providerRefundId' }
+    ),
+    duplicateRefundReturnLinks: await duplicateGroupCount(
+      refunds,
+      { returnId: { $exists: true } },
+      '$returnId'
+    ),
+    duplicateReturnNumbers: await duplicateGroupCount(
+      returns,
+      null,
+      '$returnNumber'
+    ),
+    duplicateReturnRefundLinks: await duplicateGroupCount(
+      returns,
+      { refund: { $type: 'objectId' } },
+      '$refund'
     ),
     nullProviderRefundReferences: await refunds.countDocuments({
       providerRefundId: { $exists: true, $eq: null }
@@ -907,4 +964,12 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  ALLOWLIST,
+  REQUIRED_BACKUP_COLLECTIONS,
+  classifyIndexes
+};

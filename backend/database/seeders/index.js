@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { seedRoles } = require('./roleSeeder');
-const { logger } = require('../../common/logger');
+const logger = require('../../common/utils/logger');
 require('dotenv').config();
 
 async function runSeeders() {

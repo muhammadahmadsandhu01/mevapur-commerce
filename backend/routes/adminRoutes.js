@@ -13,29 +13,40 @@ router.get('/stats', protect, admin, async (req, res) => {
     console.log('📊 Fetching dashboard stats for admin:', req.user.email);
 
     // 1. Revenue Calculations
-    const allOrders = await Order.find();
-    const totalRevenue = allOrders.reduce((acc, order) => {
-      return acc + (order.totalAmount || 0);
-    }, 0);
-
-    // Today's revenue
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayOrders = await Order.find({
-      createdAt: { $gte: today }
-    });
-    const todayRevenue = todayOrders.reduce((acc, order) => {
-      return acc + (order.totalAmount || 0);
-    }, 0);
-
-    // Monthly revenue
     const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthOrders = await Order.find({
-      createdAt: { $gte: thisMonth }
-    });
-    const monthlyRevenue = monthOrders.reduce((acc, order) => {
-      return acc + (order.totalAmount || 0);
-    }, 0);
+
+    const revenueStats = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: { $ifNull: ['$totalAmount', 0] } },
+          todayRevenue: {
+            $sum: {
+              $cond: [
+                { $gte: ['$createdAt', today] },
+                { $ifNull: ['$totalAmount', 0] },
+                0
+              ]
+            }
+          },
+          monthlyRevenue: {
+            $sum: {
+              $cond: [
+                { $gte: ['$createdAt', thisMonth] },
+                { $ifNull: ['$totalAmount', 0] },
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
+
+    const totalRevenue = revenueStats[0]?.totalRevenue || 0;
+    const todayRevenue = revenueStats[0]?.todayRevenue || 0;
+    const monthlyRevenue = revenueStats[0]?.monthlyRevenue || 0;
 
     // 2. Order Statistics
     const totalOrders = await Order.countDocuments();

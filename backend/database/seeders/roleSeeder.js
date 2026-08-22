@@ -1,6 +1,6 @@
 const Role = require('../../models/Role');
 const Permission = require('../../models/Permission');
-const { logger } = require('../../common/logger');
+const logger = require('../../common/utils/logger');
 
 const defaultPermissions = [
   { resource: 'orders', action: 'read', scope: 'own' },
