@@ -9,6 +9,7 @@ import PaymentModal from '@/components/PaymentModal';
 import Link from 'next/link';
 import axios from 'axios';
 import Toast from '@/components/Toast';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 import { 
   MapPin, CreditCard, Mail, CheckCircle, Loader, ArrowLeft, Shield, 
   Truck, RotateCcw, Headphones, Tag, Package, Phone, Globe, 
@@ -182,10 +183,8 @@ export default function CheckoutPage() {
         notes: formData.notes || 'Order placed via website'
       };
 
-      console.log('Sending order to backend:', orderData); // Debugging ke liye
-
       const response = await axios.post(
-        `${process.env.NEXT_PUBLIC_API_URL}/orders`,
+        `${publicApiBaseUrl}/orders`,
         orderData,
         {
           headers: {

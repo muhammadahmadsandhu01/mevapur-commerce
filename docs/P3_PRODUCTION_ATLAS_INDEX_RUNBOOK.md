@@ -2,7 +2,135 @@
 
 ## Status
 
-**RUNBOOK ONLY — PRODUCTION EXECUTION PROHIBITED IN P3**
+**CONTROLLED RUNNER AVAILABLE — NO PRODUCTION EXECUTION HAS OCCURRED**
+
+## Phase 1J production identity warning
+
+`mevapur_staging` is the authoritative production database for the fresh
+launch. Its name is historical and must never be used to infer staging safety.
+The production runner requires the exact database name and also requires both
+`NODE_ENV=production` and `APP_ENV=production`.
+
+The runner is
+`backend/scripts/migrations/p3-production-index-reconciliation.js`. Importing
+it is inert. Running it without `--apply` is a dry-run. It never loads a local
+`.env` file and must receive `MONGODB_URI` from the approved private process
+environment.
+
+## Runner prerequisites
+
+- approved maintenance/change window and named operator;
+- exact reviewed source commit;
+- TLS-enabled, explicit `mevapur_staging` URI in the private environment;
+- replica-set primary, matching set identity, logical sessions, and
+  transaction-capable wire version;
+- an archive-format gzip dump outside the repository;
+- independently recorded archive byte size and SHA-256;
+- zero duplicate and malformed-value preflight counts;
+- no restore, cleanup, provider activation, or unrelated deployment in the
+  same step.
+
+The accepted 2,467-byte schema-only baseline may be used for a dry-run. Its
+restore rehearsal is **not verified**. Apply requires a freshly verified dump
+whose filesystem modification time is no more than 24 hours old.
+
+Current accepted dry-run evidence:
+
+- path: `C:\MevaPur-Backups\mevapur-live-20260825-143323.archive.gz`;
+- size: `2467` bytes;
+- SHA-256:
+  `C45B26DD1860B8CA5A9D1E81633DFB450B06D4B9B64FC3BFA441E5BE65DEDFA7`.
+
+This evidence establishes a valid dump of the accepted schema-only baseline;
+it does not establish a successful restore rehearsal.
+
+## Dry-run command
+
+Set `NODE_ENV=production` and `APP_ENV=production` in the process. Inject
+`MONGODB_URI` through the approved private mechanism; never place it on the
+command line or in this repository.
+
+```powershell
+node backend/scripts/migrations/p3-production-index-reconciliation.js `
+  --backup <ABSOLUTE_ARCHIVE_PATH_OUTSIDE_REPOSITORY> `
+  --backup-size <EXPECTED_BYTES> `
+  --backup-sha256 <EXPECTED_SHA256>
+```
+
+The accepted schema-only snapshot is expected to report:
+
+- 13 exact indexes retained;
+- 6 indexes proposed for creation:
+  - `refunds.unique_refund_return`;
+  - `returns.returnNumber_1`;
+  - `returns.status_1_createdAt_-1`;
+  - `returns.customer_1_createdAt_-1`;
+  - `returns.order_1`;
+  - `returns.unique_return_refund`;
+- 1 reviewed reconciliation:
+  `refunds.unique_provider_refund_reference` from the exact legacy
+  `unique+sparse` definition to the reviewed `unique+partial` definition.
+
+Any different count or definition is a stop condition.
+
+## Apply command template
+
+Apply is a separately approved action. The literal confirmation phrase is
+deliberately specific to the misleading production database name.
+
+```powershell
+node backend/scripts/migrations/p3-production-index-reconciliation.js `
+  --backup <FRESH_ABSOLUTE_ARCHIVE_PATH_OUTSIDE_REPOSITORY> `
+  --backup-size <EXPECTED_BYTES> `
+  --backup-sha256 <EXPECTED_SHA256> `
+  --apply `
+  --confirm-production I_ACKNOWLEDGE_MEVAPUR_STAGING_IS_PRODUCTION `
+  --backup-acknowledged
+```
+
+The runner creates only missing controlled indexes. It reconciles the known
+refund index only when its current name, key order, and options exactly match
+the reviewed legacy definition. Unknown conflicts fail closed. All reads and
+preflights finish before the first mutation. Operations are sequential and
+stop on the first failure.
+
+## Failure handling and rollback policy
+
+The safe result includes `mutationStarted` and completed operation identities.
+Never infer that a failed run made no changes; use those fields and re-read the
+indexes. The runner performs no automatic rollback and never recreates a
+guessed definition. If failure occurs after the reviewed legacy index was
+dropped, stop traffic-sensitive work, retain the evidence, and obtain a new
+forward-correction approval. Database restore is incident recovery only.
+
+## Post-apply verification
+
+1. Re-run the command in dry-run mode and require all 20 indexes to be retained.
+2. Re-read affected index names, ordered keys, uniqueness, sparse, and partial
+   options.
+3. Re-run all duplicate/malformed-value counts and require zero.
+4. Compare controlled collection counts with the pre-change inventory.
+5. Confirm backend `/api/health` and `/api/ready`, then public catalog reads.
+6. Record the safe summary, commit, archive metadata, approvals, and operator.
+
+## Cleanup, credential, and deployment ordering
+
+1. Complete and verify the index operation first.
+2. Run legacy-secret cleanup only in a later, separately approved step: dry-run,
+   fresh backup acknowledgement, explicit apply, then verification.
+3. Revoke the temporary MongoDB migration credential after evidence capture.
+4. Rotate the application MongoDB credential through the private Render store,
+   redeploy the backend, and verify health/readiness before revoking the old
+   credential.
+5. Rotate JWT signing credentials only in a separate window after MongoDB is
+   stable; plan for existing sessions/tokens to become invalid.
+6. Deploy the verified backend on Render before storefront/admin builds.
+7. Set the documented Vercel public variables for both Production and Preview,
+   build the Storefront, then build the Admin project.
+8. Perform read-only smoke checks before enabling traffic or search indexing.
+
+A maintenance window is recommended even for the fresh schema-only launch so
+the drop/create reconciliation cannot race application writes.
 
 ## 1. Change Approval
 
@@ -36,11 +164,13 @@ Privately verify at least:
 
 - exact approved Atlas project;
 - exact approved cluster;
-- exact production database;
+- exact database name `mevapur_staging`, classified as production data despite
+  its name;
 - dedicated temporary production migration user;
-- production environment marker;
+- process identity `NODE_ENV=production` and `APP_ENV=production`;
 - expected application deployment version;
-- absence of staging URI/user/marker.
+- absence of any attempt to reinterpret a synthetic staging marker as
+  production authorization.
 
 Record pass/fail properties only. Do not print URI, username, host, or secrets.
 
@@ -49,7 +179,8 @@ Record pass/fail properties only. Do not print URI, username, host, or secrets.
 - create a new timestamped production dump;
 - require `mongodump` exit code 0;
 - use conservative collection concurrency;
-- retain BSON/metadata files outside the repository;
+- retain the archive-format gzip dump and its size/hash evidence outside the
+  repository;
 - never overwrite an older verified dump;
 - do not use `--drop`.
 
@@ -89,7 +220,7 @@ The production dry-run must:
 
 - use the reviewed migration version and allowlist;
 - verify exact production identity;
-- verify fresh backup evidence;
+- verify backup path, size, and hash evidence; freshness is an apply-only gate;
 - compare actual indexes/options;
 - execute zero mutations;
 - return exit code 0 only when all preconditions pass.
@@ -99,8 +230,8 @@ The production dry-run must:
 - select only operations that passed staging;
 - use explicit `createIndex` names/options;
 - verify each result before continuing;
-- remove only the exact reviewed legacy Payment TTL when its current
-  name/keys/options match;
+- report any legacy Payment TTL as requiring a separate review; this
+  Return/Refund production runner does not remove it;
 - stop on any mismatch;
 - do not run broad synchronization.
 

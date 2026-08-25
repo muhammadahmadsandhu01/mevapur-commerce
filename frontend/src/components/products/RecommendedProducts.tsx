@@ -5,6 +5,7 @@ import axios from 'axios';
 import ProductCard from './ProductCard';
 import { Sparkles } from 'lucide-react';
 import type { Product } from '@/types/product';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 
 export default function RecommendedProducts() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -14,7 +15,7 @@ export default function RecommendedProducts() {
     const fetchRecommended = async () => {
       try {
         const { data } = await axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL}/products/recommended?limit=8`
+          `${publicApiBaseUrl}/products/recommended?limit=8`
         );
         if (data.success) {
           setProducts(data.data);

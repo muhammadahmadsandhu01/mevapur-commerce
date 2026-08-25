@@ -7,6 +7,7 @@ import axios from 'axios';
 import ProductCard from '@/components/products/ProductCard';
 import { Search, Filter, SlidersHorizontal } from 'lucide-react';
 import type { Product } from '@/types/product';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 
 function SearchContent() {
   const searchParams = useSearchParams();
@@ -25,7 +26,7 @@ function SearchContent() {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        let url = `${process.env.NEXT_PUBLIC_API_URL}/products?keyword=${encodeURIComponent(query)}`;
+        let url = `${publicApiBaseUrl}/products?keyword=${encodeURIComponent(query)}`;
         
         if (filters.category) url += `&category=${filters.category}`;
         if (filters.minPrice) url += `&minPrice=${filters.minPrice}`;

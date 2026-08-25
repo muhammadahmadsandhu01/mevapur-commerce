@@ -16,6 +16,7 @@ import Toast from '@/components/Toast';
 import ProductReviews from '@/components/products/ProductReviews';
 import { accountService } from '@/services/account.service';
 import { useAuthStore } from '@/store/authStore';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -48,7 +49,7 @@ export default function ProductDetailPage() {
         setLoading(true);
         setError(null);
         
-        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/products/${params.id}`);
+        const response = await axios.get(`${publicApiBaseUrl}/products/${params.id}`);
         
         if (response.data.success) {
           const fetchedProduct = response.data.data;
