@@ -171,8 +171,8 @@ export default function SettingsPage() {
         if (data.payment) setPaymentData({ ...paymentData, ...data.payment });
         if (data.social) setSocialData({ ...socialData, ...data.social });
       }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
+    } catch {
+      setMessage({ type: 'error', text: 'Settings are currently unavailable. Please try again.' });
     } finally {
       setLoading(false);
     }
@@ -223,11 +223,13 @@ export default function SettingsPage() {
     try {
       const response = await api.put('/settings', { [group]: data });
       if (response.data.success) {
+        if (group === 'payment' && response.data.data?.payment) {
+          setPaymentData((current) => ({ ...current, ...response.data.data.payment }));
+        }
         setMessage({ type: 'success', text: `${group.charAt(0).toUpperCase() + group.slice(1)} settings saved successfully!` });
         setTimeout(() => setMessage(null), 3000);
       }
-    } catch (error) {
-      console.error('Error saving settings:', error);
+    } catch {
       setMessage({ type: 'error', text: 'Failed to save settings. Please try again.' });
       setTimeout(() => setMessage(null), 3000);
     } finally {
@@ -408,7 +410,7 @@ export default function SettingsPage() {
                 {paymentData.visa_enabled && (
                   <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
                     <InputGroup label="Merchant ID" value={paymentData.visa_merchant_id} onChange={(v: string) => setPaymentData({ ...paymentData, visa_merchant_id: v })} error={validationErrors.visa_merchant_id} placeholder="e.g., VISA-12345" />
-                    <InputGroup label="API Key" value={paymentData.visa_api_key} onChange={(v: string) => setPaymentData({ ...paymentData, visa_api_key: v })} error={validationErrors.visa_api_key} placeholder="visa_api_xxxxxxxxxxxx" />
+                    <InputGroup label="API Key" type="password" value={paymentData.visa_api_key} onChange={(v: string) => setPaymentData({ ...paymentData, visa_api_key: v })} error={validationErrors.visa_api_key} placeholder="Configured key or replacement" />
                     <div style={{ gridColumn: '1 / -1' }}>
                       <InputGroup label="Secret Key" type="password" value={paymentData.visa_secret_key} onChange={(v: string) => setPaymentData({ ...paymentData, visa_secret_key: v })} error={validationErrors.visa_secret_key} placeholder="••••••••••••" />
                     </div>
@@ -422,7 +424,7 @@ export default function SettingsPage() {
                 {paymentData.mastercard_enabled && (
                   <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
                     <InputGroup label="Merchant ID" value={paymentData.mastercard_merchant_id} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_merchant_id: v })} error={validationErrors.mastercard_merchant_id} placeholder="e.g., MC-12345" />
-                    <InputGroup label="API Key" value={paymentData.mastercard_api_key} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_api_key: v })} error={validationErrors.mastercard_api_key} placeholder="mc_api_xxxxxxxxxxxx" />
+                    <InputGroup label="API Key" type="password" value={paymentData.mastercard_api_key} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_api_key: v })} error={validationErrors.mastercard_api_key} placeholder="Configured key or replacement" />
                     <div style={{ gridColumn: '1 / -1' }}>
                       <InputGroup label="Secret Key" type="password" value={paymentData.mastercard_secret_key} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_secret_key: v })} error={validationErrors.mastercard_secret_key} placeholder="••••••••••••" />
                     </div>

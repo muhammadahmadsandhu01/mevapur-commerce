@@ -76,13 +76,18 @@ api.interceptors.response.use(
 // ==========================================
 
 export const getAdminStats = async () => {
-  const response = await api.get('/orders/stats');
-  return response.data.data.stats;
+  const response = await api.get('/admin/stats');
+  return response.data.data;
 };
 
 export const getRecentOrders = async (limit = 5) => {
-  const response = await api.get(`/orders/recent?limit=${limit}`);
-  return response.data.data.orders;
+  const response = await api.get(`/admin/orders/recent?limit=${limit}`);
+  return response.data.data;
+};
+
+export const getTopProducts = async (limit = 5) => {
+  const response = await api.get(`/admin/products/top?limit=${limit}`);
+  return response.data.data;
 };
 
 export const getOrders = async (page = 1, limit = 10, filters = {}) => {

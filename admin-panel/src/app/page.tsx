@@ -5,12 +5,7 @@ import {
   DollarSign, ShoppingCart, Users, Package, TrendingUp, 
   AlertCircle, CheckCircle, Clock, XCircle, ArrowUpRight, Truck 
 } from 'lucide-react';
-import { 
-  AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, 
-  CartesianGrid, Tooltip, ResponsiveContainer 
-} from 'recharts';
-import { getAdminStats, getRecentOrders } from '@/lib/api';
-import api from '@/lib/api';
+import { getAdminStats, getRecentOrders, getTopProducts } from '@/lib/api';
 
 interface DashboardStats {
   totalRevenue: number;
@@ -27,12 +22,12 @@ interface DashboardStats {
   totalProducts: number;
   lowStockProducts: number;
   outOfStockProducts: number;
-  revenueGrowth: number;
-  ordersGrowth: number;
-  customersGrowth: number;
-  productsGrowth: number;
+  revenueGrowth: number | null;
+  ordersGrowth: number | null;
+  customersGrowth: number | null;
+  productsGrowth: number | null;
   averageOrderValue: number;
-  conversionRate: number;
+  conversionRate: number | null;
 }
 
 interface Order {
@@ -59,8 +54,7 @@ interface ProductApiResponse {
   name: string;
   price: number;
   stock: number;
-  numReviews?: number;
-  reviewCount?: number;
+  soldCount?: number;
   images?: string[];
   gallery?: string[];
 }
@@ -70,165 +64,109 @@ export default function Dashboard() {
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [topProducts, setTopProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('7days');
+  const [loadError, setLoadError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        
-        // ✅ Fetch using our new adminApi functions
-        const [statsData, ordersData] = await Promise.all([
+        setLoadError(false);
+
+        const [statsData, ordersData, productsData] = await Promise.all([
           getAdminStats(),
-          getRecentOrders(5)
+          getRecentOrders(5),
+          getTopProducts(5)
         ]);
 
         if (statsData) {
           setStats({
-            totalRevenue: statsData.totalRevenue || 0,
-            todayRevenue: statsData.totalRevenue * 0.1 || 45000, // Estimated daily
-            monthlyRevenue: statsData.totalRevenue * 0.3 || 450000, // Estimated monthly
-            totalOrders: statsData.totalOrders || 0,
-            pendingOrders: statsData.pendingOrders || 0,
-            processingOrders: statsData.processingOrders || 0,
-            shippedOrders: statsData.shippedOrders || 0,
-            deliveredOrders: statsData.deliveredOrders || 0,
-            cancelledOrders: statsData.cancelledOrders || 0,
-            totalCustomers: 850, // Mock until customer stats endpoint is ready
-            newCustomers: 45,
-            totalProducts: 245,
-            lowStockProducts: 12,
-            outOfStockProducts: 5,
-            revenueGrowth: 12.5,
-            ordersGrowth: 8.2,
-            customersGrowth: 15.3,
-            productsGrowth: 3.1,
-            averageOrderValue: statsData.totalRevenue / (statsData.totalOrders || 1),
-            conversionRate: 3.2
+            totalRevenue: statsData.totalRevenue ?? 0,
+            todayRevenue: statsData.todayRevenue ?? 0,
+            monthlyRevenue: statsData.monthlyRevenue ?? 0,
+            totalOrders: statsData.totalOrders ?? 0,
+            pendingOrders: statsData.pendingOrders ?? 0,
+            processingOrders: statsData.processingOrders ?? 0,
+            shippedOrders: statsData.shippedOrders ?? 0,
+            deliveredOrders: statsData.deliveredOrders ?? 0,
+            cancelledOrders: statsData.cancelledOrders ?? 0,
+            totalCustomers: statsData.totalCustomers ?? 0,
+            newCustomers: statsData.newCustomers ?? 0,
+            totalProducts: statsData.totalProducts ?? 0,
+            lowStockProducts: statsData.lowStockProducts ?? 0,
+            outOfStockProducts: statsData.outOfStockProducts ?? 0,
+            revenueGrowth: typeof statsData.revenueGrowth === 'number' ? statsData.revenueGrowth : null,
+            ordersGrowth: typeof statsData.ordersGrowth === 'number' ? statsData.ordersGrowth : null,
+            customersGrowth: typeof statsData.customersGrowth === 'number' ? statsData.customersGrowth : null,
+            productsGrowth: typeof statsData.productsGrowth === 'number' ? statsData.productsGrowth : null,
+            averageOrderValue: statsData.averageOrderValue ?? 0,
+            conversionRate: typeof statsData.conversionRate === 'number' ? statsData.conversionRate : null
           });
         }
 
-        if (ordersData) {
-          setRecentOrders(ordersData);
-        }
-
-        // ✅ Fetch top products using existing products endpoint with sorting
-        try {
-          const productsRes = await api.get('/products?sortBy=best-selling&limit=5');
-          if (productsRes.data.success) {
-            setTopProducts(productsRes.data.data.map((p: ProductApiResponse) => ({
-              _id: p._id,
-              name: p.name,
-              price: p.price,
-              stock: p.stock,
-              soldCount: p.numReviews || p.reviewCount || Math.floor(Math.random() * 100), // Proxy for sold count
-              images: p.images || p.gallery || []
-            })));
-          }
-        } catch (err) {
-          console.error('Top products fetch error:', err);
-        }
-
-      } catch (error) {
-        console.error('Dashboard data fetch error:', error);
-        
-        // ✅ Fallback to mock data if API fails (keeps UI beautiful during dev)
-        setStats({
-          totalRevenue: 1250000,
-          todayRevenue: 45000,
-          monthlyRevenue: 450000,
-          totalOrders: 1250,
-          pendingOrders: 45,
-          processingOrders: 28,
-          shippedOrders: 15,
-          deliveredOrders: 1100,
-          cancelledOrders: 32,
-          totalCustomers: 850,
-          newCustomers: 45,
-          totalProducts: 245,
-          lowStockProducts: 12,
-          outOfStockProducts: 5,
-          revenueGrowth: 12.5,
-          ordersGrowth: 8.2,
-          customersGrowth: 15.3,
-          productsGrowth: 3.1,
-          averageOrderValue: 1000,
-          conversionRate: 3.2
-        });
+        setRecentOrders(Array.isArray(ordersData) ? ordersData : []);
+        setTopProducts(Array.isArray(productsData) ? productsData.map((product: ProductApiResponse) => ({
+          _id: product._id,
+          name: product.name,
+          price: product.price,
+          stock: product.stock,
+          soldCount: product.soldCount ?? 0,
+          images: product.images || product.gallery || []
+        })) : []);
+      } catch {
+        setStats(null);
         setRecentOrders([]);
         setTopProducts([]);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
     };
 
     fetchDashboardData();
-  }, []);
-
-  // Generate chart data from real stats
-  const revenueData = [
-    { name: 'Mon', revenue: stats?.todayRevenue || 45000 },
-    { name: 'Tue', revenue: stats?.todayRevenue ? stats.todayRevenue * 1.15 : 52000 },
-    { name: 'Wed', revenue: stats?.todayRevenue ? stats.todayRevenue * 1.08 : 48000 },
-    { name: 'Thu', revenue: stats?.todayRevenue ? stats.todayRevenue * 1.35 : 61000 },
-    { name: 'Fri', revenue: stats?.todayRevenue ? stats.todayRevenue * 1.22 : 55000 },
-    { name: 'Sat', revenue: stats?.todayRevenue ? stats.todayRevenue * 1.51 : 68000 },
-    { name: 'Sun', revenue: stats?.todayRevenue ? stats.todayRevenue * 1.60 : 72000 },
-  ];
-
-  const categoryData = [
-    { name: 'Dry Fruits', value: 45000, color: '#FF8A00' },
-    { name: 'Fresh Fruits', value: 32000, color: 'var(--info-text)' },
-    { name: 'Groceries', value: 28000, color: '#16A34A' },
-    { name: 'Spices', value: 18000, color: 'var(--warning)' },
-    { name: 'Others', value: 12000, color: '#64748B' },
-  ];
+  }, [retryCount]);
 
   const kpiCards = [
     {
       title: 'Total Revenue',
-      value: `Rs. ${(stats?.totalRevenue || 0).toLocaleString()}`,
-      change: `+${stats?.revenueGrowth || 12.5}%`,
-      trend: 'up',
+      value: stats ? `Rs. ${stats.totalRevenue.toLocaleString()}` : 'Unavailable',
+      change: stats?.revenueGrowth ?? null,
       icon: DollarSign,
       color: 'var(--accent-text)',
       bgColor: 'rgba(255, 138, 0, 0.1)'
     },
     {
       title: 'Total Orders',
-      value: stats?.totalOrders || 0,
-      change: `+${stats?.ordersGrowth || 8.2}%`,
-      trend: 'up',
+      value: stats ? stats.totalOrders : 'Unavailable',
+      change: stats?.ordersGrowth ?? null,
       icon: ShoppingCart,
       color: 'var(--info-text)',
       bgColor: 'var(--info-light)',
     },
     {
       title: 'Total Customers',
-      value: stats?.totalCustomers || 0,
-      change: `+${stats?.customersGrowth || 15.3}%`,
-      trend: 'up',
+      value: stats ? stats.totalCustomers : 'Unavailable',
+      change: stats?.customersGrowth ?? null,
       icon: Users,
       color: 'var(--success-text)',
       bgColor: 'rgba(22, 163, 74, 0.1)'
     },
     {
       title: 'Total Products',
-      value: stats?.totalProducts || 0,
-      change: `+${stats?.productsGrowth || 3.1}%`,
-      trend: 'up',
+      value: stats ? stats.totalProducts : 'Unavailable',
+      change: stats?.productsGrowth ?? null,
       icon: Package,
       color: 'var(--warning-text)',
       bgColor: 'rgba(245, 158, 11, 0.1)'
     },
   ];
 
-    const orderStats = [
-      { label: 'Pending', value: stats?.pendingOrders || 0, color: '#F59E0B', icon: Clock },
-      { label: 'Processing', value: stats?.processingOrders || 0, color: 'var(--warning)', icon: Truck },
-      { label: 'Delivered', value: stats?.deliveredOrders || 0, color: '#16A34A', icon: CheckCircle },
-      { label: 'Cancelled', value: stats?.cancelledOrders || 0, color: '#DC2626', icon: XCircle },
-    ];
+  const orderStats = [
+    { label: 'Pending', value: stats ? stats.pendingOrders : 'Unavailable', color: '#F59E0B', icon: Clock },
+    { label: 'Processing', value: stats ? stats.processingOrders : 'Unavailable', color: 'var(--warning)', icon: Truck },
+    { label: 'Delivered', value: stats ? stats.deliveredOrders : 'Unavailable', color: '#16A34A', icon: CheckCircle },
+    { label: 'Cancelled', value: stats ? stats.cancelledOrders : 'Unavailable', color: '#DC2626', icon: XCircle },
+  ];
 
   if (loading) {
     return (
@@ -265,38 +203,29 @@ export default function Dashboard() {
               Welcome back! Here&apos;s what&apos;s happening with your store today.
             </p>
           </div>
-          
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {['7days', '30days', '3months', '1year'].map((range) => (
-              <button
-                key={range}
-                onClick={() => setTimeRange(range)}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: timeRange === range ? 'var(--primary)' : 'var(--card-bg)',
-                  color: timeRange === range ? '#0B132B' : 'var(--text-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  fontSize: '13px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={e => {
-                  if (timeRange !== range) e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
-                }}
-                onMouseLeave={e => {
-                  if (timeRange !== range) e.currentTarget.style.backgroundColor = 'var(--card-bg)';
-                }}
-              >
-                {range === '7days' ? 'Last 7 Days' : 
-                 range === '30days' ? 'Last 30 Days' : 
-                 range === '3months' ? 'Last 3 Months' : 'Last Year'}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
+
+      {loadError && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
+          padding: '16px 20px', marginBottom: '24px', borderRadius: '12px',
+          backgroundColor: 'rgba(220, 38, 38, 0.1)', border: '1px solid #DC2626',
+          color: 'var(--danger-text)', flexWrap: 'wrap'
+        }}>
+          <span>Dashboard analytics are currently unavailable. No fallback data is being shown.</span>
+          <button
+            type="button"
+            onClick={() => setRetryCount((count) => count + 1)}
+            style={{
+              padding: '8px 16px', border: 'none', borderRadius: '8px', cursor: 'pointer',
+              backgroundColor: 'var(--primary)', color: '#0B132B', fontWeight: '700'
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div style={{
@@ -335,11 +264,21 @@ export default function Dashboard() {
               </div>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px',
-                                borderRadius: '20px', backgroundColor: card.trend === 'up' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
-                                color: card.trend === 'up' ? 'var(--success-text)' : 'var(--danger-text)', fontSize: '13px', fontWeight: '700'
+                borderRadius: '20px',
+                backgroundColor: typeof card.change === 'number'
+                  ? (card.change >= 0 ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)')
+                  : 'var(--bg-primary)',
+                color: typeof card.change === 'number'
+                  ? (card.change >= 0 ? 'var(--success-text)' : 'var(--danger-text)')
+                  : 'var(--text-secondary)',
+                fontSize: '13px', fontWeight: '700'
               }}>
-                {card.trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowUpRight size={14} style={{ transform: 'rotate(90deg)' }} />}
-                {card.change}
+                {typeof card.change === 'number' ? (
+                  <>
+                    <ArrowUpRight size={14} style={card.change < 0 ? { transform: 'rotate(90deg)' } : undefined} />
+                    {card.change > 0 ? '+' : ''}{card.change}%
+                  </>
+                ) : 'Comparison unavailable'}
               </div>
             </div>
             <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '500' }}>
@@ -407,7 +346,9 @@ export default function Dashboard() {
               <AlertCircle size={24} color="var(--warning-text)" />
               <div>
                 <div style={{ fontWeight: '700', color: 'var(--warning-text)', marginBottom: '4px' }}>Low Stock Alert</div>
-                <div style={{ fontSize: '13px', color: 'var(--warning-text)' }}>{stats?.lowStockProducts || 0} products need restocking</div>
+                <div style={{ fontSize: '13px', color: 'var(--warning-text)' }}>
+                  {stats ? `${stats.lowStockProducts} products need restocking` : 'Inventory data unavailable'}
+                </div>
               </div>
             </div>
             <div style={{
@@ -417,7 +358,9 @@ export default function Dashboard() {
               <XCircle size={24} color="var(--danger-text)" />
               <div>
                 <div style={{ fontWeight: '700', color: 'var(--danger-text)', marginBottom: '4px' }}>Out of Stock</div>
-                <div style={{ fontSize: '13px', color: 'var(--danger-text)' }}>{stats?.outOfStockProducts || 0} products unavailable</div>
+                <div style={{ fontSize: '13px', color: 'var(--danger-text)' }}>
+                  {stats ? `${stats.outOfStockProducts} products unavailable` : 'Inventory data unavailable'}
+                </div>
               </div>
             </div>
             <div style={{
@@ -427,7 +370,9 @@ export default function Dashboard() {
               <TrendingUp size={24} color="var(--success-text)" />
               <div>
                 <div style={{ fontWeight: '700', color: 'var(--success-text)', marginBottom: '4px' }}>New Customers</div>
-                <div style={{ fontSize: '13px', color: 'var(--success-text)' }}>{stats?.newCustomers || 0} new signups today</div>
+                <div style={{ fontSize: '13px', color: 'var(--success-text)' }}>
+                  {stats ? `${stats.newCustomers} new signups today` : 'Customer data unavailable'}
+                </div>
               </div>
             </div>
           </div>
@@ -452,21 +397,13 @@ export default function Dashboard() {
           <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '24px', color: 'var(--text-primary)' }}>
             Revenue Overview
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={revenueData}>
-              <defs>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#FF8A00" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#FF8A00" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-              <XAxis dataKey="name" stroke="var(--text-secondary)" />
-              <YAxis stroke="var(--text-secondary)" />
-              <Tooltip contentStyle={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-              <Area type="monotone" dataKey="revenue" stroke="#FF8A00" fillOpacity={1} fill="url(#colorRevenue)" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <div style={{
+            height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '32px', textAlign: 'center', borderRadius: '12px',
+            backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)'
+          }}>
+            Revenue time-series data is not available from the current analytics API.
+          </div>
         </div>
 
         {/* Category Distribution */}
@@ -480,25 +417,13 @@ export default function Dashboard() {
           <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '24px', color: 'var(--text-primary)' }}>
             Sales by Category
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={categoryData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-                outerRadius={100}
-                fill="#64748B"
-                dataKey="value"
-              >
-                {categoryData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <div style={{
+            height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '32px', textAlign: 'center', borderRadius: '12px',
+            backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)'
+          }}>
+            Category sales data is not available from the current analytics API.
+          </div>
         </div>
       </div>
 
@@ -527,7 +452,6 @@ export default function Dashboard() {
                   <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
                     <th style={{ padding: '12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Product</th>
                     <th style={{ padding: '12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Sales</th>
-                    <th style={{ padding: '12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Revenue</th>
                     <th style={{ padding: '12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Stock</th>
                   </tr>
                 </thead>
@@ -536,7 +460,6 @@ export default function Dashboard() {
                     <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--text-primary)' }}>{product.name}</td>
                       <td style={{ padding: '16px 12px', color: 'var(--text-secondary)' }}>{product.soldCount || 0}</td>
-                      <td style={{ padding: '16px 12px', color: 'var(--text-secondary)' }}>Rs. {((product.soldCount || 0) * product.price).toLocaleString()}</td>
                       <td style={{ padding: '16px 12px' }}>
                         <span style={{
                           padding: '4px 12px',
@@ -642,17 +565,23 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
             <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0B132B 0%, #060A16 100%)', color: 'white' }}>
             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today&apos;s Revenue</div>
-            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.todayRevenue || 0).toLocaleString()}</div>
-            <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.revenueGrowth || 12.5}% from yesterday</div>
+            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>
+              {stats ? `Rs. ${stats.todayRevenue.toLocaleString()}` : 'Unavailable'}
+            </div>
+            <div style={{ fontSize: '13px', opacity: 0.8 }}>Day-over-day comparison unavailable</div>
           </div>
             <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #FF8A00 0%, #E67D00 100%)', color: '#0B132B' }}>
             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Monthly Revenue</div>
-            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.monthlyRevenue || 0).toLocaleString()}</div>
-            <div style={{ fontSize: '13px', opacity: 0.8 }}>+{stats?.ordersGrowth || 8.2}% from last month</div>
+            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>
+              {stats ? `Rs. ${stats.monthlyRevenue.toLocaleString()}` : 'Unavailable'}
+            </div>
+            <div style={{ fontSize: '13px', opacity: 0.8 }}>Month-over-month comparison unavailable</div>
           </div>
             <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #166534 0%, #14532D 100%)', color: 'white' }}>
             <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Total Revenue</div>
-            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>Rs. {(stats?.totalRevenue || 0).toLocaleString()}</div>
+            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>
+              {stats ? `Rs. ${stats.totalRevenue.toLocaleString()}` : 'Unavailable'}
+            </div>
             <div style={{ fontSize: '13px', opacity: 0.8 }}>All time</div>
           </div>
         </div>

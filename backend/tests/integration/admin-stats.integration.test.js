@@ -58,6 +58,11 @@ describe('Admin Stats Aggregation Integration', () => {
     expect(response.body.data.todayRevenue).toBe(0);
     expect(response.body.data.monthlyRevenue).toBe(0);
     expect(response.body.data.totalOrders).toBe(0);
+    expect(response.body.data.revenueGrowth).toBeNull();
+    expect(response.body.data.ordersGrowth).toBeNull();
+    expect(response.body.data.customersGrowth).toBeNull();
+    expect(response.body.data.productsGrowth).toBeNull();
+    expect(response.body.data.conversionRate).toBeNull();
     expect(Object.keys(response.body.data).sort()).toEqual([
       'averageOrderValue',
       'cancelledOrders',

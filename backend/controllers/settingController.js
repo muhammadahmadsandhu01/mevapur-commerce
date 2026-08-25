@@ -1,12 +1,30 @@
 const Setting = require('../models/Setting');
 const { logActivity } = require('../middleware/activityLogger');  
+const logger = require('../common/utils/logger');
+const {
+  SECRET_SETTING_PATHS,
+  buildSettingsUpdate,
+  getUpdatedGroups,
+  sanitizeSettings
+} = require('../services/SettingSecurityService');
+
+const SECRET_FIELD_SELECTION = SECRET_SETTING_PATHS
+  .map((path) => `+${path}`)
+  .join(' ');
+
+const logSettingsError = (operation, error) => {
+  logger.error(`Settings ${operation} failed`, {
+    errorCode: error.code,
+    errorName: error.name
+  });
+};
 
 // @desc    Get all settings
 // @route   GET /api/settings
 // @access  Private/Admin
 exports.getSettings = async (req, res) => {
   try {
-    let settings = await Setting.findOne();
+    let settings = await Setting.findOne().select(SECRET_FIELD_SELECTION);
     
     // Agar pehli baar hai, to default settings create karein
     if (!settings) {
@@ -15,13 +33,13 @@ exports.getSettings = async (req, res) => {
 
     res.json({
       success: true,
-      data: settings
+      data: sanitizeSettings(settings)
     });
   } catch (error) {
-    console.error('Get settings error:', error);
+    logSettingsError('read', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Failed to fetch settings'
     });
   }
 };
@@ -31,18 +49,27 @@ exports.getSettings = async (req, res) => {
 // @access  Private/Admin
 exports.updateSettings = async (req, res) => {
   try {
-    const settingsData = req.body; // e.g., { store: { store_name: '...', ... } }
-    
-    // MongoDB $set operator use karein taake sirf provided groups update hon
-    const updateQuery = { $set: settingsData };
-    
-    let settings = await Setting.findOneAndUpdate(
-      {}, // Pehla (aur akela) settings document dhundhein
-      updateQuery,
-      { new: true, upsert: true, runValidators: true }
-    );
+    const settingsData = req.body;
+    const safeUpdate = buildSettingsUpdate(settingsData);
 
-    const updatedGroups = Object.keys(settingsData);
+    let settings;
+    if (Object.keys(safeUpdate).length > 0) {
+      settings = await Setting.findOneAndUpdate(
+        {},
+        { $set: safeUpdate },
+        {
+          new: true,
+          upsert: true,
+          runValidators: true,
+          setDefaultsOnInsert: true
+        }
+      ).select(SECRET_FIELD_SELECTION);
+    } else {
+      settings = await Setting.findOne().select(SECRET_FIELD_SELECTION);
+      if (!settings) settings = await Setting.create({});
+    }
+
+    const updatedGroups = getUpdatedGroups(settingsData);
     await logActivity(req, 'SETTINGS_UPDATE', 
       `Updated settings groups: ${updatedGroups.join(', ')}`, 
       { groupsUpdated: updatedGroups }
@@ -51,13 +78,13 @@ exports.updateSettings = async (req, res) => {
     res.json({
       success: true,
       message: 'Settings updated successfully',
-      data: settings
+      data: sanitizeSettings(settings)
     });
   } catch (error) {
-    console.error('Update settings error:', error);
+    logSettingsError('update', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Failed to update settings'
     });
   }
 };
@@ -74,13 +101,13 @@ exports.getPublicSettings = async (req, res) => {
 
     res.json({
       success: true,
-      data: settings
+      data: sanitizeSettings(settings, { includeSecretIndicators: false })
     });
   } catch (error) {
-    console.error('Get public settings error:', error);
+    logSettingsError('public read', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Failed to fetch public settings'
     });
   }
 };
