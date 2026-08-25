@@ -1,5 +1,3 @@
-const SECRET_MASK = '************';
-
 const ALLOWED_SETTING_PATHS = Object.freeze([
   'store.store_name',
   'store.store_email',
@@ -14,15 +12,10 @@ const ALLOWED_SETTING_PATHS = Object.freeze([
   'payment.cod_enabled',
   'payment.jazzcash_enabled',
   'payment.jazzcash_merchant_id',
-  'payment.jazzcash_password',
   'payment.visa_enabled',
   'payment.visa_merchant_id',
-  'payment.visa_api_key',
-  'payment.visa_secret_key',
   'payment.mastercard_enabled',
   'payment.mastercard_merchant_id',
-  'payment.mastercard_api_key',
-  'payment.mastercard_secret_key',
   'social.facebook',
   'social.instagram',
   'social.twitter',
@@ -34,7 +27,7 @@ const ALLOWED_SETTING_PATHS = Object.freeze([
   'maintenanceMode'
 ]);
 
-const SECRET_SETTING_PATHS = Object.freeze([
+const LEGACY_PROVIDER_SECRET_PATHS = Object.freeze([
   'payment.jazzcash_password',
   'payment.visa_api_key',
   'payment.visa_secret_key',
@@ -42,7 +35,17 @@ const SECRET_SETTING_PATHS = Object.freeze([
   'payment.mastercard_secret_key'
 ]);
 
-const SECRET_SETTING_PATH_SET = new Set(SECRET_SETTING_PATHS);
+const PROVIDER_CREDENTIAL_INPUT_PATHS = Object.freeze([
+  ...LEGACY_PROVIDER_SECRET_PATHS,
+  'payment.stripe_secret_key',
+  'payment.stripe_webhook_secret',
+  'payment.stripe_publishable_key',
+  'providerCredentials'
+]);
+
+const PROVIDER_SECRET_EXCLUSION = Object.freeze(Object.fromEntries(
+  LEGACY_PROVIDER_SECRET_PATHS.map((path) => [path, 0])
+));
 
 const isPlainObject = (value) => (
   value !== null
@@ -55,7 +58,10 @@ const hasOwnPath = (source, path) => {
   let current = source;
 
   for (const segment of segments) {
-    if (!isPlainObject(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+    if (
+      !isPlainObject(current)
+      || !Object.prototype.hasOwnProperty.call(current, segment)
+    ) {
       return false;
     }
     current = current[segment];
@@ -68,70 +74,21 @@ const getPath = (source, path) => path
   .split('.')
   .reduce((current, segment) => current?.[segment], source);
 
-const setPath = (target, path, value) => {
-  const segments = path.split('.');
-  const finalSegment = segments.pop();
-  let current = target;
-
-  for (const segment of segments) {
-    if (!isPlainObject(current[segment])) current[segment] = {};
-    current = current[segment];
-  }
-
-  current[finalSegment] = value;
-};
-
-const deletePath = (target, path) => {
-  const segments = path.split('.');
-  const finalSegment = segments.pop();
-  const parent = segments.reduce((current, segment) => current?.[segment], target);
-  if (isPlainObject(parent)) delete parent[finalSegment];
-};
-
-const isPreservedSecretValue = (value) => (
-  value === undefined
-  || value === null
-  || (typeof value === 'string' && (
-    value.trim() === ''
-    || value === SECRET_MASK
-  ))
-);
-
 const buildSettingsUpdate = (settingsData) => {
   if (!isPlainObject(settingsData)) return {};
 
   return ALLOWED_SETTING_PATHS.reduce((update, path) => {
-    if (!hasOwnPath(settingsData, path)) return update;
-
-    const value = getPath(settingsData, path);
-    if (SECRET_SETTING_PATH_SET.has(path) && isPreservedSecretValue(value)) {
-      return update;
+    if (hasOwnPath(settingsData, path)) {
+      update[path] = getPath(settingsData, path);
     }
-
-    update[path] = value;
     return update;
   }, {});
 };
 
-const sanitizeSettings = (settings, { includeSecretIndicators = true } = {}) => {
-  if (!settings) return settings;
-
-  const result = typeof settings.toObject === 'function'
-    ? settings.toObject()
-    : JSON.parse(JSON.stringify(settings));
-
-  for (const path of SECRET_SETTING_PATHS) {
-    if (!includeSecretIndicators) {
-      deletePath(result, path);
-      continue;
-    }
-
-    const value = getPath(result, path);
-    setPath(result, path, typeof value === 'string' && value.length > 0 ? SECRET_MASK : '');
-  }
-
-  return result;
-};
+const containsProviderCredentialInput = (settingsData) => (
+  isPlainObject(settingsData)
+  && PROVIDER_CREDENTIAL_INPUT_PATHS.some((path) => hasOwnPath(settingsData, path))
+);
 
 const getUpdatedGroups = (settingsData) => {
   if (!isPlainObject(settingsData)) return [];
@@ -141,9 +98,10 @@ const getUpdatedGroups = (settingsData) => {
 
 module.exports = {
   ALLOWED_SETTING_PATHS,
-  SECRET_MASK,
-  SECRET_SETTING_PATHS,
+  LEGACY_PROVIDER_SECRET_PATHS,
+  PROVIDER_CREDENTIAL_INPUT_PATHS,
+  PROVIDER_SECRET_EXCLUSION,
   buildSettingsUpdate,
-  getUpdatedGroups,
-  sanitizeSettings
+  containsProviderCredentialInput,
+  getUpdatedGroups
 };

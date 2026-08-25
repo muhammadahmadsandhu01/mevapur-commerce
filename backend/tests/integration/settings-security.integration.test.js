@@ -6,8 +6,7 @@ const Session = require('../../models/Session');
 const Setting = require('../../models/Setting');
 const ActivityLog = require('../../models/ActivityLog');
 const {
-  SECRET_MASK,
-  SECRET_SETTING_PATHS
+  LEGACY_PROVIDER_SECRET_PATHS
 } = require('../../services/SettingSecurityService');
 
 const SYNTHETIC_VALUES = Object.freeze({
@@ -41,7 +40,7 @@ const authAs = async (role) => {
   })}`;
 };
 
-const createSecretSettings = () => Setting.create({
+const insertLegacySettings = () => Setting.collection.insertOne({
   store: { store_name: 'Security Test Store' },
   payment: {
     cod_enabled: true,
@@ -51,18 +50,21 @@ const createSecretSettings = () => Setting.create({
   }
 });
 
-const loadSecretsFromDatabase = () => Setting.findOne().select(
-  SECRET_SETTING_PATHS.map((path) => `+${path}`).join(' ')
-);
-
-const expectNoSecretValues = (payload) => {
+const expectNoProviderSecrets = (payload) => {
   const serialized = JSON.stringify(payload);
-  for (const value of Object.values(SYNTHETIC_VALUES)) {
+  for (const [field, value] of Object.entries(SYNTHETIC_VALUES)) {
     expect(serialized).not.toContain(value);
+    expect(serialized).not.toContain(field);
   }
 };
 
-describe('Settings secret security', () => {
+describe('Environment-managed provider credentials', () => {
+  test('does not define legacy provider-secret paths in the application schema', () => {
+    for (const path of LEGACY_PROVIDER_SECRET_PATHS) {
+      expect(Setting.schema.path(path)).toBeUndefined();
+    }
+  });
+
   test('requires admin authorization for settings reads and updates', async () => {
     const customerAuthorization = await authAs('customer');
 
@@ -84,8 +86,8 @@ describe('Settings secret security', () => {
     expect(forbiddenUpdate.status).toBe(403);
   });
 
-  test('never returns stored secrets from admin or public reads', async () => {
-    await createSecretSettings();
+  test('never returns legacy secrets and exposes only environment status to admins', async () => {
+    await insertLegacySettings();
     const adminAuthorization = await authAs('admin');
 
     const adminResponse = await request(app)
@@ -94,17 +96,53 @@ describe('Settings secret security', () => {
     const publicResponse = await request(app).get('/api/settings/public');
 
     expect(adminResponse.status).toBe(200);
-    expectNoSecretValues(adminResponse.body);
-    for (const field of Object.keys(SYNTHETIC_VALUES)) {
-      expect(adminResponse.body.data.payment[field]).toBe(SECRET_MASK);
-      expect(publicResponse.body.data.payment).not.toHaveProperty(field);
-    }
+    expect(adminResponse.body.data.providerCredentials).toEqual({
+      management: 'environment',
+      stripe: {
+        configured: true,
+        serverCredentialConfigured: true,
+        publishableKeyConfigured: true,
+        webhookConfigured: true
+      },
+      jazzcash: { configured: false },
+      easypaisa: { configured: false }
+    });
+    expectNoProviderSecrets(adminResponse.body);
+
     expect(publicResponse.status).toBe(200);
-    expectNoSecretValues(publicResponse.body);
+    expect(publicResponse.body.data).not.toHaveProperty('providerCredentials');
+    expectNoProviderSecrets(publicResponse.body);
   });
 
-  test('preserves omitted, empty, null, and masked secrets during non-secret updates', async () => {
-    await createSecretSettings();
+  test('rejects provider credential submissions without persistence or activity logging', async () => {
+    await insertLegacySettings();
+    const adminAuthorization = await authAs('admin');
+    const submitted = 'synthetic-submitted-provider-placeholder';
+
+    const response = await request(app)
+      .put('/api/settings')
+      .set('Authorization', adminAuthorization)
+      .send({
+        payment: {
+          visa_secret_key: submitted,
+          stripe_webhook_secret: submitted
+        }
+      });
+    const stored = await Setting.collection.findOne({});
+    const activity = await ActivityLog.findOne({ action: 'SETTINGS_UPDATE' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe(
+      'PROVIDER_CREDENTIALS_ENVIRONMENT_MANAGED'
+    );
+    expect(JSON.stringify(response.body)).not.toContain(submitted);
+    expect(stored.payment.visa_secret_key).toBe(SYNTHETIC_VALUES.visa_secret_key);
+    expect(stored.payment).not.toHaveProperty('stripe_webhook_secret');
+    expect(activity).toBeNull();
+  });
+
+  test('keeps non-secret settings editable without touching legacy fields', async () => {
+    await insertLegacySettings();
     const adminAuthorization = await authAs('admin');
 
     const response = await request(app)
@@ -112,42 +150,26 @@ describe('Settings secret security', () => {
       .set('Authorization', adminAuthorization)
       .send({
         payment: {
-          jazzcash_merchant_id: 'UPDATED-MERCHANT',
-          jazzcash_password: SECRET_MASK,
-          visa_api_key: '',
-          visa_secret_key: null,
-          mastercard_secret_key: SECRET_MASK
+          cod_enabled: false,
+          jazzcash_merchant_id: 'UPDATED-MERCHANT'
         }
       });
-    const stored = await loadSecretsFromDatabase();
-
-    expect(response.status).toBe(200);
-    expect(response.body.data.payment.jazzcash_merchant_id).toBe('UPDATED-MERCHANT');
-    expectNoSecretValues(response.body);
-    for (const [field, value] of Object.entries(SYNTHETIC_VALUES)) {
-      expect(stored.payment[field]).toBe(value);
-      expect(response.body.data.payment[field]).toBe(SECRET_MASK);
-    }
-  });
-
-  test('accepts an authorized replacement without echoing or logging it', async () => {
-    await createSecretSettings();
-    const adminAuthorization = await authAs('admin');
-    const replacement = 'synthetic-authorized-replacement';
-
-    const response = await request(app)
-      .put('/api/settings')
-      .set('Authorization', adminAuthorization)
-      .send({ payment: { visa_secret_key: replacement } });
-    const stored = await loadSecretsFromDatabase();
+    const stored = await Setting.collection.findOne({});
     const activity = await ActivityLog.findOne({ action: 'SETTINGS_UPDATE' });
 
     expect(response.status).toBe(200);
-    expect(response.body.data.payment.visa_secret_key).toBe(SECRET_MASK);
-    expect(JSON.stringify(response.body)).not.toContain(replacement);
-    expect(stored.payment.visa_secret_key).toBe(replacement);
+    expect(response.body.data.payment).toMatchObject({
+      cod_enabled: false,
+      jazzcash_merchant_id: 'UPDATED-MERCHANT'
+    });
+    expect(response.body.data.providerCredentials.management).toBe('environment');
+    expectNoProviderSecrets(response.body);
+    for (const path of LEGACY_PROVIDER_SECRET_PATHS) {
+      const field = path.split('.').at(-1);
+      expect(stored.payment[field]).toBe(SYNTHETIC_VALUES[field]);
+    }
     expect(activity).not.toBeNull();
-    expect(JSON.stringify(activity.toObject())).not.toContain(replacement);
     expect(activity.details.groupsUpdated).toEqual(['payment']);
+    expectNoProviderSecrets(activity.toObject());
   });
 });

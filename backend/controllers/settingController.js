@@ -1,16 +1,15 @@
 const Setting = require('../models/Setting');
-const { logActivity } = require('../middleware/activityLogger');  
+const { logActivity } = require('../middleware/activityLogger');
 const logger = require('../common/utils/logger');
 const {
-  SECRET_SETTING_PATHS,
+  getProviderCredentialStatus
+} = require('../config/payment.config');
+const {
+  PROVIDER_SECRET_EXCLUSION,
   buildSettingsUpdate,
-  getUpdatedGroups,
-  sanitizeSettings
+  containsProviderCredentialInput,
+  getUpdatedGroups
 } = require('../services/SettingSecurityService');
-
-const SECRET_FIELD_SELECTION = SECRET_SETTING_PATHS
-  .map((path) => `+${path}`)
-  .join(' ');
 
 const logSettingsError = (operation, error) => {
   logger.error(`Settings ${operation} failed`, {
@@ -19,21 +18,35 @@ const logSettingsError = (operation, error) => {
   });
 };
 
+const toPlainSettings = (settings) => (
+  typeof settings?.toObject === 'function'
+    ? settings.toObject()
+    : settings
+);
+
+const toAdminSettings = (settings) => ({
+  ...toPlainSettings(settings),
+  providerCredentials: getProviderCredentialStatus()
+});
+
+const findSettingsWithoutProviderSecrets = () => (
+  Setting.findOne().select(PROVIDER_SECRET_EXCLUSION)
+);
+
 // @desc    Get all settings
 // @route   GET /api/settings
 // @access  Private/Admin
 exports.getSettings = async (req, res) => {
   try {
-    let settings = await Setting.findOne().select(SECRET_FIELD_SELECTION);
-    
-    // Agar pehli baar hai, to default settings create karein
+    let settings = await findSettingsWithoutProviderSecrets();
+
     if (!settings) {
       settings = await Setting.create({});
     }
 
     res.json({
       success: true,
-      data: sanitizeSettings(settings)
+      data: toAdminSettings(settings)
     });
   } catch (error) {
     logSettingsError('read', error);
@@ -50,6 +63,17 @@ exports.getSettings = async (req, res) => {
 exports.updateSettings = async (req, res) => {
   try {
     const settingsData = req.body;
+
+    if (containsProviderCredentialInput(settingsData)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provider credentials are managed through deployment configuration',
+        error: {
+          code: 'PROVIDER_CREDENTIALS_ENVIRONMENT_MANAGED'
+        }
+      });
+    }
+
     const safeUpdate = buildSettingsUpdate(settingsData);
 
     let settings;
@@ -63,26 +87,28 @@ exports.updateSettings = async (req, res) => {
           runValidators: true,
           setDefaultsOnInsert: true
         }
-      ).select(SECRET_FIELD_SELECTION);
+      ).select(PROVIDER_SECRET_EXCLUSION);
     } else {
-      settings = await Setting.findOne().select(SECRET_FIELD_SELECTION);
+      settings = await findSettingsWithoutProviderSecrets();
       if (!settings) settings = await Setting.create({});
     }
 
     const updatedGroups = getUpdatedGroups(settingsData);
-    await logActivity(req, 'SETTINGS_UPDATE', 
-      `Updated settings groups: ${updatedGroups.join(', ')}`, 
+    await logActivity(
+      req,
+      'SETTINGS_UPDATE',
+      `Updated settings groups: ${updatedGroups.join(', ')}`,
       { groupsUpdated: updatedGroups }
     );
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Settings updated successfully',
-      data: sanitizeSettings(settings)
+      data: toAdminSettings(settings)
     });
   } catch (error) {
     logSettingsError('update', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to update settings'
     });
@@ -94,14 +120,11 @@ exports.updateSettings = async (req, res) => {
 // @access  Public
 exports.getPublicSettings = async (req, res) => {
   try {
-    // 🛡️ SECURITY BEST PRACTICE: Sensitive payment credentials ko public API se exclude karein
-    const settings = await Setting.findOne().select(
-      '-payment.jazzcash_password -payment.visa_api_key -payment.visa_secret_key -payment.mastercard_api_key -payment.mastercard_secret_key'
-    );
+    const settings = await findSettingsWithoutProviderSecrets();
 
     res.json({
       success: true,
-      data: sanitizeSettings(settings, { includeSecretIndicators: false })
+      data: toPlainSettings(settings)
     });
   } catch (error) {
     logSettingsError('public read', error);

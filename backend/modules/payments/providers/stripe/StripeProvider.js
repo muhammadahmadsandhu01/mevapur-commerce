@@ -1,5 +1,4 @@
 const legacyStripeProvider = require('../../../../services/payment/providers/StripeProvider');
-const { getStripeConfig } = require('../../../../config/payment.config');
 
 const manifest = Object.freeze({
   code: 'stripe',
@@ -23,20 +22,11 @@ const manifest = Object.freeze({
 legacyStripeProvider.getManifest = () => manifest;
 legacyStripeProvider.getCapabilities = () => ({ ...manifest.capabilities });
 legacyStripeProvider.validateConfig = (config = {}) => {
-  try {
-    getStripeConfig();
-    const publishableKey = config.publishableKey || '';
-    const configured = /^pk_(test|live)_/.test(publishableKey);
-    return {
-      configured,
-      reason: configured ? null : 'PAYMENT_PROVIDER_NOT_CONFIGURED'
-    };
-  } catch (_error) {
-    return {
-      configured: false,
-      reason: 'PAYMENT_PROVIDER_NOT_CONFIGURED'
-    };
-  }
+  const configured = config.credentialConfigured === true;
+  return {
+    configured,
+    reason: configured ? null : 'PAYMENT_PROVIDER_NOT_CONFIGURED'
+  };
 };
 legacyStripeProvider.evaluateEligibility = ({ currency = 'PKR' } = {}) => ({
   eligible: String(currency).toUpperCase() === 'PKR',
@@ -53,16 +43,12 @@ legacyStripeProvider.getPublicMetadata = (config = {}) => ({
     ? config.publishableKey
     : ''
 });
-legacyStripeProvider.getAdminMetadata = () => ({
+legacyStripeProvider.getAdminMetadata = (config = {}) => ({
   code: manifest.code,
   displayName: manifest.displayName,
   paymentType: manifest.paymentType,
   capabilities: { ...manifest.capabilities },
-  credentialConfigured: legacyStripeProvider.validateConfig(
-    {
-      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || ''
-    }
-  ).configured
+  credentialConfigured: legacyStripeProvider.validateConfig(config).configured
 });
 legacyStripeProvider.verifyCallback = (...args) => (
   legacyStripeProvider.verifyWebhookSignature(...args)
