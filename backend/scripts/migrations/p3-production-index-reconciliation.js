@@ -19,13 +19,128 @@ const PRODUCTION_CONFIRMATION_PHRASE = 'I_ACKNOWLEDGE_MEVAPUR_STAGING_IS_PRODUCT
 const APPLY_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const BACKUP_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MIN_BACKUP_SIZE_BYTES = 1024;
+const MONGO_CLIENT_OPTIONS = Object.freeze({
+  serverSelectionTimeoutMS: 10000,
+  connectTimeoutMS: 5000,
+  socketTimeoutMS: 20000,
+  maxPoolSize: 2,
+  appName: 'MevaPur-Production-Controlled-Index-Reconciliation'
+});
+
+const SAFE_CONNECTIVITY_ERROR_CLASSES = new Set([
+  'MongoServerSelectionError',
+  'MongoNetworkError',
+  'MongoNetworkTimeoutError',
+  'MongoServerError',
+  'MongoParseError',
+  'MongoInvalidArgumentError',
+  'MongoAPIError'
+]);
+
+const TLS_ERROR_CODES = new Set([
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'ERR_TLS_CERT_ALTNAME_INVALID'
+]);
+
+const TIMEOUT_ERROR_CODES = new Set(['ETIMEDOUT', 'ETIMEOUT']);
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ENOTFOUND',
+  'EAI_AGAIN'
+]);
 
 class ProductionMigrationRefusal extends Error {
-  constructor(code) {
+  constructor(code, connectivityDiagnostic = null) {
     super(code);
     this.name = 'ProductionMigrationRefusal';
     this.code = code;
+    this.connectivityDiagnostic = connectivityDiagnostic;
   }
+}
+
+function collectConnectivitySignals(error, signals = {
+  names: new Set(),
+  codes: new Set(),
+  codeNames: new Set()
+}, depth = 0) {
+  if (!error || depth > 3) return signals;
+  if (typeof error.name === 'string') signals.names.add(error.name);
+  if (typeof error.code === 'string' || typeof error.code === 'number') {
+    signals.codes.add(String(error.code));
+  }
+  if (typeof error.codeName === 'string') signals.codeNames.add(error.codeName);
+
+  collectConnectivitySignals(error.cause, signals, depth + 1);
+  collectConnectivitySignals(error.reason?.error, signals, depth + 1);
+  if (Array.isArray(error.errors)) {
+    for (const child of error.errors) {
+      collectConnectivitySignals(child, signals, depth + 1);
+    }
+  }
+  if (error.reason?.servers && typeof error.reason.servers.values === 'function') {
+    for (const server of error.reason.servers.values()) {
+      collectConnectivitySignals(server?.error, signals, depth + 1);
+    }
+  }
+  return signals;
+}
+
+function classifyConnectivityError(error, {
+  failurePhase = 'client-connect',
+  elapsedMs = 0,
+  connected = false
+} = {}) {
+  const signals = collectConnectivitySignals(error);
+  const codes = [...signals.codes];
+  const names = [...signals.names];
+  const tlsFailure = codes.some(
+    (code) => TLS_ERROR_CODES.has(code) ||
+      code.startsWith('ERR_TLS_') ||
+      code.startsWith('ERR_SSL_')
+  );
+  const authenticationFailure =
+    codes.includes('18') ||
+    signals.codeNames.has('AuthenticationFailed') ||
+    names.includes('MongoAuthenticationError');
+  const timeoutFailure =
+    codes.some((code) => TIMEOUT_ERROR_CODES.has(code)) ||
+    names.some((name) => name.includes('Timeout'));
+  const serverSelectionFailure = names.includes('MongoServerSelectionError');
+  const networkFailure =
+    codes.some((code) => NETWORK_ERROR_CODES.has(code)) ||
+    names.includes('MongoNetworkError') ||
+    names.includes('MongoNetworkTimeoutError');
+
+  let safeErrorCode = 'CONNECTIVITY_UNKNOWN_FAILED';
+  if (tlsFailure) safeErrorCode = 'TLS_CERTIFICATE_FAILED';
+  else if (authenticationFailure) safeErrorCode = 'AUTHENTICATION_FAILED';
+  else if (timeoutFailure) safeErrorCode = 'CONNECT_TIMEOUT_FAILED';
+  else if (serverSelectionFailure) safeErrorCode = 'SERVER_SELECTION_FAILED';
+  else if (networkFailure) safeErrorCode = 'NETWORK_FAILED';
+
+  return Object.freeze({
+    failurePhase,
+    errorClass: SAFE_CONNECTIVITY_ERROR_CLASSES.has(error?.name)
+      ? error.name
+      : 'MongoConnectivityError',
+    safeErrorCode,
+    tlsFailure,
+    authenticationFailure,
+    serverSelectionFailure,
+    timeoutFailure,
+    topologyFailure: false,
+    networkFailure,
+    elapsedMs: Math.max(0, Math.round(Number(elapsedMs) || 0)),
+    connected: Boolean(connected)
+  });
 }
 
 function requireArgumentValue(argv, index) {
@@ -510,6 +625,7 @@ async function runProductionMigration({
   argv = process.argv.slice(2),
   environment = process.env,
   nowMs = Date.now(),
+  clock = Date.now,
   state = { mutationStarted: false, completedOperations: [] },
   createClient = (uri, options) => new MongoClient(uri, options)
 } = {}) {
@@ -518,19 +634,21 @@ async function runProductionMigration({
   validateApplyAuthorization(options);
   const target = parseMongoTarget(environment.MONGODB_URI);
   const backup = await validateBackupEvidence(options, { nowMs });
-  const client = createClient(environment.MONGODB_URI, {
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 5000,
-    socketTimeoutMS: 20000,
-    maxPoolSize: 2,
-    appName: 'MevaPur-Production-Controlled-Index-Reconciliation'
-  });
+  const client = createClient(environment.MONGODB_URI, MONGO_CLIENT_OPTIONS);
 
   try {
+    const connectStartedAt = clock();
     try {
       await client.connect();
-    } catch {
-      throw new ProductionMigrationRefusal('PRODUCTION_CONNECTIVITY_FAILED');
+    } catch (error) {
+      throw new ProductionMigrationRefusal(
+        'PRODUCTION_CONNECTIVITY_FAILED',
+        classifyConnectivityError(error, {
+          failurePhase: 'client-connect',
+          elapsedMs: clock() - connectStartedAt,
+          connected: false
+        })
+      );
     }
     const topology = await verifyTopology(client, target);
     const database = client.db();
@@ -593,6 +711,7 @@ async function main() {
       productionData: true,
       mutationStarted: state.mutationStarted,
       completedOperations: state.completedOperations,
+      connectivityDiagnostic: error?.connectivityDiagnostic || null,
       automaticRollback: false,
       privateValueDisplayed: false
     })}\n`);
@@ -608,11 +727,13 @@ module.exports = {
   ALLOWLIST,
   APPLY_BACKUP_MAX_AGE_MS,
   EXPECTED_DATABASE,
+  MONGO_CLIENT_OPTIONS,
   MIN_BACKUP_SIZE_BYTES,
   PRODUCTION_CONFIRMATION_PHRASE,
   ProductionMigrationRefusal,
   applyControlledOperations,
   buildProductionPlan,
+  classifyConnectivityError,
   failedDataChecks,
   parseArguments,
   parseMongoTarget,

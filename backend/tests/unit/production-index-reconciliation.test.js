@@ -146,6 +146,118 @@ describe('production controlled index reconciliation runner', () => {
     })).rejects.toThrow('TRANSACTION_CAPABLE_REPLICA_SET_REQUIRED');
   });
 
+  test('keeps the reviewed MongoClient options bounded and immutable', () => {
+    expect(runner.MONGO_CLIENT_OPTIONS).toEqual({
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 20000,
+      maxPoolSize: 2,
+      appName: 'MevaPur-Production-Controlled-Index-Reconciliation'
+    });
+    expect(Object.isFrozen(runner.MONGO_CLIENT_OPTIONS)).toBe(true);
+  });
+
+  test.each([
+    {
+      error: Object.assign(new Error('sensitive endpoint text'), {
+        name: 'MongoServerSelectionError',
+        cause: Object.assign(new Error('sensitive endpoint text'), {
+          name: 'MongoNetworkError',
+          code: 'ECONNRESET'
+        })
+      }),
+      expected: {
+        errorClass: 'MongoServerSelectionError',
+        safeErrorCode: 'SERVER_SELECTION_FAILED',
+        serverSelectionFailure: true,
+        networkFailure: true
+      }
+    },
+    {
+      error: Object.assign(new Error('sensitive certificate text'), {
+        name: 'MongoServerSelectionError',
+        cause: Object.assign(new Error('sensitive certificate text'), {
+          name: 'MongoNetworkError',
+          code: 'ERR_TLS_CERT_ALTNAME_INVALID'
+        })
+      }),
+      expected: {
+        errorClass: 'MongoServerSelectionError',
+        safeErrorCode: 'TLS_CERTIFICATE_FAILED',
+        tlsFailure: true
+      }
+    },
+    {
+      error: Object.assign(new Error('sensitive authentication text'), {
+        name: 'MongoServerError',
+        code: 18,
+        codeName: 'AuthenticationFailed'
+      }),
+      expected: {
+        errorClass: 'MongoServerError',
+        safeErrorCode: 'AUTHENTICATION_FAILED',
+        authenticationFailure: true
+      }
+    }
+  ])('classifies connectivity failures without retaining private messages', ({
+    error,
+    expected
+  }) => {
+    const result = runner.classifyConnectivityError(error, {
+      elapsedMs: 10123,
+      connected: false
+    });
+    expect(result).toMatchObject({
+      failurePhase: 'client-connect',
+      elapsedMs: 10123,
+      connected: false,
+      ...expected
+    });
+    expect(JSON.stringify(result)).not.toContain('sensitive');
+  });
+
+  test('attaches sanitized diagnostics when client connection fails', async () => {
+    const connectionError = Object.assign(new Error('private endpoint text'), {
+      name: 'MongoServerSelectionError',
+      cause: Object.assign(new Error('private endpoint text'), {
+        name: 'MongoNetworkError',
+        code: 'ECONNRESET'
+      })
+    });
+    const client = {
+      connect: jest.fn(async () => { throw connectionError; }),
+      close: jest.fn(async () => {})
+    };
+    const clockValues = [1000, 1105];
+
+    await expect(runner.runProductionMigration({
+      argv: [
+        '--backup', backupPath,
+        '--backup-size', '2048',
+        '--backup-sha256', backupHash
+      ],
+      environment: {
+        NODE_ENV: 'production',
+        APP_ENV: 'production',
+        MONGODB_URI: productionUri
+      },
+      clock: () => clockValues.shift(),
+      createClient: jest.fn(() => client)
+    })).rejects.toMatchObject({
+      code: 'PRODUCTION_CONNECTIVITY_FAILED',
+      connectivityDiagnostic: {
+        failurePhase: 'client-connect',
+        errorClass: 'MongoServerSelectionError',
+        safeErrorCode: 'SERVER_SELECTION_FAILED',
+        serverSelectionFailure: true,
+        networkFailure: true,
+        elapsedMs: 105,
+        connected: false
+      }
+    });
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
   test('validates backup path, size, hash, and bounded apply age', async () => {
     const options = {
       mode: 'dry-run',
