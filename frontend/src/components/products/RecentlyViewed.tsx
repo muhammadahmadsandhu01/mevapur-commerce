@@ -5,6 +5,7 @@ import axios from 'axios';
 import ProductCard from './ProductCard';
 import { Clock } from 'lucide-react';
 import type { Product } from '@/types/product';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 
 export default function RecentlyViewed() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -20,7 +21,7 @@ export default function RecentlyViewed() {
 
       try {
         const { data } = await axios.get(
-          `${process.env.NEXT_PUBLIC_API_URL}/products/recently-viewed?ids=${viewed.join(',')}`
+          `${publicApiBaseUrl}/products/recently-viewed?ids=${viewed.join(',')}`
         );
         if (data.success) {
           setProducts(data.data);
@@ -40,7 +41,7 @@ export default function RecentlyViewed() {
   return (
     <section className="mt-16">
       <div className="flex items-center gap-2 mb-6">
-        <Clock size={24} className="text-teal-700" />
+        <Clock size={24} className="text-[#ff8a00]" />
         <h2 className="text-2xl font-bold text-gray-900">Recently Viewed</h2>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">

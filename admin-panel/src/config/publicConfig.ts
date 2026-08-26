@@ -1,5 +1,11 @@
+import { resolvePublicApiContract } from './publicApiContract';
+
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const isProductionBuild = process.env.NODE_ENV === 'production';
+const apiContract = resolvePublicApiContract(
+  process.env.NEXT_PUBLIC_API_URL,
+  { environment: process.env.NODE_ENV }
+);
 
 const readOrigin = (
   value: string | undefined,
@@ -48,11 +54,7 @@ if (!siteName) {
 }
 
 export const publicConfig = Object.freeze({
-  apiOrigin: readOrigin(
-    process.env.NEXT_PUBLIC_API_URL,
-    'NEXT_PUBLIC_API_URL',
-    'http://localhost:5000'
-  ),
+  apiOrigin: apiContract.apiOrigin,
   adminOrigin: readOrigin(
     process.env.NEXT_PUBLIC_ADMIN_URL,
     'NEXT_PUBLIC_ADMIN_URL',
@@ -61,4 +63,4 @@ export const publicConfig = Object.freeze({
   siteName: siteName.slice(0, 80),
 });
 
-export const publicApiBaseUrl = `${publicConfig.apiOrigin}/api`;
+export const publicApiBaseUrl = apiContract.apiBaseUrl;

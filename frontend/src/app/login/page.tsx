@@ -73,13 +73,13 @@ function LoginContent() {
       <Link href="/" style={{ 
         position: 'fixed', top: '20px', left: '20px',
         display: 'flex', alignItems: 'center', gap: '8px',
-        color: '#0F766E', textDecoration: 'none', fontWeight: '600',
+        color: '#0B132B', textDecoration: 'none', fontWeight: '600',
         fontSize: '14px', padding: '10px 16px',
         backgroundColor: 'white', borderRadius: '10px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         transition: 'all 0.2s'
       }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F0FDFA'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
+        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.transform = 'translateX(0)'; }}
       >
         <ArrowLeft size={16} /> Back to Home
@@ -95,7 +95,7 @@ function LoginContent() {
       }}>
         
         <div style={{ 
-          background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)',
+          background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
           padding: '60px 40px',
           color: 'white',
           display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -174,7 +174,7 @@ function LoginContent() {
                     transition: 'all 0.2s',
                     backgroundColor: '#F8FAFC'
                   }}
-                  onFocus={e => { if (!errors.email) e.currentTarget.style.borderColor = '#0F766E'; }}
+                  onFocus={e => { if (!errors.email) e.currentTarget.style.borderColor = '#FF8A00'; }}
                   onBlur={e => { if (!errors.email) e.currentTarget.style.borderColor = '#E5E7EB'; }}
                 />
               </div>
@@ -207,7 +207,7 @@ function LoginContent() {
                     transition: 'all 0.2s',
                     backgroundColor: '#F8FAFC'
                   }}
-                  onFocus={e => { if (!errors.password) e.currentTarget.style.borderColor = '#0F766E'; }}
+                  onFocus={e => { if (!errors.password) e.currentTarget.style.borderColor = '#FF8A00'; }}
                   onBlur={e => { if (!errors.password) e.currentTarget.style.borderColor = '#E5E7EB'; }}
                 />
                 <button
@@ -235,11 +235,11 @@ function LoginContent() {
                   type="checkbox"
                   checked={formData.rememberMe}
                   onChange={(e) => setFormData({ ...formData, rememberMe: e.target.checked })}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0F766E' }}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#FF8A00' }}
                 />
                 Remember me
               </label>
-              <Link href="/forgot-password" style={{ fontSize: '14px', color: '#0F766E', textDecoration: 'none', fontWeight: '600' }}>
+              <Link href="/forgot-password" style={{ fontSize: '14px', color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>
                 Forgot password?
               </Link>
             </div>
@@ -249,16 +249,16 @@ function LoginContent() {
               disabled={loading}
               style={{
                 width: '100%', padding: '14px',
-                backgroundColor: loading ? '#9CA3AF' : '#0F766E',
-                color: 'white', border: 'none',
+                backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
+                color: '#0B132B', border: 'none',
                 borderRadius: '10px', fontSize: '15px', fontWeight: '700',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                boxShadow: loading ? 'none' : '0 4px 12px rgba(15,118,110,0.3)',
+                boxShadow: loading ? 'none' : '0 4px 12px rgba(255,138,0,0.3)',
                 transition: 'all 0.3s'
               }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#115E59'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
-              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#0F766E'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; } }}
             >
               {loading ? (
                 <>
@@ -287,7 +287,7 @@ function LoginContent() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                 transition: 'all 0.2s'
               }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.backgroundColor = '#F0FDFA'; }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.backgroundColor = 'white'; }}
               >
                 🔵 Google
@@ -299,7 +299,7 @@ function LoginContent() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                 transition: 'all 0.2s'
               }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#0F766E'; e.currentTarget.style.backgroundColor = '#F0FDFA'; }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.backgroundColor = 'white'; }}
               >
                  Facebook
@@ -308,7 +308,7 @@ function LoginContent() {
 
             <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '14px', color: '#6B7280' }}>
               Don&apos;t have an account?{' '}
-              <Link href="/register" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '700' }}>
+              <Link href="/register" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
                 Create Account
               </Link>
             </div>
@@ -353,7 +353,7 @@ export default function LoginPage() {
           <div style={{
             width: '60px',
             height: '60px',
-            border: '5px solid #0F766E',
+            border: '5px solid #FF8A00',
             borderTop: '5px solid transparent',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',

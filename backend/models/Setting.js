@@ -28,15 +28,10 @@ const settingSchema = new mongoose.Schema({
     cod_enabled: { type: Boolean, default: true },
     jazzcash_enabled: { type: Boolean, default: false },
     jazzcash_merchant_id: { type: String, default: '' },
-    jazzcash_password: { type: String, default: '' },
     visa_enabled: { type: Boolean, default: false },
     visa_merchant_id: { type: String, default: '' },
-    visa_api_key: { type: String, default: '' },
-    visa_secret_key: { type: String, default: '' },
     mastercard_enabled: { type: Boolean, default: false },
-    mastercard_merchant_id: { type: String, default: '' },
-    mastercard_api_key: { type: String, default: '' },
-    mastercard_secret_key: { type: String, default: '' }
+    mastercard_merchant_id: { type: String, default: '' }
   },
   
   // Social Media Links

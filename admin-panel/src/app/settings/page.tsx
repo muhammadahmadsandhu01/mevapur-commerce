@@ -29,9 +29,26 @@ interface ToggleFieldProps {
   activeColor?: string;
 }
 
-interface ValidationMessageProps {
-  valid: boolean;
-  message?: string;
+interface PaymentSettings {
+  cod_enabled: boolean;
+  jazzcash_enabled: boolean;
+  jazzcash_merchant_id: string;
+  visa_enabled: boolean;
+  visa_merchant_id: string;
+  mastercard_enabled: boolean;
+  mastercard_merchant_id: string;
+}
+
+interface ProviderCredentialStatus {
+  management: 'environment';
+  stripe: {
+    configured: boolean;
+    serverCredentialConfigured: boolean;
+    publishableKeyConfigured: boolean;
+    webhookConfigured: boolean;
+  };
+  jazzcash: { configured: boolean };
+  easypaisa: { configured: boolean };
 }
 
 const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', icon: Icon, error }: InputGroupProps) => (
@@ -105,25 +122,147 @@ const ToggleField = ({ label, description, checked, onChange, activeColor = 'var
   </div>
 );
 
-const ValidationMessage = ({ valid, message }: ValidationMessageProps) => {
-  if (!message) return null;
+const ProviderStatus = ({
+  label,
+  configured,
+  detail
+}: {
+  label: string;
+  configured: boolean | null;
+  detail: string;
+}) => {
+  const available = configured === true;
+  const status = configured === null
+    ? 'Status unavailable'
+    : available
+      ? 'Configured'
+      : 'Not configured';
+
   return (
     <div style={{
-      marginTop: '8px',
-      padding: '10px 14px',
-      backgroundColor: valid ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
-      border: `1px solid ${valid ? '#16A34A' : '#DC2626'}`,
-      borderRadius: '8px',
-      fontSize: '13px',
-      color: valid ? 'var(--success-text)' : 'var(--danger-text)',
+      padding: '16px',
+      backgroundColor: 'var(--bg-primary)',
+      border: `1px solid ${available ? '#16A34A' : 'var(--border-color)'}`,
+      borderRadius: '10px',
+      color: 'var(--text-primary)',
       display: 'flex',
-      alignItems: 'center',
-      gap: '8px'
+      alignItems: 'flex-start',
+      gap: '10px'
     }}>
-      {valid ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-      {message}
+      {available
+        ? <CheckCircle size={18} color="#16A34A" style={{ marginTop: '1px' }} />
+        : <AlertTriangle size={18} color="#FF8A00" style={{ marginTop: '1px' }} />}
+      <div>
+        <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '3px' }}>
+          {label}: {status}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: 'var(--text-secondary)',
+          lineHeight: '1.45'
+        }}>
+          {detail}
+        </div>
+      </div>
     </div>
   );
+};
+
+const DEFAULT_PAYMENT_SETTINGS: PaymentSettings = {
+  cod_enabled: true,
+  jazzcash_enabled: false,
+  jazzcash_merchant_id: '',
+  visa_enabled: false,
+  visa_merchant_id: '',
+  mastercard_enabled: false,
+  mastercard_merchant_id: ''
+};
+
+const asRecord = (value: unknown): Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+);
+
+const booleanOrDefault = (value: unknown, fallback: boolean) => (
+  typeof value === 'boolean' ? value : fallback
+);
+
+const stringOrEmpty = (value: unknown) => (
+  typeof value === 'string' ? value : ''
+);
+
+const normalizePaymentSettings = (value: unknown): PaymentSettings => {
+  const payment = asRecord(value);
+  return {
+    cod_enabled: booleanOrDefault(
+      payment.cod_enabled,
+      DEFAULT_PAYMENT_SETTINGS.cod_enabled
+    ),
+    jazzcash_enabled: booleanOrDefault(
+      payment.jazzcash_enabled,
+      DEFAULT_PAYMENT_SETTINGS.jazzcash_enabled
+    ),
+    jazzcash_merchant_id: stringOrEmpty(payment.jazzcash_merchant_id),
+    visa_enabled: booleanOrDefault(
+      payment.visa_enabled,
+      DEFAULT_PAYMENT_SETTINGS.visa_enabled
+    ),
+    visa_merchant_id: stringOrEmpty(payment.visa_merchant_id),
+    mastercard_enabled: booleanOrDefault(
+      payment.mastercard_enabled,
+      DEFAULT_PAYMENT_SETTINGS.mastercard_enabled
+    ),
+    mastercard_merchant_id: stringOrEmpty(payment.mastercard_merchant_id)
+  };
+};
+
+const buildPaymentSettingsPayload = (
+  payment: PaymentSettings
+): PaymentSettings => ({
+  cod_enabled: payment.cod_enabled,
+  jazzcash_enabled: payment.jazzcash_enabled,
+  jazzcash_merchant_id: payment.jazzcash_merchant_id,
+  visa_enabled: payment.visa_enabled,
+  visa_merchant_id: payment.visa_merchant_id,
+  mastercard_enabled: payment.mastercard_enabled,
+  mastercard_merchant_id: payment.mastercard_merchant_id
+});
+
+const normalizeProviderCredentialStatus = (
+  value: unknown
+): ProviderCredentialStatus | null => {
+  const status = asRecord(value);
+  const stripe = asRecord(status.stripe);
+  const jazzcash = asRecord(status.jazzcash);
+  const easypaisa = asRecord(status.easypaisa);
+  const requiredBooleans = [
+    stripe.configured,
+    stripe.serverCredentialConfigured,
+    stripe.publishableKeyConfigured,
+    stripe.webhookConfigured,
+    jazzcash.configured,
+    easypaisa.configured
+  ];
+
+  if (
+    status.management !== 'environment'
+    || requiredBooleans.some((entry) => typeof entry !== 'boolean')
+  ) {
+    return null;
+  }
+
+  return {
+    management: 'environment',
+    stripe: {
+      configured: stripe.configured as boolean,
+      serverCredentialConfigured: stripe.serverCredentialConfigured as boolean,
+      publishableKeyConfigured: stripe.publishableKeyConfigured as boolean,
+      webhookConfigured: stripe.webhookConfigured as boolean
+    },
+    jazzcash: { configured: jazzcash.configured as boolean },
+    easypaisa: { configured: easypaisa.configured as boolean }
+  };
 };
 
 // --- Main Page Component ---
@@ -146,12 +285,11 @@ export default function SettingsPage() {
     tax_enabled: false, tax_rate: ''
   });
 
-  const [paymentData, setPaymentData] = useState({
-    cod_enabled: true,
-    jazzcash_enabled: false, jazzcash_merchant_id: '', jazzcash_password: '',
-    visa_enabled: false, visa_merchant_id: '', visa_api_key: '', visa_secret_key: '',
-    mastercard_enabled: false, mastercard_merchant_id: '', mastercard_api_key: '', mastercard_secret_key: ''
-  });
+  const [paymentData, setPaymentData] = useState<PaymentSettings>(
+    DEFAULT_PAYMENT_SETTINGS
+  );
+  const [providerCredentials, setProviderCredentials] =
+    useState<ProviderCredentialStatus | null>(null);
 
   const [socialData, setSocialData] = useState({
     facebook: '', instagram: '', twitter: '', youtube: '', linkedin: '', website: ''
@@ -168,11 +306,17 @@ export default function SettingsPage() {
         if (data.store) setStoreData({ ...storeData, ...data.store });
         if (data.shipping) setShippingData({ ...shippingData, ...data.shipping });
         if (data.tax) setTaxData({ ...taxData, ...data.tax });
-        if (data.payment) setPaymentData({ ...paymentData, ...data.payment });
+        if (data.payment) {
+          setPaymentData(normalizePaymentSettings(data.payment));
+        }
+        setProviderCredentials(
+          normalizeProviderCredentialStatus(data.providerCredentials)
+        );
         if (data.social) setSocialData({ ...socialData, ...data.social });
       }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
+    } catch {
+      setProviderCredentials(null);
+      setMessage({ type: 'error', text: 'Settings are currently unavailable. Please try again.' });
     } finally {
       setLoading(false);
     }
@@ -192,19 +336,14 @@ export default function SettingsPage() {
     if (paymentData.jazzcash_enabled) {
       if (!paymentData.jazzcash_merchant_id) errors.jazzcash_merchant_id = 'Merchant ID is required';
       else if (!/^[A-Z0-9-]+$/i.test(paymentData.jazzcash_merchant_id)) errors.jazzcash_merchant_id = 'Use alphanumeric characters only';
-      if (!paymentData.jazzcash_password) errors.jazzcash_password = 'Password/Integrity Salt is required';
     }
 
     if (paymentData.visa_enabled) {
       if (!paymentData.visa_merchant_id) errors.visa_merchant_id = 'Merchant ID is required';
-      if (!paymentData.visa_api_key || paymentData.visa_api_key.length < 10) errors.visa_api_key = 'API Key must be at least 10 characters';
-      if (!paymentData.visa_secret_key || paymentData.visa_secret_key.length < 10) errors.visa_secret_key = 'Secret Key must be at least 10 characters';
     }
 
     if (paymentData.mastercard_enabled) {
       if (!paymentData.mastercard_merchant_id) errors.mastercard_merchant_id = 'Merchant ID is required';
-      if (!paymentData.mastercard_api_key || paymentData.mastercard_api_key.length < 10) errors.mastercard_api_key = 'API Key must be at least 10 characters';
-      if (!paymentData.mastercard_secret_key || paymentData.mastercard_secret_key.length < 10) errors.mastercard_secret_key = 'Secret Key must be at least 10 characters';
     }
 
     setValidationErrors(errors);
@@ -223,11 +362,18 @@ export default function SettingsPage() {
     try {
       const response = await api.put('/settings', { [group]: data });
       if (response.data.success) {
+        if (group === 'payment' && response.data.data?.payment) {
+          setPaymentData(normalizePaymentSettings(response.data.data.payment));
+          setProviderCredentials(
+            normalizeProviderCredentialStatus(
+              response.data.data.providerCredentials
+            )
+          );
+        }
         setMessage({ type: 'success', text: `${group.charAt(0).toUpperCase() + group.slice(1)} settings saved successfully!` });
         setTimeout(() => setMessage(null), 3000);
       }
-    } catch (error) {
-      console.error('Error saving settings:', error);
+    } catch {
       setMessage({ type: 'error', text: 'Failed to save settings. Please try again.' });
       setTimeout(() => setMessage(null), 3000);
     } finally {
@@ -388,50 +534,83 @@ export default function SettingsPage() {
           {/* Payment Tab */}
           {activeTab === 'payment' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              
+              <div style={{
+                padding: '18px',
+                borderRadius: '12px',
+                border: '1px solid #FF8A00',
+                backgroundColor: 'rgba(255, 138, 0, 0.08)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px'
+              }}>
+                <Shield size={22} color="#FF8A00" style={{ marginTop: '1px' }} />
+                <div>
+                  <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Provider credentials are deployment-managed
+                  </div>
+                  <div style={{ fontSize: '13px', lineHeight: '1.55', color: 'var(--text-secondary)' }}>
+                    Secrets cannot be viewed or changed here. Update approved secure deployment configuration, then verify the live status below.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                <ProviderStatus
+                  label="Stripe payments"
+                  configured={providerCredentials?.stripe.configured ?? null}
+                  detail="Requires valid server and publishable credentials in the backend environment."
+                />
+                <ProviderStatus
+                  label="Stripe webhook"
+                  configured={providerCredentials?.stripe.webhookConfigured ?? null}
+                  detail="Webhook verification uses only the backend deployment secret."
+                />
+                <ProviderStatus
+                  label="JazzCash"
+                  configured={providerCredentials?.jazzcash.configured ?? null}
+                  detail="Unavailable until an approved provider contract and integration exist."
+                />
+                <ProviderStatus
+                  label="Easypaisa"
+                  configured={providerCredentials?.easypaisa.configured ?? null}
+                  detail="Unavailable until an approved provider contract and integration exist."
+                />
+              </div>
+
               <ToggleField label="Cash on Delivery (COD)" description="Customer pays cash when order is delivered" checked={paymentData.cod_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, cod_enabled: v })} activeColor="#16A34A" />
 
               {/* JazzCash */}
               <div style={{ padding: '24px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px', border: `2px solid ${paymentData.jazzcash_enabled ? '#FF0080' : 'var(--border-color)'}` }}>
-                <ToggleField label="JazzCash Mobile Account" description="Accept payments via JazzCash wallet" checked={paymentData.jazzcash_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, jazzcash_enabled: v })} activeColor="#FF0080" />
+                <ToggleField label="JazzCash Mobile Account" description="Non-secret store preference; runtime availability remains deployment-controlled" checked={paymentData.jazzcash_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, jazzcash_enabled: v })} activeColor="#FF0080" />
                 {paymentData.jazzcash_enabled && (
                   <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
                     <InputGroup label="Merchant ID" value={paymentData.jazzcash_merchant_id} onChange={(v: string) => setPaymentData({ ...paymentData, jazzcash_merchant_id: v })} error={validationErrors.jazzcash_merchant_id} placeholder="e.g., MC-12345" />
-                    <InputGroup label="Password / Integrity Salt" type="password" value={paymentData.jazzcash_password} onChange={(v: string) => setPaymentData({ ...paymentData, jazzcash_password: v })} error={validationErrors.jazzcash_password} placeholder="••••••••••••" />
                   </div>
                 )}
               </div>
 
               {/* Visa */}
               <div style={{ padding: '24px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px', border: `2px solid ${paymentData.visa_enabled ? '#1A1F71' : 'var(--border-color)'}` }}>
-                <ToggleField label="Visa Card" description="Accept Visa card payments via gateway" checked={paymentData.visa_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, visa_enabled: v })} activeColor="#1A1F71" />
+                <ToggleField label="Visa Card" description="Non-secret card preference; live processing uses deployment-managed Stripe configuration" checked={paymentData.visa_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, visa_enabled: v })} activeColor="#1A1F71" />
                 {paymentData.visa_enabled && (
                   <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
                     <InputGroup label="Merchant ID" value={paymentData.visa_merchant_id} onChange={(v: string) => setPaymentData({ ...paymentData, visa_merchant_id: v })} error={validationErrors.visa_merchant_id} placeholder="e.g., VISA-12345" />
-                    <InputGroup label="API Key" value={paymentData.visa_api_key} onChange={(v: string) => setPaymentData({ ...paymentData, visa_api_key: v })} error={validationErrors.visa_api_key} placeholder="visa_api_xxxxxxxxxxxx" />
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <InputGroup label="Secret Key" type="password" value={paymentData.visa_secret_key} onChange={(v: string) => setPaymentData({ ...paymentData, visa_secret_key: v })} error={validationErrors.visa_secret_key} placeholder="••••••••••••" />
-                    </div>
                   </div>
                 )}
               </div>
 
               {/* Mastercard */}
               <div style={{ padding: '24px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px', border: `2px solid ${paymentData.mastercard_enabled ? '#FF5F00' : 'var(--border-color)'}` }}>
-                <ToggleField label="Mastercard" description="Accept Mastercard payments via gateway" checked={paymentData.mastercard_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, mastercard_enabled: v })} activeColor="#FF5F00" />
+                <ToggleField label="Mastercard" description="Non-secret card preference; live processing uses deployment-managed Stripe configuration" checked={paymentData.mastercard_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, mastercard_enabled: v })} activeColor="#FF5F00" />
                 {paymentData.mastercard_enabled && (
                   <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
                     <InputGroup label="Merchant ID" value={paymentData.mastercard_merchant_id} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_merchant_id: v })} error={validationErrors.mastercard_merchant_id} placeholder="e.g., MC-12345" />
-                    <InputGroup label="API Key" value={paymentData.mastercard_api_key} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_api_key: v })} error={validationErrors.mastercard_api_key} placeholder="mc_api_xxxxxxxxxxxx" />
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <InputGroup label="Secret Key" type="password" value={paymentData.mastercard_secret_key} onChange={(v: string) => setPaymentData({ ...paymentData, mastercard_secret_key: v })} error={validationErrors.mastercard_secret_key} placeholder="••••••••••••" />
-                    </div>
                   </div>
                 )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button onClick={() => handleSave('payment', paymentData)} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button onClick={() => handleSave('payment', buildPaymentSettingsPayload(paymentData))} disabled={saving} style={{ padding: '12px 24px', backgroundColor: saving ? '#9CA3AF' : 'var(--primary)', color: saving ? '#FFFFFF' : '#0B132B', border: 'none', borderRadius: '10px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                   Save Payment Settings
                 </button>

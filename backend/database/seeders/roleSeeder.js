@@ -1,76 +1,86 @@
 const Role = require('../../models/Role');
 const Permission = require('../../models/Permission');
-const { logger } = require('../../common/logger');
+const logger = require('../../common/utils/logger');
 
-const defaultPermissions = [
-  { resource: 'orders', action: 'read', scope: 'own' },
-  { resource: 'orders', action: 'create', scope: 'own' },
-  { resource: 'orders', action: 'update', scope: 'own' },
-  { resource: 'orders', action: 'cancel', scope: 'own' },
+const DEFAULT_PERMISSIONS = Object.freeze([
+  { module: 'order', resource: 'orders', action: 'read', scope: 'own' },
+  { module: 'order', resource: 'orders', action: 'create', scope: 'own' },
+  { module: 'order', resource: 'orders', action: 'update', scope: 'own' },
   
-  { resource: 'orders', action: 'read', scope: 'all' }, // Admin
-  { resource: 'orders', action: 'refund', scope: 'all' }, // Admin
+  { module: 'order', resource: 'orders', action: 'read', scope: 'all' },
+  { module: 'order', resource: 'orders', action: 'refund', scope: 'all' },
   
-  { resource: 'products', action: 'read', scope: 'all' },
-  { resource: 'products', action: 'create', scope: 'all' },
-  { resource: 'products', action: 'update', scope: 'all' },
-  { resource: 'products', action: 'delete', scope: 'all' },
+  { module: 'product', resource: 'products', action: 'read', scope: 'all' },
+  { module: 'product', resource: 'products', action: 'create', scope: 'all' },
+  { module: 'product', resource: 'products', action: 'update', scope: 'all' },
+  { module: 'product', resource: 'products', action: 'delete', scope: 'all' },
   
-  { resource: 'users', action: 'read', scope: 'all' },
-  { resource: 'users', action: 'manage', scope: 'all' },
+  { module: 'user', resource: 'users', action: 'read', scope: 'all' },
+  { module: 'user', resource: 'users', action: 'manage', scope: 'all' },
   
-  { resource: 'inventory', action: 'update', scope: 'all' },
-  { resource: 'settings', action: 'manage', scope: 'all' }
-];
+  { module: 'inventory', resource: 'inventory', action: 'update', scope: 'all' },
+  { module: 'setting', resource: 'settings', action: 'manage', scope: 'all' }
+]);
+
+const buildRoleDefinitions = (permissions) => {
+  const permissionIds = (scope) => permissions
+    .filter((permission) => !scope || permission.scope === scope)
+    .map((permission) => permission._id);
+
+  return [
+    {
+      name: 'SUPER_ADMIN',
+      description: 'Full system access',
+      permissions: permissionIds(),
+      isSystem: true,
+      isActive: true
+    },
+    {
+      name: 'ADMIN',
+      description: 'Manage orders, products, and users',
+      permissions: permissionIds('all'),
+      isSystem: true,
+      isActive: true
+    },
+    {
+      name: 'CUSTOMER',
+      description: 'Standard customer access',
+      permissions: permissionIds('own'),
+      isSystem: true,
+      isActive: true
+    }
+  ];
+};
 
 async function seedRoles() {
   try {
     // Create Permissions first
     const createdPermissions = [];
-    for (const perm of defaultPermissions) {
+    for (const perm of DEFAULT_PERMISSIONS) {
       const p = await Permission.findOne(perm);
       if (!p) {
         const newPerm = await Permission.create(perm);
-        createdPermissions.push(newPerm._id);
+        createdPermissions.push(newPerm);
         logger.info(`Permission created: ${perm.resource}:${perm.action}:${perm.scope}`);
       } else {
-        createdPermissions.push(p._id);
+        createdPermissions.push(p);
       }
     }
 
-    // Define Roles
-    const roles = [
-      {
-        name: 'SUPER_ADMIN',
-        description: 'Full system access',
-        permissions: createdPermissions,
-        isSystemRole: true
-      },
-      {
-        name: 'ADMIN',
-        description: 'Manage orders, products, and users',
-        permissions: createdPermissions.filter(p => 
-          // Filter logic can be refined based on specific IDs if needed
-          true // For now, giving broad access, refine as needed
-        ),
-        isSystemRole: true
-      },
-      {
-        name: 'CUSTOMER',
-        description: 'Standard customer access',
-        permissions: createdPermissions.filter(p => p.scope === 'own'),
-        isSystemRole: true
-      }
-    ];
+    const roles = buildRoleDefinitions(createdPermissions);
 
     for (const role of roles) {
-      const existingRole = await Role.findOne({ name: role.name });
-      if (!existingRole) {
-        await Role.create(role);
-        logger.info(`Role created: ${role.name}`);
-      } else {
-        logger.info(`Role already exists: ${role.name}`);
-      }
+      await Role.findOneAndUpdate(
+        { name: role.name },
+        { $set: role },
+        {
+          new: true,
+          upsert: true,
+          runValidators: true,
+          setDefaultsOnInsert: true
+        }
+      );
+      logger.info(`Role reconciled: ${role.name}`);
     }
 
     logger.info('Role seeding completed successfully');
@@ -80,4 +90,8 @@ async function seedRoles() {
   }
 }
 
-module.exports = { seedRoles };
+module.exports = {
+  DEFAULT_PERMISSIONS,
+  buildRoleDefinitions,
+  seedRoles
+};

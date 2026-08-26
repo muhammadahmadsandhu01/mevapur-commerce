@@ -7,11 +7,11 @@
   padding: 0 18px;
   border: 0;
   border-radius: 999px;
-  background: #0f766e;
+  background: #0B132B;
   color: #fff;
   font: inherit;
   font-weight: 700;
-  box-shadow: 0 12px 30px rgba(15, 118, 110, 0.3);
+  box-shadow: 0 12px 30px rgba(11, 19, 43, 0.3);
   cursor: pointer;
 }
 
@@ -37,7 +37,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  background: #0f766e;
+  background: linear-gradient(135deg, #0B132B 0%, #1A2744 100%);
   color: #fff;
 }
 
@@ -81,7 +81,7 @@
 
 .user {
   margin-left: 36px;
-  background: #0f766e;
+  background: #0B132B;
   color: #fff;
 }
 
@@ -135,8 +135,8 @@
   border: 0;
   border-radius: 10px;
   padding: 0 14px;
-  background: #0f766e;
-  color: #fff;
+  background: #FF8A00;
+  color: #0B132B;
   font: inherit;
   font-weight: 700;
   cursor: pointer;

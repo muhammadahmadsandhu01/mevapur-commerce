@@ -8,7 +8,7 @@ const BANNERS = [
     icon: Truck,
     title: 'Free Shipping',
     subtitle: 'On orders over Rs. 1500',
-    color: 'bg-teal-600'
+    color: 'bg-[#0b132b]'
   },
   {
     icon: Percent,

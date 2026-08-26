@@ -1,8 +1,13 @@
 const { AppError } = require('../utils/errors/AppError');
 
-const isProduction = () => process.env.NODE_ENV === 'production';
+const isProduction = (environment = process.env) => (
+  environment.NODE_ENV === 'production'
+);
 
-const validateStripeSecretKey = (secretKey) => {
+const validateStripeSecretKey = (
+  secretKey,
+  { environment = process.env } = {}
+) => {
   if (!secretKey) {
     throw new AppError(
       'Stripe is not configured',
@@ -11,7 +16,7 @@ const validateStripeSecretKey = (secretKey) => {
     );
   }
 
-  if (!isProduction() && secretKey.startsWith('sk_live_')) {
+  if (!isProduction(environment) && secretKey.startsWith('sk_live_')) {
     throw new AppError(
       'Live Stripe credentials are not permitted outside production',
       503,
@@ -19,7 +24,7 @@ const validateStripeSecretKey = (secretKey) => {
     );
   }
 
-  if (isProduction() && !secretKey.startsWith('sk_live_')) {
+  if (isProduction(environment) && !secretKey.startsWith('sk_live_')) {
     throw new AppError(
       'Stripe credential mode does not match the production environment',
       503,
@@ -41,9 +46,15 @@ const validateStripeSecretKey = (secretKey) => {
   return secretKey;
 };
 
-const getStripeConfig = ({ requireWebhookSecret = false } = {}) => {
-  const secretKey = validateStripeSecretKey(process.env.STRIPE_SECRET_KEY);
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const getStripeConfig = ({
+  requireWebhookSecret = false,
+  environment = process.env
+} = {}) => {
+  const secretKey = validateStripeSecretKey(
+    environment.STRIPE_SECRET_KEY,
+    { environment }
+  );
+  const webhookSecret = environment.STRIPE_WEBHOOK_SECRET;
 
   if (requireWebhookSecret && !webhookSecret) {
     throw new AppError(
@@ -66,13 +77,44 @@ const getStripeConfig = ({ requireWebhookSecret = false } = {}) => {
   return {
     secretKey,
     webhookSecret,
-    environment: isProduction() ? 'production' : 'non-production'
+    environment: isProduction(environment) ? 'production' : 'non-production'
   };
+};
+
+const getProviderCredentialStatus = (environment = process.env) => {
+  let serverCredentialConfigured = false;
+  try {
+    validateStripeSecretKey(environment.STRIPE_SECRET_KEY, { environment });
+    serverCredentialConfigured = true;
+  } catch (_error) {
+    serverCredentialConfigured = false;
+  }
+
+  const expectedPublishablePrefix = isProduction(environment)
+    ? 'pk_live_'
+    : 'pk_test_';
+  const publishableKeyConfigured = typeof environment.STRIPE_PUBLISHABLE_KEY === 'string'
+    && environment.STRIPE_PUBLISHABLE_KEY.startsWith(expectedPublishablePrefix);
+  const webhookConfigured = typeof environment.STRIPE_WEBHOOK_SECRET === 'string'
+    && environment.STRIPE_WEBHOOK_SECRET.startsWith('whsec_');
+
+  return Object.freeze({
+    management: 'environment',
+    stripe: Object.freeze({
+      configured: serverCredentialConfigured && publishableKeyConfigured,
+      serverCredentialConfigured,
+      publishableKeyConfigured,
+      webhookConfigured
+    }),
+    jazzcash: Object.freeze({ configured: false }),
+    easypaisa: Object.freeze({ configured: false })
+  });
 };
 
 const isJazzCashAvailable = () => false;
 
 module.exports = {
+  getProviderCredentialStatus,
   getStripeConfig,
   isJazzCashAvailable,
   isProduction,

@@ -353,7 +353,7 @@ export default function InventoryPage() {
               padding: '10px 14px',
               border: 'none',
               backgroundColor: viewMode === 'list' ? 'var(--hover-bg)' : 'transparent',
-              color: viewMode === 'list' ? 'var(--info-text)' : 'var(--text-secondary)'
+              color: viewMode === 'list' ? 'var(--info-text)' : 'var(--text-secondary)',
               cursor: 'pointer'
             }}
           >

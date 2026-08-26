@@ -23,7 +23,7 @@ const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
           ${
             error
               ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-200"
-              : "border-gray-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+              : "border-gray-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100"
           }
           ${className}`}
         />

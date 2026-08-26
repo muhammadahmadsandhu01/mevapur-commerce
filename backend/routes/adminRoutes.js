@@ -4,40 +4,48 @@ const { protect, admin } = require('../middleware/auth');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const logger = require('../common/utils/logger');
 
 // @desc    Get dashboard statistics
 // @route   GET /api/admin/stats
 // @access  Private/Admin
 router.get('/stats', protect, admin, async (req, res) => {
   try {
-    console.log('📊 Fetching dashboard stats for admin:', req.user.email);
-
-    // 1. Revenue Calculations
-    const allOrders = await Order.find();
-    const totalRevenue = allOrders.reduce((acc, order) => {
-      return acc + (order.totalAmount || 0);
-    }, 0);
-
-    // Today's revenue
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayOrders = await Order.find({
-      createdAt: { $gte: today }
-    });
-    const todayRevenue = todayOrders.reduce((acc, order) => {
-      return acc + (order.totalAmount || 0);
-    }, 0);
-
-    // Monthly revenue
     const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthOrders = await Order.find({
-      createdAt: { $gte: thisMonth }
-    });
-    const monthlyRevenue = monthOrders.reduce((acc, order) => {
-      return acc + (order.totalAmount || 0);
-    }, 0);
 
-    // 2. Order Statistics
+    const revenueStats = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: { $ifNull: ['$totalAmount', 0] } },
+          todayRevenue: {
+            $sum: {
+              $cond: [
+                { $gte: ['$createdAt', today] },
+                { $ifNull: ['$totalAmount', 0] },
+                0
+              ]
+            }
+          },
+          monthlyRevenue: {
+            $sum: {
+              $cond: [
+                { $gte: ['$createdAt', thisMonth] },
+                { $ifNull: ['$totalAmount', 0] },
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
+
+    const totalRevenue = revenueStats[0]?.totalRevenue || 0;
+    const todayRevenue = revenueStats[0]?.todayRevenue || 0;
+    const monthlyRevenue = revenueStats[0]?.monthlyRevenue || 0;
+
     const totalOrders = await Order.countDocuments();
     const pendingOrders = await Order.countDocuments({ orderStatus: 'Pending' });
     const processingOrders = await Order.countDocuments({ orderStatus: 'Processing' });
@@ -45,68 +53,52 @@ router.get('/stats', protect, admin, async (req, res) => {
     const deliveredOrders = await Order.countDocuments({ orderStatus: 'Delivered' });
     const cancelledOrders = await Order.countDocuments({ orderStatus: 'Cancelled' });
 
-    // 3. Customer Statistics
     const totalCustomers = await User.countDocuments({ role: 'customer' });
     const newCustomers = await User.countDocuments({
       role: 'customer',
       createdAt: { $gte: today }
     });
 
-    // 4. Product Statistics
     const totalProducts = await Product.countDocuments();
-    const lowStockProducts = await Product.countDocuments({ 
-      stock: { $lt: 50, $gt: 0 } 
+    const lowStockProducts = await Product.countDocuments({
+      stock: { $lt: 50, $gt: 0 }
     });
     const outOfStockProducts = await Product.countDocuments({ stock: 0 });
-
-    // 5. Calculate growth percentages
-    const revenueGrowth = totalRevenue > 0 ? 12.5 : 0;
-    const ordersGrowth = totalOrders > 0 ? 8.2 : 0;
-    const customersGrowth = totalCustomers > 0 ? 15.3 : 0;
-    const productsGrowth = totalProducts > 0 ? 3.1 : 0;
 
     res.json({
       success: true,
       message: 'Dashboard statistics fetched successfully',
       data: {
-        // Revenue
         totalRevenue,
         todayRevenue,
         monthlyRevenue,
-        revenueGrowth,
-        
-        // Orders
+        revenueGrowth: null,
         totalOrders,
         pendingOrders,
         processingOrders,
         shippedOrders,
         deliveredOrders,
         cancelledOrders,
-        ordersGrowth,
-        
-        // Customers
+        ordersGrowth: null,
         totalCustomers,
         newCustomers,
-        customersGrowth,
-        
-        // Products
+        customersGrowth: null,
         totalProducts,
         lowStockProducts,
         outOfStockProducts,
-        productsGrowth,
-        
-        // Additional metrics
+        productsGrowth: null,
         averageOrderValue: totalOrders > 0 ? (totalRevenue / totalOrders) : 0,
-        conversionRate: 3.2, // Can be calculated from analytics
+        conversionRate: null
       }
     });
-
   } catch (error) {
-    console.error('❌ Stats API Error:', error);
+    logger.error('Admin statistics query failed', {
+      errorCode: error.code,
+      errorName: error.name
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch statistics',
-      error: error.message
+      message: 'Failed to fetch statistics'
     });
   }
 });
@@ -117,7 +109,7 @@ router.get('/stats', protect, admin, async (req, res) => {
 router.get('/orders/recent', protect, admin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
-    
+
     const orders = await Order.find()
       .populate('user', 'fullName email')
       .sort({ createdAt: -1 })
@@ -128,7 +120,10 @@ router.get('/orders/recent', protect, admin, async (req, res) => {
       data: orders
     });
   } catch (error) {
-    console.error('❌ Recent orders error:', error);
+    logger.error('Admin recent-orders query failed', {
+      errorCode: error.code,
+      errorName: error.name
+    });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch recent orders'
@@ -142,7 +137,7 @@ router.get('/orders/recent', protect, admin, async (req, res) => {
 router.get('/products/top', protect, admin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
-    
+
     const products = await Product.find()
       .sort({ soldCount: -1 })
       .limit(limit);
@@ -152,7 +147,10 @@ router.get('/products/top', protect, admin, async (req, res) => {
       data: products
     });
   } catch (error) {
-    console.error('❌ Top products error:', error);
+    logger.error('Admin top-products query failed', {
+      errorCode: error.code,
+      errorName: error.name
+    });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch top products'

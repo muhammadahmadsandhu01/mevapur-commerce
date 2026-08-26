@@ -18,11 +18,16 @@ const returnSchema = new mongoose.Schema({
   items: [{
     product: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product'
+      ref: 'Product',
+      required: true
     },
+    variantId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    isDefaultVariant: { type: Boolean, default: false },
+    orderLineKey: { type: String, default: '', maxlength: 100 },
     name: String,
-    quantity: Number,
-    price: Number,
+    quantity: { type: Number, required: true, min: 1, validate: Number.isInteger },
+    price: { type: Number, required: true, min: 0 },
+    refundAmount: { type: Number, min: 0, default: 0 },
     reason: {
       type: String,
       enum: ['damaged', 'wrong_item', 'not_as_described', 'not_satisfied', 'duplicate', 'other'],
@@ -38,7 +43,16 @@ const returnSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['pending', 'approved', 'received', 'inspected', 'refunded', 'rejected', 'cancelled'],
+    enum: [
+      'pending',
+      'approved',
+      'received',
+      'inspected',
+      'inventory_reconciliation',
+      'refunded',
+      'rejected',
+      'cancelled'
+    ],
     default: 'pending'
   },
   refundMethod: {
@@ -76,6 +90,12 @@ const returnSchema = new mongoose.Schema({
   approvedAt: Date,
   receivedAt: Date,
   refundedAt: Date,
+  refund: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Refund',
+    default: null,
+    select: false
+  },
   inventoryRestockedAt: { type: Date, default: null, select: false },
   rejectedReason: String
 }, {
@@ -94,5 +114,13 @@ returnSchema.pre('save', async function(next) {
 returnSchema.index({ status: 1, createdAt: -1 });
 returnSchema.index({ customer: 1, createdAt: -1 });
 returnSchema.index({ order: 1 });
+returnSchema.index(
+  { refund: 1 },
+  {
+    unique: true,
+    name: 'unique_return_refund',
+    partialFilterExpression: { refund: { $type: 'objectId' } }
+  }
+);
 
 module.exports = mongoose.model('Return', returnSchema);

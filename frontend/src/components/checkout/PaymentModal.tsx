@@ -109,7 +109,7 @@ export default function PaymentModal({
         <div className="flex items-center justify-between border-b bg-gray-50 p-6">
           <div>
             <h2 className="flex items-center gap-2 text-2xl font-bold text-gray-900">
-              <ShieldCheck className="text-teal-600" size={24} />
+              <ShieldCheck className="text-[#ff8a00]" size={24} />
               Complete Payment
             </h2>
             <p className="mt-1 text-sm text-gray-500">
@@ -132,7 +132,7 @@ export default function PaymentModal({
             <div className="mb-4 flex items-center justify-between">
               <span className="font-medium text-gray-600">Payment Method</span>
               <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 shadow-sm">
-                <CreditCard className="text-teal-700" size={18} />
+                <CreditCard className="text-[#ff8a00]" size={18} />
                 <span className="font-bold capitalize text-gray-800">
                   Card via Stripe
                 </span>
@@ -140,7 +140,7 @@ export default function PaymentModal({
             </div>
             <div className="flex items-center justify-between border-t border-gray-200 pt-4">
               <span className="text-gray-600">Total Amount</span>
-              <span className="text-3xl font-bold text-teal-700">
+              <span className="text-3xl font-bold text-[#ff8a00]">
                 Rs. {amount.toFixed(2)}
               </span>
             </div>
@@ -179,7 +179,7 @@ export default function PaymentModal({
                   clientSecret,
                   appearance: {
                     theme: "stripe",
-                    variables: { colorPrimary: "#0f766e" },
+                    variables: { colorPrimary: "#FF8A00" },
                   },
                 }}
               >

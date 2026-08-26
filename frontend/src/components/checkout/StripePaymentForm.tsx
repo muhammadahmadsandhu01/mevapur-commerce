@@ -78,7 +78,7 @@ export default function StripePaymentForm({
         <button
         type="submit"
         disabled={!stripe || !isReady || loading}
-        className="w-full rounded-xl bg-teal-700 py-4 font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full rounded-xl bg-[#ff8a00] py-4 font-semibold text-[#0b132b] transition hover:bg-[#e67c00] disabled:cursor-not-allowed disabled:opacity-50"
         >
         {loading ? (
             "Processing Secure Payment..."

@@ -19,8 +19,8 @@ router.get('/unread-count', getUnreadCount);
 router.get('/', getNotifications);
 router.put('/:id/read', markAsRead);
 router.put('/mark-all-read', markAllAsRead);
-router.delete('/:id', deleteNotification);
 router.delete('/delete-all', deleteAllNotifications);
+router.delete('/:id', deleteNotification);
 router.post('/', admin, createNotification);
 
 module.exports = router;

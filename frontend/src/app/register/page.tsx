@@ -43,8 +43,8 @@ export default function RegisterPage() {
     if (score === 0) return { level: 'none', color: '#E5E7EB', label: '' };
     if (score <= 2) return { level: 'weak', color: '#EF4444', label: 'Weak' };
     if (score <= 3) return { level: 'medium', color: '#F59E0B', label: 'Medium' };
-    if (score <= 4) return { level: 'strong', color: '#10B981', label: 'Strong' };
-    return { level: 'very-strong', color: '#0F766E', label: 'Very Strong' };
+    if (score <= 4) return { level: 'strong', color: '#16A34A', label: 'Strong' };
+    return { level: 'very-strong', color: '#166534', label: 'Very Strong' };
   }, [passwordChecks]);
 
   const validate = () => {
@@ -122,13 +122,13 @@ export default function RegisterPage() {
       <Link href="/" style={{ 
         position: 'fixed', top: '20px', left: '20px',
         display: 'flex', alignItems: 'center', gap: '8px',
-        color: '#0F766E', textDecoration: 'none', fontWeight: '600',
+        color: '#0B132B', textDecoration: 'none', fontWeight: '600',
         fontSize: '14px', padding: '10px 16px',
         backgroundColor: 'white', borderRadius: '10px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         transition: 'all 0.2s'
       }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F0FDFA'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
+        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.transform = 'translateX(0)'; }}
       >
         <ArrowLeft size={16} /> Back to Home
@@ -145,7 +145,7 @@ export default function RegisterPage() {
         
         {/* Left Side - Branding */}
         <div style={{ 
-          background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)',
+          background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
           padding: '60px 40px',
           color: 'white',
           display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -361,8 +361,8 @@ export default function RegisterPage() {
                       { check: passwordChecks.number, text: 'One number' },
                       { check: passwordChecks.special, text: 'One special character' }
                     ].map((req, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: req.check ? '#0F766E' : '#6B7280' }}>
-                        {req.check ? <CheckCircle size={12} color="#0F766E" /> : <XCircle size={12} color="#9CA3AF" />}
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: req.check ? '#166534' : '#6B7280' }}>
+                        {req.check ? <CheckCircle size={12} color="#16A34A" /> : <XCircle size={12} color="#9CA3AF" />}
                         {req.text}
                       </div>
                     ))}
@@ -412,7 +412,7 @@ export default function RegisterPage() {
                 </button>
               </div>
               {formData.confirmPassword && formData.password === formData.confirmPassword && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#0F766E', fontWeight: '500' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#166534', fontWeight: '500' }}>
                   <CheckCircle size={12} /> Passwords match
                 </div>
               )}
@@ -433,13 +433,13 @@ export default function RegisterPage() {
                     setFormData({ ...formData, acceptTerms: e.target.checked });
                     if (errors.acceptTerms) setErrors({ ...errors, acceptTerms: '' });
                   }}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#0F766E', marginTop: '2px' }}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#FF8A00', marginTop: '2px' }}
                 />
                 <span>
                   I agree to the{' '}
-                  <a href="#" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '600' }}>Terms & Conditions</a>
+                  <a href="#" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>Terms & Conditions</a>
                   {' '}and{' '}
-                  <a href="#" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '600' }}>Privacy Policy</a>
+                  <a href="#" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>Privacy Policy</a>
                 </span>
               </label>
               {errors.acceptTerms && (
@@ -455,16 +455,16 @@ export default function RegisterPage() {
               disabled={loading}
               style={{
                 width: '100%', padding: '14px',
-                backgroundColor: loading ? '#9CA3AF' : '#0F766E',
-                color: 'white', border: 'none',
+                backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
+                color: '#0B132B', border: 'none',
                 borderRadius: '10px', fontSize: '15px', fontWeight: '700',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                boxShadow: loading ? 'none' : '0 4px 12px rgba(15,118,110,0.3)',
+                boxShadow: loading ? 'none' : '0 4px 12px rgba(255,138,0,0.3)',
                 transition: 'all 0.3s', marginTop: '8px'
               }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#115E59'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
-              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#0F766E'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; } }}
             >
               {loading ? (
                 <>
@@ -482,7 +482,7 @@ export default function RegisterPage() {
             {/* Login Link */}
             <div style={{ textAlign: 'center', fontSize: '14px', color: '#6B7280' }}>
               Already have an account?{' '}
-              <Link href="/login" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '700' }}>
+              <Link href="/login" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
                 Sign In
               </Link>
             </div>

@@ -7,10 +7,10 @@ const Refund = require('../models/Refund');
 const Notification = require('../models/Notification');
 const Order = require('../models/Order');
 const MarketService = require('./MarketService');
+const ReturnService = require('./ReturnService');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 
-const RETURN_POLICY = Object.freeze({ eligibleStatus: 'Delivered', windowDays: 30 });
 const customerProfile = (user) => ({
   id: String(user._id), fullName: user.fullName, email: user.email, phone: user.phone || '',
   avatar: user.avatar || '', isVerified: Boolean(user.isVerified), createdAt: user.createdAt
@@ -86,11 +86,7 @@ class CustomerCommerceService {
 
   async listReturns(userId, query) { const result = await Return.find({ customer: userId }).sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { returns: result.map(returnView), total: await Return.countDocuments({ customer: userId }) }; }
   async requestReturn(userId, input) {
-    const order = await ownOrder(userId, input.orderId);
-    if (order.orderStatus !== RETURN_POLICY.eligibleStatus || !order.deliveredAt || Date.now() - order.deliveredAt.getTime() > RETURN_POLICY.windowDays * 86400000) throw new AppError('This order is not eligible for a return request', 409, ERROR_CODES.CUSTOMER_RETURN_NOT_ELIGIBLE);
-    if (await Return.exists({ order: order._id, customer: userId, status: { $nin: ['rejected', 'cancelled'] } })) throw new AppError('An active return request already exists for this order', 409, ERROR_CODES.CUSTOMER_RETURN_EXISTS);
-    const items = input.items.map((requestItem) => { const orderItem = order.items.find((item) => String(item.product) === requestItem.productId); if (!orderItem || requestItem.quantity > orderItem.quantity) throw new AppError('Return item is not eligible', 400, ERROR_CODES.CUSTOMER_RETURN_NOT_ELIGIBLE); return { product: orderItem.product, name: orderItem.name, quantity: requestItem.quantity, price: orderItem.price, reason: requestItem.reason, reasonDetails: requestItem.reasonDetails || '', condition: requestItem.condition || 'new' }; });
-    return Return.create({ order: order._id, customer: userId, items, refundMethod: input.refundMethod || 'original_payment', refundAmount: items.reduce((sum, item) => sum + item.price * item.quantity, 0), customerNotes: input.customerNotes || '' });
+    return ReturnService.requestCustomerReturn(userId, input);
   }
   async listRefunds(userId, query) { const items = await Refund.find({ customer: userId }).select('refundNumber order amount currency status reason completedAt createdAt').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { refunds: items.map(refundView), total: await Refund.countDocuments({ customer: userId }) }; }
 

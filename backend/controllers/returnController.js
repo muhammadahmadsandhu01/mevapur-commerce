@@ -1,7 +1,6 @@
 const Return = require('../models/Return');
 const Order = require('../models/Order');
-const Product = require('../models/Product');
-const ReturnInventoryService = require('../services/ReturnInventoryService');
+const ReturnService = require('../services/ReturnService');
 const { logActivity } = require('../middleware/activityLogger');
 
 // @desc    Get all returns
@@ -104,48 +103,14 @@ exports.getReturn = async (req, res) => {
 // @desc    Create return request
 // @route   POST /api/returns
 // @access  Private/Admin
-exports.createReturn = async (req, res) => {
+exports.createReturn = async (req, res, next) => {
   try {
-    const { orderId, items, refundMethod, customerNotes } = req.body;
-
-    const order = await Order.findById(orderId).populate('items.product');
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found'
-      });
-    }
-
-    // Calculate refund amount
-    let refundAmount = 0;
-    const returnItems = items.map(item => {
-      const orderItem = order.items.find(oi => oi.product.toString() === item.productId);
-      const itemTotal = orderItem ? orderItem.price * item.quantity : 0;
-      refundAmount += itemTotal;
-      return {
-        product: item.productId,
-        name: orderItem?.name || 'Unknown',
-        quantity: item.quantity,
-        price: orderItem?.price || 0,
-        reason: item.reason,
-        reasonDetails: item.reasonDetails || '',
-        images: item.images || [],
-        condition: item.condition || 'new'
-      };
-    });
-
-    const returnItem = await Return.create({
-      order: orderId,
-      customer: order.user,
-      items: returnItems,
-      refundMethod: refundMethod || 'original_payment',
-      refundAmount,
-      customerNotes: customerNotes || ''
-    });
+    const returnItem = await ReturnService.createAdminReturn(req.body);
+    const order = await Order.findById(returnItem.order).select('orderId');
 
     await logActivity(req, 'RETURN_CREATE', 
       `Created return request ${returnItem.returnNumber} for order ${order.orderId}`, 
-      { returnId: returnItem._id, orderId }
+      { returnId: returnItem._id, orderId: returnItem.order }
     );
 
     res.status(201).json({
@@ -154,138 +119,121 @@ exports.createReturn = async (req, res) => {
       data: returnItem
     });
   } catch (error) {
-    console.error('Create return error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return next(error);
   }
 };
 
 // @desc    Update return status
 // @route   PUT /api/returns/:id/status
 // @access  Private/Admin
-exports.updateReturnStatus = async (req, res) => {
+exports.updateReturnStatus = async (req, res, next) => {
   try {
-    const { status, adminNotes, rejectedReason, refundAmount, trackingNumber, courierCompany } = req.body;
-    const returnItem = await Return.findById(req.params.id);
-
-    if (!returnItem) {
-      return res.status(404).json({
-        success: false,
-        message: 'Return not found'
-      });
-    }
-
-    returnItem.status = status;
-
-    if (adminNotes) {
-      returnItem.adminNotes.push({
-        note: adminNotes,
-        addedBy: req.user.id,
-        addedAt: Date.now()
-      });
-    }
-
-    if (status === 'approved') {
-      returnItem.approvedBy = req.user.id;
-      returnItem.approvedAt = Date.now();
-    }
-
-    if (status === 'received') {
-      returnItem.receivedAt = Date.now();
-    }
-
-    if (status === 'refunded') {
-      returnItem.refundedAt = Date.now();
-      if (refundAmount) returnItem.refundAmount = refundAmount;
-      
-    }
-
-    if (status === 'rejected') {
-      returnItem.rejectedReason = rejectedReason || 'No reason provided';
-    }
-
-    if (trackingNumber) returnItem.trackingNumber = trackingNumber;
-    if (courierCompany) returnItem.courierCompany = courierCompany;
-
-    await returnItem.save();
-
-    if (status === 'refunded') await ReturnInventoryService.restockOnce(returnItem._id);
-
-    await logActivity(req, 'RETURN_STATUS_UPDATE', 
-      `Updated return ${returnItem.returnNumber} status to ${status}`, 
-      { returnId: returnItem._id, newStatus: status }
+    const result = req.body.status === 'refunded'
+      ? await ReturnService.processRefund({
+        returnId: req.params.id,
+        adminId: req.user.id,
+        adminNotes: req.body.adminNotes || ''
+      })
+      : null;
+    const returnItem = result?.return || await ReturnService.updateStatus(
+      req.params.id,
+      req.body,
+      req.user.id
     );
 
-    res.json({
+    await logActivity(req, 'RETURN_STATUS_UPDATE',
+      `Updated return ${returnItem.returnNumber} status to ${returnItem.status}`,
+      { returnId: returnItem._id, newStatus: returnItem.status }
+    );
+
+    const providerPending = result?.refund?.status === 'Processing';
+    const inventoryReconciliation = returnItem.status === 'inventory_reconciliation';
+    return res.status(providerPending || inventoryReconciliation ? 202 : 200).json({
       success: true,
-      message: 'Return status updated successfully',
+      message: inventoryReconciliation
+        ? 'Financial refund confirmed; inventory reconciliation is required'
+        : providerPending
+          ? 'Refund is awaiting payment-provider confirmation'
+          : 'Return status updated successfully',
       data: returnItem
     });
   } catch (error) {
-    console.error('Update return status error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return next(error);
   }
 };
 
 // @desc    Process refund
 // @route   POST /api/returns/:id/refund
 // @access  Private/Admin
-exports.processRefund = async (req, res) => {
+exports.processRefund = async (req, res, next) => {
   try {
-    const { refundAmount, refundMethod, adminNotes } = req.body;
-    const returnItem = await Return.findById(req.params.id);
+    const result = await ReturnService.processRefund({
+      returnId: req.params.id,
+      adminId: req.user.id,
+      adminNotes: req.body.adminNotes || ''
+    });
+    const returnItem = result.return;
 
-    if (!returnItem) {
-      return res.status(404).json({
-        success: false,
-        message: 'Return not found'
-      });
-    }
-
-    if (returnItem.status !== 'inspected' && returnItem.status !== 'approved') {
-      return res.status(400).json({
-        success: false,
-        message: 'Return must be inspected or approved before refund'
-      });
-    }
-
-    returnItem.status = 'refunded';
-    returnItem.refundAmount = refundAmount || returnItem.refundAmount;
-    returnItem.refundMethod = refundMethod || returnItem.refundMethod;
-    returnItem.refundedAt = Date.now();
-
-    if (adminNotes) {
-      returnItem.adminNotes.push({
-        note: adminNotes,
-        addedBy: req.user.id,
-        addedAt: Date.now()
-      });
-    }
-
-    await returnItem.save();
-    await ReturnInventoryService.restockOnce(returnItem._id);
-
-    await logActivity(req, 'RETURN_REFUND', 
-      `Processed refund for return ${returnItem.returnNumber}: Rs. ${returnItem.refundAmount}`, 
-      { returnId: returnItem._id, amount: returnItem.refundAmount }
+    await logActivity(req, 'RETURN_REFUND',
+      `Refund reconciliation for return ${returnItem.returnNumber}: ${result.refund.status}`,
+      { returnId: returnItem._id, amount: returnItem.refundAmount, refundStatus: result.refund.status }
     );
 
-    res.json({
+    const providerPending = result.refund.status === 'Processing';
+    const inventoryReconciliation = returnItem.status === 'inventory_reconciliation';
+    return res.status(providerPending || inventoryReconciliation ? 202 : 200).json({
       success: true,
-      message: 'Refund processed successfully',
+      message: inventoryReconciliation
+        ? 'Financial refund confirmed; inventory reconciliation is required'
+        : providerPending
+          ? 'Refund is awaiting payment-provider confirmation'
+          : 'Refund processed successfully',
       data: returnItem
     });
   } catch (error) {
-    console.error('Process refund error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
+    return next(error);
+  }
+};
+
+// @desc    Reconcile inventory after a financially confirmed refund
+// @route   POST /api/returns/:id/inventory-reconciliation
+// @access  Private/Admin
+exports.reconcileReturnInventory = async (req, res, next) => {
+  try {
+    const result = await ReturnService.reconcileInventory({
+      returnId: req.params.id,
+      adminId: req.user.id,
+      action: req.body.action,
+      note: req.body.note || ''
     });
+
+    await logActivity(
+      req,
+      'RETURN_INVENTORY_RECONCILIATION',
+      `Inventory reconciliation for return ${result.return.returnNumber}: ${result.inventoryStatus}`,
+      {
+        returnId: result.return._id,
+        refundId: result.refund._id,
+        action: req.body.action,
+        inventoryStatus: result.inventoryStatus,
+        idempotentReplay: result.idempotentReplay
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: result.inventoryStatus === 'restored'
+        ? 'Return inventory restored successfully'
+        : 'Manual inventory resolution recorded successfully',
+      data: {
+        return: result.return,
+        refund: result.refund,
+        inventoryStatus: result.inventoryStatus,
+        idempotentReplay: result.idempotentReplay
+      }
+    });
+  } catch (error) {
+    return next(error);
   }
 };
 

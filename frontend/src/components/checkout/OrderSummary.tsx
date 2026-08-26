@@ -41,7 +41,7 @@ export default function OrderSummary({
     return (
       <div className="text-center py-10 bg-white rounded-2xl border">
         <p className="text-gray-500 mb-4">Your cart is empty</p>
-        <Link href="/products" className="text-teal-600 font-bold hover:underline">
+        <Link href="/products" className="text-[#0b132b] font-bold hover:underline">
           Continue Shopping →
         </Link>
       </div>
@@ -69,7 +69,7 @@ export default function OrderSummary({
             </Link>
             <div className="flex-1 min-w-0">
               <Link href={`/products/${item._id || item.id}`}>
-                <h4 className="font-semibold text-gray-800 text-sm line-clamp-2 hover:text-teal-600">
+                <h4 className="font-semibold text-gray-800 text-sm line-clamp-2 hover:text-[#ff8a00]">
                   {item.name}
                 </h4>
               </Link>
@@ -87,7 +87,7 @@ export default function OrderSummary({
               </div>
             </div>
             <div className="text-right">
-              <p className="font-bold text-teal-700">Rs. {(parseFloat(String(item.price)) * item.quantity).toFixed(0)}</p>
+              <p className="font-bold text-[#ff8a00]">Rs. {(parseFloat(String(item.price)) * item.quantity).toFixed(0)}</p>
               <p className="text-xs text-gray-400 mt-1">Rs. {parseFloat(String(item.price)).toFixed(0)} × {item.quantity}</p>
             </div>
           </div>
@@ -103,7 +103,7 @@ export default function OrderSummary({
               placeholder="Coupon code"
               value={couponCode}
               onChange={(e) => setCouponCode(e.target.value)}
-              className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+              className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#ff8a00] outline-none"
             />
             <button onClick={handleApply} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-800">
               Apply
@@ -143,7 +143,7 @@ export default function OrderSummary({
         </div>
       </div>
 
-      <button disabled={loading} className="w-full bg-teal-700 text-white py-3.5 rounded-xl font-bold text-lg hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-teal-700/20">
+      <button disabled={loading} className="w-full bg-[#ff8a00] text-[#0b132b] py-3.5 rounded-xl font-bold text-lg hover:bg-[#e67c00] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-600/20">
         {loading ? "Processing..." : "Place Order"}
       </button>
       

@@ -249,7 +249,7 @@ export default function OrdersPage() {
   if (loading) {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#0F766E' }} />
+        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
       </div>
     );
   }
@@ -265,7 +265,7 @@ export default function OrdersPage() {
             </Link>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Package size={28} color="#0F766E" />
+            <Package size={28} color="#FF8A00" />
             <h1 style={{ fontSize: '32px', fontWeight: '800', color: '#111827', margin: 0 }}>My Orders</h1>
           </div>
           <p style={{ fontSize: '15px', color: '#6B7280', marginTop: '8px' }}>
@@ -290,7 +290,7 @@ export default function OrdersPage() {
                   borderRadius: '10px', border: '2px solid #E5E7EB',
                   fontSize: '14px', outline: 'none', transition: 'all 0.2s'
                 }}
-                onFocus={e => e.currentTarget.style.borderColor = '#0F766E'}
+                onFocus={e => e.currentTarget.style.borderColor = '#FF8A00'}
                 onBlur={e => e.currentTarget.style.borderColor = '#E5E7EB'}
               />
             </div>
@@ -323,10 +323,10 @@ export default function OrdersPage() {
             </p>
             {orders.length === 0 && (
               <Link href="/products" style={{
-                backgroundColor: '#0F766E', color: 'white', padding: '14px 32px',
+                backgroundColor: '#FF8A00', color: '#0B132B', padding: '14px 32px',
                 borderRadius: '50px', fontWeight: '700', textDecoration: 'none',
                 display: 'inline-flex', alignItems: 'center', gap: '8px',
-                boxShadow: '0 4px 12px rgba(15,118,110,0.3)'
+                boxShadow: '0 4px 12px rgba(255,138,0,0.3)'
               }}>
                 <ShoppingBag size={18} /> Continue Shopping
               </Link>

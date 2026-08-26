@@ -628,7 +628,7 @@ describe('Admin refund orchestration', () => {
     });
   });
 
-  test('keeps a successful payment successful when the provider refund fails', async () => {
+  test('keeps a successful payment successful while an indeterminate provider refund is reconciled', async () => {
     const owner = await createAuth();
     const admin = await createAuth('admin');
     const { order, payment } = await createCompletedPayment(owner, 100);
@@ -644,7 +644,13 @@ describe('Admin refund orchestration', () => {
       refundedAmount: 0
     });
     expect((await Order.findById(order._id)).paymentStatus).toBe('Paid');
-    expect((await Refund.findOne()).status).toBe('Failed');
+    const refund = await Refund.findOne().select('+providerOutcome +reservationActive');
+    expect(refund).toMatchObject({
+      status: 'Processing',
+      providerOutcome: 'unknown',
+      reservationActive: true,
+      completedAt: null
+    });
   });
 
   test('finalizes a pending refund only after its verified provider event', async () => {

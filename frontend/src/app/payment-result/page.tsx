@@ -114,7 +114,7 @@ function PaymentResultContent() {
           <>
             <Loader2
               aria-hidden="true"
-              className="mx-auto mb-4 animate-spin text-teal-700"
+              className="mx-auto mb-4 animate-spin text-[#ff8a00]"
               size={44}
             />
             <h1 className="text-2xl font-bold text-slate-900">
@@ -147,7 +147,7 @@ function PaymentResultContent() {
           <>
             <CheckCircle2
               aria-hidden="true"
-              className="mx-auto mb-4 text-teal-700"
+              className="mx-auto mb-4 text-green-600"
               size={48}
             />
             <h1 className="text-2xl font-bold text-slate-900">
@@ -214,14 +214,14 @@ function PaymentResultContent() {
                 setErrorMessage("");
                 setRetryGeneration((value) => value + 1);
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white hover:bg-teal-800"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#ff8a00] px-5 py-3 font-semibold text-[#0b132b] hover:bg-[#e67c00]"
             >
               <RefreshCw size={18} /> Check again
             </button>
           )}
           <Link
             href={`/orders/${encodeURIComponent(orderId)}`}
-            className="rounded-lg border border-teal-700 px-5 py-3 font-semibold text-teal-700 hover:bg-teal-50"
+            className="rounded-lg border border-[#ff8a00] px-5 py-3 font-semibold text-[#0b132b] hover:bg-[#f7f7f5]"
           >
             View order
           </Link>
@@ -236,7 +236,7 @@ export default function PaymentResultPage() {
     <Suspense
       fallback={
         <div className="flex min-h-[80vh] items-center justify-center">
-          <Loader2 className="animate-spin text-teal-700" size={40} />
+          <Loader2 className="animate-spin text-[#ff8a00]" size={40} />
         </div>
       }
     >

@@ -170,11 +170,11 @@ function ProductsPageContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           {/* Dynamic Breadcrumb */}
           <nav className="flex text-sm text-gray-500 mb-4" aria-label="Breadcrumb">
-            <Link href="/" className="hover:text-teal-700 transition-colors">Home</Link>
+            <Link href="/" className="hover:text-[#ff8a00] transition-colors">Home</Link>
             {categorySlug && (
               <>
                 <span className="mx-2">/</span>
-                <Link href={`/products?category=${categorySlug}`} className="hover:text-teal-700 transition-colors">
+                <Link href={`/products?category=${categorySlug}`} className="hover:text-[#ff8a00] transition-colors">
                   {getCategoryName(categorySlug)}
                 </Link>
               </>
@@ -223,14 +223,14 @@ function ProductsPageContent() {
                   placeholder="Search products, brands, SKU..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-700 focus:border-transparent outline-none text-sm shadow-sm"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#ff8a00] focus:border-transparent outline-none text-sm shadow-sm"
                   aria-label="Search products"
                 />
               </div>
               <select 
                 onChange={handleSortChange}
                 value={searchParams.get('sortBy') || 'newest'}
-                className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-700 outline-none bg-white cursor-pointer shadow-sm"
+                className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#ff8a00] outline-none bg-white cursor-pointer shadow-sm"
                 aria-label="Sort products"
               >
                 <option value="newest">Newest First</option>
@@ -248,13 +248,13 @@ function ProductsPageContent() {
               {activeFilters.map(([key, value]) => (
                 <span 
                   key={`${key}-${value}`} 
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-800 text-sm rounded-full border border-teal-100 animate-in fade-in duration-200"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-[#0b132b] text-sm rounded-full border border-orange-100 animate-in fade-in duration-200"
                 >
                   <span className="font-medium capitalize">{key}:</span>
                   <span>{value}</span>
                   <button 
                     onClick={() => removeActiveFilter(key)} 
-                    className="hover:text-teal-900 ml-1"
+                    className="hover:text-[#ff8a00] ml-1"
                     aria-label={`Remove ${key} filter`}
                   >
                     <X size={14} />
@@ -297,7 +297,7 @@ function ProductsPageContent() {
                 <div className="flex gap-4 justify-center">
                   <button 
                     onClick={() => router.push('/products')}
-                    className="px-6 py-3 bg-teal-700 text-white rounded-lg font-medium hover:bg-teal-800 transition-colors shadow-sm"
+                    className="px-6 py-3 bg-[#ff8a00] text-[#0b132b] rounded-lg font-medium hover:bg-[#e67c00] transition-colors shadow-sm"
                   >
                     Clear All Filters
                   </button>
@@ -338,7 +338,7 @@ function ProductsPageContent() {
                             onClick={() => handlePageChange(pageNum)}
                             className={`w-11 h-11 rounded-lg font-medium transition-all ${
                               pagination.page === pageNum 
-                                ? 'bg-teal-700 text-white shadow-md' 
+                                ? 'bg-[#ff8a00] text-[#0b132b] shadow-md'
                                 : 'border border-gray-200 hover:bg-gray-50 text-gray-700'
                             }`}
                             aria-label={`Page ${pageNum}`}
@@ -384,7 +384,7 @@ export default function ProductsPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader className="animate-spin text-teal-700" size={48} />
+        <Loader className="animate-spin text-[#ff8a00]" size={48} />
       </div>
     }>
       <ProductsPageContent />

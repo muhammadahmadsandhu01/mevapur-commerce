@@ -15,7 +15,7 @@ export default function ManualReviewActions({
         type="button"
         disabled={disabled}
         onClick={() => onReview('approve')}
-        style={{ border: 0, borderRadius: '7px', padding: '8px 10px', background: '#0F766E', color: 'white' }}
+        style={{ border: 0, borderRadius: '7px', padding: '8px 10px', background: '#FF8A00', color: '#0B132B' }}
       >
         Approve
       </button>

@@ -16,6 +16,7 @@ import Toast from '@/components/Toast';
 import ProductReviews from '@/components/products/ProductReviews';
 import { accountService } from '@/services/account.service';
 import { useAuthStore } from '@/store/authStore';
+import { publicApiBaseUrl } from '@/config/publicConfig';
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -48,7 +49,7 @@ export default function ProductDetailPage() {
         setLoading(true);
         setError(null);
         
-        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/products/${params.id}`);
+        const response = await axios.get(`${publicApiBaseUrl}/products/${params.id}`);
         
         if (response.data.success) {
           const fetchedProduct = response.data.data;
@@ -158,7 +159,7 @@ export default function ProductDetailPage() {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ width: '60px', height: '60px', border: '5px solid #0F766E', borderTop: '5px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }}></div>
+          <div style={{ width: '60px', height: '60px', border: '5px solid #FF8A00', borderTop: '5px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }}></div>
           <p style={{ color: '#6B7280', fontSize: '16px' }}>Loading product details...</p>
         </div>
       </div>
@@ -172,7 +173,7 @@ export default function ProductDetailPage() {
           <div style={{ fontSize: '80px', marginBottom: '20px' }}>😕</div>
           <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#111827', marginBottom: '12px' }}>Product Not Found</h2>
           <p style={{ color: '#6B7280', marginBottom: '24px' }}>{error || 'The product you are looking for does not exist.'}</p>
-          <Link href="/" style={{ color: '#0F766E', fontWeight: '600', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
+          <Link href="/" style={{ color: '#0B132B', fontWeight: '600', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#F7F7F5', borderRadius: '8px' }}>
             ← Back to Home
           </Link>
         </div>
@@ -199,7 +200,7 @@ export default function ProductDetailPage() {
       <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '16px 0' }}>
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#6B7280', flexWrap: 'wrap' }}>
-            <Link href="/" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: '600' }}>Home</Link>
+            <Link href="/" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>Home</Link>
             <ChevronRight size={16} />
             <Link href="/products" style={{ color: '#6B7280', textDecoration: 'none' }}>Shop</Link>
             <ChevronRight size={16} />
@@ -251,7 +252,7 @@ export default function ProductDetailPage() {
                     onClick={() => setSelectedImage(index)}
                     style={{
                       flexShrink: 0, width: '100px', height: '100px', borderRadius: '12px', overflow: 'hidden',
-                      border: selectedImage === index ? '3px solid #0F766E' : '2px solid #E5E7EB',
+                      border: selectedImage === index ? '3px solid #FF8A00' : '2px solid #E5E7EB',
                       cursor: 'pointer', transition: 'all 0.2s', opacity: selectedImage === index ? 1 : 0.7,
                       padding: 0, backgroundColor: 'white'
                     }}
@@ -266,7 +267,7 @@ export default function ProductDetailPage() {
           {/* RIGHT: PRODUCT INFO */}
           <div>
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ color: '#0F766E', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>
+              <div style={{ color: '#FF8A00', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>
                 {brandName && `${brandName} • `} {categoryName}
               </div>
             </div>
@@ -284,7 +285,7 @@ export default function ProductDetailPage() {
               </div>
               <span style={{ color: '#6B7280' }}>|</span>
               <span style={{ color: '#6B7280', fontSize: '14px' }}>({product.reviewCount || 0} reviews)</span>
-              {Number(product.soldCount || 0) > 0 && <><span style={{ color: '#6B7280' }}>|</span><span style={{ color: '#10B981', fontSize: '14px', fontWeight: '600' }}>{product.soldCount} sold</span></>}
+              {Number(product.soldCount || 0) > 0 && <><span style={{ color: '#6B7280' }}>|</span><span style={{ color: '#FF8A00', fontSize: '14px', fontWeight: '600' }}>{product.soldCount} sold</span></>}
             </div>
 
             <div style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
@@ -294,7 +295,7 @@ export default function ProductDetailPage() {
             {/* Price */}
             <div style={{ backgroundColor: '#F8FAFC', padding: '24px', borderRadius: '12px', marginBottom: '24px', border: '1px solid #E5E7EB' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '16px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '36px', fontWeight: '800', color: '#0F766E' }}>
+                <span style={{ fontSize: '36px', fontWeight: '800', color: '#FF8A00' }}>
                   Rs. {currentPrice.toLocaleString()}
                 </span>
                 {currentOriginalPrice && currentOriginalPrice > currentPrice && (
@@ -304,7 +305,7 @@ export default function ProductDetailPage() {
                 )}
               </div>
               {discount > 0 && currentOriginalPrice && (
-              <div style={{ color: '#0F766E', fontSize: '14px', fontWeight: '700' }}>
+              <div style={{ color: '#FF8A00', fontSize: '14px', fontWeight: '700' }}>
                 You Save: Rs. {(currentOriginalPrice - currentPrice).toLocaleString()} ({discount}%)
               </div>
             )}
@@ -332,9 +333,9 @@ export default function ProductDetailPage() {
                         }}
                         style={{
                           padding: '10px 20px', borderRadius: '8px',
-                          border: isSelected ? '2px solid #0F766E' : '2px solid #E5E7EB',
-                          backgroundColor: isSelected ? '#F0FDFA' : 'white',
-                          color: isOutOfStock ? '#9CA3AF' : (isSelected ? '#0F766E' : '#374151'),
+                          border: isSelected ? '2px solid #FF8A00' : '2px solid #E5E7EB',
+                          backgroundColor: isSelected ? '#F7F7F5' : 'white',
+                          color: isOutOfStock ? '#9CA3AF' : (isSelected ? '#0B132B' : '#374151'),
                           fontWeight: '600', fontSize: '14px',
                           cursor: isOutOfStock ? 'not-allowed' : 'pointer',
                           textDecoration: isOutOfStock ? 'line-through' : 'none',
@@ -352,9 +353,9 @@ export default function ProductDetailPage() {
             {/* Stock Status */}
             <div style={{ marginBottom: '24px' }}>
               {(selectedVariant?.stock ?? product.stock ?? 0) > 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#D1FAE5', borderRadius: '8px' }}>
-                  <CheckCircle size={18} color="#0F766E" />
-                  <span style={{ color: '#0F766E', fontWeight: '600' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#DCFCE7', borderRadius: '8px' }}>
+                  <CheckCircle size={18} color="#16A34A" />
+                  <span style={{ color: '#166534', fontWeight: '600' }}>
                     In Stock - {selectedVariant?.stock ?? product.stock ?? 0} units available
                   </span>
                 </div>
@@ -376,7 +377,7 @@ export default function ProductDetailPage() {
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                   {product.highlights.map((highlight, index) => (
                     <li key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#374151' }}>
-                      <span style={{ color: '#0F766E', fontWeight: '700' }}>✓</span> {highlight}
+                      <span style={{ color: '#FF8A00', fontWeight: '700' }}>✓</span> {highlight}
                     </li>
                   ))}
                 </ul>
@@ -405,8 +406,8 @@ export default function ProductDetailPage() {
                   onClick={handleAddToCart} disabled={(selectedVariant?.stock ?? product.stock ?? 0)===0}
                   style={{
                     flex: 1, padding: '16px',
-                    backgroundColor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#0F766E' : '#9CA3AF',
-                    color: 'white', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: '700',
+                    backgroundColor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#FF8A00' : '#9CA3AF',
+                    color: '#0B132B', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: '700',
                     cursor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? 'pointer' : 'not-allowed',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', transition: 'all 0.3s'
                   }}
@@ -420,7 +421,7 @@ export default function ProductDetailPage() {
                   style={{
                     flex: 1, padding: '16px',
                     backgroundColor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#F59E0B' : '#9CA3AF',
-                    color: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#0F766E' : 'white',
+                    color: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? '#0B132B' : 'white',
                     border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: '700',
                     cursor: (selectedVariant?.stock ?? product.stock ?? 0) > 0 ? 'pointer' : 'not-allowed',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', transition: 'all 0.3s'
@@ -444,17 +445,17 @@ export default function ProductDetailPage() {
 
             {/* Trust Badges */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
-                <Truck size={20} color="#0F766E" />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Shipping calculated at checkout</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F7F7F5', borderRadius: '8px' }}>
+                <Truck size={20} color="#FF8A00" />
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0B132B' }}>Shipping calculated at checkout</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
-                <Shield size={20} color="#0F766E" />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Secure Payment</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F7F7F5', borderRadius: '8px' }}>
+                <Shield size={20} color="#FF8A00" />
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0B132B' }}>Secure Payment</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDFA', borderRadius: '8px' }}>
-                <RotateCcw size={20} color="#0F766E" />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0F766E' }}>Return eligibility confirmed before purchase</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F7F7F5', borderRadius: '8px' }}>
+                <RotateCcw size={20} color="#FF8A00" />
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#0B132B' }}>Return eligibility confirmed before purchase</span>
               </div>
             </div>
           </div>
@@ -469,8 +470,8 @@ export default function ProductDetailPage() {
                 onClick={() => setActiveTab(tab)}
                 style={{
                   padding: '12px 24px', border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
-                  fontSize: '16px', fontWeight: '600', color: activeTab === tab ? '#0F766E' : '#6B7280',
-                  borderBottom: activeTab === tab ? '2px solid #0F766E' : '2px solid transparent',
+                  fontSize: '16px', fontWeight: '600', color: activeTab === tab ? '#0B132B' : '#6B7280',
+                  borderBottom: activeTab === tab ? '2px solid #FF8A00' : '2px solid transparent',
                   marginBottom: '-2px', transition: 'all 0.2s'
                 }}
               >
@@ -493,7 +494,7 @@ export default function ProductDetailPage() {
               {/* 🌟 Dynamic Attributes */}
               {product.attributes && product.attributes.length > 0 && (
                 <div style={{ marginBottom: '32px' }}>
-                  <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#0F766E', marginBottom: '12px' }}>Product Attributes</h4>
+                  <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#0B132B', marginBottom: '12px' }}>Product Attributes</h4>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
                     {product.attributes.map((attr: ProductAttribute, idx: number) => (
                       <div key={idx} style={{ backgroundColor: '#F8FAFC', padding: '12px', borderRadius: '8px', border: '1px solid #E5E7EB' }}>

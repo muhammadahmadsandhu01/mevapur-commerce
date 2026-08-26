@@ -20,9 +20,9 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
     'confirmed': { bg: '#DBEAFE', text: '#1E40AF', border: '#3B82F6' },
     'processing': { bg: '#E0E7FF', text: '#4338CA', border: '#6366F1' },
     'packed': { bg: '#FCE7F3', text: '#9D174D', border: '#EC4899' },
-    'shipped': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
+    'shipped': { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
     'out-for-delivery': { bg: '#CFFAFE', text: '#155E75', border: '#06B6D4' },
-    'delivered': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
+    'delivered': { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
     'cancelled': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' },
     'returned': { bg: '#FED7AA', text: '#9A3412', border: '#F97316' },
     'refunded': { bg: '#E5E7EB', text: '#374151', border: '#6B7280' }
@@ -30,7 +30,7 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
 
   const paymentStatusColors: Record<string, { bg: string; text: string }> = {
     'pending': { bg: '#FEF3C7', text: '#92400E' },
-    'paid': { bg: '#D1FAE5', text: '#065F46' },
+    'paid': { bg: '#DCFCE7', text: '#166534' },
     'cod-pending': { bg: '#FEF3C7', text: '#92400E' },
     'refunded': { bg: '#E5E7EB', text: '#374151' },
     'failed': { bg: '#FEE2E2', text: '#991B1B' }
@@ -113,7 +113,7 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <Package size={18} color="#0F766E" />
+            <Package size={18} color="#FF8A00" />
             <span style={{ fontSize: '16px', fontWeight: '800', color: '#111827' }}>Order #{order.orderNumber}</span>
           </div>
           <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: '#6B7280', flexWrap: 'wrap' }}>
@@ -151,13 +151,13 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{order.items[0].name}</div>
             <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>{order.items[0].variant} • Qty: {order.items[0].quantity}</div>
-            <div style={{ fontSize: '14px', fontWeight: '700', color: '#0F766E' }}>Rs. {order.items[0].price}</div>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: '#FF8A00' }}>Rs. {order.items[0].price}</div>
           </div>
           {order.items.length > 1 && (
             <button onClick={() => setExpanded(!expanded)} style={{
               background: 'none', border: '1px solid #E5E7EB', borderRadius: '8px',
               padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '600',
-              color: '#0F766E', display: 'flex', alignItems: 'center', gap: '4px'
+              color: '#0B132B', display: 'flex', alignItems: 'center', gap: '4px'
             }}>
               {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               +{order.items.length - 1} More
@@ -172,7 +172,7 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '13px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{item.name}</div>
               <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '2px' }}>{item.variant} • Qty: {item.quantity}</div>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#0F766E' }}>Rs. {item.price}</div>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#FF8A00' }}>Rs. {item.price}</div>
             </div>
           </div>
         ))}
@@ -182,7 +182,7 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px', padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Total Amount</div>
-          <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {order.totalAmount.toLocaleString()}</div>
+          <div style={{ fontSize: '16px', fontWeight: '800', color: '#FF8A00' }}>Rs. {order.totalAmount.toLocaleString()}</div>
         </div>
         <div>
           <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Payment Method</div>
@@ -203,10 +203,10 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
       </div>
 
       {/* Shipping Address */}
-      <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '10px', borderLeft: '3px solid #0F766E' }}>
+      <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '10px', borderLeft: '3px solid #FF8A00' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-          <MapPin size={14} color="#0F766E" />
-          <span style={{ fontSize: '12px', fontWeight: '700', color: '#0F766E' }}>Shipping Address</span>
+          <MapPin size={14} color="#FF8A00" />
+          <span style={{ fontSize: '12px', fontWeight: '700', color: '#0B132B' }}>Shipping Address</span>
         </div>
         <div style={{ fontSize: '13px', color: '#374151', lineHeight: '1.6' }}>
           {order.shippingAddress.name}<br />
@@ -220,10 +220,10 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
       <button onClick={() => setShowTimeline(!showTimeline)} style={{
         width: '100%', background: 'none', border: '1px solid #E5E7EB', borderRadius: '10px',
         padding: '12px', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
-        color: '#0F766E', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+        color: '#0B132B', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
         marginBottom: '16px', transition: 'all 0.2s'
       }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F0FDFA'; }}
+        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
       >
         {showTimeline ? 'Hide' : 'View'} Order Timeline
@@ -238,14 +238,14 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
           action.type === 'view' ? (
             <Link key={index} href={`/orders/${order.id}`} style={{
               flex: 1, minWidth: '120px',
-              backgroundColor: '#0F766E', color: 'white',
+              backgroundColor: '#FF8A00', color: '#0B132B',
               padding: '10px 16px', borderRadius: '10px',
               fontSize: '13px', fontWeight: '700', textDecoration: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15,118,110,0.3)'
+              transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(255,138,0,0.3)'
             }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#115E59'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#0F766E'; e.currentTarget.style.transform = 'translateY(0)'; }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; }}
             >
               {action.icon} {action.label}
             </Link>

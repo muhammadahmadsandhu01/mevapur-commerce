@@ -91,7 +91,7 @@ export default function OrderDetailsPage() {
   if (loading) {
     return (
       <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#0F766E' }} />
+        <Loader size={40} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
       </div>
     );
   }
@@ -101,7 +101,7 @@ export default function OrderDetailsPage() {
       <div style={{ minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '40px 20px' }}>
         <div style={{ fontSize: '100px', marginBottom: '24px' }}>❌</div>
         <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>Order Not Found</h2>
-        <Link href="/orders" style={{ backgroundColor: '#0F766E', color: 'white', padding: '14px 32px', borderRadius: '50px', fontWeight: '700', textDecoration: 'none' }}>
+        <Link href="/orders" style={{ backgroundColor: '#FF8A00', color: '#0B132B', padding: '14px 32px', borderRadius: '50px', fontWeight: '700', textDecoration: 'none' }}>
           Back to Orders
         </Link>
       </div>
@@ -111,8 +111,8 @@ export default function OrderDetailsPage() {
   const statusColors: Record<string, { bg: string; text: string; border: string }> = {
     'Pending': { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
     'Processing': { bg: '#E0E7FF', text: '#4338CA', border: '#6366F1' },
-    'Shipped': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
-    'Delivered': { bg: '#D1FAE5', text: '#065F46', border: '#10B981' },
+    'Shipped': { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
+    'Delivered': { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
     'Cancelled': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' }
   };
 
@@ -130,7 +130,7 @@ export default function OrderDetailsPage() {
               width: '40px', 
               height: '40px', 
               borderRadius: '50%', 
-              backgroundColor: '#0F766E', 
+              backgroundColor: '#16A34A',
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center',
@@ -144,7 +144,7 @@ export default function OrderDetailsPage() {
                 {new Date(step.timestamp).toLocaleString('en-PK')}
               </div>
               {step.note && (
-                <div style={{ fontSize: '13px', color: '#0F766E', marginTop: '4px' }}>{step.note}</div>
+                <div style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>{step.note}</div>
               )}
             </div>
           </div>
@@ -171,7 +171,7 @@ export default function OrderDetailsPage() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Package size={28} color="#0F766E" />
+              <Package size={28} color="#FF8A00" />
               <div>
                 <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', margin: 0 }}>Order #{order.orderId}</h1>
                 <p style={{ fontSize: '14px', color: '#6B7280', margin: '4px 0 0' }}>
@@ -200,7 +200,7 @@ export default function OrderDetailsPage() {
             {(order.statusTimeline || order.timeline) && (order.statusTimeline || order.timeline)!.length > 0 && (
               <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
                 <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Truck size={20} color="#0F766E" /> Order Timeline
+                  <Truck size={20} color="#FF8A00" /> Order Timeline
                 </h3>
                 {renderTimeline()}
               </div>
@@ -209,7 +209,7 @@ export default function OrderDetailsPage() {
             {/* Products */}
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
               <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Package size={20} color="#0F766E" /> Products ({order.items.length})
+                <Package size={20} color="#FF8A00" /> Products ({order.items.length})
               </h3>
               {order.items.map((item, index) => {
                 const productName = typeof item.product === 'object' ? item.product.name : item.name;
@@ -223,9 +223,9 @@ export default function OrderDetailsPage() {
                       <div style={{ fontSize: '15px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{productName}</div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ fontSize: '13px', color: '#6B7280' }}>Qty: {item.quantity}</div>
-                        <div style={{ fontSize: '16px', fontWeight: '800', color: '#0F766E' }}>Rs. {(Number(item.price) * item.quantity).toFixed(2)}</div>
+                        <div style={{ fontSize: '16px', fontWeight: '800', color: '#FF8A00' }}>Rs. {(Number(item.price) * item.quantity).toFixed(2)}</div>
                       </div>
-                      {order.orderStatus === 'Delivered' && <Link href={`/account?order=${encodeURIComponent(order.orderId || order._id)}&product=${encodeURIComponent(String(returnProductId))}`} style={{ fontSize: '13px', color: '#0F766E' }}>Request a return for this item</Link>}
+                      {order.orderStatus === 'Delivered' && <Link href={`/account?order=${encodeURIComponent(order.orderId || order._id)}&product=${encodeURIComponent(String(returnProductId))}`} style={{ fontSize: '13px', color: '#0B132B' }}>Request a return for this item</Link>}
                     </div>
                   </div>
                 );
@@ -235,7 +235,7 @@ export default function OrderDetailsPage() {
             {/* Shipping Address */}
             <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
               <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <MapPin size={20} color="#0F766E" /> Shipping Address
+                <MapPin size={20} color="#FF8A00" /> Shipping Address
               </h3>
               <div style={{ fontSize: '14px', color: '#374151', lineHeight: '1.8' }}>
                 <strong>{order.shippingAddress.fullName}</strong><br />
@@ -249,7 +249,7 @@ export default function OrderDetailsPage() {
             {order.trackingNumber && (
               <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
                 <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Truck size={20} color="#0F766E" /> Tracking Information
+                  <Truck size={20} color="#FF8A00" /> Tracking Information
                 </h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
@@ -274,18 +274,18 @@ export default function OrderDetailsPage() {
                   <span style={{ fontWeight: '600' }}>Rs. {subtotal.toFixed(2)}</span>
                 </div>
                 {discount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px', color: '#0F766E' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px', color: '#FF8A00' }}>
                     <span>Discount</span>
                     <span style={{ fontWeight: '600' }}>-Rs. {discount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '14px' }}>
                   <span style={{ color: '#6B7280' }}>Shipping</span>
-                  <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#0F766E' : '#111827' }}>{shippingCost === 0 ? 'FREE' : `Rs. ${shippingCost.toFixed(2)}`}</span>
+                  <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#166534' : '#111827' }}>{shippingCost === 0 ? 'FREE' : `Rs. ${shippingCost.toFixed(2)}`}</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: '800', color: '#0F766E', paddingTop: '16px', borderTop: '2px solid #E5E7EB', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: '800', color: '#FF8A00', paddingTop: '16px', borderTop: '2px solid #E5E7EB', marginBottom: '24px' }}>
                 <span>Total</span>
                 <span>Rs. {totalAmount.toFixed(2)}</span>
               </div>
@@ -293,8 +293,8 @@ export default function OrderDetailsPage() {
               {/* Payment Info */}
               <div style={{ padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '10px', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <CreditCard size={16} color="#0F766E" />
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: '#0F766E' }}>Payment Method</span>
+                  <CreditCard size={16} color="#FF8A00" />
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: '#0B132B' }}>Payment Method</span>
                 </div>
                 <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{order.paymentMethod}</div>
                 <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px', textTransform: 'capitalize' }}>
@@ -305,7 +305,7 @@ export default function OrderDetailsPage() {
               {/* Action Buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <Link href={`/orders/${order._id}/invoice`} style={{
-                  width: '100%', backgroundColor: '#0F766E', color: 'white', border: 'none',
+                  width: '100%', backgroundColor: '#FF8A00', color: '#0B132B', border: 'none',
                   padding: '14px', borderRadius: '10px', fontSize: '14px', fontWeight: '700',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                 }}>
@@ -315,7 +315,7 @@ export default function OrderDetailsPage() {
                 {order.orderStatus === 'Delivered' && (
                   <>
                     <button onClick={() => setToast({ message: '✅ Items added to cart!', type: 'success' })} style={{
-                      width: '100%', backgroundColor: 'white', color: '#0F766E', border: '2px solid #0F766E',
+                      width: '100%', backgroundColor: 'white', color: '#0B132B', border: '2px solid #FF8A00',
                       padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: '700',
                       cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                     }}>

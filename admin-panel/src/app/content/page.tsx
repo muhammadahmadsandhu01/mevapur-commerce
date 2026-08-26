@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { 
   FileText, Image as ImageIcon, HelpCircle, MessageSquare, 
   Plus, Edit, Trash2, Eye, CheckCircle, XCircle, 
@@ -54,9 +55,27 @@ const resolveInitialTab = (defaultType?: ContentRouteType): ContentTab => (
     : 'pages'
 );
 
-export default function ContentManagementPage({
+const resolveContentRouteType = (pathname: string): ContentRouteType | undefined => {
+  if (pathname.endsWith('/pages')) return 'page';
+  if (pathname.endsWith('/banners')) return 'banner';
+  if (pathname.endsWith('/blogs')) return 'blog';
+  if (pathname.endsWith('/sliders')) return 'slider';
+  return undefined;
+};
+
+export default function ContentPage() {
+  const pathname = usePathname();
+
+  return (
+    <ContentManagementPage
+      defaultType={resolveContentRouteType(pathname)}
+    />
+  );
+}
+
+function ContentManagementPage({
   defaultType
-}: ContentManagementPageProps = {}) {
+}: ContentManagementPageProps) {
   const [activeTab, setActiveTab] = useState<ContentTab>(
     () => resolveInitialTab(defaultType)
   );
@@ -195,7 +214,7 @@ export default function ContentManagementPage({
         {searchQuery ? 'Try adjusting your search query.' : 'Get started by adding your first item.'}
       </p>
       <button style={{
-        padding: '10px 20px', backgroundColor: 'var(--primary)', color: 'var(--info-text)' border: 'none',
+        padding: '10px 20px', backgroundColor: 'var(--primary)', color: 'var(--info-text)', border: 'none',
         borderRadius: '8px', fontWeight: '600', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px'
       }}>
         <Plus size={16} /> Add New {activeTab.slice(0, -1)}

@@ -27,14 +27,14 @@ export default function ContactForm({
   // Helper for phone border color logic (moved from parent)
   const getPhoneBorderColor = () => {
     if (errors.phone && touched.phone) return "#EF4444";
-    if (touched.phone) return "#0F766E";
+    if (touched.phone) return "#16A34A";
     return "#E5E7EB";
   };
 
   return (
     <Card>
       <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2.5">
-        <Mail size={22} className="text-teal-700" /> 
+        <Mail size={22} className="text-[#ff8a00]" />
         Contact Information
       </h3>
       
@@ -67,7 +67,7 @@ export default function ContactForm({
       <div className="mt-5 relative">
         <label 
           className={`absolute left-4 bg-white px-1 transition-all duration-200 pointer-events-none
-            ${formData.phone ? '-top-2.5 text-xs font-bold text-teal-700' : 'top-3.5 text-sm font-semibold text-gray-500'}
+            ${formData.phone ? '-top-2.5 text-xs font-bold text-[#ff8a00]' : 'top-3.5 text-sm font-semibold text-gray-500'}
           `}
         >
           📱 Phone Number *
@@ -87,7 +87,7 @@ export default function ContactForm({
             value={formData.phone} 
             onChange={handleChange} 
             onBlur={handleFieldBlur("phone")}
-            className="flex-1 bg-gray-50 border-y-2 border-r-2 border-l-0 rounded-r-xl px-4 py-3 outline-none transition-all duration-200 font-medium text-gray-900 placeholder-gray-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            className="flex-1 bg-gray-50 border-y-2 border-r-2 border-l-0 rounded-r-xl px-4 py-3 outline-none transition-all duration-200 font-medium text-gray-900 placeholder-gray-400 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100"
             style={{ 
               borderColor: getPhoneBorderColor(),
               paddingTop: formData.phone ? '24px' : '12px', // Adjust for floating label if needed, but standard padding works here

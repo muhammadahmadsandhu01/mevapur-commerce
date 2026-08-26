@@ -26,3 +26,8 @@ Acceptance requires health/readiness, exact CORS/CSRF, auth cookies,
 authorization, sanitized logging, raw webhook verification, and synthetic
 commerce smoke tests. Roll back to the last approved artifact and environment
 version. Never use rollback to point at demo/staging credentials.
+
+For a fresh production database with zero users, follow the separately gated
+[one-time Super Admin bootstrap](./INITIAL_ADMIN_BOOTSTRAP.md). Never run that
+command as a Render start/build command, and remove its temporary environment
+variables immediately after verification.
