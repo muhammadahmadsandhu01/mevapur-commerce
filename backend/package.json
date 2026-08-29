@@ -9,7 +9,8 @@
     "test": "jest --watchAll --verbose",
     "test:ci": "jest --coverage --forceExit",
     "seed": "node database/seeders/index.js",
-    "bootstrap:initial-admin": "node scripts/create-admin.js"
+    "bootstrap:initial-admin": "node scripts/create-admin.js",
+    "recover:initial-admin-password": "node scripts/recover-initial-admin-password.js"
   },
   "keywords": [
     "ecommerce",

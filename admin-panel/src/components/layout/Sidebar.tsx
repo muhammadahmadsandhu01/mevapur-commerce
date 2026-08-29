@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { 
   LayoutDashboard, 
@@ -42,6 +42,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { copyrightLine } from '@/config/branding';
+import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
 
 interface SidebarProps {
@@ -138,8 +139,16 @@ const menuItems: MenuItem[] = [
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+  const logout = useAuthStore((state) => state.logout);
   const { isDark } = useThemeStore();
+
+  const handleLogout = () => {
+    void logout();
+    onClose();
+    router.push('/login');
+  };
 
   const toggleMenu = (href: string) => {
     setExpandedMenus(prev => 
@@ -355,6 +364,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             </p>
           )}
           <button
+            type="button"
+            onClick={handleLogout}
             style={{
               width: '100%',
               display: 'flex',
