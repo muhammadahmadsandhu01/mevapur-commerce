@@ -132,34 +132,6 @@ export default function ProductsPage() {
             Manage your product catalog, inventory, and variants.
           </p>
         </div>
-        <button
-          onClick={() => router.push('/admin/products/add')}
-          style={{
-            backgroundColor: 'var(--primary)',
-            color: '#0B132B',
-            border: 'none',
-            padding: '12px 20px',
-            borderRadius: '10px',
-            fontWeight: '700',
-            fontSize: '14px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s',
-            boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.backgroundColor = 'var(--primary-dark)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.backgroundColor = 'var(--primary)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <Plus size={18} /> Add Product
-        </button>
       </div>
 
       {/* Stats Cards */}
@@ -409,7 +381,7 @@ export default function ProductsPage() {
             {debouncedSearch ? 'Try adjusting your search or filters to find what you\'re looking for.' : 'Get started by creating your first product.'}
           </p>
           <button
-            onClick={() => router.push('/admin/products/add')}
+            onClick={() => router.push('/products/add')}
             style={{
               backgroundColor: 'var(--primary)',
               color: '#0B132B',

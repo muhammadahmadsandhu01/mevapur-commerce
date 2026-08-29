@@ -20,7 +20,6 @@ import {
   History,
   Truck,
   RotateCcw,
-  CreditCard,
   Mail,
   Image as ImageIcon,
   FolderTree,
@@ -76,7 +75,6 @@ const menuItems: MenuItem[] = [
   { icon: Star, label: 'Reviews', href: '/reviews' },
   { icon: Percent, label: 'Coupons', href: '/coupons' },
   { icon: Gift, label: 'Promotions', href: '/promotions' },
-  { icon: CreditCard, label: 'Payments', href: '/payments' },
   { icon: Truck, label: 'Shipping', href: '/shipping' },
   { 
     icon: RotateCcw, 
