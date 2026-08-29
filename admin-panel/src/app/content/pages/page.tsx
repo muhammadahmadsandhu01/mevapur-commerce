@@ -1,7 +1,5 @@
-'use client';
-
-import ContentPage from '../page';
+import { redirect } from 'next/navigation';
 
 export default function PagesPage() {
-  return <ContentPage />;
+  redirect('/content?type=page');
 }

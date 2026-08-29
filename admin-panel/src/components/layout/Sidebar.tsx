@@ -76,43 +76,13 @@ const menuItems: MenuItem[] = [
   { icon: Percent, label: 'Coupons', href: '/coupons' },
   { icon: Gift, label: 'Promotions', href: '/promotions' },
   { icon: Truck, label: 'Shipping', href: '/shipping' },
-  { 
-    icon: RotateCcw, 
-    label: 'Returns', 
-    href: '/returns',
-    submenu: [
-      { label: 'All Returns', href: '/returns' },
-      { label: 'Pending', href: '/returns?status=pending' },
-      { label: 'Approved', href: '/returns?status=approved' },
-      { label: 'Refunded', href: '/returns?status=refunded' },
-      { label: 'Rejected', href: '/returns?status=rejected' }
-    ]
-  },
+  { icon: RotateCcw, label: 'Returns', href: '/returns' },
   { icon: DollarSign, label: 'Payments & Refunds', href: '/refunds' },
   { icon: Bell, label: 'Notifications', href: '/notifications' },
-  { 
-    icon: FileSpreadsheet, 
-    label: 'Reports', 
-    href: '/reports',
-    submenu: [
-      { label: 'Sales Report', href: '/reports' },
-      { label: 'Products Report', href: '/reports?tab=products' },
-      { label: 'Customers Report', href: '/reports?tab=customers' },
-      { label: 'Orders Report', href: '/reports?tab=orders' }
-    ]
-  },
+  { icon: FileSpreadsheet, label: 'Reports', href: '/reports' },
   { icon: BarChart3, label: 'Analytics', href: '/analytics' },
   { icon: Megaphone, label: 'Marketing', href: '/marketing' },
-  { 
-    icon: ImageIcon, 
-    label: 'Content', 
-    href: '/content',
-    submenu: [
-      { label: 'Banners', href: '/content/banners' },
-      { label: 'Pages', href: '/content/pages' },
-      { label: 'Blogs', href: '/content/blogs' }
-    ]
-  },
+  { icon: ImageIcon, label: 'Content', href: '/content' },
   { icon: UsersRound, label: 'Users', href: '/users' },
   { icon: Shield, label: 'Roles', href: '/roles' },
   { icon: History, label: 'Activity Logs', href: '/activity-logs' },
