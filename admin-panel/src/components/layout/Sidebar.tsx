@@ -54,35 +54,19 @@ interface MenuItem {
   icon: LucideIcon;
   label: string;
   href: string;
-  badge?: string;
   submenu?: Array<{ label: string; href: string }>;
 }
 
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
-  { 
-    icon: ShoppingCart, 
-    label: 'Orders', 
-    href: '/orders',
-    badge: '12',
-    submenu: [
-      { label: 'All Orders', href: '/orders' },
-      { label: 'Pending', href: '/orders?status=pending' },
-      { label: 'Processing', href: '/orders?status=processing' },
-      { label: 'Shipped', href: '/orders?status=shipped' },
-      { label: 'Delivered', href: '/orders?status=delivered' },
-      { label: 'Cancelled', href: '/orders?status=cancelled' }
-    ]
-  },
+  { icon: ShoppingCart, label: 'Orders', href: '/orders' },
   { 
     icon: Package, 
     label: 'Products', 
     href: '/products',
     submenu: [
       { label: 'All Products', href: '/products' },
-      { label: 'Add Product', href: '/products/add' },
-      { label: 'Categories', href: '/categories' },
-      { label: 'Brands', href: '/brands' }
+      { label: 'Add Product', href: '/products/add' }
     ]
   },
   { icon: FolderTree, label: 'Categories', href: '/categories' },
@@ -244,7 +228,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <Link
                   href={item.href}
                   onClick={(e) => {
-                    if (hasSubmenu) {
+                    if (hasSubmenu && isOpen) {
                       e.preventDefault();
                       toggleMenu(item.href);
                     }
@@ -284,19 +268,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   {isOpen && (
                     <>
                       <span style={{ flex: 1 }}>{item.label}</span>
-                      {item.badge && (
-                        <span style={{
-                          backgroundColor: '#FF8A00',
-                          color: '#0B132B',
-                          padding: '2px 7px',
-                          borderRadius: '999px',
-                          fontSize: '10px',
-                          fontWeight: '700',
-                          letterSpacing: '0.02em'
-                        }}>
-                          {item.badge}
-                        </span>
-                      )}
                       {hasSubmenu && (
                         <ChevronDown 
                           size={14} 
