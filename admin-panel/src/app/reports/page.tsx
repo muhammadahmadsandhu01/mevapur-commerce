@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   AlertCircle,
   BarChart3,
@@ -18,73 +18,15 @@ import {
   Users
 } from 'lucide-react';
 import api from '@/lib/api';
-
-type ReportTab = 'sales' | 'products' | 'customers' | 'orders';
-
-interface SalesReport {
-  summary: {
-    totalRevenue: number;
-    totalOrders: number;
-    averageOrderValue: number;
-    period: string;
-  };
-  chartData: Array<{ date: string; revenue: number; orders: number }>;
-  paymentMethods: Array<{ _id: string | null; count: number; total: number }>;
-}
-
-interface ProductRecord {
-  _id: string;
-  name: string;
-  price: number;
-  stock: number;
-  soldCount: number;
-  category?: string;
-}
-
-interface ProductReport {
-  topProducts: ProductRecord[];
-  categoryStats: Array<{
-    _id: string | null;
-    totalSales: number;
-    totalRevenue: number;
-    productCount: number;
-  }>;
-  lowStockProducts: ProductRecord[];
-  outOfStockCount: number;
-  totalProducts: number;
-}
-
-interface CustomerReport {
-  summary: {
-    totalCustomers: number;
-    newCustomers: number;
-    growthRate: number | string;
-  };
-  topSpenders: Array<{
-    userId: string;
-    fullName: string;
-    email: string;
-    totalSpent: number;
-    orderCount: number;
-  }>;
-  customerGrowth: Array<{ date: string; newCustomers: number }>;
-}
-
-interface OrderReport {
-  statusBreakdown: Array<{ _id: string | null; count: number; totalValue: number }>;
-  recentOrders: Array<{
-    _id: string;
-    orderId?: string;
-    user?: { fullName?: string; email?: string } | null;
-    totalAmount: number;
-    orderStatus: string;
-    createdAt: string;
-  }>;
-  avgProcessingTime: string;
-  totalOrders: number;
-}
-
-type ReportData = SalesReport | ProductReport | CustomerReport | OrderReport;
+import {
+  initialReportState,
+  isReportTab,
+  reportForTab,
+  reportLoadReducer,
+  validateReportData,
+  type ReportTab,
+  type ValidatedReport
+} from './reportData';
 
 const reportTabs: Array<{
   value: ReportTab;
@@ -98,7 +40,6 @@ const reportTabs: Array<{
 ];
 
 const exportableTabs = new Set<ReportTab>(['products', 'customers', 'orders']);
-const isReportTab = (value: string | null): value is ReportTab => reportTabs.some((tab) => tab.value === value);
 
 const numberFormatter = new Intl.NumberFormat('en-PK');
 const currencyFormatter = new Intl.NumberFormat('en-PK', {
@@ -138,10 +79,13 @@ function ReportsView() {
   const requestedTab = searchParams.get('tab');
   const activeTab: ReportTab = isReportTab(requestedTab) ? requestedTab : 'sales';
   const requestSequence = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
 
-  const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [reportState, dispatchReport] = useReducer(
+    reportLoadReducer,
+    activeTab,
+    initialReportState
+  );
   const [filterError, setFilterError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
@@ -156,27 +100,33 @@ function ReportsView() {
     if (!isReportTab(requestedTab)) router.replace('/reports?tab=sales', { scroll: false });
   }, [requestedTab, router]);
 
-  const loadReport = useCallback(async (signal?: AbortSignal) => {
-    const sequence = ++requestSequence.current;
+  const loadReport = useCallback(async () => {
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const requestId = ++requestSequence.current;
+    const tab = activeTab;
     const params: Record<string, string> = {};
-    setError('');
+    dispatchReport({ type: 'request', tab, requestId });
     setExportMessage('');
 
-    if (activeTab === 'sales') params.period = salesPeriod;
-    if (activeTab === 'products') {
+    if (tab === 'sales') params.period = salesPeriod;
+    if (tab === 'products') {
       params.sortBy = productSort;
       params.limit = productLimit;
     }
-    if (activeTab === 'customers') params.period = customerPeriod;
-    if (activeTab === 'orders') {
+    if (tab === 'customers') params.period = customerPeriod;
+    if (tab === 'orders') {
       if (Boolean(orderStartDate) !== Boolean(orderEndDate)) {
         setFilterError('Choose both an order start date and end date, or clear both.');
-        setLoading(false);
+        dispatchReport({ type: 'idle', tab, requestId });
+        if (activeRequest.current === controller) activeRequest.current = null;
         return;
       }
       if (orderStartDate && orderEndDate && orderStartDate > orderEndDate) {
         setFilterError('Order end date must not be earlier than the start date.');
-        setLoading(false);
+        dispatchReport({ type: 'idle', tab, requestId });
+        if (activeRequest.current === controller) activeRequest.current = null;
         return;
       }
       if (orderStartDate && orderEndDate) {
@@ -186,36 +136,46 @@ function ReportsView() {
     }
 
     setFilterError('');
-    setLoading(true);
 
     try {
-      const response = await api.get(`/reports/${activeTab}`, { params, signal });
+      const response = await api.get(`/reports/${tab}`, {
+        params,
+        signal: controller.signal
+      });
       if (response.data?.success !== true || !response.data.data) {
         throw new Error('Unexpected report response');
       }
-      if (sequence === requestSequence.current) setData(response.data.data);
+      const report = validateReportData(tab, response.data.data);
+      if (!report) throw new Error('Invalid report response');
+      dispatchReport({ type: 'success', report, requestId });
     } catch (requestError) {
-      if (axios.isCancel(requestError) || signal?.aborted) return;
-      if (sequence === requestSequence.current) {
-        setData(null);
-        setError('The selected report could not be loaded. Confirm your Admin session and try again.');
-      }
+      if (axios.isCancel(requestError) || controller.signal.aborted) return;
+      dispatchReport({
+        type: 'error',
+        tab,
+        requestId,
+        message: 'The selected report could not be loaded. Confirm your Admin session and try again.'
+      });
     } finally {
-      if (sequence === requestSequence.current) setLoading(false);
+      if (activeRequest.current === controller) activeRequest.current = null;
     }
   }, [activeTab, customerPeriod, orderEndDate, orderStartDate, productLimit, productSort, salesPeriod]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => void loadReport(controller.signal), 0);
+    const timer = window.setTimeout(() => void loadReport(), 0);
     return () => {
       window.clearTimeout(timer);
-      controller.abort();
+      activeRequest.current?.abort();
     };
   }, [loadReport]);
 
   const selectTab = (tab: ReportTab) => {
     if (tab === activeTab) return;
+    activeRequest.current?.abort();
+    const requestId = ++requestSequence.current;
+    dispatchReport({ type: 'request', tab, requestId });
+    setFilterError('');
+    setExportMessage('');
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     router.push(`/reports?${params.toString()}`, { scroll: false });
@@ -256,28 +216,32 @@ function ReportsView() {
     return <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}><label style={{ color: 'var(--text-primary)', fontSize: '12px', fontWeight: '800' }}>Start date<input type="date" value={orderStartDate} onChange={(event) => setOrderStartDate(event.target.value)} style={{ marginLeft: '8px', padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-primary)' }} /></label><label style={{ color: 'var(--text-primary)', fontSize: '12px', fontWeight: '800' }}>End date<input type="date" value={orderEndDate} onChange={(event) => setOrderEndDate(event.target.value)} style={{ marginLeft: '8px', padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-primary)' }} /></label></div>;
   };
 
-  const renderData = () => {
-    if (!data) return null;
-
-    if (activeTab === 'sales') {
-      const report = data as SalesReport;
+  const renderData = (validatedReport: ValidatedReport) => {
+    if (validatedReport.tab === 'sales') {
+      const report = validatedReport.data;
       return <><section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '18px' }}><KpiCard label="Revenue" value={currencyFormatter.format(report.summary.totalRevenue)} icon={TrendingUp} /><KpiCard label="Orders" value={numberFormatter.format(report.summary.totalOrders)} icon={ShoppingCart} /><KpiCard label="Average order value" value={currencyFormatter.format(report.summary.averageOrderValue)} icon={BarChart3} /><KpiCard label="Payment methods" value={numberFormatter.format(report.paymentMethods.length)} icon={FileSpreadsheet} /></section><section style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}><div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-color)' }}><h2 style={{ color: 'var(--text-primary)', fontSize: '16px', fontWeight: '800' }}>Sales by period</h2></div>{report.chartData.length === 0 ? <EmptyReport message="No non-cancelled sales were recorded for this report period." /> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', minWidth: '560px', borderCollapse: 'collapse' }}><thead><tr style={{ background: 'var(--bg-primary)' }}>{['Period', 'Orders', 'Revenue'].map((heading) => <th key={heading} style={{ padding: '12px 15px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px' }}>{heading}</th>)}</tr></thead><tbody>{report.chartData.map((row) => <tr key={row.date} style={{ borderTop: '1px solid var(--border-color)' }}><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '700' }}>{row.date}</td><td style={{ padding: '13px 15px', color: 'var(--text-secondary)' }}>{numberFormatter.format(row.orders)}</td><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '800' }}>{currencyFormatter.format(row.revenue)}</td></tr>)}</tbody></table></div>}</section></>;
     }
 
-    if (activeTab === 'products') {
-      const report = data as ProductReport;
+    if (validatedReport.tab === 'products') {
+      const report = validatedReport.data;
       return <><section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '18px' }}><KpiCard label="Total products" value={numberFormatter.format(report.totalProducts)} icon={Package} /><KpiCard label="Out of stock" value={numberFormatter.format(report.outOfStockCount)} icon={AlertCircle} /><KpiCard label="Low-stock records" value={numberFormatter.format(report.lowStockProducts.length)} icon={Box} /><KpiCard label="Reported categories" value={numberFormatter.format(report.categoryStats.length)} icon={BarChart3} /></section><section style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}><div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-color)' }}><h2 style={{ color: 'var(--text-primary)', fontSize: '16px', fontWeight: '800' }}>Product performance</h2></div>{report.topProducts.length === 0 ? <EmptyReport message="No products are available for this report." /> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', minWidth: '650px', borderCollapse: 'collapse' }}><thead><tr style={{ background: 'var(--bg-primary)' }}>{['Product', 'Price', 'Stock', 'Units sold'].map((heading) => <th key={heading} style={{ padding: '12px 15px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px' }}>{heading}</th>)}</tr></thead><tbody>{report.topProducts.map((product) => <tr key={product._id} style={{ borderTop: '1px solid var(--border-color)' }}><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '700' }}>{product.name}</td><td style={{ padding: '13px 15px', color: 'var(--text-primary)' }}>{currencyFormatter.format(product.price)}</td><td style={{ padding: '13px 15px', color: 'var(--text-secondary)' }}>{numberFormatter.format(product.stock)}</td><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '800' }}>{numberFormatter.format(product.soldCount)}</td></tr>)}</tbody></table></div>}</section></>;
     }
 
-    if (activeTab === 'customers') {
-      const report = data as CustomerReport;
+    if (validatedReport.tab === 'customers') {
+      const report = validatedReport.data;
       const growth = Number(report.summary.growthRate);
       return <><section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '18px' }}><KpiCard label="Total customers" value={numberFormatter.format(report.summary.totalCustomers)} icon={Users} /><KpiCard label={`New in ${customerPeriod} days`} value={numberFormatter.format(report.summary.newCustomers)} icon={TrendingUp} /><KpiCard label="New / total" value={`${Number.isFinite(growth) ? growth.toFixed(2) : '0.00'}%`} icon={BarChart3} /><KpiCard label="Top spenders shown" value={numberFormatter.format(report.topSpenders.length)} icon={FileSpreadsheet} /></section><section style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}><div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-color)' }}><h2 style={{ color: 'var(--text-primary)', fontSize: '16px', fontWeight: '800' }}>Top customers by spend</h2></div>{report.topSpenders.length === 0 ? <EmptyReport message="No customer spending is available for this report." /> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', minWidth: '700px', borderCollapse: 'collapse' }}><thead><tr style={{ background: 'var(--bg-primary)' }}>{['Customer', 'Email', 'Orders', 'Total spent'].map((heading) => <th key={heading} style={{ padding: '12px 15px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px' }}>{heading}</th>)}</tr></thead><tbody>{report.topSpenders.map((customer) => <tr key={customer.userId} style={{ borderTop: '1px solid var(--border-color)' }}><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '700' }}>{customer.fullName}</td><td style={{ padding: '13px 15px', color: 'var(--text-secondary)' }}>{customer.email}</td><td style={{ padding: '13px 15px', color: 'var(--text-secondary)' }}>{numberFormatter.format(customer.orderCount)}</td><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '800' }}>{currencyFormatter.format(customer.totalSpent)}</td></tr>)}</tbody></table></div>}</section></>;
     }
 
-    const report = data as OrderReport;
+    const report = validatedReport.data;
     return <><section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '18px' }}><KpiCard label="Total orders" value={numberFormatter.format(report.totalOrders)} icon={ShoppingCart} /><KpiCard label="Average processing" value={report.avgProcessingTime} icon={CalendarDays} /><KpiCard label="Statuses represented" value={numberFormatter.format(report.statusBreakdown.length)} icon={BarChart3} /><KpiCard label="Recent orders shown" value={numberFormatter.format(report.recentOrders.length)} icon={FileSpreadsheet} /></section><section style={{ ...cardStyle, overflow: 'hidden', padding: 0 }}><div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-color)' }}><h2 style={{ color: 'var(--text-primary)', fontSize: '16px', fontWeight: '800' }}>Recent orders</h2></div>{report.recentOrders.length === 0 ? <EmptyReport message="No orders are available for this report period." /> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse' }}><thead><tr style={{ background: 'var(--bg-primary)' }}>{['Order', 'Customer', 'Status', 'Total', 'Created'].map((heading) => <th key={heading} style={{ padding: '12px 15px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '11px' }}>{heading}</th>)}</tr></thead><tbody>{report.recentOrders.map((order) => <tr key={order._id} style={{ borderTop: '1px solid var(--border-color)' }}><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '700' }}>{order.orderId || order._id}</td><td style={{ padding: '13px 15px', color: 'var(--text-secondary)' }}>{order.user?.fullName || 'Guest or unavailable'}</td><td style={{ padding: '13px 15px', color: 'var(--text-primary)' }}>{order.orderStatus}</td><td style={{ padding: '13px 15px', color: 'var(--text-primary)', fontWeight: '800' }}>{currencyFormatter.format(order.totalAmount)}</td><td style={{ padding: '13px 15px', color: 'var(--text-secondary)' }}>{dateFormatter.format(new Date(order.createdAt))}</td></tr>)}</tbody></table></div>}</section></>;
   };
+
+  const visibleReport = reportForTab(reportState, activeTab);
+  const loading = reportState.tab !== activeTab || reportState.status === 'loading';
+  const error = reportState.tab === activeTab && reportState.status === 'error'
+    ? reportState.message
+    : '';
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
@@ -290,7 +254,7 @@ function ReportsView() {
 
       <section style={{ ...cardStyle, marginBottom: '18px' }}>{renderControls()}{filterError && <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '7px', color: 'var(--danger-text)', fontSize: '12px', fontWeight: '700', marginTop: '10px' }}><AlertCircle size={15} /> {filterError}</div>}</section>
 
-      {loading ? <div style={{ minHeight: '300px', display: 'grid', placeItems: 'center', ...cardStyle }}><Loader className="animate-spin" size={30} color="var(--accent-text)" aria-label="Loading report" /></div> : error ? <div role="alert" style={{ padding: '42px 20px', textAlign: 'center', border: '1px solid var(--danger-text)', borderRadius: '12px', background: 'var(--card-bg)' }}><AlertCircle size={38} color="var(--danger-text)" style={{ margin: '0 auto 12px' }} /><h2 style={{ color: 'var(--text-primary)', fontSize: '18px', fontWeight: '800', marginBottom: '8px' }}>Report unavailable</h2><p style={{ color: 'var(--danger-text)', fontSize: '13px', marginBottom: '16px' }}>{error}</p><button type="button" onClick={() => void loadReport()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 14px', border: 0, borderRadius: '8px', background: 'var(--primary)', color: '#0B132B', fontWeight: '800', cursor: 'pointer' }}><RefreshCw size={16} /> Retry</button></div> : filterError ? null : renderData()}
+      {loading ? <div style={{ minHeight: '300px', display: 'grid', placeItems: 'center', ...cardStyle }}><Loader className="animate-spin" size={30} color="var(--accent-text)" aria-label="Loading report" /></div> : error ? <div role="alert" style={{ padding: '42px 20px', textAlign: 'center', border: '1px solid var(--danger-text)', borderRadius: '12px', background: 'var(--card-bg)' }}><AlertCircle size={38} color="var(--danger-text)" style={{ margin: '0 auto 12px' }} /><h2 style={{ color: 'var(--text-primary)', fontSize: '18px', fontWeight: '800', marginBottom: '8px' }}>Report unavailable</h2><p style={{ color: 'var(--danger-text)', fontSize: '13px', marginBottom: '16px' }}>{error}</p><button type="button" onClick={() => void loadReport()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 14px', border: 0, borderRadius: '8px', background: 'var(--primary)', color: '#0B132B', fontWeight: '800', cursor: 'pointer' }}><RefreshCw size={16} /> Retry</button></div> : filterError ? null : visibleReport ? renderData(visibleReport) : null}
     </div>
   );
 }
