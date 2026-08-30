@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PRODUCT_PLACEHOLDER, AVATAR_PLACEHOLDER } from '../src/lib/placeholder.ts';
 import { toggleTopBarPopover } from '../src/lib/notificationUi.ts';
+import { isPublicAuthRoute } from '../src/lib/authRoute.ts';
 
 // 1. Profile normalization/payload
 test('profile normalization correctly conditionalizes avatar payload', () => {
@@ -458,29 +459,23 @@ test('reset-token URL parsing and payload match backend AuthService contracts', 
 
 // 26. Exact public-route allowlist matching
 test('exact public-route allowlist matching and normalization', () => {
-  const PUBLIC_AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
-  const checkPublic = (path: string) => {
-    const normalizedPath = path.replace(/\/$/, '') || '/';
-    return PUBLIC_AUTH_ROUTES.includes(normalizedPath);
-  };
+  assert.equal(isPublicAuthRoute('/login'), true);
+  assert.equal(isPublicAuthRoute('/forgot-password'), true);
+  assert.equal(isPublicAuthRoute('/reset-password'), true);
+  assert.equal(isPublicAuthRoute('/login/'), true);
+  assert.equal(isPublicAuthRoute('/forgot-password/'), true);
+  assert.equal(isPublicAuthRoute('/reset-password/'), true);
 
-  assert.equal(checkPublic('/login'), true);
-  assert.equal(checkPublic('/forgot-password'), true);
-  assert.equal(checkPublic('/reset-password'), true);
-  assert.equal(checkPublic('/login/'), true);
-  assert.equal(checkPublic('/forgot-password/'), true);
-  assert.equal(checkPublic('/reset-password/'), true);
-
-  // Trailing slash query params
-  assert.equal(checkPublic('/forgot-password?token=123'.split('?')[0]), true);
-  assert.equal(checkPublic('/reset-password?token=xyz'.split('?')[0]), true);
+  // Trailing slash query params (Next.js usePathname returns only the pathname part e.g. /forgot-password)
+  assert.equal(isPublicAuthRoute('/forgot-password?token=123'.split('?')[0]), true);
+  assert.equal(isPublicAuthRoute('/reset-password?token=xyz'.split('?')[0]), true);
 
   // Non-allowlisted paths
-  assert.equal(checkPublic('/'), false);
-  assert.equal(checkPublic('/profile'), false);
-  assert.equal(checkPublic('/orders'), false);
-  assert.equal(checkPublic('/forgot-password/anything'), false);
-  assert.equal(checkPublic('/reset-password/anything'), false);
+  assert.equal(isPublicAuthRoute('/'), false);
+  assert.equal(isPublicAuthRoute('/profile'), false);
+  assert.equal(isPublicAuthRoute('/orders'), false);
+  assert.equal(isPublicAuthRoute('/forgot-password/anything'), false);
+  assert.equal(isPublicAuthRoute('/reset-password/anything'), false);
 });
 
 // 27. Public route layout exclusion of protected chrome

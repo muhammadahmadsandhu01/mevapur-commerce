@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { CANONICAL_ROLES } = require('../constants/roleConstants');
 
 const userSchema = new mongoose.Schema(
   {
@@ -37,8 +38,8 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ['customer', 'support', 'inventory', 'manager', 'admin', 'super_admin'],
-      default: 'customer',
+      enum: Object.values(CANONICAL_ROLES),
+      default: CANONICAL_ROLES.CUSTOMER,
       index: true // RBAC queries ke liye optimized
     },
 

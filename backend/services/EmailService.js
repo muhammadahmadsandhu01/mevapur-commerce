@@ -29,6 +29,9 @@ class EmailService {
    */
   async sendPasswordResetEmail(email, fullName, token, options = {}) {
     const audience = options.audience || 'storefront';
+    if (!['admin', 'storefront'].includes(audience)) {
+      throw new Error(`Invalid audience for password reset: ${audience}`);
+    }
     const { getRuntimeConfig } = require('../config/runtime.config');
     const runtimeConfig = getRuntimeConfig();
 

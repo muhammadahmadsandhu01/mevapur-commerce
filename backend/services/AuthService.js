@@ -400,10 +400,11 @@ class AuthService {
       return { success: true };
     }
 
-    let audience = 'storefront';
-    if (user.role === 'customer') {
+    const { CANONICAL_ROLES, STAFF_ROLES } = require('../constants/roleConstants');
+    let audience;
+    if (user.role === CANONICAL_ROLES.CUSTOMER) {
       audience = 'storefront';
-    } else if (['admin', 'super_admin', 'support', 'inventory', 'manager'].includes(user.role)) {
+    } else if (STAFF_ROLES.includes(user.role)) {
       audience = 'admin';
     } else {
       await AuditService.log({

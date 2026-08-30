@@ -8,6 +8,7 @@ import TopBar from '@/components/layout/TopBar';
 import AdminGuard from '../components/admin/AdminGuard';
 import AdminHelpAssistant from '@/components/assistant/AdminHelpAssistant';
 import { branding } from '@/config/branding';
+import { isPublicAuthRoute } from '@/lib/authRoute';
 
 const subscribeToHydration = () => () => {};
 
@@ -151,8 +152,6 @@ const GLOBAL_CSS = `
   }
 `;
 
-const PUBLIC_AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
-
 export default function AdminLayout({
   children,
 }: {
@@ -200,8 +199,7 @@ export default function AdminLayout({
   }, [isDark, mounted]);
 
   // ✅ Public auth pages ko guard aur chrome layout se bahar rakha hai
-  const normalizedPath = pathname.replace(/\/$/, '') || '/';
-  const isPublicRoute = PUBLIC_AUTH_ROUTES.includes(normalizedPath);
+  const isPublicRoute = isPublicAuthRoute(pathname);
 
   if (isPublicRoute) {
     return (
