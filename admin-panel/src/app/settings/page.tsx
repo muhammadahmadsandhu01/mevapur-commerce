@@ -12,6 +12,7 @@ import api from '@/lib/api';
 // --- Reusable UI Components for Clean Code ---
 
 interface InputGroupProps {
+  id?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -51,34 +52,41 @@ interface ProviderCredentialStatus {
   easypaisa: { configured: boolean };
 }
 
-const InputGroup = ({ label, value, onChange, type = 'text', placeholder = '', icon: Icon, error }: InputGroupProps) => (
-  <div>
-    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-      {Icon && <Icon size={16} />}
-      {label}
-    </label>
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      style={{
-        width: '100%',
-        padding: '12px 16px',
-        border: error ? '1px solid #DC2626' : '1px solid var(--border-color)',
-        borderRadius: '10px',
-        fontSize: '14px',
-        outline: 'none',
-        backgroundColor: 'var(--input-bg)',
-        color: 'var(--text-primary)',
-        transition: 'all 0.2s'
-      }}
-      onFocus={(e) => !error && (e.currentTarget.style.borderColor = 'var(--primary)')}
-      onBlur={(e) => !error && (e.currentTarget.style.borderColor = 'var(--border-color)')}
-    />
-    {error && <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={12} /> {error}</p>}
-  </div>
-);
+const InputGroup = ({ id, label, value, onChange, type = 'text', placeholder = '', icon: Icon, error }: InputGroupProps) => {
+  const inputId = id || `settings-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  return (
+    <div>
+      <label
+        htmlFor={inputId}
+        style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+      >
+        {Icon && <Icon size={16} />}
+        {label}
+      </label>
+      <input
+        id={inputId}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          width: '100%',
+          padding: '12px 16px',
+          border: error ? '1px solid #DC2626' : '1px solid var(--border-color)',
+          borderRadius: '10px',
+          fontSize: '14px',
+          outline: 'none',
+          backgroundColor: 'var(--input-bg)',
+          color: 'var(--text-primary)',
+          transition: 'all 0.2s'
+        }}
+        onFocus={(e) => !error && (e.currentTarget.style.borderColor = 'var(--primary)')}
+        onBlur={(e) => !error && (e.currentTarget.style.borderColor = 'var(--border-color)')}
+      />
+      {error && <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={12} /> {error}</p>}
+    </div>
+  );
+};
 
 const ToggleField = ({ label, description, checked, onChange, activeColor = 'var(--primary)' }: ToggleFieldProps) => (
   <div style={{ 
@@ -95,6 +103,10 @@ const ToggleField = ({ label, description, checked, onChange, activeColor = 'var
       {description && <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{description}</div>}
     </div>
     <button 
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)} 
       style={{ 
         width: '48px', 
@@ -474,8 +486,9 @@ export default function SettingsPage() {
                 <InputGroup label="Store Phone" type="tel" value={storeData.store_phone} onChange={(v: string) => setStoreData({ ...storeData, store_phone: v })} icon={Shield} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>Store Address</label>
+                <label htmlFor="store-address" style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>Store Address</label>
                 <textarea
+                  id="store-address"
                   rows={3}
                   value={storeData.store_address}
                   onChange={(e) => setStoreData({ ...storeData, store_address: e.target.value })}

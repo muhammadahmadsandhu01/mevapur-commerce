@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { 
   Users, Search, Filter, Download, Mail, Phone, MapPin,
   ShoppingCart, Calendar, TrendingUp, Star, MoreVertical,
@@ -28,10 +29,21 @@ interface Customer {
   tags?: string[];
 }
 
-export default function CustomersPage() {
+function CustomersListContent() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const urlQuery = searchParams.get('search') || searchParams.get('keyword') || '';
+    if (urlQuery !== searchQuery) {
+      const timer = setTimeout(() => {
+        setSearchQuery(urlQuery);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, searchQuery]);
   const [filterType, setFilterType] = useState<'all' | 'active' | 'inactive' | 'vip'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'totalSpent' | 'totalOrders' | 'lastOrderDate'>('name');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -656,5 +668,18 @@ export default function CustomersPage() {
         }
       `}</style>
     </div>
+  );
+
+}
+
+export default function CustomersPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+        <p style={{ color: 'var(--text-secondary)' }}>Loading customers...</p>
+      </div>
+    }>
+      <CustomersListContent />
+    </Suspense>
   );
 }

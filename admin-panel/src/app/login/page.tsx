@@ -1,14 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Lock, Mail, CheckCircle } from 'lucide-react';
+import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
-import { Lock, Mail } from 'lucide-react';
+
 import BrandLogo from '@/components/brand/BrandLogo';
 import { branding } from '@/config/branding';
 
-export default function AdminLogin() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const message = searchParams.get('message');
+  const successMessage = message === 'changed' ? 'Password changed. Sign in again.' : null;
   const { login } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -87,39 +92,68 @@ export default function AdminLogin() {
           </p>
         </div>
 
+        {successMessage && (
+          <div
+            role="status"
+            style={{
+              backgroundColor: '#ECFDF5',
+              color: '#047857',
+              padding: '12px 14px',
+              borderRadius: '10px',
+              marginBottom: '20px',
+              fontSize: '13.5px',
+              fontWeight: '600',
+              border: '1px solid #A7F3D0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            <CheckCircle size={16} />
+            {successMessage}
+          </div>
+        )}
+
         {error && (
-          <div style={{
-            backgroundColor: '#FEF2F2',
-            color: '#DC2626',
-            padding: '12px 14px',
-            borderRadius: '10px',
-            marginBottom: '20px',
-            fontSize: '13.5px',
-            fontWeight: '600',
-            border: '1px solid #FECACA',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
+          <div
+            role="alert"
+            style={{
+              backgroundColor: '#FEF2F2',
+              color: '#DC2626',
+              padding: '12px 14px',
+              borderRadius: '10px',
+              marginBottom: '20px',
+              fontSize: '13.5px',
+              fontWeight: '600',
+              border: '1px solid #FECACA',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '13.5px',
-              fontWeight: '600',
-              color: '#111827',
-              marginBottom: '8px'
-            }}>
+            <label
+              htmlFor="admin-login-email"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '13.5px',
+                fontWeight: '600',
+                color: '#111827',
+                marginBottom: '8px'
+              }}
+            >
               <Mail size={15} color="#6B7280" />
               Email Address
             </label>
             <input
+              id="admin-login-email"
               type="email"
               required
               value={formData.email}
@@ -150,20 +184,36 @@ export default function AdminLogin() {
             />
           </div>
 
-          <div style={{ marginBottom: '28px' }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '13.5px',
-              fontWeight: '600',
-              color: '#111827',
-              marginBottom: '8px'
-            }}>
-              <Lock size={15} color="#6B7280" />
-              Password
-            </label>
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label
+                htmlFor="admin-login-password"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '13.5px',
+                  fontWeight: '600',
+                  color: '#111827'
+                }}
+              >
+                <Lock size={15} color="#6B7280" />
+                Password
+              </label>
+              <Link
+                href="/forgot-password"
+                style={{
+                  fontSize: '12.5px',
+                  color: '#B45309',
+                  textDecoration: 'none',
+                  fontWeight: '600'
+                }}
+              >
+                Forgot Password?
+              </Link>
+            </div>
             <input
+              id="admin-login-password"
               type="password"
               required
               value={formData.password}
@@ -229,7 +279,40 @@ export default function AdminLogin() {
             {loading ? 'Logging in…' : 'Login to Admin Panel'}
           </button>
         </form>
+
+        <div style={{ marginTop: '24px', textAlign: 'center', borderTop: '1px solid #F3F4F6', paddingTop: '16px' }}>
+          <Link
+            href="/forgot-password"
+            style={{
+              fontSize: '13px',
+              color: '#6B7280',
+              textDecoration: 'none',
+              fontWeight: '500'
+            }}
+          >
+            Need administrator credential recovery?
+          </Link>
+        </div>
       </div>
     </div>
+  );
+}
+
+export default function AdminLogin() {
+  return (
+    <Suspense fallback={
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: '#F7F7F5',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+      }}>
+        <div style={{ color: '#6B7280', fontSize: '14px' }}>Loading...</div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

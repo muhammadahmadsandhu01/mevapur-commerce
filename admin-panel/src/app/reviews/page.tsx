@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight, X, ThumbsUp, User
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 
 interface Review {
   _id: string;
@@ -254,9 +255,26 @@ export default function ReviewsPage() {
         alignItems: 'center'
       }}>
         <div style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
-          <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+          <label
+            htmlFor="reviews-search-input"
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              overflow: 'hidden',
+              clip: 'rect(0,0,0,0)',
+              border: 0
+            }}
+          >
+            Search reviews
+          </label>
+          <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           <input
-            type="text"
+            id="reviews-search-input"
+            type="search"
+            aria-label="Search reviews by product, customer, or comment"
             placeholder="Search by product, customer, or comment..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -274,6 +292,7 @@ export default function ReviewsPage() {
         </div>
 
         <select
+          aria-label="Filter reviews by approval status"
           value={filterType}
           onChange={(e) => {
             setFilterType(e.target.value as typeof filterType);
@@ -298,6 +317,7 @@ export default function ReviewsPage() {
         </select>
 
         <select
+          aria-label="Filter reviews by star rating"
           value={ratingFilter}
           onChange={(e) => {
             setRatingFilter(e.target.value as typeof ratingFilter);
@@ -387,8 +407,9 @@ export default function ReviewsPage() {
                     flexShrink: 0
                   }}>
                     <img 
-                      src={review.product.images?.[0] || 'https://via.placeholder.com/100x100?text=Product'} 
+                      src={review.product.images?.[0] || PRODUCT_PLACEHOLDER} 
                       alt={review.product.name}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   </div>
@@ -685,8 +706,9 @@ export default function ReviewsPage() {
                   flexShrink: 0
                 }}>
                   <img 
-                    src={selectedReview.product.images?.[0] || 'https://via.placeholder.com/80x80'} 
+                    src={selectedReview.product.images?.[0] || PRODUCT_PLACEHOLDER} 
                     alt={selectedReview.product.name}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                 </div>

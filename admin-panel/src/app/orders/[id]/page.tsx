@@ -9,6 +9,7 @@ import {
   Loader, AlertCircle, Save, X, Star, ShoppingBag
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 import axios from 'axios';
 
 interface OrderItem {
@@ -489,7 +490,7 @@ export default function OrderDetailPage() {
               {order.items.map((item, index) => {
                 const productImage = item.image || 
                   (typeof item.product === 'object' ? item.product.images?.[0] : null) ||
-                  'https://via.placeholder.com/80x80?text=No+Image';
+                  PRODUCT_PLACEHOLDER;
                 const productName = item.name || (typeof item.product === 'object' ? item.product.name : 'Unknown Product');
                 
                 return (
@@ -506,7 +507,7 @@ export default function OrderDetailPage() {
                       src={productImage}
                       alt={productName}
                       style={{ width: '80px', height: '80px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-                      onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/80x80?text=No+Image'; }}
+                      onError={(e) => { (e.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '15px', marginBottom: '4px' }}>

@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Package, Search, Plus, Edit, Trash2, Eye, 
   ChevronLeft, ChevronRight, Loader, TrendingUp, 
   AlertCircle, CheckCircle, XCircle, LayoutGrid, 
-  List, MoreVertical, Filter, X
+  List, X
 } from 'lucide-react';
 import { getProducts, deleteProduct } from '@/lib/api';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 
 interface Product {
   _id: string;
@@ -32,12 +33,15 @@ interface Product {
   createdAt: string;
 }
 
-export default function ProductsPage() {
+function ProductsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get('search') || searchParams.get('keyword') || '';
+
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [page, setPage] = useState(1);
@@ -45,6 +49,19 @@ export default function ProductsPage() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list'); // Enterprise default: List
+
+  // Sync with URL query parameter changes
+  useEffect(() => {
+    const urlQuery = searchParams.get('search') || searchParams.get('keyword') || '';
+    if (urlQuery !== searchQuery) {
+      const timer = setTimeout(() => {
+        setSearchQuery(urlQuery);
+        setDebouncedSearch(urlQuery);
+        setPage(1);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, searchQuery]);
 
   // Debounced search
   useEffect(() => {
@@ -199,9 +216,26 @@ export default function ProductsPage() {
         alignItems: 'center'
       }}>
         <div style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
+          <label
+            htmlFor="products-search-input"
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              overflow: 'hidden',
+              clip: 'rect(0,0,0,0)',
+              border: 0
+            }}
+          >
+            Search products
+          </label>
           <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           <input
-            type="text"
+            id="products-search-input"
+            type="search"
+            aria-label="Search products by name, SKU, or brand"
             placeholder="Search by name, SKU, or brand..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -223,6 +257,7 @@ export default function ProductsPage() {
 
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <select
+            aria-label="Filter products by category"
             value={categoryFilter}
             onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
             style={{
@@ -251,6 +286,7 @@ export default function ProductsPage() {
           </select>
 
           <select
+            aria-label="Sort products"
             value={sortBy}
             onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
             style={{
@@ -278,6 +314,7 @@ export default function ProductsPage() {
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
+              aria-label="Clear all active filters"
               style={{
                 padding: '10px 16px',
                 borderRadius: '8px',
@@ -309,6 +346,7 @@ export default function ProductsPage() {
           }}>
             <button
               onClick={() => setViewMode('list')}
+              aria-label="Switch to list view"
               style={{
                 padding: '10px 14px',
                 border: 'none',
@@ -325,6 +363,7 @@ export default function ProductsPage() {
             </button>
             <button
               onClick={() => setViewMode('grid')}
+              aria-label="Switch to grid view"
               style={{
                 padding: '10px 14px',
                 border: 'none',
@@ -422,7 +461,7 @@ export default function ProductsPage() {
                 {products.map((product) => {
                   const status = getStatusBadge(product);
                   const StatusIcon = status.icon;
-                  const imageUrl = product.primaryImage || product.images?.[0] || 'https://via.placeholder.com/400x400?text=No+Image';
+                  const imageUrl = product.primaryImage || product.images?.[0] || PRODUCT_PLACEHOLDER;
                   
                   return (
                     <tr 
@@ -441,7 +480,12 @@ export default function ProductsPage() {
                             width: '56px', height: '56px', borderRadius: '8px', overflow: 'hidden',
                             backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', flexShrink: 0
                           }}>
-                            <img src={imageUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <img
+                              src={imageUrl}
+                              alt={product.name}
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
                           </div>
                           <div>
                             <div style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '14px', marginBottom: '4px' }}>
@@ -504,6 +548,7 @@ export default function ProductsPage() {
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                           <button
                             onClick={() => router.push(`/admin/products/${product._id}`)}
+                            aria-label={`View details of ${product.name}`}
                             style={{
                               padding: '8px',
                               backgroundColor: 'transparent',
@@ -524,6 +569,7 @@ export default function ProductsPage() {
                           </button>
                           <button
                             onClick={() => router.push(`/admin/products/${product._id}/edit`)}
+                            aria-label={`Edit ${product.name}`}
                             style={{
                               padding: '8px',
                               backgroundColor: 'transparent',
@@ -545,6 +591,7 @@ export default function ProductsPage() {
                           <button
                             onClick={() => handleDelete(product._id, product.name)}
                             disabled={deletingId === product._id}
+                            aria-label={`Delete ${product.name}`}
                             style={{
                               padding: '8px',
                               backgroundColor: deletingId === product._id ? 'rgba(220, 38, 38, 0.1)' : 'transparent',
@@ -595,7 +642,7 @@ export default function ProductsPage() {
           {products.map((product) => {
             const status = getStatusBadge(product);
             const StatusIcon = status.icon;
-            const imageUrl = product.primaryImage || product.images?.[0] || 'https://via.placeholder.com/400x400?text=No+Image';
+            const imageUrl = product.primaryImage || product.images?.[0] || PRODUCT_PLACEHOLDER;
             
             return (
               <div
@@ -624,6 +671,7 @@ export default function ProductsPage() {
                   <img
                     src={imageUrl}
                     alt={product.name}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s' }}
                     onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.05)')}
                     onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
@@ -724,6 +772,7 @@ export default function ProductsPage() {
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button
                         onClick={() => router.push(`/admin/products/${product._id}`)}
+                        aria-label={`View details of ${product.name}`}
                         style={{
                           flex: 1,
                           padding: '10px',
@@ -755,6 +804,7 @@ export default function ProductsPage() {
                       </button>
                       <button
                         onClick={() => router.push(`/admin/products/${product._id}/edit`)}
+                        aria-label={`Edit ${product.name}`}
                         style={{
                           flex: 1,
                           padding: '10px',
@@ -785,6 +835,7 @@ export default function ProductsPage() {
                       <button
                         onClick={() => handleDelete(product._id, product.name)}
                         disabled={deletingId === product._id}
+                        aria-label={`Delete ${product.name}`}
                         style={{
                           padding: '10px 12px',
                           backgroundColor: 'rgba(220, 38, 38, 0.1)',
@@ -900,5 +951,17 @@ export default function ProductsPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={
+      <div role="status" style={{ display: 'flex', justifyContent: 'center', padding: '60px', color: 'var(--text-secondary)' }}>
+        <Loader size={36} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
+      </div>
+    }>
+      <ProductsPageContent />
+    </Suspense>
   );
 }

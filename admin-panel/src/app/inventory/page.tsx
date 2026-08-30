@@ -8,6 +8,7 @@ import {
   Box, ShoppingCart, Truck, Calendar
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 
 interface InventoryItem {
   _id: string;
@@ -543,8 +544,9 @@ export default function InventoryPage() {
                             backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)'
                           }}>
                             <img 
-                              src={item.product.images?.[0] || 'https://via.placeholder.com/100x100'} 
+                              src={item.product.images?.[0] || PRODUCT_PLACEHOLDER} 
                               alt={item.product.name}
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
                           </div>
@@ -671,8 +673,9 @@ export default function InventoryPage() {
                       backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)'
                     }}>
                       <img 
-                        src={item.product.images?.[0] || 'https://via.placeholder.com/100x100'} 
+                        src={item.product.images?.[0] || PRODUCT_PLACEHOLDER} 
                         alt={item.product.name}
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
                     </div>

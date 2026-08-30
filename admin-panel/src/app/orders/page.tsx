@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, X, Save, Loader
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 
 interface Order {
   _id: string;
@@ -731,8 +732,9 @@ export default function OrdersPage() {
                     border: '1px solid var(--border-color)'
                   }}>
                     <img 
-                      src={item.image || 'https://via.placeholder.com/60x60'} 
+                      src={item.image || PRODUCT_PLACEHOLDER} 
                       alt={item.name}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                       style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover' }}
                     />
                     <div style={{ flex: 1 }}>

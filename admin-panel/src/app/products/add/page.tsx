@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import api, { getCategories, getBrands, getProducts } from '@/lib/api';
 import axios from 'axios';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 import type { LucideIcon } from 'lucide-react';
 
 // Types
@@ -418,7 +419,7 @@ export default function AddProductPage() {
     // In real implementation, upload to cloud storage
     // For now, we'll use placeholder URLs
     const newImages = Array.from(files).map((_, index) => 
-      `https://via.placeholder.com/600x600?text=Image+${formData.images.length + index + 1}`
+      PRODUCT_PLACEHOLDER
     );
     
     setFormData(prev => ({

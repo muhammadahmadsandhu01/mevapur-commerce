@@ -5,6 +5,7 @@ import axios, {
 import {
   clearAuthentication,
   getAccessToken,
+  getCsrfToken,
   refreshAuthentication,
 } from '@/lib/authSession';
 import { publicApiBaseUrl } from '@/config/publicConfig';
@@ -27,6 +28,10 @@ api.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const csrf = getCsrfToken();
+  if (csrf) {
+    config.headers['X-CSRF-Token'] = csrf;
   }
   return config;
 });

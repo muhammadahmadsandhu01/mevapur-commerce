@@ -605,11 +605,16 @@ export default function UsersPage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label
+                  htmlFor="staff-fullName"
+                  style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+                >
                   Full Name *
                 </label>
                 <input
+                  id="staff-fullName"
                   type="text"
+                  required
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   placeholder="John Doe"
@@ -618,11 +623,16 @@ export default function UsersPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label
+                  htmlFor="staff-email"
+                  style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+                >
                   Email Address *
                 </label>
                 <input
+                  id="staff-email"
                   type="email"
+                  required
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   placeholder="staff@mevapur.com"
@@ -636,10 +646,14 @@ export default function UsersPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label
+                  htmlFor="staff-phone"
+                  style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+                >
                   Phone Number
                 </label>
                 <input
+                  id="staff-phone"
                   type="text"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -650,11 +664,16 @@ export default function UsersPage() {
 
               {!editingUser && (
                 <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                  <label
+                    htmlFor="staff-password"
+                    style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+                  >
                     Password *
                   </label>
                   <input
+                    id="staff-password"
                     type="password"
+                    required
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     placeholder="Min 8 characters"
@@ -664,10 +683,14 @@ export default function UsersPage() {
               )}
 
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label
+                  htmlFor="staff-role"
+                  style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+                >
                   Role *
                 </label>
                 <select
+                  id="staff-role"
                   value={formData.role}
                   onChange={(e) => setFormData({
                     ...formData,
