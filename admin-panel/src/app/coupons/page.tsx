@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Tag, Plus, Edit, Trash2, Search, X, Save,
   CheckCircle, Copy, Calendar, Percent, DollarSign,
-  Loader, AlertCircle, TrendingUp, Users
+  TrendingUp
 } from 'lucide-react';
 import api from '@/lib/api';
+import { isCouponCreateRequested, removeCouponCreateQuery } from '@/lib/notificationUi';
 
 interface Coupon {
   _id: string;
@@ -26,7 +28,10 @@ interface Coupon {
   createdAt: string;
 }
 
-export default function CouponsPage() {
+function CouponsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const createRequested = isCouponCreateRequested(searchParams.get('create'));
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -98,7 +103,7 @@ export default function CouponsPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const openModal = (coupon?: Coupon) => {
+  const openModal = useCallback((coupon?: Coupon) => {
     if (coupon) {
       setEditingCoupon(coupon);
       setFormData({
@@ -129,12 +134,21 @@ export default function CouponsPage() {
       });
     }
     setShowModal(true);
-  };
+  }, []);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setShowModal(false);
     setEditingCoupon(null);
-  };
+    if (createRequested) {
+      router.replace(removeCouponCreateQuery(searchParams.toString()), { scroll: false });
+    }
+  }, [createRequested, router, searchParams]);
+
+  useEffect(() => {
+    if (!createRequested) return;
+    const timeout = window.setTimeout(() => openModal(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [createRequested, openModal]);
 
   const getCouponStatus = (coupon: Coupon) => {
     const now = new Date();
@@ -553,7 +567,10 @@ export default function CouponsPage() {
 
       {/* Create/Edit Modal */}
       {showModal && (
-        <div 
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={editingCoupon ? 'Edit coupon' : 'Create coupon'}
           style={{
             position: 'fixed',
             inset: 0,
@@ -582,7 +599,7 @@ export default function CouponsPage() {
               <h2 style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
                 {editingCoupon ? 'Edit Coupon' : 'Create New Coupon'}
               </h2>
-              <button onClick={closeModal} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+              <button type="button" aria-label="Close coupon form" onClick={closeModal} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                 <X size={24} />
               </button>
             </div>
@@ -863,5 +880,13 @@ export default function CouponsPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function CouponsPage() {
+  return (
+    <Suspense fallback={<div role="status" style={{ color: 'var(--text-secondary)' }}>Loading coupons...</div>}>
+      <CouponsPageContent />
+    </Suspense>
   );
 }
