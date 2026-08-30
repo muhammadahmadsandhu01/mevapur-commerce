@@ -17,7 +17,7 @@ function LoginForm() {
   const { login } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
+
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -279,20 +279,6 @@ function LoginForm() {
             {loading ? 'Logging in…' : 'Login to Admin Panel'}
           </button>
         </form>
-
-        <div style={{ marginTop: '24px', textAlign: 'center', borderTop: '1px solid #F3F4F6', paddingTop: '16px' }}>
-          <Link
-            href="/forgot-password"
-            style={{
-              fontSize: '13px',
-              color: '#6B7280',
-              textDecoration: 'none',
-              fontWeight: '500'
-            }}
-          >
-            Need administrator credential recovery?
-          </Link>
-        </div>
       </div>
     </div>
   );

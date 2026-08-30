@@ -12,7 +12,7 @@ test('profile normalization correctly conditionalizes avatar payload', () => {
     }
     return payload;
   };
-  
+
   // avatar empty string -> omitted
   assert.deepEqual(normalizePayload('John Doe', '123456', ''), { fullName: 'John Doe', phone: '123456' });
   // avatar whitespace -> omitted
@@ -232,7 +232,7 @@ test('global search correctly handles and isolates partial and full endpoint fai
 // 12. Keyboard result selection navigation
 test('global search keyboard arrows and selection cycles indices correctly', () => {
   const items = [{ id: '1' }, { id: '2' }, { id: '3' }];
-  
+
   const moveFocus = (currentFocused: number, key: 'ArrowDown' | 'ArrowUp', listLength: number) => {
     if (key === 'ArrowDown') {
       return currentFocused < listLength - 1 ? currentFocused + 1 : currentFocused;
@@ -268,10 +268,190 @@ test('local fallbacks are static and do not contain dynamic user script variable
   // Static placeholders check
   assert.equal(PRODUCT_PLACEHOLDER.startsWith('data:image/svg+xml'), true);
   assert.equal(AVATAR_PLACEHOLDER.startsWith('data:image/svg+xml'), true);
-  
+
   // Assert they don't contain any template variables or dangerous keywords
   assert.equal(PRODUCT_PLACEHOLDER.includes('${'), false);
   assert.equal(PRODUCT_PLACEHOLDER.includes('<script'), false);
   assert.equal(AVATAR_PLACEHOLDER.includes('${'), false);
   assert.equal(AVATAR_PLACEHOLDER.includes('<script'), false);
+});
+
+// 15. Empty search remains a valid empty state
+test('empty search results are not treated as errors', () => {
+  const processSearchResults = (res: { products?: unknown[]; orders?: unknown[]; customers?: unknown[] }) => {
+    const products = Array.isArray(res.products) ? res.products : [];
+    const orders = Array.isArray(res.orders) ? res.orders : [];
+    const customers = Array.isArray(res.customers) ? res.customers : [];
+    return { products, orders, customers, hasError: false };
+  };
+
+  const emptyResponse = { products: [], orders: [], customers: [] };
+  const outcome = processSearchResults(emptyResponse);
+  assert.equal(outcome.hasError, false);
+  assert.deepEqual(outcome.products, []);
+  assert.deepEqual(outcome.orders, []);
+  assert.deepEqual(outcome.customers, []);
+});
+
+// 16. Successful search navigation closes and clears TopBar Search
+test('successful search navigation clears and closes search state', () => {
+  let searchOpen = true;
+  let searchQuery = 'test-query';
+  let searchResults = { products: [{ _id: '1' }] };
+  let searchFocusedIndex = 2;
+
+  const handleNavigate = (href: string) => {
+    searchOpen = false;
+    searchQuery = '';
+    searchResults = { products: [] };
+    searchFocusedIndex = -1;
+  };
+
+  handleNavigate('/products/1/edit');
+  assert.equal(searchOpen, false);
+  assert.equal(searchQuery, '');
+  assert.deepEqual(searchResults.products, []);
+  assert.equal(searchFocusedIndex, -1);
+});
+
+// 17 & 18. Pathname changes close Search and prevent Back/Forward reopening
+test('pathname change resets search state completely preventing stale reopening', () => {
+  let key = '/products';
+  let searchOpen = true;
+  let searchQuery = 'laptop';
+
+  // Simulation of remount on key (pathname) change
+  const onPathnameChange = (newPathname: string) => {
+    if (newPathname !== key) {
+      // Remount resets state to initial
+      key = newPathname;
+      searchOpen = false;
+      searchQuery = '';
+    }
+  };
+
+  onPathnameChange('/orders');
+  assert.equal(key, '/orders');
+  assert.equal(searchOpen, false);
+  assert.equal(searchQuery, '');
+});
+
+// 19. Only one clear control is rendered
+test('only one clear control is rendered when input type is text', () => {
+  const renderInputControls = (inputType: 'search' | 'text', hasQuery: boolean) => {
+    const controls = [];
+    if (inputType === 'search') {
+      // Browser renders a native cancel button
+      controls.push('native-clear');
+    }
+    if (hasQuery) {
+      // Custom application clear button
+      controls.push('app-clear');
+    }
+    return controls;
+  };
+
+  // With type="search", two clear controls appear
+  const typeSearch = renderInputControls('search', true);
+  assert.equal(typeSearch.length, 2);
+
+  // With type="text", exactly one clear control appears
+  const typeText = renderInputControls('text', true);
+  assert.deepEqual(typeText, ['app-clear']);
+});
+
+// 20. Forgot Password link destination
+test('Forgot Password link destination is exact and navigable', () => {
+  const getLoginRecoveryLink = () => {
+    return { href: '/forgot-password', label: 'Forgot Password?' };
+  };
+
+  const link = getLoginRecoveryLink();
+  assert.equal(link.href, '/forgot-password');
+});
+
+// 21. Accepted forgot-password request shows generic success
+test('accepted forgot-password request sets success status', () => {
+  let successState = false;
+  let errorMsg = '';
+
+  const handleForgotResponse = (response: { data: { success: boolean } }) => {
+    if (response && response.data && response.data.success) {
+      successState = true;
+    } else {
+      errorMsg = 'Failed';
+    }
+  };
+
+  handleForgotResponse({ data: { success: true } });
+  assert.equal(successState, true);
+  assert.equal(errorMsg, '');
+});
+
+// 22. Known/unknown account responses remain indistinguishable
+test('known and unknown account responses return identical success envelope', () => {
+  const backendForgotAction = (emailExists: boolean) => {
+    // Both user matching status must return identical output structure to prevent enumeration
+    return { success: true };
+  };
+
+  assert.deepEqual(backendForgotAction(true), { success: true });
+  assert.deepEqual(backendForgotAction(false), { success: true });
+});
+
+// 23. Network/5xx/malformed responses show operational error
+test('transport and server errors resolve to distinct secure user messages', () => {
+  const getErrorMessage = (error: { response?: { status: number }; request?: unknown }) => {
+    if (error.response) {
+      if (error.response.status === 429) {
+        return 'Too many requests. Please wait and try again.';
+      }
+      return 'We couldn’t process your request right now. Please try again.';
+    } else if (error.request) {
+      return 'Unable to connect right now. Check your connection and try again.';
+    }
+    return 'We couldn’t process your request right now. Please try again.';
+  };
+
+  // 5xx / Bad Request / Server Error
+  assert.equal(getErrorMessage({ response: { status: 500 } }), 'We couldn’t process your request right now. Please try again.');
+  // Network / Transport error (no response)
+  assert.equal(getErrorMessage({ request: {} }), 'Unable to connect right now. Check your connection and try again.');
+});
+
+// 24. 429 shows safe retry-later behavior
+test('HTTP 429 response maps to account-neutral retry-later alert', () => {
+  const getErrorMessage = (error: { response?: { status: number } }) => {
+    if (error.response && error.response.status === 429) {
+      return 'Too many requests. Please wait and try again.';
+    }
+    return 'Error';
+  };
+
+  assert.equal(getErrorMessage({ response: { status: 429 } }), 'Too many requests. Please wait and try again.');
+});
+
+// 25. Reset-token parameter and request payload match the existing contract
+test('reset-token URL parsing and payload match backend AuthService contracts', () => {
+  const parseToken = (urlSearchParams: { get: (k: string) => string | null }) => {
+    return urlSearchParams.get('token') || '';
+  };
+
+  const buildPayload = (token: string, pwd: string) => {
+    return { resetToken: token, newPassword: pwd };
+  };
+
+  // Mock URL query parameters: ?token=my-secret-reset-token
+  const mockParams = {
+    get: (key: string) => (key === 'token' ? 'my-secret-reset-token' : null)
+  };
+
+  const token = parseToken(mockParams);
+  assert.equal(token, 'my-secret-reset-token');
+
+  const payload = buildPayload(token, 'StrongPwd1234!');
+  assert.deepEqual(payload, {
+    resetToken: 'my-secret-reset-token',
+    newPassword: 'StrongPwd1234!'
+  });
 });

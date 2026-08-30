@@ -31,11 +31,25 @@ export default function AdminForgotPasswordPage() {
 
     setLoading(true);
     try {
-      await authHttp.post('/auth/forgot-password', { email: trimmed });
-      setSuccess(true);
-    } catch {
-      // Security best practice: do not reveal whether account exists
-      setSuccess(true);
+      const response = await authHttp.post('/auth/forgot-password', { email: trimmed });
+      if (response && response.data && response.data.success) {
+        setSuccess(true);
+      } else {
+        setError('We couldn’t process your request right now. Please try again.');
+      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { message?: string } }; request?: unknown };
+      if (axiosErr.response) {
+        if (axiosErr.response.status === 429) {
+          setError('Too many requests. Please wait and try again.');
+        } else {
+          setError('We couldn’t process your request right now. Please try again.');
+        }
+      } else if (axiosErr.request) {
+        setError('Unable to connect right now. Check your connection and try again.');
+      } else {
+        setError('We couldn’t process your request right now. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

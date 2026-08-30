@@ -88,133 +88,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [activePopover, setActivePopover] = useState<TopBarPopover>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{
-    products: SearchProduct[];
-    orders: SearchOrder[];
-    customers: SearchCustomer[];
-  }>({ products: [], orders: [], customers: [] });
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchFocusedIndex, setSearchFocusedIndex] = useState(-1);
-  const searchAbortControllerRef = useRef<AbortController | null>(null);
-
-  const getFlatItems = useCallback(() => {
-    const items: Array<{ type: 'product' | 'order' | 'customer'; data: SearchProduct | SearchOrder | SearchCustomer; href: string }> = [];
-    searchResults.products.forEach(p => items.push({ type: 'product', data: p, href: `/products/${p._id}/edit` }));
-    searchResults.orders.forEach(o => items.push({ type: 'order', data: o, href: `/orders/${o._id}` }));
-    searchResults.customers.forEach(c => items.push({ type: 'customer', data: c, href: `/customers?search=${encodeURIComponent(c.fullName)}` }));
-    return items;
-  }, [searchResults]);
-
-  const performSearch = useCallback(async (query: string) => {
-    if (searchAbortControllerRef.current) {
-      searchAbortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    searchAbortControllerRef.current = controller;
-    setSearchLoading(true);
-    setSearchError(false);
-
-    try {
-      const [productsRes, ordersRes, customersRes] = await Promise.all([
-        api.get('/products', { params: { limit: 5, autocomplete: 'true', keyword: query }, signal: controller.signal }),
-        api.get('/orders', { params: { limit: 5, search: query }, signal: controller.signal }),
-        api.get('/customers', { params: { limit: 5, search: query }, signal: controller.signal })
-      ]);
-
-      if (controller.signal.aborted) return;
-
-      const products = Array.isArray(productsRes.data?.data) ? productsRes.data.data : [];
-      const orders = Array.isArray(ordersRes.data?.data?.orders) ? ordersRes.data.data.orders : [];
-      const customers = Array.isArray(customersRes.data?.data) ? customersRes.data.data : [];
-
-      setSearchResults({ products, orders, customers });
-      setSearchOpen(true);
-      setSearchFocusedIndex(-1);
-    } catch (err: unknown) {
-      const errorName = (err as Error)?.name;
-      if (errorName === 'CanceledError' || errorName === 'AbortError' || controller.signal.aborted) {
-        return;
-      }
-      setSearchError(true);
-      setSearchResults({ products: [], orders: [], customers: [] });
-      setSearchOpen(true);
-      setSearchFocusedIndex(-1);
-    } finally {
-      if (!controller.signal.aborted) {
-        setSearchLoading(false);
-      }
-    }
-  }, []);
-
-  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-    const flatItems = getFlatItems();
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (!searchOpen && flatItems.length > 0) {
-        setSearchOpen(true);
-        setSearchFocusedIndex(0);
-      } else {
-        setSearchFocusedIndex(prev => (prev < flatItems.length - 1 ? prev + 1 : prev));
-      }
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSearchFocusedIndex(prev => (prev > 0 ? prev - 1 : -1));
-    } else if (e.key === 'Escape') {
-      setSearchOpen(false);
-      setSearchFocusedIndex(-1);
-    } else if (e.key === 'Enter') {
-      if (searchOpen && searchFocusedIndex >= 0 && searchFocusedIndex < flatItems.length) {
-        e.preventDefault();
-        const item = flatItems[searchFocusedIndex];
-        navigate(item.href);
-      }
-    }
-  };
-
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (trimmed.length < 2) {
-      const timer = setTimeout(() => {
-        setSearchResults({ products: [], orders: [], customers: [] });
-        setSearchOpen(false);
-        setSearchFocusedIndex(-1);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-
-    const timer = setTimeout(() => {
-      void performSearch(trimmed);
-    }, 300);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [searchQuery, performSearch]);
-
-  useEffect(() => {
-    const handleDocumentClick = (e: MouseEvent) => {
-      const form = document.getElementById('topbar-search-form');
-      if (form && !form.contains(e.target as Node)) {
-        setTimeout(() => {
-          setSearchOpen(false);
-        }, 0);
-      }
-    };
-    document.addEventListener('mousedown', handleDocumentClick);
-    return () => document.removeEventListener('mousedown', handleDocumentClick);
-  }, []);
-
-  // Close search results on route change
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchOpen(false);
-      setSearchFocusedIndex(-1);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [pathname]);
+  // Search state and handlers have been refactored into the GlobalSearchForm component below.
   const [notificationState, setNotificationState] = useState<NotificationPopoverState>({ status: 'loading' });
   const [notificationActionError, setNotificationActionError] = useState<string | null>(null);
   const [pendingNotificationId, setPendingNotificationId] = useState<string | null>(null);
@@ -310,34 +184,14 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
 
   const navigate = (href: string) => {
     setActivePopover(null);
-    setSearchOpen(false);
     if (href.startsWith('/') && !href.startsWith('//') && !href.includes('\\')) {
       router.push(href);
-    }
-  };
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = searchQuery.trim();
-    if (!query) return;
-    setSearchOpen(false);
-    if (pathname.startsWith('/orders')) {
-      router.push(`/orders?search=${encodeURIComponent(query)}`);
-    } else if (pathname.startsWith('/customers')) {
-      router.push(`/customers?search=${encodeURIComponent(query)}`);
-    } else if (pathname.startsWith('/reviews')) {
-      router.push(`/reviews?search=${encodeURIComponent(query)}`);
-    } else {
-      router.push(`/products?search=${encodeURIComponent(query)}`);
     }
   };
 
   const togglePopover = (popover: Exclude<TopBarPopover, null>) => {
     const nextPopover = toggleTopBarPopover(activePopover, popover);
     setActivePopover(nextPopover);
-    if (nextPopover) {
-      setSearchOpen(false);
-    }
     if (nextPopover === 'notifications') void loadNotifications();
   };
 
@@ -415,246 +269,12 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
           {branding.siteName} Admin
         </span>
 
-                <form
-          id="topbar-search-form"
-          role="search"
-          onSubmit={handleSearchSubmit}
-          style={{ flex: 1, maxWidth: '500px', position: 'relative' }}
-        >
-          <label
-            htmlFor="topbar-global-search"
-            style={{
-              position: 'absolute',
-              width: 1,
-              height: 1,
-              padding: 0,
-              margin: -1,
-              overflow: 'hidden',
-              clip: 'rect(0,0,0,0)',
-              border: 0
-            }}
-          >
-            Search products, orders, customers
-          </label>
-          <Search
-            size={18}
-            aria-hidden="true"
-            style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }}
-          />
-          <input
-            id="topbar-global-search"
-            type="search"
-            role="combobox"
-            aria-expanded={searchOpen}
-            aria-autocomplete="list"
-            aria-controls="topbar-search-results"
-            aria-activedescendant={searchFocusedIndex >= 0 ? `search-item-${searchFocusedIndex}` : undefined}
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            onFocus={() => {
-              setActivePopover(null);
-              if (searchQuery.trim().length >= 2) {
-                setSearchOpen(true);
-              }
-            }}
-            placeholder="Search products, orders, customers..."
-            style={{
-              width: '100%',
-              padding: searchQuery ? '12px 40px 12px 44px' : '12px 16px 12px 44px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '10px',
-              fontSize: '14px',
-              outline: 'none',
-              backgroundColor: 'var(--input-bg)',
-              color: 'var(--text-primary)',
-              transition: 'all 0.2s'
-            }}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setSearchOpen(false);
-                setSearchFocusedIndex(-1);
-              }}
-              aria-label="Clear search"
-              style={{
-                position: 'absolute',
-                right: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-secondary)',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              <X size={16} />
-            </button>
-          )}
-
-          {searchOpen && (searchQuery.trim().length >= 2) && (
-            <div
-              id="topbar-search-results"
-              role="listbox"
-              aria-label="Search results"
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                marginTop: '8px',
-                backgroundColor: 'var(--card-bg)',
-                borderRadius: '12px',
-                boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
-                border: '1px solid var(--border-color)',
-                maxHeight: '400px',
-                overflowY: 'auto',
-                zIndex: 1000,
-                padding: '12px'
-              }}
-            >
-              {searchLoading ? (
-                <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '20px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                  Searching...
-                </div>
-              ) : searchError ? (
-                <div role="alert" style={{ textAlign: 'center', padding: '16px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '8px' }}>
-                    Failed to perform search.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void performSearch(searchQuery.trim())}
-                    style={{
-                      background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer',
-                      fontWeight: '700', fontSize: '13px'
-                    }}
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : (
-                (() => {
-                  const flatItems = getFlatItems();
-                  if (flatItems.length === 0) {
-                    return (
-                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                        No results found for &ldquo;<strong style={{ color: 'var(--text-primary)' }}>{searchQuery}</strong>&rdquo;
-                      </div>
-                    );
-                  }
-
-                  let currentFlatIndex = 0;
-                  const groups = [];
-                  if (searchResults.products.length > 0) {
-                    groups.push({ title: 'Products', items: searchResults.products, type: 'product' });
-                  }
-                  if (searchResults.orders.length > 0) {
-                    groups.push({ title: 'Orders', items: searchResults.orders, type: 'order' });
-                  }
-                  if (searchResults.customers.length > 0) {
-                    groups.push({ title: 'Customers', items: searchResults.customers, type: 'customer' });
-                  }
-
-                  return groups.map((group) => (
-                    <div key={group.title} style={{ marginBottom: '12px' }}>
-                      <div style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: '6px' }}>
-                        {group.title}
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {group.items.map((item) => {
-                          const index = currentFlatIndex++;
-                          const isFocused = searchFocusedIndex === index;
-                          
-                          let title = '';
-                          let subtitle = '';
-                          let image = '';
-                          let href = '';
-
-                          if (group.type === 'product') {
-                            const product = item as SearchProduct;
-                            title = product.name;
-                            subtitle = product.sku ? `SKU: ${product.sku} · Rs. ${product.price}` : `Rs. ${product.price}`;
-                            image = product.image || PRODUCT_PLACEHOLDER;
-                            href = `/products/${product._id}/edit`;
-                          } else if (group.type === 'order') {
-                            const order = item as SearchOrder;
-                            title = `Order #${order.orderId?.substring(0, 8) || order._id?.substring(0, 8)}`;
-                            subtitle = `${order.shippingAddress?.fullName || order.user?.fullName || 'Guest'} · Rs. ${order.totalAmount} · ${order.orderStatus}`;
-                            image = '';
-                            href = `/orders/${order._id}`;
-                          } else if (group.type === 'customer') {
-                            const customer = item as SearchCustomer;
-                            title = customer.fullName;
-                            subtitle = customer.email || customer.phone || 'No contact info';
-                            image = customer.avatar || '';
-                            href = `/customers?search=${encodeURIComponent(customer.fullName)}`;
-                          }
-
-                          return (
-                            <button
-                              key={item._id}
-                              id={`search-item-${index}`}
-                              role="option"
-                              aria-selected={isFocused}
-                              type="button"
-                              onClick={() => navigate(href)}
-                              style={{
-                                width: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                padding: '8px',
-                                border: 'none',
-                                borderRadius: '8px',
-                                backgroundColor: isFocused ? 'var(--hover-bg)' : 'transparent',
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                                transition: 'background-color 0.2s'
-                              }}
-                              onMouseEnter={() => setSearchFocusedIndex(index)}
-                            >
-                              {group.type === 'product' && (
-                                <div style={{ width: '40px', height: '40px', borderRadius: '6px', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', flexShrink: 0 }}>
-                                  <img src={image} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }} />
-                                </div>
-                              )}
-                              {group.type === 'order' && (
-                                <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: 'rgba(255, 138, 0, 0.12)', color: '#FF8A00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                  <ShoppingBag size={20} />
-                                </div>
-                              )}
-                              {group.type === 'customer' && (
-                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', backgroundColor: 'var(--primary)', color: '#0B132B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', flexShrink: 0 }}>
-                                  {image ? <img src={image} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : title.charAt(0).toUpperCase()}
-                                </div>
-                              )}
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {title}
-                                </div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {subtitle}
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ));
-                })()
-              )}
-            </div>
-          )}
-        </form>
+                <GlobalSearchForm
+          key={pathname}
+          activePopover={activePopover}
+          onSearchFocus={() => setActivePopover(null)}
+          navigate={navigate}
+        />
       </div>
 
       <div ref={popoverRegionRef} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -953,5 +573,408 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
         </div>
       </div>
     </header>
+  );
+}
+
+
+interface GlobalSearchFormProps {
+  activePopover: TopBarPopover;
+  onSearchFocus: () => void;
+  navigate: (href: string) => void;
+}
+
+function GlobalSearchForm({ activePopover, onSearchFocus, navigate }: GlobalSearchFormProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{
+    products: SearchProduct[];
+    orders: SearchOrder[];
+    customers: SearchCustomer[];
+  }>({ products: [], orders: [], customers: [] });
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocusedIndex, setSearchFocusedIndex] = useState(-1);
+  const isSearchDropdownOpen = searchOpen && !activePopover;
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+
+  const getFlatItems = useCallback(() => {
+    const items: Array<{ type: 'product' | 'order' | 'customer'; data: SearchProduct | SearchOrder | SearchCustomer; href: string }> = [];
+    searchResults.products.forEach(p => items.push({ type: 'product', data: p, href: `/products/${p._id}/edit` }));
+    searchResults.orders.forEach(o => items.push({ type: 'order', data: o, href: `/orders/${o._id}` }));
+    searchResults.customers.forEach(c => items.push({ type: 'customer', data: c, href: `/customers?search=${encodeURIComponent(c.fullName)}` }));
+    return items;
+  }, [searchResults]);
+
+  const performSearch = useCallback(async (query: string) => {
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    searchAbortControllerRef.current = controller;
+    setSearchLoading(true);
+    setSearchError(false);
+
+    try {
+      const [productsRes, ordersRes, customersRes] = await Promise.all([
+        api.get('/products', { params: { limit: 5, autocomplete: 'true', keyword: query }, signal: controller.signal }),
+        api.get('/orders', { params: { limit: 5, search: query }, signal: controller.signal }),
+        api.get('/customers', { params: { limit: 5, search: query }, signal: controller.signal })
+      ]);
+
+      if (controller.signal.aborted) return;
+
+      const products = Array.isArray(productsRes.data?.data) ? productsRes.data.data : [];
+      const orders = Array.isArray(ordersRes.data?.data?.orders) ? ordersRes.data.data.orders : [];
+      const customers = Array.isArray(customersRes.data?.data) ? customersRes.data.data : [];
+
+      setSearchResults({ products, orders, customers });
+      setSearchOpen(true);
+      setSearchFocusedIndex(-1);
+    } catch (err: unknown) {
+      const errorName = (err as Error)?.name;
+      if (errorName === 'CanceledError' || errorName === 'AbortError' || controller.signal.aborted) {
+        return;
+      }
+      setSearchError(true);
+      setSearchResults({ products: [], orders: [], customers: [] });
+      setSearchOpen(true);
+      setSearchFocusedIndex(-1);
+    } finally {
+      if (!controller.signal.aborted) {
+        setSearchLoading(false);
+      }
+    }
+  }, []);
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    const flatItems = getFlatItems();
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isSearchDropdownOpen && flatItems.length > 0) {
+        setSearchOpen(true);
+        setSearchFocusedIndex(0);
+      } else {
+        setSearchFocusedIndex(prev => (prev < flatItems.length - 1 ? prev + 1 : prev));
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSearchFocusedIndex(prev => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === 'Escape') {
+      setSearchOpen(false);
+      setSearchFocusedIndex(-1);
+    } else if (e.key === 'Enter') {
+      if (isSearchDropdownOpen && searchFocusedIndex >= 0 && searchFocusedIndex < flatItems.length) {
+        e.preventDefault();
+        const item = flatItems[searchFocusedIndex];
+        handleNavigate(item.href);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) return;
+
+    const timer = setTimeout(() => {
+      void performSearch(trimmed);
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [searchQuery, performSearch]);
+
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const form = document.getElementById('topbar-search-form');
+      if (form && !form.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDocumentClick);
+    return () => document.removeEventListener('mousedown', handleDocumentClick);
+  }, []);
+
+
+
+  const handleNavigate = (href: string) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults({ products: [], orders: [], customers: [] });
+    setSearchFocusedIndex(-1);
+    navigate(href);
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults({ products: [], orders: [], customers: [] });
+    setSearchFocusedIndex(-1);
+
+    let target = '/products';
+    if (pathname.startsWith('/orders')) {
+      target = '/orders';
+    } else if (pathname.startsWith('/customers')) {
+      target = '/customers';
+    } else if (pathname.startsWith('/reviews')) {
+      target = '/reviews';
+    }
+    router.push(`${target}?search=${encodeURIComponent(query)}`);
+  };
+
+  return (
+    <form
+      id="topbar-search-form"
+      role="search"
+      onSubmit={handleSearchSubmit}
+      style={{ flex: 1, maxWidth: '500px', position: 'relative' }}
+    >
+      <label
+        htmlFor="topbar-global-search"
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: 'hidden',
+          clip: 'rect(0,0,0,0)',
+          border: 0
+        }}
+      >
+        Search products, orders, customers
+      </label>
+      <Search
+        size={18}
+        aria-hidden="true"
+        style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }}
+      />
+      <input
+        id="topbar-global-search"
+        type="text"
+        role="combobox"
+        aria-expanded={isSearchDropdownOpen}
+        aria-autocomplete="list"
+        aria-controls="topbar-search-results"
+        aria-activedescendant={searchFocusedIndex >= 0 ? `search-item-${searchFocusedIndex}` : undefined}
+        value={searchQuery}
+        onChange={(event) => {
+          const val = event.target.value;
+          setSearchQuery(val);
+          if (val.trim().length < 2) {
+            setSearchResults({ products: [], orders: [], customers: [] });
+            setSearchOpen(false);
+            setSearchFocusedIndex(-1);
+          }
+        }}
+        onKeyDown={handleSearchKeyDown}
+        onFocus={() => {
+          onSearchFocus();
+          if (searchQuery.trim().length >= 2) {
+            setSearchOpen(true);
+          }
+        }}
+        placeholder="Search products, orders, customers..."
+        style={{
+          width: '100%',
+          padding: searchQuery ? '12px 40px 12px 44px' : '12px 16px 12px 44px',
+          border: '1px solid var(--border-color)',
+          borderRadius: '10px',
+          fontSize: '14px',
+          outline: 'none',
+          backgroundColor: 'var(--input-bg)',
+          color: 'var(--text-primary)',
+          transition: 'all 0.2s'
+        }}
+      />
+      {searchQuery && (
+        <button
+          type="button"
+          onClick={() => {
+            setSearchQuery('');
+            setSearchOpen(false);
+            setSearchFocusedIndex(-1);
+          }}
+          aria-label="Clear search"
+          style={{
+            position: 'absolute',
+            right: '12px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--text-secondary)',
+            padding: '4px',
+            display: 'flex',
+            alignItems: 'center'
+          }}
+        >
+          <X size={16} />
+        </button>
+      )}
+
+      {isSearchDropdownOpen && (searchQuery.trim().length >= 2) && (
+        <div
+          id="topbar-search-results"
+          role="listbox"
+          aria-label="Search results"
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            marginTop: '8px',
+            backgroundColor: 'var(--card-bg)',
+            borderRadius: '12px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+            border: '1px solid var(--border-color)',
+            maxHeight: '400px',
+            overflowY: 'auto',
+            zIndex: 1000,
+            padding: '12px'
+          }}
+        >
+          {searchLoading ? (
+            <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '20px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+              <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              Searching...
+            </div>
+          ) : searchError ? (
+            <div role="alert" style={{ textAlign: 'center', padding: '16px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '8px' }}>
+                Failed to perform search.
+              </p>
+              <button
+                type="button"
+                onClick={() => void performSearch(searchQuery.trim())}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer',
+                  fontWeight: '700', fontSize: '13px'
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            (() => {
+              const flatItems = getFlatItems();
+              if (flatItems.length === 0) {
+                return (
+                  <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                    No results found for &ldquo;<strong style={{ color: 'var(--text-primary)' }}>{searchQuery}</strong>&rdquo;
+                  </div>
+                );
+              }
+
+              let currentFlatIndex = 0;
+              const groups = [];
+              if (searchResults.products.length > 0) {
+                groups.push({ title: 'Products', items: searchResults.products, type: 'product' });
+              }
+              if (searchResults.orders.length > 0) {
+                groups.push({ title: 'Orders', items: searchResults.orders, type: 'order' });
+              }
+              if (searchResults.customers.length > 0) {
+                groups.push({ title: 'Customers', items: searchResults.customers, type: 'customer' });
+              }
+
+              return groups.map((group) => (
+                <div key={group.title} style={{ marginBottom: '12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px', marginBottom: '6px' }}>
+                    {group.title}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {group.items.map((item) => {
+                      const index = currentFlatIndex++;
+                      const isFocused = searchFocusedIndex === index;
+
+                      let title = '';
+                      let subtitle = '';
+                      let image = '';
+                      let href = '';
+
+                      if (group.type === 'product') {
+                        const product = item as SearchProduct;
+                        title = product.name;
+                        subtitle = product.sku ? `SKU: ${product.sku} · Rs. ${product.price}` : `Rs. ${product.price}`;
+                        image = product.image || PRODUCT_PLACEHOLDER;
+                        href = `/products/${product._id}/edit`;
+                      } else if (group.type === 'order') {
+                        const order = item as SearchOrder;
+                        title = `Order #${order.orderId?.substring(0, 8) || order._id?.substring(0, 8)}`;
+                        subtitle = `${order.shippingAddress?.fullName || order.user?.fullName || 'Guest'} · Rs. ${order.totalAmount} · ${order.orderStatus}`;
+                        image = '';
+                        href = `/orders/${order._id}`;
+                      } else if (group.type === 'customer') {
+                        const customer = item as SearchCustomer;
+                        title = customer.fullName;
+                        subtitle = customer.email || customer.phone || 'No contact info';
+                        image = customer.avatar || '';
+                        href = `/customers?search=${encodeURIComponent(customer.fullName)}`;
+                      }
+
+                      return (
+                        <button
+                          key={item._id}
+                          id={`search-item-${index}`}
+                          role="option"
+                          aria-selected={isFocused}
+                          type="button"
+                          onClick={() => handleNavigate(href)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '8px',
+                            border: 'none',
+                            borderRadius: '8px',
+                            backgroundColor: isFocused ? 'var(--hover-bg)' : 'transparent',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            transition: 'background-color 0.2s'
+                          }}
+                          onMouseEnter={() => setSearchFocusedIndex(index)}
+                        >
+                          {group.type === 'product' && (
+                            <div style={{ width: '40px', height: '40px', borderRadius: '6px', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', flexShrink: 0 }}>
+                              <img src={image} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }} />
+                            </div>
+                          )}
+                          {group.type === 'order' && (
+                            <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: 'rgba(255, 138, 0, 0.12)', color: '#FF8A00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <ShoppingBag size={20} />
+                            </div>
+                          )}
+                          {group.type === 'customer' && (
+                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', backgroundColor: 'var(--primary)', color: '#0B132B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', flexShrink: 0 }}>
+                              {image ? <img src={image} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : title.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {title}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {subtitle}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ));
+            })()
+          )}
+        </div>
+      )}
+    </form>
   );
 }
