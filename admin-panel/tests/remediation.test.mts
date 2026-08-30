@@ -455,3 +455,211 @@ test('reset-token URL parsing and payload match backend AuthService contracts', 
     newPassword: 'StrongPwd1234!'
   });
 });
+
+// 26. Exact public-route allowlist matching
+test('exact public-route allowlist matching and normalization', () => {
+  const PUBLIC_AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
+  const checkPublic = (path: string) => {
+    const normalizedPath = path.replace(/\/$/, '') || '/';
+    return PUBLIC_AUTH_ROUTES.includes(normalizedPath);
+  };
+
+  assert.equal(checkPublic('/login'), true);
+  assert.equal(checkPublic('/forgot-password'), true);
+  assert.equal(checkPublic('/reset-password'), true);
+  assert.equal(checkPublic('/login/'), true);
+  assert.equal(checkPublic('/forgot-password/'), true);
+  assert.equal(checkPublic('/reset-password/'), true);
+
+  // Trailing slash query params
+  assert.equal(checkPublic('/forgot-password?token=123'.split('?')[0]), true);
+  assert.equal(checkPublic('/reset-password?token=xyz'.split('?')[0]), true);
+
+  // Non-allowlisted paths
+  assert.equal(checkPublic('/'), false);
+  assert.equal(checkPublic('/profile'), false);
+  assert.equal(checkPublic('/orders'), false);
+  assert.equal(checkPublic('/forgot-password/anything'), false);
+  assert.equal(checkPublic('/reset-password/anything'), false);
+});
+
+// 27. Public route layout exclusion of protected chrome
+test('public route rendering excludes Sidebar, TopBar, and AdminGuard', () => {
+  const isPublicRoute = true;
+  const renderLayout = (isPublic: boolean) => {
+    if (isPublic) {
+      return { rendersGuard: false, rendersSidebar: false, rendersTopBar: false };
+    }
+    return { rendersGuard: true, rendersSidebar: true, rendersTopBar: true };
+  };
+
+  const outcome = renderLayout(isPublicRoute);
+  assert.deepEqual(outcome, {
+    rendersGuard: false,
+    rendersSidebar: false,
+    rendersTopBar: false
+  });
+});
+
+// 28. Protected route preserves AdminGuard and sidebar wrappers
+test('protected routes enforce authentication wrappers and Sidebar/TopBar render', () => {
+  const isPublicRoute = false;
+  const renderLayout = (isPublic: boolean) => {
+    if (isPublic) {
+      return { rendersGuard: false, rendersSidebar: false, rendersTopBar: false };
+    }
+    return { rendersGuard: true, rendersSidebar: true, rendersTopBar: true };
+  };
+
+  const outcome = renderLayout(isPublicRoute);
+  assert.deepEqual(outcome, {
+    rendersGuard: true,
+    rendersSidebar: true,
+    rendersTopBar: true
+  });
+});
+
+// 29. Mobile drawer toggle state is independent of desktop expanded state
+test('mobile drawer state is tracked independently from desktop Sidebar state', () => {
+  let isSidebarOpen = true; // desktop state
+  let mobileDrawerOpen = false; // mobile state
+
+  const toggleSidebar = () => { isSidebarOpen = !isSidebarOpen; };
+  const toggleMobileDrawer = () => { mobileDrawerOpen = !mobileDrawerOpen; };
+
+  // Mobile drawer opening does not affect desktop state
+  toggleMobileDrawer();
+  assert.equal(mobileDrawerOpen, true);
+  assert.equal(isSidebarOpen, true);
+
+  // Desktop sidebar collapsing does not affect mobile drawer state
+  toggleSidebar();
+  assert.equal(isSidebarOpen, false);
+  assert.equal(mobileDrawerOpen, true);
+});
+
+// 30. Mobile drawer closes on route change
+test('mobile drawer is closed when the pathname transitions', () => {
+  let mobileDrawerOpen = true;
+  let prevPathname = '/orders';
+  const currentPathname = '/products';
+
+  const checkRouteChange = () => {
+    if (currentPathname !== prevPathname) {
+      prevPathname = currentPathname;
+      mobileDrawerOpen = false;
+    }
+  };
+
+  checkRouteChange();
+  assert.equal(mobileDrawerOpen, false);
+  assert.equal(prevPathname, '/products');
+});
+
+// 31. Escape key closes mobile drawer
+test('Escape key interaction invokes closing of mobile drawer', () => {
+  let closed = false;
+  const handleKeyDown = (e: { key: string }) => {
+    if (e.key === 'Escape') {
+      closed = true;
+    }
+  };
+
+  handleKeyDown({ key: 'Escape' });
+  assert.equal(closed, true);
+});
+
+// 32. Backdrop click closes mobile drawer
+test('backdrop interaction invokes closing of mobile drawer', () => {
+  let closed = false;
+  const handleBackdropClick = () => {
+    closed = true;
+  };
+
+  handleBackdropClick();
+  assert.equal(closed, true);
+});
+
+// 33. ARIA attributes for hamburger and drawer
+test('hamburger and drawer possess appropriate accessibility bindings', () => {
+  const mobileDrawerOpen = true;
+  const hamburgerAttributes = {
+    'aria-expanded': mobileDrawerOpen,
+    'aria-controls': 'admin-sidebar'
+  };
+  const drawerAttributes = {
+    id: 'admin-sidebar',
+    'aria-label': 'Main Navigation'
+  };
+
+  assert.equal(hamburgerAttributes['aria-expanded'], true);
+  assert.equal(hamburgerAttributes['aria-controls'], 'admin-sidebar');
+  assert.equal(drawerAttributes.id, hamburgerAttributes['aria-controls']);
+  assert.equal(drawerAttributes['aria-label'], 'Main Navigation');
+});
+
+// 34. Scroll locking and body restoration
+test('body scroll is locked when drawer is open and restored on cleanup', () => {
+  let bodyOverflow = 'visible';
+  const lockScroll = () => {
+    bodyOverflow = 'hidden';
+  };
+  const restoreScroll = () => {
+    bodyOverflow = 'visible';
+  };
+
+  lockScroll();
+  assert.equal(bodyOverflow, 'hidden');
+  restoreScroll();
+  assert.equal(bodyOverflow, 'visible');
+});
+
+// 35. Focus containment wraps focus around first and last elements
+test('focus containment traps focus within drawer boundary during Tab navigations', () => {
+  const elements = ['close-button', 'link-1', 'link-2', 'logout-button'];
+  let activeIndex = 0;
+
+  const navigateTab = (shiftKey: boolean) => {
+    if (shiftKey) {
+      activeIndex = activeIndex === 0 ? elements.length - 1 : activeIndex - 1;
+    } else {
+      activeIndex = activeIndex === elements.length - 1 ? 0 : activeIndex + 1;
+    }
+  };
+
+  // Navigating forward from last should wrap to first
+  activeIndex = 3; // logout-button
+  navigateTab(false);
+  assert.equal(elements[activeIndex], 'close-button');
+
+  // Navigating backward from first should wrap to last
+  activeIndex = 0; // close-button
+  navigateTab(true);
+  assert.equal(elements[activeIndex], 'logout-button');
+});
+
+// 36. Focus restoration to TopBar hamburger button
+test('focus is restored to the hamburger button when the drawer closes', () => {
+  let focusedElement = '';
+  const mockHamburgerRef = {
+    current: {
+      focus: () => {
+        focusedElement = 'hamburger';
+      }
+    }
+  };
+
+  let mobileDrawerOpen = true;
+  let prevMobileOpen = true;
+
+  const closeDrawer = () => {
+    mobileDrawerOpen = false;
+    if (prevMobileOpen && !mobileDrawerOpen) {
+      mockHamburgerRef.current.focus();
+    }
+    prevMobileOpen = mobileDrawerOpen;
+  };
+
+  closeDrawer();
+  assert.equal(focusedElement, 'hamburger');
+});

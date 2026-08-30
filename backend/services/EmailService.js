@@ -7,7 +7,7 @@ class EmailService {
    */
   async sendVerificationEmail(email, fullName, token) {
     const verificationLink = `${config.frontendUrl}/verify-email?token=${token}`;
-    
+
     const emailData = {
       to: email,
       subject: 'Verify Your Email - MevaPur',
@@ -20,16 +20,29 @@ class EmailService {
 
     // In production, this would be queued
     await this.send(emailData);
-    
+
     logger.info('Verification email sent', { email });
   }
 
   /**
    * Send Password Reset Email
    */
-  async sendPasswordResetEmail(email, fullName, token) {
-    const resetLink = `${config.frontendUrl}/reset-password?token=${token}`;
-    
+  async sendPasswordResetEmail(email, fullName, token, options = {}) {
+    const audience = options.audience || 'storefront';
+    const { getRuntimeConfig } = require('../config/runtime.config');
+    const runtimeConfig = getRuntimeConfig();
+
+    let origin;
+    if (audience === 'admin') {
+      origin = runtimeConfig.origins.admin;
+    } else {
+      origin = runtimeConfig.origins.storefront;
+    }
+
+    const resetUrl = new URL('/reset-password', origin);
+    resetUrl.searchParams.set('token', token);
+    const resetLink = resetUrl.toString();
+
     const emailData = {
       to: email,
       subject: 'Reset Your Password - MevaPur',
@@ -41,7 +54,7 @@ class EmailService {
     };
 
     await this.send(emailData);
-    
+
     logger.info('Password reset email sent', { email });
   }
 
@@ -59,7 +72,7 @@ class EmailService {
     };
 
     await this.send(emailData);
-    
+
     logger.info('Welcome email sent', { email });
   }
 
@@ -69,11 +82,11 @@ class EmailService {
    */
   async send(emailData) {
     // Mock implementation - replace with actual email provider
-    logger.info('Email queued', { 
-      to: emailData.to, 
-      subject: emailData.subject 
+    logger.info('Email queued', {
+      to: emailData.to,
+      subject: emailData.subject
     });
-    
+
     // Example with Nodemailer:
     // const transporter = nodemailer.createTransport(config.smtp);
     // await transporter.sendMail({

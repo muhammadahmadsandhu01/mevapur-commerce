@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { useThemeStore } from '@/store/themeStore';
 import Sidebar from '@/components/layout/Sidebar';
@@ -88,7 +88,70 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 999px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+  /* Responsive sidebar drawer and main-content overrides */
+  @media (max-width: 1023px) {
+    .sidebar-container {
+      width: 280px !important;
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .sidebar-container.open {
+      transform: translateX(0) !important;
+    }
+    .main-content {
+      margin-left: 0 !important;
+      width: 100% !important;
+    }
+    .mobile-overlay {
+      display: block !important;
+    }
+    .mobile-close-btn {
+      display: flex !important;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .sidebar-container {
+      transform: none !important;
+    }
+    .mobile-overlay {
+      display: none !important;
+    }
+    .mobile-close-btn {
+      display: none !important;
+    }
+  }
+
+  /* Responsive TopBar text collapses */
+  @media (max-width: 767px) {
+    .topbar-site-name {
+      display: none !important;
+    }
+    .topbar-create-text {
+      display: none !important;
+    }
+    .topbar-user-info {
+      display: none !important;
+    }
+    .topbar-user-chevron {
+      display: none !important;
+    }
+    .topbar-header {
+      padding: 12px 16px !important;
+      gap: 12px !important;
+    }
+    .topbar-btn {
+      padding: 6px !important;
+    }
+    .topbar-profile-btn {
+      padding: 4px !important;
+      gap: 0 !important;
+    }
+  }
 `;
+
+const PUBLIC_AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
 
 export default function AdminLayout({
   children,
@@ -98,6 +161,15 @@ export default function AdminLayout({
   const pathname = usePathname();
   const { isDark } = useThemeStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+
+  // Render-phase state adjustment to reset mobile drawer on route transition
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    setMobileDrawerOpen(false);
+  }
   const mounted = useSyncExternalStore(
     subscribeToHydration,
     () => true,
@@ -127,8 +199,11 @@ export default function AdminLayout({
     }
   }, [isDark, mounted]);
 
-  // ✅ Login page ko guard se bahar rakha hai
-  if (pathname === '/login') {
+  // ✅ Public auth pages ko guard aur chrome layout se bahar rakha hai
+  const normalizedPath = pathname.replace(/\/$/, '') || '/';
+  const isPublicRoute = PUBLIC_AUTH_ROUTES.includes(normalizedPath);
+
+  if (isPublicRoute) {
     return (
       <html lang="en" data-theme={isDark ? 'dark' : 'light'}>
         <body style={{ margin: 0, padding: 0 }}>
@@ -151,16 +226,31 @@ export default function AdminLayout({
           <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-primary)' }}>
             <Sidebar
               isOpen={isSidebarOpen}
-              onClose={() => setIsSidebarOpen(false)}
+              mobileOpen={mobileDrawerOpen}
+              onClose={() => setMobileDrawerOpen(false)}
+              hamburgerRef={hamburgerRef}
             />
 
-            <main style={{
-              marginLeft: isSidebarOpen ? '280px' : '80px',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              minHeight: '100vh'
-            }}>
-              <TopBar onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} />
-              
+            <main
+              className="main-content"
+              style={{
+                marginLeft: isSidebarOpen ? '280px' : '80px',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                minHeight: '100vh'
+              }}
+            >
+              <TopBar
+                onMenuClick={() => {
+                  if (window.innerWidth < 1024) {
+                    setMobileDrawerOpen(prev => !prev);
+                  } else {
+                    setIsSidebarOpen(prev => !prev);
+                  }
+                }}
+                hamburgerRef={hamburgerRef}
+                mobileOpen={mobileDrawerOpen}
+              />
+
               <div style={{ padding: '32px' }}>
                 {children}
               </div>

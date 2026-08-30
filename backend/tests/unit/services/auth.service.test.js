@@ -211,4 +211,83 @@ describe('AuthService', () => {
     );
     expect(result.accessToken).toBe('access.jwt');
   });
+
+  describe('forgotPassword recovery routing and role security', () => {
+    const EmailService = require('../../../services/EmailService');
+
+    const rolesTable = [
+      { role: 'customer', expectedAudience: 'storefront' },
+      { role: 'admin', expectedAudience: 'admin' },
+      { role: 'super_admin', expectedAudience: 'admin' },
+      { role: 'support', expectedAudience: 'admin' },
+      { role: 'inventory', expectedAudience: 'admin' },
+      { role: 'manager', expectedAudience: 'admin' }
+    ];
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    rolesTable.forEach(({ role, expectedAudience }) => {
+      it(`maps role "${role}" to audience "${expectedAudience}" and sends email`, async () => {
+        const user = makeUser({ email: `user-${role}@example.com`, role });
+        UserRepository.findByEmail.mockResolvedValue(user);
+        UserRepository.setPasswordResetToken.mockResolvedValue(user);
+        EmailService.sendPasswordResetEmail.mockResolvedValue({ success: true });
+        SessionService.hashToken.mockReturnValue('hashed-reset-token');
+
+        const result = await AuthService.forgotPassword({
+          email: user.email,
+          requestId: 'request-forgot-role',
+        });
+
+        expect(result).toEqual({ success: true });
+        expect(UserRepository.findByEmail).toHaveBeenCalledWith(user.email);
+        expect(EmailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+          user.email,
+          user.fullName,
+          expect.any(String),
+          { audience: expectedAudience }
+        );
+      });
+    });
+
+    it('fails safely for an invalid or unknown role while keeping response account-neutral', async () => {
+      const user = makeUser({ email: 'unknown-role@example.com', role: 'guest' });
+      UserRepository.findByEmail.mockResolvedValue(user);
+
+      const result = await AuthService.forgotPassword({
+        email: user.email,
+        requestId: 'request-forgot-invalid-role',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(EmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+      expect(AuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+          status: 'FAILURE',
+          errorCode: ERROR_CODES.AUTH_ROLE_NOT_FOUND,
+        })
+      );
+    });
+
+    it('returns indistinguishable response for a non-existent email and logs warning', async () => {
+      UserRepository.findByEmail.mockResolvedValue(null);
+
+      const result = await AuthService.forgotPassword({
+        email: 'not-exists@example.com',
+        requestId: 'request-forgot-nonexistent',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(EmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+      expect(AuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+          status: 'WARNING',
+        })
+      );
+    });
+  });
 });

@@ -43,6 +43,8 @@ import { useThemeStore } from '@/store/themeStore';
 
 interface TopBarProps {
   onMenuClick: () => void;
+  hamburgerRef: React.RefObject<HTMLButtonElement | null>;
+  mobileOpen: boolean;
 }
 
 type NotificationPopoverState =
@@ -82,7 +84,7 @@ interface SearchCustomer {
   avatar?: string;
 }
 
-export default function TopBar({ onMenuClick }: TopBarProps) {
+export default function TopBar({ onMenuClick, hamburgerRef, mobileOpen }: TopBarProps) {
   const { user, logout } = useAuthStore();
   const { isDark, toggleTheme } = useThemeStore();
   const router = useRouter();
@@ -239,7 +241,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
   const badgeText = notificationState.status === 'success' ? notificationBadgeText(unreadCount) : null;
 
   return (
-    <header style={{
+    <header className="topbar-header" style={{
       backgroundColor: 'var(--card-bg)',
       padding: '16px 32px',
       borderBottom: '1px solid var(--border-color)',
@@ -254,9 +256,13 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
         <button
+          ref={hamburgerRef}
+          id="topbar-hamburger"
           type="button"
           onClick={onMenuClick}
           aria-label="Open navigation"
+          aria-expanded={mobileOpen}
+          aria-controls="admin-sidebar"
           style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '8px',
             color: 'var(--text-primary)', display: 'flex', alignItems: 'center'
@@ -265,7 +271,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
           <Menu size={24} />
         </button>
 
-        <span style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+        <span className="topbar-site-name" style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, whiteSpace: 'nowrap' }}>
           {branding.siteName} Admin
         </span>
 
@@ -300,7 +306,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
             }}
           >
             <Plus size={18} />
-            <span>Create</span>
+            <span className="topbar-create-text">Create</span>
           </button>
 
           {activePopover === 'quick-create' && (
@@ -340,6 +346,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
         </div>
 
         <button
+          className="topbar-btn"
           type="button"
           onClick={toggleTheme}
           aria-label={isDark ? 'Use light theme' : 'Use dark theme'}
@@ -355,6 +362,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
 
         <div style={{ position: 'relative' }}>
           <button
+            className="topbar-btn"
             type="button"
             onClick={() => togglePopover('notifications')}
             aria-label={badgeText ? `Notifications, ${unreadCount} unread` : 'Notifications'}
@@ -489,6 +497,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
 
         <div style={{ position: 'relative' }}>
           <button
+            className="topbar-profile-btn"
             type="button"
             onClick={() => togglePopover('profile')}
             aria-expanded={activePopover === 'profile'}
@@ -507,7 +516,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
             }}>
               {user?.fullName?.charAt(0).toUpperCase() || 'A'}
             </div>
-            <div style={{ textAlign: 'left' }}>
+            <div className="topbar-user-info" style={{ textAlign: 'left' }}>
               <div style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-primary)' }}>
                 {user?.fullName || 'Admin'}
               </div>
@@ -515,7 +524,7 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
                 {user?.role || 'Administrator'}
               </div>
             </div>
-            <ChevronDown size={16} color="var(--text-secondary)" />
+            <ChevronDown className="topbar-user-chevron" size={16} color="var(--text-secondary)" />
           </button>
 
           {activePopover === 'profile' && (

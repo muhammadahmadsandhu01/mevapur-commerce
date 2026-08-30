@@ -400,6 +400,22 @@ class AuthService {
       return { success: true };
     }
 
+    let audience = 'storefront';
+    if (user.role === 'customer') {
+      audience = 'storefront';
+    } else if (['admin', 'super_admin', 'support', 'inventory', 'manager'].includes(user.role)) {
+      audience = 'admin';
+    } else {
+      await AuditService.log({
+        ...audit,
+        eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.AUTH_ROLE_NOT_FOUND,
+        metadata: { email, role: user.role }
+      });
+      return { success: true };
+    }
+
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenHash = SessionService.hashToken(resetToken);
     const expiresAt = new Date(
@@ -413,7 +429,8 @@ class AuthService {
     await EmailService.sendPasswordResetEmail(
       user.email,
       user.fullName,
-      resetToken
+      resetToken,
+      { audience }
     );
     await AuditService.log({
       ...audit,

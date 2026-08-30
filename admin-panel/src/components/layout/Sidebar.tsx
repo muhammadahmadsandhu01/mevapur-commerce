@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Package, 
-  ShoppingCart, 
-  Users, 
+import { useState, useRef, useEffect } from 'react';
+import {
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  Users,
   Settings,
   LogOut,
   Tags,
@@ -33,6 +33,7 @@ import {
   ChevronDown,
   ChevronRight,
   DollarSign,
+  X,
   AlertCircle,
   FileSpreadsheet,
   Globe,
@@ -46,7 +47,9 @@ import { useThemeStore } from '@/store/themeStore';
 
 interface SidebarProps {
   isOpen: boolean;
+  mobileOpen: boolean;
   onClose: () => void;
+  hamburgerRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 interface MenuItem {
@@ -59,9 +62,9 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
   { icon: ShoppingCart, label: 'Orders', href: '/orders' },
-  { 
-    icon: Package, 
-    label: 'Products', 
+  {
+    icon: Package,
+    label: 'Products',
     href: '/products',
     submenu: [
       { label: 'All Products', href: '/products' },
@@ -89,7 +92,68 @@ const menuItems: MenuItem[] = [
   { icon: Settings, label: 'Settings', href: '/settings' },
 ];
 
-export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+export default function Sidebar({ isOpen, mobileOpen, onClose, hamburgerRef }: SidebarProps) {
+  const drawerRef = useRef<HTMLElement>(null);
+
+  // Trap focus inside drawer when mobile drawer is open
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  };
+
+  // Focus the first element when the drawer opens
+  useEffect(() => {
+    if (mobileOpen) {
+      const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable && focusable.length > 0) {
+        focusable[0].focus();
+      }
+    }
+  }, [mobileOpen]);
+
+  // Lock body scroll when mobile drawer is open
+  useEffect(() => {
+    if (mobileOpen) {
+      const originalStyle = window.getComputedStyle(document.body).overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalStyle;
+      };
+    }
+  }, [mobileOpen]);
+
+  // Focus restoration to the TopBar hamburger menu on close
+  const prevMobileOpen = useRef(mobileOpen);
+  useEffect(() => {
+    if (prevMobileOpen.current && !mobileOpen) {
+      hamburgerRef.current?.focus();
+    }
+    prevMobileOpen.current = mobileOpen;
+  }, [mobileOpen, hamburgerRef]);
   const pathname = usePathname();
   const router = useRouter();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
@@ -103,8 +167,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   };
 
   const toggleMenu = (href: string) => {
-    setExpandedMenus(prev => 
-      prev.includes(href) 
+    setExpandedMenus(prev =>
+      prev.includes(href)
         ? prev.filter(item => item !== href)
         : [...prev, href]
     );
@@ -118,8 +182,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   return (
     <>
       {/* Mobile Overlay */}
-      {isOpen && (
-        <div 
+      {mobileOpen && (
+        <div
           onClick={onClose}
           style={{
             position: 'fixed',
@@ -133,7 +197,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         />
       )}
 
-      <aside 
+      <aside
+        id="admin-sidebar"
+        ref={drawerRef}
+        onKeyDown={handleKeyDown}
+        className={mobileOpen ? "sidebar-container open" : "sidebar-container"}
+        aria-label="Main Navigation"
         style={{
           position: 'fixed',
           left: 0,
@@ -164,10 +233,31 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             theme="light"
             height={isOpen ? 26 : 32}
           />
+          {/* Close Button on Mobile */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close navigation"
+            className="mobile-close-btn"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '8px',
+              color: 'var(--sidebar-text)',
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '8px',
+              marginLeft: 'auto'
+            }}
+          >
+            <X size={20} />
+          </button>
           {isOpen && (
             <div style={{ marginLeft: 'auto' }}>
-              <div style={{ 
-                fontSize: '10px', 
+              <div style={{
+                fontSize: '10px',
                 color: 'var(--sidebar-text)',
                 fontWeight: '600',
                 letterSpacing: '0.1em',
@@ -180,7 +270,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         {/* Menu Items */}
-        <nav style={{ 
+        <nav style={{
           padding: '12px 10px',
           flex: 1,
           overflowY: 'auto',
@@ -190,7 +280,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             const isExpanded = expandedMenus.includes(item.href);
             const hasSubmenu = item.submenu && item.submenu.length > 0;
             const active = isActive(item.href);
-            
+
             return (
               <div key={item.href} style={{ marginBottom: '2px' }}>
                 <Link
@@ -237,9 +327,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <>
                       <span style={{ flex: 1 }}>{item.label}</span>
                       {hasSubmenu && (
-                        <ChevronDown 
-                          size={14} 
-                          style={{ 
+                        <ChevronDown
+                          size={14}
+                          style={{
                             transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                             transition: 'transform 0.2s',
                             opacity: 0.6
@@ -252,7 +342,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
                 {/* Submenu */}
                 {isOpen && hasSubmenu && isExpanded && (
-                  <div style={{ 
+                  <div style={{
                     marginLeft: '16px',
                     marginTop: '2px',
                     borderLeft: '1px solid var(--sidebar-border)',
