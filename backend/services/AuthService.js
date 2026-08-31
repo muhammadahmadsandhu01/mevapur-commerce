@@ -427,19 +427,47 @@ class AuthService {
       resetTokenHash,
       expiresAt
     );
-    await EmailService.sendPasswordResetEmail(
-      user.email,
-      user.fullName,
-      resetToken,
-      { audience }
-    );
-    await AuditService.log({
-      ...audit,
-      userId: user._id,
-      eventName: 'AUTH.PASSWORD.RESET.REQUEST',
-      status: 'SUCCESS',
-      metadata: { accountMatched: true }
-    });
+
+    try {
+      await EmailService.sendPasswordResetEmail(
+        user.email,
+        user.fullName,
+        resetToken,
+        { audience }
+      );
+
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+        status: 'SUCCESS',
+        metadata: { accountMatched: true }
+      });
+    } catch (emailError) {
+      let rollbackSucceeded = false;
+      try {
+        const rolledBackUser = await UserRepository.clearPasswordResetTokenConditionally(
+          user._id,
+          resetTokenHash
+        );
+        rollbackSucceeded = !!rolledBackUser;
+      } catch (rollbackError) {
+        logger.error('Token rollback query failed on email delivery failure');
+      }
+
+      logger.warn('SMTP delivery failed during password reset. Rollback executed.', {
+        rollbackSucceeded
+      });
+
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.EMAIL_SEND_FAILED,
+        metadata: { emailMatched: true, rollbackSucceeded }
+      });
+    }
 
     return { success: true };
   }

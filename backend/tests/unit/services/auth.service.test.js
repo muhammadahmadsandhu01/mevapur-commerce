@@ -11,6 +11,7 @@ jest.mock('../../../repositories/UserRepository', () => ({
   findByIdWithPassword: jest.fn(),
   save: jest.fn(),
   setPasswordResetToken: jest.fn(),
+  clearPasswordResetTokenConditionally: jest.fn(),
 }));
 jest.mock('../../../services/TokenService', () => ({
   generateAccessToken: jest.fn(),
@@ -26,7 +27,7 @@ jest.mock('../../../services/SessionService', () => ({
   revokeOwnedSession: jest.fn(),
   revokeAllSessions: jest.fn(),
   getActiveSessions: jest.fn(),
-  hashToken: jest.fn(),
+  hashToken: jest.fn().mockImplementation(token => `hashed-${token}`),
 }));
 jest.mock('../../../services/AuditService', () => ({
   log: jest.fn(),
@@ -287,6 +288,51 @@ describe('AuthService', () => {
           eventName: 'AUTH.PASSWORD.RESET.REQUEST',
           status: 'WARNING',
         })
+      );
+    });
+
+    it('performs conditional rollback when email delivery fails and clears matching token hash', async () => {
+      const user = { _id: 'user-id', email: 'test@example.com', fullName: 'Test', role: 'admin' };
+      UserRepository.findByEmail.mockResolvedValue(user);
+      EmailService.sendPasswordResetEmail.mockRejectedValue(new Error('SMTP connection timed out'));
+      UserRepository.clearPasswordResetTokenConditionally.mockResolvedValue(user);
+      SessionService.hashToken.mockReturnValue('mock-hash');
+
+      const result = await AuthService.forgotPassword({
+        email: user.email,
+        requestId: 'request-forgot-fail'
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(UserRepository.clearPasswordResetTokenConditionally).toHaveBeenCalledWith(
+        user._id,
+        'mock-hash'
+      );
+      expect(AuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventName: 'AUTH.PASSWORD.RESET.REQUEST',
+          status: 'FAILURE',
+          errorCode: 'EMAIL_SEND_FAILED'
+        })
+      );
+    });
+
+    it('does not clear a newer concurrently created token if rollback target does not match', async () => {
+      const user = { _id: 'user-id', email: 'test@example.com', fullName: 'Test', role: 'admin' };
+      UserRepository.findByEmail.mockResolvedValue(user);
+      EmailService.sendPasswordResetEmail.mockRejectedValue(new Error('SMTP connection timed out'));
+      UserRepository.clearPasswordResetTokenConditionally.mockResolvedValue(null);
+      SessionService.hashToken.mockReturnValue('mock-hash');
+
+      const result = await AuthService.forgotPassword({
+        email: user.email,
+        requestId: 'request-forgot-fail-concurrent'
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(UserRepository.clearPasswordResetTokenConditionally).toHaveBeenCalledWith(
+        user._id,
+        'mock-hash'
       );
     });
   });

@@ -27,6 +27,8 @@ const {
 } = require('../validators/authValidator');
 const { revokeSessionSchema } = require('../validators/sessionValidator');
 
+const { forgotPasswordLimiter, resetPasswordLimiter } = require('../middleware/rateLimiter');
+
 const router = express.Router();
 const authValidation = (schema, source = 'body') => validate(schema, {
   source,
@@ -57,14 +59,14 @@ router.post(
 
 router.post(
   '/forgot-password',
-  limiter,
+  forgotPasswordLimiter,
   authValidation(forgotPasswordSchema),
   forgotPassword
 );
 
 router.post(
   '/reset-password',
-  limiter,
+  resetPasswordLimiter,
   authValidation(resetPasswordSchema),
   resetPassword
 );

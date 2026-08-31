@@ -6,7 +6,7 @@ const SUPPORTED_ENVIRONMENTS = new Set([
   'production'
 ]);
 const SUPPORTED_SAME_SITE = new Set(['strict', 'lax', 'none']);
-const SUPPORTED_EMAIL_MODES = new Set(['disabled', 'mock']);
+const SUPPORTED_EMAIL_MODES = new Set(['disabled', 'mock', 'smtp']);
 const SUPPORTED_UPLOAD_MODES = new Set(['disabled', 'read-only']);
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -253,6 +253,62 @@ const createRuntimeConfig = (environment = process.env) => {
     'mock',
     isDeployed
   );
+
+  if (isDeployed && emailMode !== 'smtp') {
+    throw new RuntimeConfigurationError('EMAIL_MODE must be smtp in staging and production');
+  }
+
+  let smtpHost = null;
+  let smtpPort = null;
+  let smtpSecure = null;
+  let smtpUser = null;
+  let smtpPassword = null;
+  let smtpFrom = null;
+  let smtpFromName = null;
+
+  if (emailMode === 'smtp') {
+    smtpHost = requiredValue(environment, 'SMTP_HOST');
+    const portRaw = requiredValue(environment, 'SMTP_PORT');
+    smtpPort = Number(portRaw);
+    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+      throw new RuntimeConfigurationError('SMTP_PORT must be an integer from 1 to 65535');
+    }
+
+    const secureRaw = requiredValue(environment, 'SMTP_SECURE');
+    if (secureRaw !== 'true' && secureRaw !== 'false') {
+      throw new RuntimeConfigurationError('SMTP_SECURE must be true or false');
+    }
+    smtpSecure = secureRaw === 'true';
+
+    // Port 465 requires implicit TLS/secure=true
+    if (smtpPort === 465 && !smtpSecure) {
+      throw new RuntimeConfigurationError('SMTP_PORT 465 requires SMTP_SECURE to be true');
+    }
+    // Port 587 uses STARTTLS with secure=false
+    if (smtpPort === 587 && smtpSecure) {
+      throw new RuntimeConfigurationError('SMTP_PORT 587 requires SMTP_SECURE to be false');
+    }
+
+    smtpUser = requiredValue(environment, 'SMTP_USER');
+    smtpPassword = requiredValue(environment, 'SMTP_PASSWORD');
+    smtpFrom = requiredValue(environment, 'SMTP_FROM');
+    if (!/^\S+@\S+\.\S+$/.test(smtpFrom)) {
+      throw new RuntimeConfigurationError('SMTP_FROM must be a valid email address');
+    }
+    smtpFromName = optionalValue(environment, 'SMTP_FROM_NAME');
+
+    // In production, reject localhost/loopback hosts or generic placeholder credentials
+    if (isDeployed) {
+      const loopbackPattern = /localhost|127\.0\.0\.1|\[::1\]/i;
+      if (loopbackPattern.test(smtpHost)) {
+        throw new RuntimeConfigurationError('SMTP_HOST must not point to a localhost or loopback address in production');
+      }
+      const placeholderPattern = /default|placeholder|secret|password|username|example/i;
+      if (placeholderPattern.test(smtpUser) || placeholderPattern.test(smtpPassword)) {
+        throw new RuntimeConfigurationError('SMTP credentials must not use placeholder or default patterns in production');
+      }
+    }
+  }
   const uploadsMode = parseMode(
     environment,
     'LOCAL_UPLOADS_MODE',
@@ -332,7 +388,18 @@ const createRuntimeConfig = (environment = process.env) => {
       trust: trustProxy
     }),
     email: Object.freeze({
-      mode: emailMode
+      mode: emailMode,
+      smtp: emailMode === 'smtp' ? Object.freeze({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpSecure,
+        auth: Object.freeze({
+          user: smtpUser,
+          pass: smtpPassword
+        }),
+        from: smtpFrom,
+        fromName: smtpFromName
+      }) : null
     }),
     filesystem: Object.freeze({
       uploadsMode

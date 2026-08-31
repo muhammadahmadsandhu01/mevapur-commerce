@@ -105,6 +105,22 @@ class UserRepository {
       '+password +tokenVersion +resetPasswordTokenHash +resetPasswordExpiresAt'
     );
   }
+
+  async clearPasswordResetTokenConditionally(id, expectedTokenHash) {
+    return User.findOneAndUpdate(
+      {
+        _id: id,
+        resetPasswordTokenHash: expectedTokenHash
+      },
+      {
+        $unset: {
+          resetPasswordTokenHash: "",
+          resetPasswordExpiresAt: ""
+        }
+      },
+      { new: true }
+    );
+  }
 }
 
 module.exports = new UserRepository();
