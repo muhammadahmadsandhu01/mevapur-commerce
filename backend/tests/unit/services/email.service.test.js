@@ -185,6 +185,51 @@ describe('EmailService', () => {
     expect(escaped).toBe('John &amp; &lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt; &quot;quote&quot;');
   });
 
+  it('applies configured brand name in subject, HTML, and plaintext, and leaves no hardcoded HARZAAR branding', async () => {
+    getRuntimeConfig.mockReturnValue({
+      email: {
+        mode: 'smtp',
+        brandName: 'BrandX & Co',
+        smtp: {
+          host: 'smtp.mailtrap.io',
+          port: 465,
+          secure: true,
+          auth: { user: 'user', pass: 'pass' },
+          from: 'noreply@brandx.com',
+          fromName: 'BrandX'
+        }
+      },
+      origins: {
+        storefront: 'http://localhost:3000',
+        admin: 'http://localhost:3001'
+      }
+    });
+
+    await EmailService.sendPasswordResetEmail(
+      'test@example.com',
+      'John Doe',
+      'reset-token-123',
+      { audience: 'storefront' }
+    );
+
+    expect(mockTransporter.sendMail).toHaveBeenCalledTimes(1);
+    const mailOptions = mockTransporter.sendMail.mock.calls[0][0];
+
+    // Subject checks
+    expect(mailOptions.subject).toContain('BrandX & Co');
+    expect(mailOptions.subject).not.toContain('HARZAAR');
+
+    // Plaintext checks
+    expect(mailOptions.text).toContain('BrandX & Co Password Reset');
+    expect(mailOptions.text).toContain('automated security notification from BrandX & Co.');
+    expect(mailOptions.text).not.toContain('HARZAAR');
+
+    // HTML checks (escaped & should be &amp;)
+    expect(mailOptions.html).toContain('BrandX &amp; Co');
+    expect(mailOptions.html).toContain('automated security notification from BrandX &amp; Co.');
+    expect(mailOptions.html).not.toContain('HARZAAR');
+  });
+
   it('throws an error if configuration mode is not smtp/mock/disabled', async () => {
     getRuntimeConfig.mockReturnValue({
       email: {

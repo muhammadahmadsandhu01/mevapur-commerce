@@ -258,6 +258,13 @@ const createRuntimeConfig = (environment = process.env) => {
     throw new RuntimeConfigurationError('EMAIL_MODE must be smtp in staging and production');
   }
 
+  const rawBrand = optionalValue(environment, 'EMAIL_BRAND_NAME');
+  if (isDeployed && emailMode === 'smtp' && (!rawBrand || rawBrand.trim() === '')) {
+    throw new RuntimeConfigurationError('EMAIL_BRAND_NAME is required in staging and production when EMAIL_MODE=smtp');
+  }
+  // Prevent CR/LF/header injection by stripping any newlines/carriage returns
+  const emailBrandName = (rawBrand || 'HARZAAR TEST BRAND').replace(/[\r\n]/g, '').trim();
+
   let smtpHost = null;
   let smtpPort = null;
   let smtpSecure = null;
@@ -389,6 +396,7 @@ const createRuntimeConfig = (environment = process.env) => {
     }),
     email: Object.freeze({
       mode: emailMode,
+      brandName: emailBrandName,
       smtp: emailMode === 'smtp' ? Object.freeze({
         host: smtpHost,
         port: smtpPort,

@@ -100,12 +100,13 @@ class EmailService {
 
     const safeFullName = this.escapeHtml(fullName);
     const safeResetLink = this.escapeHtml(resetLink);
+    const safeBrandName = this.escapeHtml(config.brandName);
 
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Reset Your Password - HARZAAR</title>
+  <title>Reset Your Password - ${safeBrandName}</title>
   <style>
     body { font-family: sans-serif; background-color: #f9f9f9; color: #333; margin: 0; padding: 20px; }
     .container { max-width: 600px; background-color: #fff; border: 1px solid #ddd; padding: 40px; border-radius: 4px; margin: 0 auto; }
@@ -117,7 +118,7 @@ class EmailService {
 </head>
 <body>
   <div class="container">
-    <div class="header">HARZAAR</div>
+    <div class="header">${safeBrandName}</div>
     <p>Hello ${safeFullName},</p>
     <p>We received a request to reset your password. Click the button below to set a new password:</p>
     <a href="${safeResetLink}" class="cta">Reset Password</a>
@@ -127,13 +128,13 @@ class EmailService {
       ${safeResetLink}
     </div>
     <div class="footer">
-      This is an automated security notification from HARZAAR.
+      This is an automated security notification from ${safeBrandName}.
     </div>
   </div>
 </body>
 </html>`;
 
-    const text = `HARZAAR Password Reset
+    const text = `${config.brandName} Password Reset
 
 Hello ${fullName},
 
@@ -143,11 +144,11 @@ ${resetLink}
 
 This link is valid for exactly one hour. If you did not make this request, please ignore this email; no changes have been made to your account.
 
-This is an automated security notification from HARZAAR.`;
+This is an automated security notification from ${config.brandName}.`;
 
     const emailData = {
       to: email,
-      subject: 'Reset Your Password - HARZAAR',
+      subject: `Reset Your Password - ${config.brandName}`,
       html,
       text
     };

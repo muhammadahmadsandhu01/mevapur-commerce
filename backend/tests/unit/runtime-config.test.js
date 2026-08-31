@@ -136,6 +136,7 @@ describe('runtime.config.js Email and SMTP validation', () => {
       AUTH_COOKIE_SECURE: 'true',
       TRUST_PROXY: '1',
       EMAIL_MODE: 'smtp',
+      EMAIL_BRAND_NAME: 'HARZAAR',
       SMTP_PORT: '465',
       SMTP_SECURE: 'true',
       SMTP_USER: 'prod-user',
@@ -163,6 +164,7 @@ describe('runtime.config.js Email and SMTP validation', () => {
       AUTH_COOKIE_SECURE: 'true',
       TRUST_PROXY: '1',
       EMAIL_MODE: 'smtp',
+      EMAIL_BRAND_NAME: 'HARZAAR',
       SMTP_HOST: 'smtp.sendgrid.net',
       SMTP_PORT: '465',
       SMTP_SECURE: 'true',
@@ -176,5 +178,44 @@ describe('runtime.config.js Email and SMTP validation', () => {
     expect(() => {
       createRuntimeConfig({ ...prodEnv, SMTP_USER: 'username', SMTP_PASSWORD: 'placeholder_password' });
     }).toThrow('SMTP credentials must not use placeholder or default patterns in production');
+  });
+
+  it('strictly validates required EMAIL_BRAND_NAME in production/staging when EMAIL_MODE=smtp', () => {
+    const prodEnv = {
+      ...baseEnv,
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'https://harzaar.com',
+      ADMIN_URL: 'https://admin.harzaar.com',
+      BACKEND_PUBLIC_URL: 'https://api.harzaar.com',
+      AUTH_COOKIE_SAME_SITE: 'strict',
+      AUTH_COOKIE_SECURE: 'true',
+      TRUST_PROXY: '1',
+      EMAIL_MODE: 'smtp',
+      SMTP_HOST: 'smtp.sendgrid.net',
+      SMTP_PORT: '465',
+      SMTP_SECURE: 'true',
+      SMTP_USER: 'prod-safe-login',
+      SMTP_PASSWORD: 'prod-safe-pass',
+      SMTP_FROM: 'noreply@harzaar.com'
+    };
+
+    expect(() => {
+      createRuntimeConfig(prodEnv);
+    }).toThrow('EMAIL_BRAND_NAME is required in staging and production when EMAIL_MODE=smtp');
+
+    expect(() => {
+      createRuntimeConfig({ ...prodEnv, EMAIL_BRAND_NAME: ' ' });
+    }).toThrow('EMAIL_BRAND_NAME is required in staging and production when EMAIL_MODE=smtp');
+
+    const validConfig = createRuntimeConfig({ ...prodEnv, EMAIL_BRAND_NAME: 'White Label Brand' });
+    expect(validConfig.email.brandName).toBe('White Label Brand');
+  });
+
+  it('strips CR and LF characters from EMAIL_BRAND_NAME to prevent header injection', () => {
+    const config = createRuntimeConfig({
+      ...baseEnv,
+      EMAIL_BRAND_NAME: 'My Brand\r\nName\nWith\rNewlines'
+    });
+    expect(config.email.brandName).toBe('My BrandNameWithNewlines');
   });
 });

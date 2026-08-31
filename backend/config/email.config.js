@@ -8,6 +8,9 @@ module.exports = Object.freeze({
   get smtp() {
     return getRuntimeConfig().email.smtp;
   },
+  get brandName() {
+    return getRuntimeConfig().email.brandName;
+  },
   get frontendUrl() {
     return getRuntimeConfig().origins.storefront;
   }
