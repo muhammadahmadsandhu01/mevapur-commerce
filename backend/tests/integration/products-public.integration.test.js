@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const app = require('../../app');
 const Product = require('../../models/Product');
 const Category = require('../../models/Category');
+const Brand = require('../../models/Brand');
 
 describe('Public Products Catalog Integration Tests', () => {
   let publishedProduct;
@@ -10,6 +11,7 @@ describe('Public Products Catalog Integration Tests', () => {
   let inactiveProduct;
   let archivedProduct;
   let testCategory;
+  let testBrand;
 
   beforeEach(async () => {
     testCategory = await Category.create({
@@ -17,11 +19,17 @@ describe('Public Products Catalog Integration Tests', () => {
       slug: `pub-cat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
     });
 
+    testBrand = await Brand.create({
+      name: `Public Brand ${Date.now()}`,
+      slug: `pub-brand-${Date.now()}`
+    });
+
     publishedProduct = await Product.create({
       name: 'Organic Cashews Published',
       slug: `organic-cashews-${Date.now()}`,
       description: 'Crunchy premium cashews.',
       category: testCategory._id,
+      brand: testBrand._id,
       price: 1800,
       originalPrice: 2000,
       stock: 30,
@@ -77,10 +85,26 @@ describe('Public Products Catalog Integration Tests', () => {
     expect(productIds).not.toContain(String(archivedProduct._id));
   });
 
-  it('GET /api/products?admin=true strictly prevents public bypass', async () => {
+  it('GET /api/products?admin=true strictly prevents public bypass (400)', async () => {
     const response = await request(app).get('/api/products?admin=true');
-    // Public endpoint strictly rejects unauthorized query parameters with 400
     expect(response.status).toBe(400);
+  });
+
+  it('filters public products by keyword search', async () => {
+    const response = await request(app).get('/api/products?keyword=Cashews');
+    expect(response.status).toBe(200);
+    expect(response.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(response.body.data[0].name).toContain('Cashews');
+  });
+
+  it('filters public products by category and brand', async () => {
+    const resCat = await request(app).get(`/api/products?category=${testCategory._id}`);
+    expect(resCat.status).toBe(200);
+    expect(resCat.body.data.length).toBeGreaterThanOrEqual(1);
+
+    const resBrand = await request(app).get(`/api/products?brand=${testBrand._id}`);
+    expect(resBrand.status).toBe(200);
+    expect(resBrand.body.data.length).toBeGreaterThanOrEqual(1);
   });
 
   it('GET /api/products/:id returns published product and rejects draft/inactive/archived items (404)', async () => {
@@ -107,14 +131,16 @@ describe('Public Products Catalog Integration Tests', () => {
     expect(resArchived.status).toBe(404);
   });
 
-  it('GET /api/products/top and /recommended return only published items', async () => {
-    const [top, rec] = await Promise.all([
+  it('GET /api/products/top, /recommended, and /recently-viewed return only published items', async () => {
+    const [top, rec, recent] = await Promise.all([
       request(app).get('/api/products/top'),
-      request(app).get('/api/products/recommended')
+      request(app).get('/api/products/recommended'),
+      request(app).get('/api/products/recently-viewed?ids=' + publishedProduct._id)
     ]);
 
     expect(top.status).toBe(200);
     expect(rec.status).toBe(200);
+    expect(recent.status).toBe(200);
 
     top.body.data.forEach(item => {
       expect(item.isActive).toBe(true);

@@ -11,12 +11,12 @@ describe('SkuRegistryService Unit Tests', () => {
     productId2 = new mongoose.Types.ObjectId();
   });
 
-  it('reserves root and variant SKUs successfully', async () => {
+  it('reserves root and variant SKUs successfully with uppercase normalization', async () => {
     const variantId = new mongoose.Types.ObjectId();
     await SkuRegistryService.reserveSkus({
       productId: productId1,
-      rootSku: 'ALM-ROOT',
-      variants: [{ _id: variantId, sku: 'ALM-VAR-100' }]
+      rootSku: 'alm-root',
+      variants: [{ _id: variantId, sku: 'alm-var-100' }]
     });
 
     const entries = await SkuRegistry.find({ product: productId1 });
@@ -25,18 +25,40 @@ describe('SkuRegistryService Unit Tests', () => {
     expect(entries.some(e => e.sku === 'ALM-VAR-100' && e.isRoot === false)).toBe(true);
   });
 
-  it('rejects cross-product SKU collision', async () => {
-    // Product 1 registers SKU
+  it('rejects cross-product root-to-root SKU collision', async () => {
+    await SkuRegistryService.reserveSkus({
+      productId: productId1,
+      rootSku: 'ROOT-COLLISION'
+    });
+
+    await expect(SkuRegistryService.reserveSkus({
+      productId: productId2,
+      rootSku: 'root-collision'
+    })).rejects.toThrow("SKU 'ROOT-COLLISION' is already registered to another product");
+  });
+
+  it('rejects cross-product root-to-variant SKU collision', async () => {
     await SkuRegistryService.reserveSkus({
       productId: productId1,
       rootSku: 'SHARED-SKU-1'
     });
 
-    // Product 2 attempts to use same SKU as variant
     await expect(SkuRegistryService.reserveSkus({
       productId: productId2,
       variants: [{ sku: 'shared-sku-1' }]
     })).rejects.toThrow("SKU 'SHARED-SKU-1' is already registered to another product");
+  });
+
+  it('rejects cross-product variant-to-variant SKU collision', async () => {
+    await SkuRegistryService.reserveSkus({
+      productId: productId1,
+      variants: [{ sku: 'VAR-COLLISION-1' }]
+    });
+
+    await expect(SkuRegistryService.reserveSkus({
+      productId: productId2,
+      variants: [{ sku: 'var-collision-1' }]
+    })).rejects.toThrow("SKU 'VAR-COLLISION-1' is already registered to another product");
   });
 
   it('releases unreferenced SKUs upon update', async () => {

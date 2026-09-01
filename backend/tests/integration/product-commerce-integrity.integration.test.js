@@ -14,17 +14,17 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
 
   beforeEach(async () => {
     customerUser = await global.createTestUser({
-      email: `cust-${Date.now()}@example.test`,
+      email: `cust-${Date.now()}-${Math.random()}@example.test`,
       role: 'customer'
     });
     adminUser = await global.createTestUser({
-      email: `adm-${Date.now()}@example.test`,
+      email: `adm-${Date.now()}-${Math.random()}@example.test`,
       role: 'admin'
     });
 
     testCategory = await Category.create({
       name: `Integrity Cat ${Date.now()}`,
-      slug: `cat-integ-${Date.now()}`
+      slug: `cat-integ-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
     });
   });
 
@@ -40,8 +40,8 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         status: 'published',
         images: ['https://example.com/honey.webp'],
         variants: [
-          { _id: variant1Id, sku: 'HON-500G', attributes: [{ name: 'Size', value: '500g' }], price: 1000, initialStock: 20, isDefault: true },
-          { _id: variant2Id, sku: 'HON-1KG', attributes: [{ name: 'Size', value: '1kg' }], price: 1800, initialStock: 15, isDefault: false }
+          { _id: variant1Id, sku: `HON-500G-${Date.now()}`, attributes: [{ name: 'Size', value: '500g' }], price: 1000, initialStock: 20, isDefault: true },
+          { _id: variant2Id, sku: `HON-1KG-${Date.now()}`, attributes: [{ name: 'Size', value: '1kg' }], price: 1800, initialStock: 15, isDefault: false }
         ]
       },
       userId: adminUser._id
@@ -60,7 +60,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         isDefaultVariant: false,
         name: product.name,
         quantity: 5,
-        sku: 'HON-1KG'
+        sku: product.variants[1].sku
       }
     ], {
       orderId,
@@ -97,7 +97,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
   it('rejects order creation for draft, inactive, or archived products (409)', async () => {
     const draft = await ProductCatalogService.createProduct({
       data: {
-        name: 'Draft Honey',
+        name: 'Draft Honey Item',
         status: 'draft'
       },
       userId: adminUser._id
@@ -115,6 +115,66 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
     })).rejects.toThrow('A selected product is unavailable');
   });
 
+  it('rejects order creation when requested variant quantity exceeds stock (409)', async () => {
+    const variantId = new mongoose.Types.ObjectId();
+    const product = await ProductCatalogService.createProduct({
+      data: {
+        name: 'Limited Stock Honey',
+        description: 'Rare honey batch.',
+        category: testCategory._id,
+        status: 'published',
+        images: ['https://example.com/honey.webp'],
+        variants: [
+          { _id: variantId, sku: `LTD-HON-${Date.now()}`, attributes: [{ name: 'Size', value: '250g' }], price: 500, initialStock: 2, isDefault: true }
+        ]
+      },
+      userId: adminUser._id
+    });
+
+    const orderPayload = {
+      items: [{ productId: product._id.toString(), variantId: variantId.toString(), quantity: 10 }], // requesting 10 but stock is 2
+      shippingAddress: { fullName: 'Test', address: 'Road 1', province: 'Punjab', city: 'Lahore', country: 'PK', phone: '03001234567' },
+      paymentMethod: 'cod'
+    };
+
+    await expect(OrderService.createOrder({
+      userId: customerUser._id,
+      orderData: orderPayload,
+      idempotencyKey: crypto.randomUUID()
+    })).rejects.toThrow('Insufficient stock');
+  });
+
+  it('resolves authoritative product price and ignores client-supplied spoofed price', async () => {
+    const product = await ProductCatalogService.createProduct({
+      data: {
+        name: 'Authoritative Price Item',
+        description: 'Product with set price.',
+        category: testCategory._id,
+        price: 2500,
+        initialStock: 10,
+        status: 'published',
+        images: ['https://example.com/item.webp']
+      },
+      userId: adminUser._id
+    });
+
+    const orderPayload = {
+      items: [{ productId: product._id.toString(), price: 1, quantity: 1 }], // client attempts to spoof price as Rs.1
+      shippingAddress: { fullName: 'Test', address: 'Road 1', province: 'Punjab', city: 'Lahore', country: 'PK', phone: '03001234567' },
+      paymentMethod: 'cod'
+    };
+
+    const result = await OrderService.createOrder({
+      userId: customerUser._id,
+      orderData: orderPayload,
+      idempotencyKey: crypto.randomUUID()
+    });
+
+    const order = result.order || result;
+    expect(order.subtotal).toBe(2500); // Authoritative Rs.2500 applied!
+    expect(order.items[0].price).toBe(2500);
+  });
+
   it('prevents removing a variant that has historical order reference (409)', async () => {
     const variantId = new mongoose.Types.ObjectId();
     const product = await ProductCatalogService.createProduct({
@@ -125,7 +185,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         status: 'published',
         images: ['https://example.com/variant.webp'],
         variants: [
-          { _id: variantId, sku: 'HIST-VAR-1', attributes: [{ name: 'Size', value: 'S' }], price: 500, initialStock: 10, isDefault: true }
+          { _id: variantId, sku: `HIST-VAR-${Date.now()}`, attributes: [{ name: 'Size', value: 'S' }], price: 500, initialStock: 10, isDefault: true }
         ]
       },
       userId: adminUser._id
@@ -139,7 +199,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         product: product._id,
         variantId,
         name: product.name,
-        sku: 'HIST-VAR-1',
+        sku: product.variants[0].sku,
         price: 500,
         quantity: 1,
         lineTotal: 500

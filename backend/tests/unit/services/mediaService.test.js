@@ -15,7 +15,6 @@ describe('MediaService Unit Tests', () => {
   });
 
   it('successfully processes, encodes to WebP, and stores a valid JPEG buffer', async () => {
-    // Generate valid 100x100 JPEG buffer using Sharp
     const jpegBuffer = await sharp({
       create: { width: 100, height: 100, channels: 3, background: { r: 200, g: 100, b: 50 } }
     }).jpeg().toBuffer();
@@ -41,6 +40,22 @@ describe('MediaService Unit Tests', () => {
     expect(asset.status).toBe('pending');
     expect(asset.mimeType).toBe('image/webp');
     expect(asset.uploader.toString()).toBe(userId.toString());
+  });
+
+  it('MockStorageProvider makes zero network calls and stores objects in-memory', async () => {
+    const testProvider = new MockStorageProvider();
+    const uploadRes = await testProvider.upload({
+      key: 'test/key.webp',
+      buffer: Buffer.from('mock data'),
+      mimeType: 'image/webp'
+    });
+
+    expect(uploadRes.key).toBe('test/key.webp');
+    expect(uploadRes.url).toContain('test/key.webp');
+    expect(testProvider.has('test/key.webp')).toBe(true);
+
+    await testProvider.delete({ key: 'test/key.webp' });
+    expect(testProvider.has('test/key.webp')).toBe(false);
   });
 
   it('rejects spoofed image MIME type when binary signature does not match', async () => {
@@ -77,6 +92,21 @@ describe('MediaService Unit Tests', () => {
 
     await expect(MediaService.processAndUpload({ file, userId }))
       .rejects.toThrow('Image exceeds maximum size of 5 MB');
+  });
+
+  it('rejects images exceeding maximum dimensions (4096px)', async () => {
+    const hugeDimensionBuffer = await sharp({
+      create: { width: 4100, height: 100, channels: 3, background: { r: 10, g: 10, b: 10 } }
+    }).jpeg().toBuffer();
+
+    const file = {
+      buffer: hugeDimensionBuffer,
+      mimetype: 'image/jpeg',
+      originalname: 'wide.jpg'
+    };
+
+    await expect(MediaService.processAndUpload({ file, userId }))
+      .rejects.toThrow('Image dimensions exceed maximum 4096x4096px');
   });
 
   it('sets status to upload_failed if storage provider upload fails', async () => {

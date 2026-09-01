@@ -1,17 +1,21 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   Package, ChevronDown, ChevronUp, Save, Upload, X,
-  Plus, Trash2, Image as ImageIcon, AlertCircle, CheckCircle,
-  Loader, Eye, Settings, Tag, DollarSign, Box, Truck,
-  Search, Globe, BarChart3, Link as LinkIcon, MessageSquare,
-  ArrowLeft
+  Plus, Trash2, Image as ImageIcon, CheckCircle,
+  Loader, Eye, DollarSign, Box,
+  Globe, MessageSquare, ArrowLeft
 } from 'lucide-react';
-import api, { getCategories, getBrands, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
+import { getCategories, getBrands, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
 import axios from 'axios';
-import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import {
+  validateProductForm,
+  prepareProductPayload,
+  mapProductSaveError,
+  extractMediaAssetIds
+} from '@/lib/productFormHelpers';
 import type { LucideIcon } from 'lucide-react';
 
 // Types
@@ -333,9 +337,7 @@ export default function EditProductPage() {
         if (response.success && response.data?.product) {
           const product = response.data.product;
           setExpectedVersion(product.__v ?? 0);
-          setMediaAssetIds(
-            (product.mediaAssetIds || []).map((m: any) => (typeof m === 'object' && m !== null ? m._id : m))
-          );
+          setMediaAssetIds(extractMediaAssetIds(product.mediaAssetIds || []));
 
           // Transform product data to form data
           const formValues: ProductFormData = {
@@ -432,70 +434,25 @@ export default function EditProductPage() {
     return () => clearTimeout(timer);
   }, [formData, loading]);
 
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.name.trim()) newErrors.name = 'Product name is required';
-    if (!formData.category) newErrors.category = 'Category is required';
-    if (formData.price <= 0 && formData.variants.length === 0) newErrors.price = 'Price must be greater than 0';
-    if (formData.productType === 'variable' && formData.variants.length === 0) {
-      newErrors.variants = 'At least one variant is required for variable products';
-    }
-    if (formData.images.length === 0 && mediaAssetIds.length === 0) {
-      newErrors.images = 'At least one product image is required';
-    }
-
-    setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) {
-      const firstField = Object.keys(newErrors)[0];
-      const el = document.getElementById(`field-${firstField}`);
+  const validateForm = (status: 'draft' | 'published'): boolean => {
+    const result = validateProductForm(formData, status, mediaAssetIds);
+    setErrors(result.errors);
+    if (!result.isValid && result.firstErrorField) {
+      const el = document.getElementById(`field-${result.firstErrorField}`);
       if (el) el.focus();
     }
-    return Object.keys(newErrors).length === 0;
+    return result.isValid;
   };
 
   const handleSubmit = async (status: 'draft' | 'published') => {
-    if (status === 'published' && !validateForm()) {
+    if (status === 'published' && !validateForm('published')) {
       alert('Please fill all required fields correctly');
       return;
     }
 
     setLoading(true);
     try {
-      const payload: Record<string, unknown> = {
-        name: formData.name.trim(),
-        slug: formData.slug.trim() || undefined,
-        shortDescription: formData.shortDescription || '',
-        description: formData.description || '',
-        category: formData.category || null,
-        subcategory: formData.subcategory || null,
-        brand: formData.brand || null,
-        sku: formData.sku ? formData.sku.trim().toUpperCase() : null,
-        price: Number(formData.price || 0),
-        originalPrice: formData.originalPrice ? Number(formData.originalPrice) : 0,
-        lowStockThreshold: Number(formData.lowStockAlert || 10),
-        isFeatured: Boolean(formData.isFeatured),
-        attributes: formData.attributes,
-        variants: formData.variants.map(v => ({
-          _id: v._id,
-          sku: v.sku.trim().toUpperCase(),
-          barcode: v.barcode || '',
-          attributes: v.attributes,
-          price: Number(v.price),
-          salePrice: v.salePrice ? Number(v.salePrice) : 0,
-          isDefault: Boolean(v.isDefault)
-        })),
-        mediaAssetIds,
-        videoUrl: formData.videoUrl || '',
-        seo: {
-          metaTitle: formData.seoTitle || '',
-          metaDescription: formData.metaDescription || '',
-          keywords: formData.keywords || ''
-        },
-        status,
-        expectedVersion
-      };
-
+      const payload = prepareProductPayload(formData, status, mediaAssetIds, expectedVersion);
       const response = await updateProduct(productId, payload);
       if (response.success) {
         alert(status === 'published' ? 'Product updated successfully!' : 'Draft saved successfully!');
@@ -504,16 +461,7 @@ export default function EditProductPage() {
         router.push('/products');
       }
     } catch (error: unknown) {
-      if (axios.isAxiosError(error) && error.response?.status === 409) {
-        alert('This product was modified by another administrator. Please reload and review the latest changes.');
-      } else {
-        alert(
-          axios.isAxiosError(error)
-          && typeof error.response?.data?.message === 'string'
-            ? error.response.data.message
-            : 'Failed to update product'
-        );
-      }
+      alert(mapProductSaveError(error));
     } finally {
       setLoading(false);
     }

@@ -1,16 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Package, ChevronDown, ChevronUp, Save, Upload, X,
-  Plus, Trash2, Image as ImageIcon, AlertCircle, CheckCircle,
-  Loader, Eye, Settings, Tag, DollarSign, Box, Truck,
-  Search, Globe, BarChart3, Link as LinkIcon, MessageSquare
+  Plus, Trash2, Image as ImageIcon, CheckCircle,
+  Loader, Eye, DollarSign, Box,
+  Globe, MessageSquare
 } from 'lucide-react';
-import api, { getCategories, getBrands, getProducts, createProduct, uploadProductImage } from '@/lib/api';
+import { getCategories, getBrands, createProduct, uploadProductImage } from '@/lib/api';
 import axios from 'axios';
-import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import {
+  validateProductForm,
+  prepareProductPayload,
+  mapProductSaveError
+} from '@/lib/productFormHelpers';
 import type { LucideIcon } from 'lucide-react';
 
 // Types
@@ -350,82 +354,32 @@ export default function AddProductPage() {
   const [mediaAssetIds, setMediaAssetIds] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.name.trim()) newErrors.name = 'Product name is required';
-    if (!formData.category) newErrors.category = 'Category is required';
-    if (formData.price <= 0 && formData.variants.length === 0) newErrors.price = 'Price must be greater than 0';
-    if (formData.productType === 'variable' && formData.variants.length === 0) {
-      newErrors.variants = 'At least one variant is required for variable products';
-    }
-    if (formData.images.length === 0 && mediaAssetIds.length === 0) {
-      newErrors.images = 'At least one product image is required';
-    }
-
-    setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) {
-      const firstField = Object.keys(newErrors)[0];
-      const el = document.getElementById(`field-${firstField}`);
+  const validateForm = (status: 'draft' | 'published'): boolean => {
+    const result = validateProductForm(formData, status, mediaAssetIds);
+    setErrors(result.errors);
+    if (!result.isValid && result.firstErrorField) {
+      const el = document.getElementById(`field-${result.firstErrorField}`);
       if (el) el.focus();
     }
-    return Object.keys(newErrors).length === 0;
+    return result.isValid;
   };
 
   const handleSubmit = async (status: 'draft' | 'published') => {
-    if (status === 'published' && !validateForm()) {
+    if (status === 'published' && !validateForm('published')) {
       alert('Please fill all required fields correctly');
       return;
     }
 
     setLoading(true);
     try {
-      const payload: Record<string, unknown> = {
-        name: formData.name.trim(),
-        slug: formData.slug.trim() || undefined,
-        shortDescription: formData.shortDescription || '',
-        description: formData.description || '',
-        category: formData.category || null,
-        subcategory: formData.subcategory || null,
-        brand: formData.brand || null,
-        sku: formData.sku ? formData.sku.trim().toUpperCase() : null,
-        price: Number(formData.price || 0),
-        originalPrice: formData.originalPrice ? Number(formData.originalPrice) : 0,
-        initialStock: Number(formData.stock || 0),
-        lowStockThreshold: Number(formData.lowStockAlert || 10),
-        isFeatured: Boolean(formData.isFeatured),
-        attributes: formData.attributes,
-        variants: formData.variants.map(v => ({
-          sku: v.sku.trim().toUpperCase(),
-          barcode: v.barcode || '',
-          attributes: v.attributes,
-          price: Number(v.price),
-          salePrice: v.salePrice ? Number(v.salePrice) : 0,
-          stock: Number(v.stock || 0),
-          isDefault: Boolean(v.isDefault)
-        })),
-        mediaAssetIds,
-        videoUrl: formData.videoUrl || '',
-        seo: {
-          metaTitle: formData.seoTitle || '',
-          metaDescription: formData.metaDescription || '',
-          keywords: formData.keywords || ''
-        },
-        status
-      };
-
+      const payload = prepareProductPayload(formData, status, mediaAssetIds);
       const response = await createProduct(payload);
       if (response.success) {
         alert(status === 'published' ? 'Product published successfully!' : 'Draft saved successfully!');
         router.push('/products');
       }
     } catch (error: unknown) {
-      alert(
-        axios.isAxiosError(error)
-        && typeof error.response?.data?.message === 'string'
-          ? error.response.data.message
-          : 'Failed to save product'
-      );
+      alert(mapProductSaveError(error));
     } finally {
       setLoading(false);
     }
