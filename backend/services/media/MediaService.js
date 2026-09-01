@@ -12,12 +12,23 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_DIMENSION = 4096;
 const MAX_INPUT_PIXELS = 16777216; // 16 MP
 
+function validateStoragePrefix(prefix) {
+  if (!prefix || typeof prefix !== 'string' || prefix.trim() === '') {
+    throw new AppError('Storage prefix cannot be empty', 400, 'MEDIA_INVALID_STORAGE_PREFIX');
+  }
+  const clean = prefix.trim().replace(/^\/+/, '');
+  if (clean === '' || clean === '.' || clean.includes('..') || clean.includes('\\') || clean.includes('*')) {
+    throw new AppError('Storage prefix contains invalid or unsafe traversal characters', 400, 'MEDIA_UNSAFE_STORAGE_PREFIX');
+  }
+  return clean.endsWith('/') ? clean : `${clean}/`;
+}
+
 class MediaService {
   constructor(storageProvider = null) {
     const runtimeConfig = getRuntimeConfig();
     this.storageProvider = storageProvider || createStorageProvider(runtimeConfig);
     this.bucket = runtimeConfig.storage?.s3?.bucket || 'mevapur-products';
-    this.keyPrefix = runtimeConfig.storage?.s3?.keyPrefix || 'products/';
+    this.keyPrefix = validateStoragePrefix(runtimeConfig.storage?.s3?.keyPrefix || 'products/');
     this.providerType = runtimeConfig.storage?.provider || 'mock';
   }
 
@@ -177,4 +188,8 @@ class MediaService {
   }
 }
 
-module.exports = new MediaService();
+const defaultInstance = new MediaService();
+defaultInstance.validateStoragePrefix = validateStoragePrefix;
+defaultInstance.MediaService = MediaService;
+
+module.exports = defaultInstance;

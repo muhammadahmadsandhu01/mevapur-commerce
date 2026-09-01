@@ -7,54 +7,119 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const MediaAsset = require('../models/MediaAsset');
 const { createStorageProvider } = require('../services/media/StorageProvider');
 const { getRuntimeConfig } = require('../config/runtime.config');
+const MediaService = require('../services/media/MediaService');
 
 const isApply = process.argv.includes('--apply');
 
-async function reconcileMediaAssets() {
+async function reconcileMediaAssets({ customConfig = null, customDbConnected = false } = {}) {
   console.log('--- Durable Media Asset Reconciliation ---');
   console.log(`Mode: ${isApply ? 'APPLY (Executing deletions)' : 'DRY-RUN (Reporting only, default)'}`);
 
-  const runtimeConfig = getRuntimeConfig();
+  const runtimeConfig = customConfig || getRuntimeConfig();
   const storageProvider = createStorageProvider(runtimeConfig);
 
-  const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/mevapur-commerce';
-  await mongoose.connect(mongoUri);
-  console.log('Connected to MongoDB.');
+  const rawPrefix = runtimeConfig.storage?.s3?.keyPrefix || 'products/';
+  const canonicalPrefix = MediaService.validateStoragePrefix(rawPrefix);
+  console.log(`Canonical Storage Prefix: '${canonicalPrefix}'`);
+
+  if (!customDbConnected && mongoose.connection.readyState === 0) {
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/mevapur-commerce';
+    await mongoose.connect(mongoUri);
+    console.log('Connected to MongoDB.');
+  }
+
+  const report = {
+    mode: isApply ? 'APPLY' : 'DRY-RUN',
+    canonicalPrefix,
+    attempted: 0,
+    deleted: 0,
+    failed: 0,
+    skippedUntilNextRetry: 0,
+    retryExhausted: 0,
+    staleOrphans: 0,
+    outOfPrefixCount: 0,
+    affectedAssetIds: [],
+    sanitizedReasonCodes: []
+  };
 
   try {
-    // 1. Find assets queued for deletion
-    const deletionCandidates = await MediaAsset.find({
-      status: { $in: ['deletion_requested', 'deletion_failed'] },
-      retryCount: { $lt: 5 }
+    const now = new Date();
+
+    // 1. Find all deletion candidates
+    const allDeletionCandidates = await MediaAsset.find({
+      status: { $in: ['deletion_requested', 'deletion_failed'] }
     });
 
-    console.log(`Found ${deletionCandidates.length} media assets queued for deletion.`);
+    console.log(`Total deletion candidate documents found: ${allDeletionCandidates.length}`);
 
-    let successCount = 0;
-    let failureCount = 0;
+    for (const asset of allDeletionCandidates) {
+      report.attempted += 1;
+      const assetIdStr = String(asset._id);
 
-    for (const asset of deletionCandidates) {
+      // Check if retry exhausted (>= 5 retries)
+      if (asset.retryCount >= 5) {
+        report.retryExhausted += 1;
+        report.affectedAssetIds.push(assetIdStr);
+        if (!report.sanitizedReasonCodes.includes('RETRY_EXHAUSTED')) {
+          report.sanitizedReasonCodes.push('RETRY_EXHAUSTED');
+        }
+        console.warn(`[RETRY-EXHAUSTED] Asset ${assetIdStr} has failed 5 times (Key: ${asset.key}). Retained for operator inspection.`);
+        continue;
+      }
+
+      // Check if waiting for exponential backoff window
+      if (asset.nextRetryAt && asset.nextRetryAt > now) {
+        report.skippedUntilNextRetry += 1;
+        console.log(`[BACKOFF-DELAY] Asset ${assetIdStr} next retry scheduled at ${asset.nextRetryAt}. Skipping.`);
+        continue;
+      }
+
+      // Prefix Guard: refuse deleting object outside configured canonical prefix
+      if (!asset.key.startsWith(canonicalPrefix)) {
+        report.outOfPrefixCount += 1;
+        report.failed += 1;
+        report.affectedAssetIds.push(assetIdStr);
+        if (!report.sanitizedReasonCodes.includes('OUT_OF_PREFIX_REJECTED')) {
+          report.sanitizedReasonCodes.push('OUT_OF_PREFIX_REJECTED');
+        }
+        console.error(`[PREFIX-VIOLATION] Asset ${assetIdStr} key '${asset.key}' is outside configured prefix '${canonicalPrefix}'. Refusing deletion.`);
+        if (isApply) {
+          asset.status = 'deletion_failed';
+          asset.lastError = 'OUT_OF_PREFIX_REJECTED';
+          await asset.save();
+        }
+        continue;
+      }
+
+      // Execute Deletion
       if (isApply) {
         try {
           await storageProvider.delete({ key: asset.key });
           asset.status = 'deleted';
           asset.lastError = null;
           await asset.save();
-          successCount += 1;
+          report.deleted += 1;
+          report.affectedAssetIds.push(assetIdStr);
         } catch (err) {
           asset.status = 'deletion_failed';
           asset.retryCount += 1;
-          asset.lastError = err.name || 'DELETION_FAILED';
+          asset.lastError = 'DELETION_FAILED';
           asset.nextRetryAt = new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, asset.retryCount));
           await asset.save();
-          failureCount += 1;
+          report.failed += 1;
+          report.affectedAssetIds.push(assetIdStr);
+          if (!report.sanitizedReasonCodes.includes('DELETION_FAILED')) {
+            report.sanitizedReasonCodes.push('DELETION_FAILED');
+          }
         }
       } else {
-        console.log(`[DRY-RUN] Would delete asset ${asset._id} (Key: ${asset.key}, Retries: ${asset.retryCount})`);
+        console.log(`[DRY-RUN] Would delete asset ${assetIdStr} (Key: ${asset.key}, Retries: ${asset.retryCount})`);
+        report.deleted += 1;
+        report.affectedAssetIds.push(assetIdStr);
       }
     }
 
-    // 2. Identify stale unattached assets older than 24h
+    // 2. Identify stale unattached assets (>24h old in uploading/pending/upload_failed without attached Product)
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const staleOrphans = await MediaAsset.find({
       status: { $in: ['uploading', 'pending', 'upload_failed'] },
@@ -62,8 +127,18 @@ async function reconcileMediaAssets() {
       createdAt: { $lt: oneDayAgo }
     });
 
-    console.log(`Found ${staleOrphans.length} orphaned/stale unattached media assets (>24h old).`);
+    console.log(`Found ${staleOrphans.length} stale unattached orphan media assets (>24h old).`);
+    report.staleOrphans = staleOrphans.length;
+
     for (const orphan of staleOrphans) {
+      const orphanIdStr = String(orphan._id);
+
+      if (!orphan.key.startsWith(canonicalPrefix)) {
+        report.outOfPrefixCount += 1;
+        console.error(`[PREFIX-VIOLATION] Orphan asset ${orphanIdStr} key '${orphan.key}' outside prefix '${canonicalPrefix}'.`);
+        continue;
+      }
+
       if (isApply) {
         try {
           await storageProvider.delete({ key: orphan.key });
@@ -74,16 +149,25 @@ async function reconcileMediaAssets() {
           await orphan.save();
         }
       } else {
-        console.log(`[DRY-RUN] Would clean up orphan asset ${orphan._id} (Key: ${orphan.key}, Status: ${orphan.status})`);
+        console.log(`[DRY-RUN] Would clean up orphan asset ${orphanIdStr} (Key: ${orphan.key}, Status: ${orphan.status})`);
       }
     }
 
-    if (isApply) {
-      console.log(`\nReconciliation Summary: ${successCount} deleted successfully, ${failureCount} failed.`);
-    }
+    console.log('\n--- Reconciliation Summary ---');
+    console.log(`Attempted: ${report.attempted}`);
+    console.log(`Deleted / Planned deletions: ${report.deleted}`);
+    console.log(`Failed: ${report.failed}`);
+    console.log(`Skipped (Backoff): ${report.skippedUntilNextRetry}`);
+    console.log(`Retry Exhausted: ${report.retryExhausted}`);
+    console.log(`Stale Orphans: ${report.staleOrphans}`);
+    console.log(`Out-of-prefix violations: ${report.outOfPrefixCount}`);
+
+    return report;
   } finally {
-    await mongoose.disconnect();
-    console.log('Disconnected from MongoDB.');
+    if (!customDbConnected && mongoose.connection.readyState !== 0 && require.main === module) {
+      await mongoose.disconnect();
+      console.log('Disconnected from MongoDB.');
+    }
   }
 }
 

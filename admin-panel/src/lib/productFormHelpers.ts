@@ -39,6 +39,54 @@ export interface FormValidationResult {
   firstErrorField?: string;
 }
 
+export type UploadStateMachineState = 'idle' | 'uploading' | 'failed' | 'retrying' | 'succeeded' | 'removed';
+
+export interface UploadStateTransitionResult {
+  state: UploadStateMachineState;
+  error?: string | null;
+  mediaAssetId?: string | null;
+  url?: string | null;
+}
+
+/**
+ * Deterministic upload state machine transitions.
+ */
+export function transitionUploadState(
+  currentState: UploadStateMachineState,
+  action: 'START_UPLOAD' | 'RETRY_UPLOAD' | 'UPLOAD_SUCCESS' | 'UPLOAD_FAILURE' | 'REMOVE_MEDIA' | 'RESET',
+  payload?: { mediaAssetId?: string; url?: string; error?: string }
+): UploadStateTransitionResult {
+  switch (action) {
+    case 'START_UPLOAD':
+      if (currentState === 'uploading') return { state: 'uploading' };
+      return { state: 'uploading', error: null };
+
+    case 'RETRY_UPLOAD':
+      return { state: 'retrying', error: null };
+
+    case 'UPLOAD_SUCCESS':
+      return {
+        state: 'succeeded',
+        mediaAssetId: payload?.mediaAssetId || null,
+        url: payload?.url || null,
+        error: null
+      };
+
+    case 'UPLOAD_FAILURE':
+      return {
+        state: 'failed',
+        error: payload?.error || 'Failed to upload image'
+      };
+
+    case 'REMOVE_MEDIA':
+      return { state: 'removed', mediaAssetId: null, url: null, error: null };
+
+    case 'RESET':
+    default:
+      return { state: 'idle', error: null, mediaAssetId: null, url: null };
+  }
+}
+
 /**
  * Validates product form state according to target lifecycle status.
  * Draft allows partial data; Published strictly requires name, description, category, positive price, and images.
@@ -204,4 +252,48 @@ export function extractMediaAssetIds(rawAssets: unknown[]): string[] {
       return typeof item === 'string' ? item : '';
     })
     .filter((id) => id.length > 0);
+}
+
+/**
+ * Evaluates whether form has unsaved modifications.
+ */
+export function isFormDirty(
+  initialValues: ProductFormFieldValues | null,
+  currentValues: ProductFormFieldValues,
+  initialMediaIds: string[],
+  currentMediaIds: string[]
+): boolean {
+  if (!initialValues) {
+    // For creation: dirty if name is typed or media added
+    return (
+      (currentValues.name && currentValues.name.trim() !== '') ||
+      currentMediaIds.length > 0 ||
+      Boolean(currentValues.price && currentValues.price > 0)
+    );
+  }
+
+  if (currentValues.name !== initialValues.name) return true;
+  if ((currentValues.description || '') !== (initialValues.description || '')) return true;
+  if ((currentValues.category || null) !== (initialValues.category || null)) return true;
+  if (currentValues.price !== initialValues.price) return true;
+  if ((currentValues.stock || 0) !== (initialValues.stock || 0)) return true;
+  if ((currentValues.sku || '') !== (initialValues.sku || '')) return true;
+
+  if (initialMediaIds.length !== currentMediaIds.length) return true;
+  for (let i = 0; i < currentMediaIds.length; i += 1) {
+    if (initialMediaIds[i] !== currentMediaIds[i]) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Provides accessible attributes for an input field with validation state.
+ */
+export function getFieldAccessibilityProps(fieldName: string, errorMessage?: string) {
+  return {
+    id: `field-${fieldName}`,
+    'aria-invalid': Boolean(errorMessage),
+    'aria-describedby': errorMessage ? `error-field-${fieldName}` : undefined
+  };
 }

@@ -6,7 +6,10 @@ import {
   validateProductForm,
   prepareProductPayload,
   mapProductSaveError,
-  extractMediaAssetIds
+  extractMediaAssetIds,
+  transitionUploadState,
+  isFormDirty,
+  getFieldAccessibilityProps
 } from '../src/lib/productFormHelpers.ts';
 import type { ProductFormFieldValues } from '../src/lib/productFormHelpers.ts';
 
@@ -236,6 +239,81 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
     test('handles empty or non-array inputs safely', () => {
       assert.deepStrictEqual(extractMediaAssetIds([]), []);
       assert.deepStrictEqual(extractMediaAssetIds(null as unknown as unknown[]), []);
+    });
+  });
+
+  describe('Upload State Machine (transitionUploadState)', () => {
+    test('transitions from idle to uploading, succeeded, and removed', () => {
+      let state = transitionUploadState('idle', 'START_UPLOAD');
+      assert.strictEqual(state.state, 'uploading');
+
+      state = transitionUploadState(state.state, 'UPLOAD_SUCCESS', {
+        mediaAssetId: 'media-uuid-1',
+        url: 'https://example.com/1.webp'
+      });
+      assert.strictEqual(state.state, 'succeeded');
+      assert.strictEqual(state.mediaAssetId, 'media-uuid-1');
+      assert.strictEqual(state.url, 'https://example.com/1.webp');
+
+      state = transitionUploadState(state.state, 'REMOVE_MEDIA');
+      assert.strictEqual(state.state, 'removed');
+      assert.strictEqual(state.mediaAssetId, null);
+    });
+
+    test('handles upload failure and retry transition', () => {
+      let state = transitionUploadState('uploading', 'UPLOAD_FAILURE', {
+        error: 'File size exceeds 5MB'
+      });
+      assert.strictEqual(state.state, 'failed');
+      assert.strictEqual(state.error, 'File size exceeds 5MB');
+
+      state = transitionUploadState(state.state, 'RETRY_UPLOAD');
+      assert.strictEqual(state.state, 'retrying');
+      assert.strictEqual(state.error, null);
+    });
+  });
+
+  describe('Unsaved Changes Dirty State Evaluation (isFormDirty)', () => {
+    test('evaluates clean initial edit load as not dirty', () => {
+      const initialForm: ProductFormFieldValues = {
+        name: 'Organic Walnuts',
+        description: 'Premium walnuts',
+        category: 'cat-1',
+        price: 1000,
+        stock: 20
+      };
+
+      const currentForm = { ...initialForm };
+      assert.strictEqual(isFormDirty(initialForm, currentForm, ['media-1'], ['media-1']), false);
+    });
+
+    test('marks form dirty when a field or media array is modified', () => {
+      const initialForm: ProductFormFieldValues = {
+        name: 'Organic Walnuts',
+        description: 'Premium walnuts',
+        price: 1000,
+        stock: 20
+      };
+
+      const modifiedForm = { ...initialForm, price: 1200 };
+      assert.strictEqual(isFormDirty(initialForm, modifiedForm, ['media-1'], ['media-1']), true);
+
+      // Media addition marks dirty
+      assert.strictEqual(isFormDirty(initialForm, initialForm, ['media-1'], ['media-1', 'media-2']), true);
+    });
+  });
+
+  describe('Field Accessibility Attributes (getFieldAccessibilityProps)', () => {
+    test('generates accessible ID, aria-invalid, and aria-describedby', () => {
+      const validProps = getFieldAccessibilityProps('name');
+      assert.strictEqual(validProps.id, 'field-name');
+      assert.strictEqual(validProps['aria-invalid'], false);
+      assert.strictEqual(validProps['aria-describedby'], undefined);
+
+      const invalidProps = getFieldAccessibilityProps('name', 'Product name is required');
+      assert.strictEqual(invalidProps.id, 'field-name');
+      assert.strictEqual(invalidProps['aria-invalid'], true);
+      assert.strictEqual(invalidProps['aria-describedby'], 'error-field-name');
     });
   });
 });

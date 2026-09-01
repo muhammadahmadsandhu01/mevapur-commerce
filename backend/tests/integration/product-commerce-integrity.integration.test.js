@@ -238,4 +238,55 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       userId: adminUser._id
     })).rejects.toThrow('A product variant referenced by an order cannot be removed');
   });
+
+  it('resolves authoritative variant salePrice and regular price, rejecting spoofed variant prices', async () => {
+    const varRegId = new mongoose.Types.ObjectId();
+    const varSaleId = new mongoose.Types.ObjectId();
+
+    const product = await ProductCatalogService.createProduct({
+      data: {
+        name: 'Multi-Priced Variant Product',
+        description: 'Product with regular and sale variants.',
+        category: testCategory._id,
+        price: 9999, // Root dummy price
+        status: 'published',
+        images: ['https://example.com/item.webp'],
+        variants: [
+          { _id: varRegId, sku: `VAR-REG-${Date.now()}`, attributes: [{ name: 'Type', value: 'Regular' }], price: 1200, initialStock: 10, isDefault: true },
+          { _id: varSaleId, sku: `VAR-SALE-${Date.now()}`, attributes: [{ name: 'Type', value: 'Discounted' }], price: 1500, salePrice: 950, initialStock: 10, isDefault: false }
+        ]
+      },
+      userId: adminUser._id
+    });
+
+    // 1. Order regular variant with client spoofed price
+    const order1 = await OrderService.createOrder({
+      userId: customerUser._id,
+      orderData: {
+        items: [{ productId: product._id.toString(), variantId: varRegId.toString(), price: 5, quantity: 2 }],
+        shippingAddress: { fullName: 'Test', address: 'Road 1', province: 'Punjab', city: 'Lahore', country: 'PK', phone: '03001234567' },
+        paymentMethod: 'cod'
+      },
+      idempotencyKey: crypto.randomUUID()
+    });
+
+    const resOrder1 = order1.order || order1;
+    expect(resOrder1.items[0].price).toBe(1200); // Authoritative regular price applied!
+    expect(resOrder1.items[0].lineTotal).toBe(2400);
+
+    // 2. Order sale variant with client spoofed price
+    const order2 = await OrderService.createOrder({
+      userId: customerUser._id,
+      orderData: {
+        items: [{ productId: product._id.toString(), variantId: varSaleId.toString(), price: 10, quantity: 1 }],
+        shippingAddress: { fullName: 'Test', address: 'Road 1', province: 'Punjab', city: 'Lahore', country: 'PK', phone: '03001234567' },
+        paymentMethod: 'cod'
+      },
+      idempotencyKey: crypto.randomUUID()
+    });
+
+    const resOrder2 = order2.order || order2;
+    expect(resOrder2.items[0].price).toBe(950); // Authoritative salePrice applied!
+    expect(resOrder2.items[0].lineTotal).toBe(950);
+  });
 });
