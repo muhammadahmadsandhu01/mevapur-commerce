@@ -87,6 +87,7 @@ function InventoryContent() {
   const [adjustQuantity, setAdjustQuantity] = useState<number>(1);
   const [adjustReason, setAdjustReason] = useState<string>('');
   const [adjustReference, setAdjustReference] = useState<string>('');
+  const [adjustOperationKey, setAdjustOperationKey] = useState<string>('');
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [adjustError, setAdjustError] = useState<string | null>(null);
 
@@ -154,11 +155,18 @@ function InventoryContent() {
     setAdjustReason('');
     setAdjustReference('');
     setAdjustError(null);
+    setAdjustOperationKey(crypto.randomUUID());
+  };
+
+  const closeAdjustModal = () => {
+    setAdjustTargetProduct(null);
+    setAdjustOperationKey('');
+    setAdjustError(null);
   };
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adjustTargetProduct) return;
+    if (!adjustTargetProduct || adjustLoading) return;
 
     if (!adjustReason.trim()) {
       setAdjustError('A reason is required for audit recording.');
@@ -174,14 +182,18 @@ function InventoryContent() {
     setAdjustError(null);
 
     try {
-      const operationKey = crypto.randomUUID();
+      const keyToSend = adjustOperationKey || crypto.randomUUID();
+      if (!adjustOperationKey) {
+        setAdjustOperationKey(keyToSend);
+      }
+
       const payload: Record<string, unknown> = {
         productId: adjustTargetProduct.product._id,
         type: adjustType,
         quantity: Number(adjustQuantity),
         reason: adjustReason.trim(),
         reference: adjustReference.trim() || undefined,
-        operationKey
+        operationKey: keyToSend
       };
 
       if (adjustTargetProduct.hasVariants && adjustVariantId) {
@@ -190,12 +202,13 @@ function InventoryContent() {
 
       const response = await api.post('/inventory/adjust', payload);
       if (response.data.success) {
-        setAdjustTargetProduct(null);
+        closeAdjustModal();
         await fetchInventory();
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to adjust stock';
       setAdjustError(msg);
+      // adjustOperationKey is retained across retries
     } finally {
       setAdjustLoading(false);
     }
@@ -718,7 +731,7 @@ function InventoryContent() {
             zIndex: 1000,
             padding: '20px'
           }}
-          onClick={() => setAdjustTargetProduct(null)}
+          onClick={closeAdjustModal}
         >
           <div
             style={{
@@ -734,7 +747,7 @@ function InventoryContent() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>Adjust Stock Level</h3>
-              <button onClick={() => setAdjustTargetProduct(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><X size={20} /></button>
+              <button onClick={closeAdjustModal} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><X size={20} /></button>
             </div>
 
             <div style={{ backgroundColor: 'var(--bg-primary)', padding: '14px', borderRadius: '10px', marginBottom: '20px', border: '1px solid var(--border-color)' }}>
@@ -865,7 +878,7 @@ function InventoryContent() {
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
-                  onClick={() => setAdjustTargetProduct(null)}
+                  onClick={closeAdjustModal}
                   style={{
                     padding: '10px 18px',
                     backgroundColor: 'var(--bg-primary)',

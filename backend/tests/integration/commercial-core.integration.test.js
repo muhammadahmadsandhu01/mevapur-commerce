@@ -75,11 +75,11 @@ describe('P6A commercial core contracts', () => {
     expect(replay.body.data.idempotentReplay).toBe(true);
     expect((await Product.findById(root._id)).stock).toBe(7);
     expect(await InventoryTransaction.countDocuments({ product: root._id })).toBe(1);
-    const insufficient = await request(app).post('/api/inventory/adjust').set('Authorization', admin.authorization).send({ productId: String(root._id), type: 'out', quantity: 8, reason: 'Invalid' });
+    const insufficient = await request(app).post('/api/inventory/adjust').set('Authorization', admin.authorization).send({ productId: String(root._id), type: 'out', quantity: 8, reason: 'Invalid', operationKey: crypto.randomUUID() });
     expect(insufficient.status).toBe(409);
     const variantProduct = await product({ variants: [{ sku: `CORE-V-${sequence}`, attributes: [{ name: 'Size', value: 'M' }], price: 100, stock: 4, isDefault: false }] });
     const variant = variantProduct.variants[0];
-    const variantResponse = await request(app).post('/api/inventory/adjust').set('Authorization', admin.authorization).send({ productId: String(variantProduct._id), variantId: String(variant._id), type: 'out', quantity: 2, reason: 'Variant count' });
+    const variantResponse = await request(app).post('/api/inventory/adjust').set('Authorization', admin.authorization).send({ productId: String(variantProduct._id), variantId: String(variant._id), type: 'out', quantity: 2, reason: 'Variant count', operationKey: crypto.randomUUID() });
     expect(variantResponse.status).toBe(200);
     expect((await Product.findById(variantProduct._id)).variants.id(variant._id).stock).toBe(2);
   });
