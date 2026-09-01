@@ -129,7 +129,7 @@ describe('Admin Content and Report contracts', () => {
     expect(responses[4].body.data).toEqual({
       thisMonth: { revenue: 0, orders: 0 },
       lastMonth: { revenue: 0, orders: 0 },
-      growth: { revenue: 0, orders: 0 }
+      growth: { revenue: null, orders: null }
     });
   });
 

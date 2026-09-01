@@ -166,7 +166,7 @@ describe('Reports API & Safe CSV Export Integration', () => {
   });
 
   describe('Safe CSV Export & Neutralization', () => {
-    it('exports orders CSV with UTF-8 BOM and neutralizes formula injection on customer names', async () => {
+    it('exports orders CSV with UTF-8 BOM, X-Export-Row-Count header, and neutralizes formula injection', async () => {
       const res = await request(app)
         .get('/api/reports/export/orders')
         .set('Authorization', adminAuth.authorization);
@@ -174,6 +174,7 @@ describe('Reports API & Safe CSV Export Integration', () => {
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/csv');
       expect(res.headers['content-disposition']).toContain('attachment; filename="orders_report_');
+      expect(res.headers['x-export-row-count']).toBeDefined();
 
       const text = res.text;
       expect(text.charCodeAt(0)).toBe(0xFEFF); // UTF-8 BOM
@@ -206,6 +207,23 @@ describe('Reports API & Safe CSV Export Integration', () => {
       expect(text).not.toContain('password');
       expect(text).not.toContain('refreshToken');
       expect(text).not.toContain('tokenFamilyId');
+    });
+
+    it('returns 400 with EXPORT_LIMIT_EXCEEDED when total matching records exceed 5000', async () => {
+      const countSpy = jest.spyOn(Order, 'countDocuments').mockResolvedValueOnce(5001);
+
+      const res = await request(app)
+        .get('/api/reports/export/orders')
+        .set('Authorization', adminAuth.authorization);
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.code).toBe('EXPORT_LIMIT_EXCEEDED');
+      expect(res.body.totalCount).toBe(5001);
+      expect(res.body.maxLimit).toBe(5000);
+      expect(res.body.message).toContain('exceeds the maximum limit');
+
+      countSpy.mockRestore();
     });
 
     it('returns 400 for unsupported export types', async () => {

@@ -15,10 +15,16 @@ test('sanitizeCsvCell neutralizes formula injection triggers', () => {
   assert.equal(sanitizeCsvCell('\r+payload'), `"'\r+payload"`);
 });
 
-test('sanitizeCsvCell neutralizes formula triggers with leading whitespace', () => {
+test('sanitizeCsvCell neutralizes formula triggers while preserving original leading spaces and tabs', () => {
   assert.equal(sanitizeCsvCell('   =SUM(A1)'), "'   =SUM(A1)");
   assert.equal(sanitizeCsvCell('   =SUM(1,2)'), `"'   =SUM(1,2)"`);
   assert.equal(sanitizeCsvCell('\t  +alert()'), "'\t  +alert()");
+  assert.equal(sanitizeCsvCell('\t=calc'), "'\t=calc");
+});
+
+test('sanitizeCsvCell preserves legitimate non-formula leading spaces on standard text', () => {
+  assert.equal(sanitizeCsvCell('   Standard text'), '   Standard text');
+  assert.equal(sanitizeCsvCell('\tTab indented text'), '\tTab indented text');
 });
 
 test('sanitizeCsvCell preserves legitimate negative and positive numbers', () => {

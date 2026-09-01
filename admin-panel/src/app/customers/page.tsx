@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { 
+import {
   Users, Search, Filter, Download, Mail, Phone, MapPin,
   ShoppingCart, Calendar, TrendingUp, Star, MoreVertical,
   Eye, Edit, Trash2, CheckCircle, XCircle, AlertCircle
@@ -159,7 +159,7 @@ function CustomersListContent() {
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--hover-bg)'; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--card-bg)'; }}
         >
-          <Download size={18} /> Export CSV
+          <Download size={18} /> Export Current View ({filteredCustomers.length})
         </button>
       </div>
 
@@ -370,10 +370,10 @@ function CustomersListContent() {
                 {filteredCustomers.map((customer) => {
                   const badge = getCustomerBadge(customer);
                   const BadgeIcon = badge.icon;
-                  
+
                   return (
-                    <tr 
-                      key={customer._id} 
+                    <tr
+                      key={customer._id}
                       style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s', cursor: 'pointer' }}
                       onClick={() => { setSelectedCustomer(customer); setShowDetails(true); }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
@@ -499,7 +499,7 @@ function CustomersListContent() {
         }}
           onClick={() => setShowDetails(false)}
         >
-          <div 
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',

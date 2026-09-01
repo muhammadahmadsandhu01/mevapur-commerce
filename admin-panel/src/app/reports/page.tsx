@@ -203,7 +203,7 @@ function ReportsView() {
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
       setExportMessage('Export downloaded.');
     } catch {
-      setExportMessage('Export could not be downloaded. Try again.');
+      setExportMessage('Export matches too many records or is unavailable. Please narrow your date range or filters.');
     } finally {
       setExporting(false);
     }

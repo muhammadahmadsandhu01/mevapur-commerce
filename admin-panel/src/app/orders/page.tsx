@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  ShoppingCart, Search, Filter, Download, Eye, 
+import {
+  ShoppingCart, Search, Filter, Download, Eye,
   Truck, CheckCircle, Clock, XCircle, AlertCircle,
   Calendar, DollarSign, Package, MoreVertical,
   ChevronLeft, ChevronRight, X, Save, Loader
@@ -75,7 +75,7 @@ export default function OrdersPage() {
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, limit: 15 };
-      
+
       if (statusFilter !== 'all') params.status = statusFilter;
       if (dateFilter !== 'all') {
         const now = new Date();
@@ -90,7 +90,7 @@ export default function OrdersPage() {
           params.startDate = monthAgo.toISOString().split('T')[0];
         }
       }
-      
+
       if (sortBy === 'highest') params.sortBy = 'totalAmount-desc';
       else if (sortBy === 'lowest') params.sortBy = 'totalAmount-asc';
       else if (sortBy === 'oldest') params.sortBy = 'createdAt-asc';
@@ -111,7 +111,7 @@ export default function OrdersPage() {
 
   const handleStatusUpdate = async () => {
     if (!updatingOrder || !newStatus) return;
-    
+
     setUpdating(true);
     try {
       await api.put(`/orders/${updatingOrder._id}/status`, {
@@ -154,7 +154,7 @@ export default function OrdersPage() {
   };
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = !searchQuery || 
+    const matchesSearch = !searchQuery ||
       order.orderId.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.shippingAddress.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.shippingAddress.phone.includes(searchQuery);
@@ -216,7 +216,7 @@ export default function OrdersPage() {
           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--hover-bg)'; }}
           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--card-bg)'; }}
         >
-          <Download size={18} /> Export CSV
+          <Download size={18} /> Export Current View ({filteredOrders.length})
         </button>
       </div>
 
@@ -426,10 +426,10 @@ export default function OrdersPage() {
                   const statusColor = getStatusColor(order.orderStatus);
                   const StatusIcon = statusColor.icon;
                   const paymentColor = getPaymentStatusColor(order.paymentStatus);
-                  
+
                   return (
-                    <tr 
-                      key={order._id} 
+                    <tr
+                      key={order._id}
                       style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s', cursor: 'pointer' }}
                       onClick={() => { setSelectedOrder(order); setShowDetails(true); }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
@@ -512,9 +512,9 @@ export default function OrdersPage() {
                             <Eye size={14} /> View
                           </button>
                           <button
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              setUpdatingOrder(order); 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setUpdatingOrder(order);
                               setNewStatus(order.orderStatus);
                               setShowStatusModal(true);
                             }}
@@ -606,7 +606,7 @@ export default function OrdersPage() {
 
       {/* Order Details Modal */}
       {showDetails && selectedOrder && (
-        <div 
+        <div
           style={{
             position: 'fixed',
             inset: 0,
@@ -619,7 +619,7 @@ export default function OrdersPage() {
           }}
           onClick={() => setShowDetails(false)}
         >
-          <div 
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',
@@ -724,8 +724,8 @@ export default function OrdersPage() {
                     borderRadius: '8px',
                     border: '1px solid var(--border-color)'
                   }}>
-                    <img 
-                      src={item.image || PRODUCT_PLACEHOLDER} 
+                    <img
+                      src={item.image || PRODUCT_PLACEHOLDER}
                       alt={item.name}
                       onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                       style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover' }}
@@ -819,7 +819,7 @@ export default function OrdersPage() {
 
       {/* Status Update Modal */}
       {showStatusModal && updatingOrder && (
-        <div 
+        <div
           style={{
             position: 'fixed',
             inset: 0,
@@ -832,7 +832,7 @@ export default function OrdersPage() {
           }}
           onClick={() => setShowStatusModal(false)}
         >
-          <div 
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',

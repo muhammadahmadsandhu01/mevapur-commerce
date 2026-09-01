@@ -43,16 +43,26 @@ describe('FinancialMetricsService Unit Tests', () => {
   });
 
   describe('computeGrowthRate', () => {
-    it('calculates growth rate percentage correctly', () => {
+    it('calculates positive increase and negative change correctly', () => {
       expect(FinancialMetricsService.computeGrowthRate(150, 100)).toBe(50.0);
       expect(FinancialMetricsService.computeGrowthRate(80, 100)).toBe(-20.0);
-      expect(FinancialMetricsService.computeGrowthRate(100, 100)).toBe(0);
+      expect(FinancialMetricsService.computeGrowthRate(100, 100)).toBe(0.0);
     });
 
-    it('handles zero previous baseline gracefully', () => {
-      expect(FinancialMetricsService.computeGrowthRate(500, 0)).toBe(100);
+    it('returns -100.0% when activity drops from positive baseline to zero', () => {
+      expect(FinancialMetricsService.computeGrowthRate(0, 100)).toBe(-100.0);
+    });
+
+    it('returns null for undefined growth when previous baseline is zero or negative', () => {
+      expect(FinancialMetricsService.computeGrowthRate(500, 0)).toBeNull();
       expect(FinancialMetricsService.computeGrowthRate(0, 0)).toBeNull();
-      expect(FinancialMetricsService.computeGrowthRate(500, -10)).toBe(100);
+      expect(FinancialMetricsService.computeGrowthRate(500, -10)).toBeNull();
+    });
+
+    it('returns null for non-numeric or invalid inputs', () => {
+      expect(FinancialMetricsService.computeGrowthRate(null, 100)).toBeNull();
+      expect(FinancialMetricsService.computeGrowthRate(100, null)).toBeNull();
+      expect(FinancialMetricsService.computeGrowthRate(undefined, undefined)).toBeNull();
     });
   });
 

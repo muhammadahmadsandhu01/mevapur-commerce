@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Package, AlertTriangle, CheckCircle, TrendingUp, 
+import {
+  Package, AlertTriangle, CheckCircle, TrendingUp,
   TrendingDown, Search, Filter, Download, Upload,
   ArrowUpDown, ChevronDown, ChevronUp, X, Save,
   Box, ShoppingCart, Truck, Calendar
@@ -162,7 +162,7 @@ export default function InventoryPage() {
             onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--hover-bg)'; }}
             onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--card-bg)'; }}
           >
-            <Download size={18} /> Export
+            <Download size={18} /> Export Current View ({inventory.length})
           </button>
           <button
             style={{
@@ -512,10 +512,10 @@ export default function InventoryPage() {
                 {filteredInventory.map((item) => {
                   const status = getStatusBadge(item);
                   const StatusIcon = status.icon;
-                  
+
                   return (
-                    <tr 
-                      key={item._id} 
+                    <tr
+                      key={item._id}
                       style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -540,8 +540,8 @@ export default function InventoryPage() {
                             width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden',
                             backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)'
                           }}>
-                            <img 
-                              src={item.product.images?.[0] || PRODUCT_PLACEHOLDER} 
+                            <img
+                              src={item.product.images?.[0] || PRODUCT_PLACEHOLDER}
                               alt={item.product.name}
                               onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -645,7 +645,7 @@ export default function InventoryPage() {
           {filteredInventory.map((item) => {
             const status = getStatusBadge(item);
             const StatusIcon = status.icon;
-            
+
             return (
               <div key={item._id} style={{
                 backgroundColor: 'var(--card-bg)',
@@ -669,8 +669,8 @@ export default function InventoryPage() {
                       width: '64px', height: '64px', borderRadius: '8px', overflow: 'hidden',
                       backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)'
                     }}>
-                      <img 
-                        src={item.product.images?.[0] || PRODUCT_PLACEHOLDER} 
+                      <img
+                        src={item.product.images?.[0] || PRODUCT_PLACEHOLDER}
                         alt={item.product.name}
                         onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}

@@ -16,10 +16,16 @@ describe('csvHelper utility', () => {
       expect(sanitizeCsvCell('\r+payload')).toBe('"\'\r+payload"');
     });
 
-    it('neutralizes formula injection even with leading whitespace', () => {
+    it('neutralizes formula injection while preserving original leading spaces and tabs', () => {
       expect(sanitizeCsvCell('   =SUM(A1)')).toBe("'   =SUM(A1)");
       expect(sanitizeCsvCell('   =SUM(1,2)')).toBe('"\'   =SUM(1,2)"');
       expect(sanitizeCsvCell('\t  +alert()')).toBe("'\t  +alert()");
+      expect(sanitizeCsvCell('\t=calc')).toBe("'\t=calc");
+    });
+
+    it('preserves legitimate non-formula leading spaces on standard text', () => {
+      expect(sanitizeCsvCell('   Standard text')).toBe('   Standard text');
+      expect(sanitizeCsvCell('\tTab indented text')).toBe('\tTab indented text');
     });
 
     it('preserves legitimate negative and positive numbers', () => {

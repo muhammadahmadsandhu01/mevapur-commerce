@@ -18,7 +18,7 @@ import api from '@/lib/api';
 interface AnalyticsData {
   thisMonth: { revenue: number; orders: number };
   lastMonth: { revenue: number; orders: number };
-  growth: { revenue: number; orders: number };
+  growth: { revenue: number | null; orders: number | null };
 }
 
 const currencyFormatter = new Intl.NumberFormat('en-PK', {
@@ -28,10 +28,16 @@ const currencyFormatter = new Intl.NumberFormat('en-PK', {
 });
 const numberFormatter = new Intl.NumberFormat('en-PK');
 
-const growthStyle = (value: number) => {
-  if (value > 0) return { icon: ArrowUpRight, color: 'var(--success-text)', background: 'var(--success-light)', label: 'increase' };
-  if (value < 0) return { icon: ArrowDownRight, color: 'var(--danger-text)', background: 'var(--danger-light)', label: 'decrease' };
-  return { icon: ArrowRight, color: 'var(--text-secondary)', background: 'var(--bg-primary)', label: 'no change' };
+const growthStyle = (value: number | null, current: number) => {
+  if (value === null) {
+    if (current > 0) {
+      return { icon: ArrowUpRight, color: 'var(--success-text)', background: 'var(--success-light)', label: 'new activity', text: 'New' };
+    }
+    return { icon: ArrowRight, color: 'var(--text-secondary)', background: 'var(--bg-primary)', label: 'not applicable', text: 'N/A' };
+  }
+  if (value > 0) return { icon: ArrowUpRight, color: 'var(--success-text)', background: 'var(--success-light)', label: 'increase', text: `+${value.toFixed(2)}%` };
+  if (value < 0) return { icon: ArrowDownRight, color: 'var(--danger-text)', background: 'var(--danger-light)', label: 'decrease', text: `${value.toFixed(2)}%` };
+  return { icon: ArrowRight, color: 'var(--text-secondary)', background: 'var(--bg-primary)', label: 'no change', text: '0.00%' };
 };
 
 function ComparisonCard({
@@ -45,11 +51,11 @@ function ComparisonCard({
   title: string;
   current: number;
   previous: number;
-  growth: number;
+  growth: number | null;
   format: (value: number) => string;
   icon: typeof BarChart3;
 }) {
-  const presentation = growthStyle(growth);
+  const presentation = growthStyle(growth, current);
   const GrowthIcon = presentation.icon;
 
   return (
@@ -60,7 +66,7 @@ function ComparisonCard({
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Last month: <strong style={{ color: 'var(--text-primary)' }}>{format(previous)}</strong></span>
-        <span aria-label={`${Math.abs(growth).toFixed(2)} percent ${presentation.label}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '6px 9px', borderRadius: '999px', background: presentation.background, color: presentation.color, fontSize: '12px', fontWeight: '800' }}><GrowthIcon size={14} /> {growth > 0 ? '+' : ''}{growth.toFixed(2)}%</span>
+        <span aria-label={presentation.label} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '6px 9px', borderRadius: '999px', background: presentation.background, color: presentation.color, fontSize: '12px', fontWeight: '800' }}><GrowthIcon size={14} /> {presentation.text}</span>
       </div>
     </article>
   );

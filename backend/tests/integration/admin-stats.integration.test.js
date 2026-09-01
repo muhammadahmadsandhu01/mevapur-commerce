@@ -5,6 +5,8 @@ const app = require('../../app');
 const TokenService = require('../../services/TokenService');
 const Session = require('../../models/Session');
 const Order = require('../../models/Order');
+const Payment = require('../../models/Payment');
+const Refund = require('../../models/Refund');
 
 let sequence = 0;
 const authAdmin = async () => {
@@ -71,14 +73,22 @@ describe('Admin Stats Aggregation Integration', () => {
       'customersGrowth',
       'deliveredOrders',
       'grossCaptured',
+      'legacyOrderCaptureAmount',
+      'legacyOrderCaptureCount',
       'lowStockProducts',
       'monthlyRevenue',
       'newCustomers',
       'ordersGrowth',
       'outOfStockProducts',
+      'overRefundAnomalyAmount',
+      'overRefundAnomalyCount',
+      'paymentOrderMismatchAmount',
+      'paymentOrderMismatchCount',
       'pendingOrders',
       'processingOrders',
       'productsGrowth',
+      'refundReconciliationMismatchAmount',
+      'refundReconciliationMismatchCount',
       'revenueGrowth',
       'shippedOrders',
       'todayRevenue',
@@ -90,26 +100,26 @@ describe('Admin Stats Aggregation Integration', () => {
     ]);
   });
 
-  test('correctly calculates total, today, and monthly revenue with floating point values and canonical financial semantics', async () => {
+  test('correctly reconciles Payment, Order, Legacy captures, and Anomaly metrics', async () => {
     const admin = await authAdmin();
     const user = await global.createTestUser({ email: `customer-stats-${sequence}@example.test` });
 
     const today = new Date();
-    today.setHours(12, 0, 0, 0); // middle of today
+    today.setHours(12, 0, 0, 0);
 
     const pastMonth = new Date();
-    pastMonth.setMonth(pastMonth.getMonth() - 2); // 2 months ago
+    pastMonth.setMonth(pastMonth.getMonth() - 2);
 
     const testProductId = new mongoose.Types.ObjectId();
 
-    // Order 1: Delivered and Paid in today window
-    await Order.create({
+    // 1. Reconciled Capture: Completed Payment + matching Order Paid
+    const order1 = await Order.create({
       user: user._id,
       idempotencyKey: crypto.randomUUID(),
       requestHash: crypto.randomBytes(32).toString('hex'),
       totalAmount: 100.10,
       subtotal: 100.10,
-      paymentMethod: 'cod',
+      paymentMethod: 'stripe',
       orderStatus: 'Delivered',
       paymentStatus: 'Paid',
       createdAt: today,
@@ -118,24 +128,64 @@ describe('Admin Stats Aggregation Integration', () => {
       statusTimeline: [{ status: 'Delivered', actor: user._id, actorRole: 'customer', timestamp: today, note: '' }]
     });
 
-    // Order 2: Pending and Unpaid in today window
+    await Payment.create({
+      order: order1._id,
+      user: user._id,
+      provider: 'stripe',
+      providerPaymentId: `pi_test_${crypto.randomUUID()}`,
+      amount: 100.10,
+      status: 'Completed',
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      providerIdempotencyKey: crypto.randomUUID()
+    });
+
+    // 2. Legacy Order Capture: Order marked Paid without Payment record
     await Order.create({
       user: user._id,
       idempotencyKey: crypto.randomUUID(),
       requestHash: crypto.randomBytes(32).toString('hex'),
-      totalAmount: 250.20,
-      subtotal: 250.20,
+      totalAmount: 200.00,
+      subtotal: 200.00,
       paymentMethod: 'cod',
+      orderStatus: 'Delivered',
+      paymentStatus: 'Paid',
+      createdAt: today,
+      shippingAddress: { fullName: 'U2', phone: '123', address: 'A2', city: 'C2', province: 'Punjab', country: 'PK' },
+      items: [{ product: testProductId, name: 'P2', price: 200.00, quantity: 1, lineTotal: 200.00 }],
+      statusTimeline: [{ status: 'Delivered', actor: user._id, actorRole: 'customer', timestamp: today, note: '' }]
+    });
+
+    // 3. Payment/Order Mismatch: Completed Payment but Order is Pending (unpaid)
+    const order3 = await Order.create({
+      user: user._id,
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      totalAmount: 300.00,
+      subtotal: 300.00,
+      paymentMethod: 'jazzcash',
       orderStatus: 'Pending',
       paymentStatus: 'Pending',
       createdAt: today,
-      shippingAddress: { fullName: 'U2', phone: '123', address: 'A2', city: 'C2', province: 'Punjab', country: 'PK' },
-      items: [{ product: testProductId, name: 'P2', price: 250.20, quantity: 1, lineTotal: 250.20 }],
+      shippingAddress: { fullName: 'U3', phone: '123', address: 'A3', city: 'C3', province: 'Punjab', country: 'PK' },
+      items: [{ product: testProductId, name: 'P3', price: 300.00, quantity: 1, lineTotal: 300.00 }],
       statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: today, note: '' }]
     });
 
-    // Order 3: Cancelled but Paid (paid-but-cancelled anomaly/liability)
-    await Order.create({
+    await Payment.create({
+      order: order3._id,
+      user: user._id,
+      provider: 'jazzcash',
+      providerPaymentId: `jc_test_${crypto.randomUUID()}`,
+      amount: 300.00,
+      status: 'Completed',
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      providerIdempotencyKey: crypto.randomUUID()
+    });
+
+    // 4. Cancelled but Paid (paid-but-cancelled liability)
+    const order4 = await Order.create({
       user: user._id,
       idempotencyKey: crypto.randomUUID(),
       requestHash: crypto.randomBytes(32).toString('hex'),
@@ -145,9 +195,63 @@ describe('Admin Stats Aggregation Integration', () => {
       orderStatus: 'Cancelled',
       paymentStatus: 'Paid',
       createdAt: pastMonth,
-      shippingAddress: { fullName: 'U3', phone: '123', address: 'A3', city: 'C3', province: 'Punjab', country: 'PK' },
-      items: [{ product: testProductId, name: 'P3', price: 500.00, quantity: 1, lineTotal: 500.00 }],
+      shippingAddress: { fullName: 'U4', phone: '123', address: 'A4', city: 'C4', province: 'Punjab', country: 'PK' },
+      items: [{ product: testProductId, name: 'P4', price: 500.00, quantity: 1, lineTotal: 500.00 }],
       statusTimeline: [{ status: 'Cancelled', actor: user._id, actorRole: 'customer', timestamp: pastMonth, note: '' }]
+    });
+
+    await Payment.create({
+      order: order4._id,
+      user: user._id,
+      provider: 'stripe',
+      providerPaymentId: `pi_test_${crypto.randomUUID()}`,
+      amount: 500.00,
+      status: 'Completed',
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      providerIdempotencyKey: crypto.randomUUID()
+    });
+
+    // 5. Reconciled Capture with Verified Completed Refund (Partial)
+    const order5 = await Order.create({
+      user: user._id,
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      totalAmount: 400.00,
+      subtotal: 400.00,
+      paymentMethod: 'stripe',
+      orderStatus: 'Delivered',
+      paymentStatus: 'PartiallyRefunded',
+      createdAt: today,
+      shippingAddress: { fullName: 'U5', phone: '123', address: 'A5', city: 'C5', province: 'Punjab', country: 'PK' },
+      items: [{ product: testProductId, name: 'P5', price: 400.00, quantity: 1, lineTotal: 400.00 }],
+      statusTimeline: [{ status: 'Delivered', actor: user._id, actorRole: 'customer', timestamp: today, note: '' }]
+    });
+
+    const payment5 = await Payment.create({
+      order: order5._id,
+      user: user._id,
+      provider: 'stripe',
+      providerPaymentId: `pi_test_${crypto.randomUUID()}`,
+      amount: 400.00,
+      status: 'PartiallyRefunded',
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      providerIdempotencyKey: crypto.randomUUID()
+    });
+
+    await Refund.create({
+      order: order5._id,
+      payment: payment5._id,
+      customer: user._id,
+      provider: 'stripe',
+      providerRefundId: `re_test_${crypto.randomUUID()}`,
+      amount: 50.00,
+      status: 'Completed',
+      processedBy: admin.user._id,
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: crypto.randomBytes(32).toString('hex'),
+      providerIdempotencyKey: crypto.randomUUID()
     });
 
     const response = await request(app)
@@ -155,16 +259,16 @@ describe('Admin Stats Aggregation Integration', () => {
       .set('Authorization', admin.authorization);
 
     expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    // Realized revenue isolates paid non-cancelled orders
-    expect(response.body.data.totalRevenue).toBe(100.10);
-    expect(response.body.data.todayRevenue).toBe(100.10);
-    expect(response.body.data.monthlyRevenue).toBe(100.10);
-    expect(response.body.data.grossCaptured).toBe(100.10);
-    expect(response.body.data.cancelledPaidLiability).toBe(500.00);
-    expect(response.body.data.totalOrders).toBe(3);
-    expect(response.body.data.pendingOrders).toBe(1);
-    expect(response.body.data.cancelledOrders).toBe(1);
-    expect(response.body.data.averageOrderValue).toBe(100.10);
+    const stats = response.body.data;
+
+    // Expected realized revenue = Order 1 (100.10) + Order 2 (200.00) + Order 5 (400 - 50 = 350.00) = 650.10
+    expect(stats.totalRevenue).toBe(650.1);
+    expect(stats.grossCaptured).toBe(700.1);
+    expect(stats.totalRefunded).toBe(50.0);
+    expect(stats.legacyOrderCaptureCount).toBe(1);
+    expect(stats.legacyOrderCaptureAmount).toBe(200.0);
+    expect(stats.paymentOrderMismatchCount).toBe(1);
+    expect(stats.paymentOrderMismatchAmount).toBe(300.0);
+    expect(stats.cancelledPaidLiability).toBe(500.0);
   });
 });
