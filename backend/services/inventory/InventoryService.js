@@ -86,8 +86,8 @@ class InventoryService {
         } catch (error) {
           const isTransient = this.isTransientMongoError(error);
           if (isTransient && attempt < maxRetries) {
-            // Strictly bounded backoff (max total backoff < 300ms across all retries)
-            await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 25) + 15 * attempt));
+            // Strictly bounded backoff (max cumulative backoff = 31+43+55+67+79 = 275ms < 300ms)
+            await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 20) + 12 * attempt));
             continue;
           }
           throw error;
@@ -105,8 +105,8 @@ class InventoryService {
 
         const isTransient = this.isTransientMongoError(error);
         if (isTransient && attempt < maxRetries) {
-          // Strictly bounded backoff (max total backoff < 300ms across all retries)
-          await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 25) + 15 * attempt));
+          // Strictly bounded backoff (max cumulative backoff = 31+43+55+67+79 = 275ms < 300ms)
+          await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 20) + 12 * attempt));
           continue;
         }
 

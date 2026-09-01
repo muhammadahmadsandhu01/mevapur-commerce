@@ -206,14 +206,15 @@ exports.exportCustomers = async (req, res, next) => {
     ]);
 
     const headers = [
-      'Customer Name',
+      'Customer ID',
+      'Full Name',
       'Email',
       'Phone',
+      'Account Status',
       'Total Orders',
       'Realized Orders',
       'Total Realized Spend (PKR)',
-      'Avg Order Value (PKR)',
-      'Status',
+      'Average Order Value (PKR)',
       'Joined Date',
       'Last Order Date'
     ];
@@ -230,14 +231,15 @@ exports.exportCustomers = async (req, res, next) => {
         : 'Never';
 
       return [
+        custId,
         c.fullName || '',
         c.email || '',
         c.phone || '',
+        c.isBlocked ? 'Blocked' : 'Active',
         totalOrders,
         realizedOrders,
         totalSpent,
         avgOrderVal,
-        c.isBlocked ? 'Blocked' : 'Active',
         c.createdAt ? new Date(c.createdAt).toISOString().slice(0, 10) : '',
         lastOrder
       ];

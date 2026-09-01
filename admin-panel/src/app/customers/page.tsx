@@ -8,6 +8,7 @@ import {
   Eye, Edit, CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, X, ShieldAlert, Loader
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuthStore } from '@/store/authStore';
 
 interface Customer {
   _id: string;
@@ -59,6 +60,11 @@ interface CustomerSummary {
 function CustomersListContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuthStore();
+  const userRole = user?.role || '';
+  const canEditProfile = ['manager', 'admin', 'super_admin'].includes(userRole);
+  const canExport = ['manager', 'admin', 'super_admin'].includes(userRole);
+  const canBlock = ['admin', 'super_admin'].includes(userRole);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [summary, setSummary] = useState<CustomerSummary | null>(null);
@@ -274,26 +280,28 @@ function CustomersListContent() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <button
-            onClick={handleExportCSV}
-            disabled={exporting}
-            style={{
-              padding: '12px 20px',
-              backgroundColor: 'var(--card-bg)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '10px',
-              fontWeight: '700',
-              cursor: exporting ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              opacity: exporting ? 0.6 : 1
-            }}
-          >
-            {exporting ? <Loader size={18} className="animate-spin" /> : <Download size={18} />}
-            {exporting ? 'Exporting...' : `Export Full Dataset (${totalRecords})`}
-          </button>
+          {canExport && (
+            <button
+              onClick={handleExportCSV}
+              disabled={exporting}
+              style={{
+                padding: '12px 20px',
+                backgroundColor: 'var(--card-bg)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '10px',
+                fontWeight: '700',
+                cursor: exporting ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                opacity: exporting ? 0.6 : 1
+              }}
+            >
+              {exporting ? <Loader size={18} className="animate-spin" /> : <Download size={18} />}
+              {exporting ? 'Exporting...' : `Export Full Dataset (${totalRecords})`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -527,34 +535,38 @@ function CustomersListContent() {
                         >
                           <Eye size={16} />
                         </button>
-                        <button
-                          onClick={() => openProfileModal(c)}
-                          title="Edit Profile"
-                          style={{
-                            padding: '8px',
-                            backgroundColor: 'var(--bg-primary)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '8px',
-                            color: 'var(--text-primary)',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          onClick={() => openBlockDialog(c)}
-                          title={c.isBlocked ? 'Unblock Customer' : 'Block Customer'}
-                          style={{
-                            padding: '8px',
-                            backgroundColor: c.isBlocked ? 'rgba(22, 163, 74, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '8px',
-                            color: c.isBlocked ? 'var(--success-text)' : 'var(--danger-text)',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {c.isBlocked ? <CheckCircle size={16} /> : <XCircle size={16} />}
-                        </button>
+                        {canEditProfile && (
+                          <button
+                            onClick={() => openProfileModal(c)}
+                            title="Edit Profile"
+                            style={{
+                              padding: '8px',
+                              backgroundColor: 'var(--bg-primary)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Edit size={16} />
+                          </button>
+                        )}
+                        {canBlock && (
+                          <button
+                            onClick={() => openBlockDialog(c)}
+                            title={c.isBlocked ? 'Unblock Customer' : 'Block Customer'}
+                            style={{
+                              padding: '8px',
+                              backgroundColor: c.isBlocked ? 'rgba(22, 163, 74, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              color: c.isBlocked ? 'var(--success-text)' : 'var(--danger-text)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {c.isBlocked ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -724,23 +736,25 @@ function CustomersListContent() {
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => {
-                  setShowDetails(false);
-                  openProfileModal(selectedCustomer);
-                }}
-                style={{
-                  padding: '12px 20px',
-                  backgroundColor: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '10px',
-                  fontWeight: '700',
-                  cursor: 'pointer'
-                }}
-              >
-                Edit Profile
-              </button>
+              {canEditProfile && (
+                <button
+                  onClick={() => {
+                    setShowDetails(false);
+                    openProfileModal(selectedCustomer);
+                  }}
+                  style={{
+                    padding: '12px 20px',
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '10px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Edit Profile
+                </button>
+              )}
               <button
                 onClick={() => {
                   setShowDetails(false);

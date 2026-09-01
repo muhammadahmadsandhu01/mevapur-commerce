@@ -28,66 +28,90 @@ const generateStaffToken = async (user) => {
 };
 
 describe('Phase 3 — Inventory Single Writer and Integrity', () => {
+  let superAdminUser;
   let adminUser;
+  let managerUser;
   let inventoryUser;
   let supportUser;
   let customerUser;
+  let invalidRoleUser;
 
+  let superAdminToken;
   let adminToken;
+  let managerToken;
   let inventoryToken;
   let supportToken;
   let customerToken;
+  let invalidRoleToken;
 
   let simpleProduct;
   let variableProduct;
   let variant1Id;
   let variant2Id;
 
-  beforeAll(async () => {
-    if (mongoose.connection.readyState === 0) {
-      const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/mevapur-commerce-test';
-      await mongoose.connect(mongoUri);
-    }
-  });
-
   beforeEach(async () => {
     await User.deleteMany({});
+    await Session.deleteMany({});
     await Product.deleteMany({});
     await InventoryTransaction.deleteMany({});
     try { await AuditLog.collection.deleteMany({}); } catch { /* ignore */ }
 
+    superAdminUser = await User.create({
+      fullName: 'Super Admin',
+      email: 'superadmin-inv@mevapur.test',
+      password: 'Password123!',
+      role: 'super_admin',
+      tokenVersion: 0,
+      isVerified: true
+    });
+    superAdminToken = await generateStaffToken(superAdminUser);
+
     adminUser = await User.create({
       fullName: 'Admin User',
-      email: 'admin@mevapur.test',
+      email: 'admin-inv@mevapur.test',
       password: 'Password123!',
       role: 'admin',
+      tokenVersion: 0,
       isVerified: true
     });
     adminToken = await generateStaffToken(adminUser);
 
+    managerUser = await User.create({
+      fullName: 'Manager User',
+      email: 'manager-inv@mevapur.test',
+      password: 'Password123!',
+      role: 'manager',
+      tokenVersion: 0,
+      isVerified: true
+    });
+    managerToken = await generateStaffToken(managerUser);
+
     inventoryUser = await User.create({
       fullName: 'Inventory Staff',
-      email: 'inventory@mevapur.test',
+      email: 'inventory-inv@mevapur.test',
       password: 'Password123!',
       role: 'inventory',
+      tokenVersion: 0,
       isVerified: true
     });
     inventoryToken = await generateStaffToken(inventoryUser);
 
     supportUser = await User.create({
       fullName: 'Support Staff',
-      email: 'support@mevapur.test',
+      email: 'support-inv@mevapur.test',
       password: 'Password123!',
       role: 'support',
+      tokenVersion: 0,
       isVerified: true
     });
     supportToken = await generateStaffToken(supportUser);
 
     customerUser = await User.create({
       fullName: 'Normal Customer',
-      email: 'customer@mevapur.test',
+      email: 'customer-inv@mevapur.test',
       password: 'Password123!',
       role: 'customer',
+      tokenVersion: 0,
       isVerified: true
     });
     customerToken = await generateStaffToken(customerUser);
@@ -133,60 +157,104 @@ describe('Phase 3 — Inventory Single Writer and Integrity', () => {
     });
   });
 
-  afterAll(async () => {
-    await mongoose.disconnect();
-  });
-
-  describe('1. Role Authorization for Inventory Operations', () => {
-    it('allows inventory staff and admin to adjust stock and view history', async () => {
-      const resAdjust = await request(app)
-        .post('/api/inventory/adjust')
-        .set('Authorization', `Bearer ${inventoryToken}`)
-        .send({
-          productId: simpleProduct._id,
-          type: 'in',
-          quantity: 10,
-          reason: 'Supplier shipment received',
-          operationKey: '00000000-0000-0000-0000-000000000001'
-        });
-
-      expect(resAdjust.status).toBe(200);
-      expect(resAdjust.body.data.product.newStock).toBe(60);
-
-      const resHistory = await request(app)
-        .get('/api/inventory/history')
-        .set('Authorization', `Bearer ${inventoryToken}`);
-
-      expect(resHistory.status).toBe(200);
-      expect(resHistory.body.data.length).toBe(1);
+  describe('1. Comprehensive Table-Driven Role Authorization for Inventory', () => {
+    it('enforces authorized and forbidden roles on inventory list (GET /api/inventory)', async () => {
+      const tokens = {
+        super_admin: superAdminToken,
+        admin: adminToken,
+        manager: managerToken,
+        inventory: inventoryToken,
+        support: supportToken,
+        customer: customerToken
+      };
+      const expected = { super_admin: 200, admin: 200, manager: 200, inventory: 200, support: 403, customer: 403 };
+      for (const [role, status] of Object.entries(expected)) {
+        const res = await request(app).get('/api/inventory').set('Authorization', `Bearer ${tokens[role]}`);
+        expect(res.status).toBe(status);
+      }
     });
 
-    it('denies support staff and customer access to adjust stock (403)', async () => {
-      const resSupport = await request(app)
-        .post('/api/inventory/adjust')
-        .set('Authorization', `Bearer ${supportToken}`)
-        .send({
-          productId: simpleProduct._id,
-          type: 'in',
-          quantity: 5,
-          reason: 'Unauthorized attempt',
-          operationKey: '00000000-0000-0000-0000-000000000002'
-        });
+    it('enforces authorized and forbidden roles on inventory stats (GET /api/inventory/stats)', async () => {
+      const tokens = {
+        super_admin: superAdminToken,
+        admin: adminToken,
+        manager: managerToken,
+        inventory: inventoryToken,
+        support: supportToken,
+        customer: customerToken
+      };
+      const expected = { super_admin: 200, admin: 200, manager: 200, inventory: 200, support: 403, customer: 403 };
+      for (const [role, status] of Object.entries(expected)) {
+        const res = await request(app).get('/api/inventory/stats').set('Authorization', `Bearer ${tokens[role]}`);
+        expect(res.status).toBe(status);
+      }
+    });
 
-      expect(resSupport.status).toBe(403);
+    it('enforces authorized and forbidden roles on inventory history (GET /api/inventory/history)', async () => {
+      const tokens = {
+        super_admin: superAdminToken,
+        admin: adminToken,
+        manager: managerToken,
+        inventory: inventoryToken,
+        support: supportToken,
+        customer: customerToken
+      };
+      const expected = { super_admin: 200, admin: 200, manager: 200, inventory: 200, support: 403, customer: 403 };
+      for (const [role, status] of Object.entries(expected)) {
+        const res = await request(app).get('/api/inventory/history').set('Authorization', `Bearer ${tokens[role]}`);
+        expect(res.status).toBe(status);
+      }
+    });
 
-      const resCustomer = await request(app)
-        .post('/api/inventory/adjust')
-        .set('Authorization', `Bearer ${customerToken}`)
-        .send({
-          productId: simpleProduct._id,
-          type: 'in',
-          quantity: 5,
-          reason: 'Unauthorized attempt',
-          operationKey: '00000000-0000-0000-0000-000000000003'
-        });
+    it('enforces authorized and forbidden roles on inventory CSV export (GET /api/inventory/export)', async () => {
+      const tokens = {
+        super_admin: superAdminToken,
+        admin: adminToken,
+        manager: managerToken,
+        inventory: inventoryToken,
+        support: supportToken,
+        customer: customerToken
+      };
+      const expected = { super_admin: 200, admin: 200, manager: 200, inventory: 200, support: 403, customer: 403 };
+      for (const [role, status] of Object.entries(expected)) {
+        const res = await request(app).get('/api/inventory/export').set('Authorization', `Bearer ${tokens[role]}`);
+        expect(res.status).toBe(status);
+      }
+    });
 
-      expect(resCustomer.status).toBe(403);
+    it('enforces authorized and forbidden roles on inventory adjust (POST /api/inventory/adjust)', async () => {
+      const tokens = {
+        super_admin: superAdminToken,
+        admin: adminToken,
+        manager: managerToken,
+        inventory: inventoryToken,
+        support: supportToken,
+        customer: customerToken
+      };
+      const expected = { super_admin: 200, admin: 200, manager: 200, inventory: 200, support: 403, customer: 403 };
+      for (const [role, status] of Object.entries(expected)) {
+        const res = await request(app)
+          .post('/api/inventory/adjust')
+          .set('Authorization', `Bearer ${tokens[role]}`)
+          .send({
+            productId: simpleProduct._id,
+            type: 'in',
+            quantity: 1,
+            reason: 'Test adjustment',
+            operationKey: crypto.randomUUID()
+          });
+        expect(res.status).toBe(status);
+      }
+    });
+
+    it('fails closed with 401 for unauthenticated requests and invalid tokens', async () => {
+      const resNoAuth = await request(app).get('/api/inventory');
+      expect(resNoAuth.status).toBe(401);
+
+      const resInvalidToken = await request(app)
+        .get('/api/inventory')
+        .set('Authorization', 'Bearer invalid.token.payload');
+      expect(resInvalidToken.status).toBe(401);
     });
   });
 
@@ -340,6 +408,83 @@ describe('Phase 3 — Inventory Single Writer and Integrity', () => {
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/csv');
       expect(res.text).toContain("'=SUM");
+    });
+  });
+
+  describe('6. Deterministic Retry Timing and Bounded Backoff Math', () => {
+    it('strictly executes 6 attempts, 5 waits, and bounds cumulative backoff to <= 275ms (< 300ms)', async () => {
+      let executions = 0;
+      const observedDelays = [];
+
+      // Create a transient error with label
+      const createTransientError = () => {
+        const err = new Error('Write conflict on transient commit');
+        err.hasErrorLabel = (label) => label === 'TransientTransactionError';
+        return err;
+      };
+
+      // Mock session to simulate transaction retries without a full replica set
+      const mockSession = {
+        startTransaction: jest.fn(),
+        commitTransaction: jest.fn(),
+        abortTransaction: jest.fn(),
+        endSession: jest.fn(),
+        inTransaction: () => false
+      };
+
+      const originalStartSession = mongoose.startSession;
+      mongoose.startSession = jest.fn().mockResolvedValue(mockSession);
+
+      // Spy on setTimeout to capture exact requested delay values deterministically
+      const originalSetTimeout = global.setTimeout;
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout').mockImplementation((fn, delay) => {
+        observedDelays.push(delay);
+        return originalSetTimeout(fn, 0); // Execute immediately for fast test
+      });
+
+      try {
+        await InventoryService.runTransaction(async () => {
+          executions++;
+          throw createTransientError();
+        }, 6);
+      } catch (err) {
+        expect(err.message).toContain('Write conflict on transient commit');
+      } finally {
+        setTimeoutSpy.mockRestore();
+        mongoose.startSession = originalStartSession;
+      }
+
+      // Assertions on retry math:
+      // 1. Exact number of executions: 6 (1 initial + 5 retries)
+      expect(executions).toBe(6);
+
+      // 2. Exact number of wait intervals: 5
+      expect(observedDelays.length).toBe(5);
+
+      // 3. Maximum possible bounds for each attempt:
+      // Wait 1 (attempt 1): delay <= 19 + 12*1 = 31ms
+      expect(observedDelays[0]).toBeGreaterThanOrEqual(12);
+      expect(observedDelays[0]).toBeLessThanOrEqual(31);
+
+      // Wait 2 (attempt 2): delay <= 19 + 12*2 = 43ms
+      expect(observedDelays[1]).toBeGreaterThanOrEqual(24);
+      expect(observedDelays[1]).toBeLessThanOrEqual(43);
+
+      // Wait 3 (attempt 3): delay <= 19 + 12*3 = 55ms
+      expect(observedDelays[2]).toBeGreaterThanOrEqual(36);
+      expect(observedDelays[2]).toBeLessThanOrEqual(55);
+
+      // Wait 4 (attempt 4): delay <= 19 + 12*4 = 67ms
+      expect(observedDelays[3]).toBeGreaterThanOrEqual(48);
+      expect(observedDelays[3]).toBeLessThanOrEqual(67);
+
+      // Wait 5 (attempt 5): delay <= 19 + 12*5 = 79ms
+      expect(observedDelays[4]).toBeGreaterThanOrEqual(60);
+      expect(observedDelays[4]).toBeLessThanOrEqual(79);
+
+      // 4. Exact cumulative backoff delay is mathematically strictly <= 275ms (< 300ms)
+      const totalDelay = observedDelays.reduce((sum, d) => sum + d, 0);
+      expect(totalDelay).toBeLessThanOrEqual(275);
     });
   });
 });

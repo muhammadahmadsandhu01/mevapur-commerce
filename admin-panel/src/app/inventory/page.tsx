@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import { useAuthStore } from '@/store/authStore';
 
 interface InventoryVariant {
   _id: string;
@@ -68,6 +69,11 @@ interface HistoryTransaction {
 }
 
 function InventoryContent() {
+  const { user } = useAuthStore();
+  const userRole = user?.role || '';
+  const canAdjust = ['inventory', 'manager', 'admin', 'super_admin'].includes(userRole);
+  const canExport = ['inventory', 'manager', 'admin', 'super_admin'].includes(userRole);
+
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [summary, setSummary] = useState<InventorySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -318,26 +324,28 @@ function InventoryContent() {
           >
             <History size={18} /> Stock History
           </button>
-          <button
-            onClick={handleExportCSV}
-            disabled={exporting}
-            style={{
-              padding: '12px 20px',
-              backgroundColor: 'var(--card-bg)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '10px',
-              fontWeight: '700',
-              cursor: exporting ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              opacity: exporting ? 0.6 : 1
-            }}
-          >
-            {exporting ? <Loader size={18} className="animate-spin" /> : <Download size={18} />}
-            {exporting ? 'Exporting...' : `Export Full Dataset (${totalRecords})`}
-          </button>
+          {canExport && (
+            <button
+              onClick={handleExportCSV}
+              disabled={exporting}
+              style={{
+                padding: '12px 20px',
+                backgroundColor: 'var(--card-bg)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '10px',
+                fontWeight: '700',
+                cursor: exporting ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                opacity: exporting ? 0.6 : 1
+              }}
+            >
+              {exporting ? <Loader size={18} className="animate-spin" /> : <Download size={18} />}
+              {exporting ? 'Exporting...' : `Export Full Dataset (${totalRecords})`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -580,21 +588,23 @@ function InventoryContent() {
                           </div>
 
                           <div style={{ textAlign: 'right' }}>
-                            <button
-                              onClick={() => openAdjustModal(item)}
-                              style={{
-                                padding: '8px 16px',
-                                backgroundColor: 'var(--primary)',
-                                color: '#0B132B',
-                                border: 'none',
-                                borderRadius: '8px',
-                                fontWeight: '700',
-                                fontSize: '13px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Adjust Stock
-                            </button>
+                            {canAdjust && (
+                              <button
+                                onClick={() => openAdjustModal(item)}
+                                style={{
+                                  padding: '8px 16px',
+                                  backgroundColor: 'var(--primary)',
+                                  color: '#0B132B',
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  fontWeight: '700',
+                                  fontSize: '13px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Adjust Stock
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -639,21 +649,23 @@ function InventoryContent() {
                                         </span>
                                       </td>
                                       <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                                        <button
-                                          onClick={() => openAdjustModal(item, v._id)}
-                                          style={{
-                                            padding: '4px 10px',
-                                            backgroundColor: 'var(--card-bg)',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '6px',
-                                            fontWeight: '600',
-                                            fontSize: '12px',
-                                            cursor: 'pointer',
-                                            color: 'var(--text-primary)'
-                                          }}
-                                        >
-                                          Adjust SKU
-                                        </button>
+                                        {canAdjust && (
+                                          <button
+                                            onClick={() => openAdjustModal(item, v._id)}
+                                            style={{
+                                              padding: '4px 10px',
+                                              backgroundColor: 'var(--card-bg)',
+                                              border: '1px solid var(--border-color)',
+                                              borderRadius: '6px',
+                                              fontWeight: '600',
+                                              fontSize: '12px',
+                                              cursor: 'pointer',
+                                              color: 'var(--text-primary)'
+                                            }}
+                                          >
+                                            Adjust SKU
+                                          </button>
+                                        )}
                                       </td>
                                     </tr>
                                   );
