@@ -53,9 +53,14 @@ const auditLogSchema = new mongoose.Schema({
       'PAYMENT.REFUNDED',
       'ROLE.ASSIGNED',
       'ROLE.REMOVED',
-      'PERMISSION.CHANGED',
       'USER.BLOCKED',
       'USER.UNBLOCKED',
+      'CUSTOMER.PROFILE_UPDATED',
+      'CUSTOMER.BLOCKED',
+      'CUSTOMER.UNBLOCKED',
+      'CUSTOMER.EXPORTED',
+      'INVENTORY.STOCK_ADJUSTED',
+      'INVENTORY.EXPORTED',
       'SECURITY.SUSPICIOUS_ACTIVITY'
     ],
     index: true

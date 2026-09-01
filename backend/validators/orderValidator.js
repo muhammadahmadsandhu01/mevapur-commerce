@@ -106,6 +106,7 @@ const paginationSchema = z.object({
 }).passthrough();
 
 const adminOrderQuerySchema = paginationSchema.extend({
+  customer: optionalTrimmed(objectId),
   search: optionalTrimmed(z.string().trim().max(100)),
   startDate: optionalTrimmed(z.iso.date()),
   endDate: optionalTrimmed(z.iso.date()),

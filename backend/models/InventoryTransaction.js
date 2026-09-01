@@ -17,8 +17,6 @@ const inventoryTransactionSchema = new mongoose.Schema({
   },
   operationKey: {
     type: String,
-    sparse: true,
-    unique: true,
     maxlength: 300
   },
   type: {
@@ -64,5 +62,6 @@ inventoryTransactionSchema.index({ product: 1, createdAt: -1 });
 inventoryTransactionSchema.index({ type: 1, createdAt: -1 });
 inventoryTransactionSchema.index({ performedBy: 1, createdAt: -1 });
 inventoryTransactionSchema.index({ order: 1, createdAt: 1 });
+inventoryTransactionSchema.index({ operationKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('InventoryTransaction', inventoryTransactionSchema);

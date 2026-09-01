@@ -437,6 +437,7 @@ class OrderService {
     page,
     limit,
     status,
+    customer,
     search,
     startDate,
     endDate,
@@ -444,6 +445,7 @@ class OrderService {
   }) {
     const query = {};
     if (status) query.orderStatus = status;
+    if (customer) query.user = customer;
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) {

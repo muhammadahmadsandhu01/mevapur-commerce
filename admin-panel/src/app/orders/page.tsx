@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  ShoppingCart, Search, Filter, Download, Eye,
-  Truck, CheckCircle, Clock, XCircle, AlertCircle,
-  Calendar, DollarSign, Package, MoreVertical,
-  ChevronLeft, ChevronRight, X, Save, Loader
+  ShoppingCart, Search, Download, Eye,
+  Truck, CheckCircle, Clock, XCircle,
+  Calendar, DollarSign, Package,
+  ChevronLeft, ChevronRight, X, Save, Loader, User
 } from 'lucide-react';
 import api from '@/lib/api';
 import { exportCsvFile } from '@/lib/csvExport';
@@ -50,7 +51,11 @@ interface Order {
   updatedAt: string;
 }
 
-export default function OrdersPage() {
+function OrdersListContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const customerFilter = searchParams.get('customer') || '';
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -69,13 +74,14 @@ export default function OrdersPage() {
 
   useEffect(() => {
     fetchOrders();
-  }, [page, statusFilter, dateFilter, sortBy]);
+  }, [page, statusFilter, dateFilter, sortBy, customerFilter]);
 
   async function fetchOrders() {
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, limit: 15 };
 
+      if (customerFilter) params.customer = customerFilter;
       if (statusFilter !== 'all') params.status = statusFilter;
       if (dateFilter !== 'all') {
         const now = new Date();
@@ -219,6 +225,44 @@ export default function OrdersPage() {
           <Download size={18} /> Export Current View ({filteredOrders.length})
         </button>
       </div>
+
+      {/* Customer Filter Banner */}
+      {customerFilter && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 18px',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '12px',
+          marginBottom: '24px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>
+            <User size={16} color="var(--primary)" />
+            <span>Filtered by Customer ID: <strong style={{ color: 'var(--primary)' }}>{customerFilter}</strong></span>
+          </div>
+          <button
+            onClick={() => {
+              setPage(1);
+              router.replace('/orders');
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              background: 'none',
+              border: 'none',
+              color: 'var(--danger-text)',
+              cursor: 'pointer',
+              fontWeight: '700',
+              fontSize: '13px'
+            }}
+          >
+            <X size={16} /> Clear Customer Filter
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div style={{
@@ -961,5 +1005,13 @@ export default function OrdersPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading orders...</div>}>
+      <OrdersListContent />
+    </Suspense>
   );
 }

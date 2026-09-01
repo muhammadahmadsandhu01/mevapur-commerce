@@ -988,6 +988,110 @@ class FinancialMetricsService {
       }
     };
   }
+
+  /**
+   * Authoritative Customer Financial Summary reusing canonical realized finance semantics.
+   * Matches non-cancelled, captured/paid orders, deduces completed refunds, and aggregates per customer.
+   * @param {Array<mongoose.Types.ObjectId>|mongoose.Types.ObjectId|string} customerIds
+   * @returns {Promise<Map<string, { realizedOrders: number, totalSpent: number, averageOrderValue: number, firstOrderDate: Date|null, lastOrderDate: Date|null }>>}
+   */
+  static async getCustomerFinancialSummary(customerIds) {
+    const ids = Array.isArray(customerIds) ? customerIds : [customerIds];
+    if (ids.length === 0) return new Map();
+
+    const pipeline = [
+      {
+        $match: {
+          user: { $in: ids },
+          orderStatus: { $ne: ORDER_STATUSES.CANCELLED },
+          paymentStatus: { $in: ['Paid', 'PartiallyRefunded', 'Refunded'] }
+        }
+      },
+      {
+        $lookup: {
+          from: 'refunds',
+          let: { orderId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$order', '$$orderId'] },
+                    { $eq: ['$status', REFUND_STATUSES.COMPLETED] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'refundDocs'
+        }
+      },
+      {
+        $addFields: {
+          verifiedRefunded: { $sum: '$refundDocs.amount' },
+          orderTotal: { $ifNull: ['$totalAmount', 0] }
+        }
+      },
+      {
+        $addFields: {
+          netAmount: {
+            $max: [0, { $subtract: ['$orderTotal', '$verifiedRefunded'] }]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$user',
+          totalSpent: { $sum: '$netAmount' },
+          realizedOrders: { $sum: 1 },
+          firstOrderDate: { $min: '$createdAt' },
+          lastOrderDate: { $max: '$createdAt' }
+        }
+      }
+    ];
+
+    const results = await Order.aggregate(pipeline);
+    const summaryMap = new Map();
+
+    results.forEach((row) => {
+      const realizedOrders = row.realizedOrders || 0;
+      const totalSpent = FinancialMetricsService.roundMoney(row.totalSpent || 0);
+      const averageOrderValue = realizedOrders > 0
+        ? FinancialMetricsService.roundMoney(totalSpent / realizedOrders)
+        : 0;
+
+      summaryMap.set(row._id.toString(), {
+        realizedOrders,
+        totalSpent,
+        averageOrderValue,
+        firstOrderDate: row.firstOrderDate || null,
+        lastOrderDate: row.lastOrderDate || null
+      });
+    });
+
+    return summaryMap;
+  }
+
+  /**
+   * Get total order counts (all non-deleted orders) for given customer IDs.
+   * @param {Array<mongoose.Types.ObjectId>|mongoose.Types.ObjectId|string} customerIds
+   * @returns {Promise<Map<string, number>>}
+   */
+  static async getCustomerTotalOrderCounts(customerIds) {
+    const ids = Array.isArray(customerIds) ? customerIds : [customerIds];
+    if (ids.length === 0) return new Map();
+
+    const counts = await Order.aggregate([
+      { $match: { user: { $in: ids } } },
+      { $group: { _id: '$user', count: { $sum: 1 } } }
+    ]);
+
+    const countMap = new Map();
+    counts.forEach((c) => {
+      countMap.set(c._id.toString(), c.count);
+    });
+    return countMap;
+  }
 }
 
 module.exports = FinancialMetricsService;

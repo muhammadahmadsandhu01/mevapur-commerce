@@ -1,502 +1,635 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect, Suspense, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Users, Search, Filter, Download, Mail, Phone, MapPin,
-  ShoppingCart, Calendar, TrendingUp, Star, MoreVertical,
-  Eye, Edit, Trash2, CheckCircle, XCircle, AlertCircle
+  Users, Search, Download, Mail, Phone, MapPin,
+  ShoppingCart, TrendingUp,
+  Eye, Edit, CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, X, ShieldAlert, Loader
 } from 'lucide-react';
 import api from '@/lib/api';
-import { exportCsvFile } from '@/lib/csvExport';
 
 interface Customer {
   _id: string;
+  id: string;
   fullName: string;
   email: string;
   phone?: string;
-  address?: {
-    street?: string;
+  avatar?: string;
+  addresses?: Array<{
+    fullName?: string;
+    phone?: string;
+    address?: string;
     city?: string;
+    state?: string;
     country?: string;
     postalCode?: string;
-  };
+    isDefault?: boolean;
+  }>;
+  primaryAddress?: {
+    address?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+  } | null;
   totalOrders: number;
+  realizedOrders: number;
   totalSpent: number;
   averageOrderValue: number;
-  lastOrderDate?: string;
+  firstOrderDate?: string | null;
+  lastOrderDate?: string | null;
   createdAt: string;
+  updatedAt: string;
+  isBlocked: boolean;
   isActive: boolean;
-  tags?: string[];
+}
+
+interface CustomerSummary {
+  global: {
+    totalCustomers: number;
+    activeCustomers: number;
+    blockedCustomers: number;
+    newCustomersToday: number;
+    totalRealizedSpend: number;
+    averageLifetimeValue: number;
+  };
 }
 
 function CustomersListContent() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const router = useRouter();
   const searchParams = useSearchParams();
 
-  useEffect(() => {
-    const urlQuery = searchParams.get('search') || searchParams.get('keyword') || '';
-    if (urlQuery !== searchQuery) {
-      const timer = setTimeout(() => {
-        setSearchQuery(urlQuery);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [searchParams, searchQuery]);
-  const [filterType, setFilterType] = useState<'all' | 'active' | 'inactive' | 'vip'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'totalSpent' | 'totalOrders' | 'lastOrderDate'>('name');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [summary, setSummary] = useState<CustomerSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+  const [filterType, setFilterType] = useState<'all' | 'active' | 'blocked'>('all');
+  const [sortBy, setSortBy] = useState<'createdAt-desc' | 'createdAt-asc' | 'name-asc' | 'name-desc'>('createdAt-desc');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  async function fetchCustomers() {
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [editFullName, setEditFullName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [blockTarget, setBlockTarget] = useState<Customer | null>(null);
+  const [blockReason, setBlockReason] = useState('');
+  const [blockLoading, setBlockLoading] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get('/customers');
+      const params: Record<string, string | number> = {
+        page,
+        limit: 15,
+        sortBy
+      };
+
+      if (searchQuery.trim()) {
+        params.search = searchQuery.trim();
+      }
+      if (filterType !== 'all') {
+        params.status = filterType;
+      }
+
+      const response = await api.get('/customers', { params });
       if (response.data.success) {
         setCustomers(response.data.data);
+        if (response.data.summary) {
+          setSummary(response.data.summary);
+        }
+        if (response.data.pagination) {
+          setTotalPages(response.data.pagination.pages || 1);
+          setTotalRecords(response.data.pagination.total || 0);
+        }
       }
     } catch (error) {
       console.error('Error fetching customers:', error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, searchQuery, filterType, sortBy]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const timer = setTimeout(() => {
       void fetchCustomers();
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [fetchCustomers]);
 
-  const filteredCustomers = customers.filter(customer => {
-    const matchesSearch = customer.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         customer.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         customer.phone?.includes(searchQuery);
-    const matchesFilter = filterType === 'all' ||
-                         (filterType === 'active' && customer.isActive) ||
-                         (filterType === 'inactive' && !customer.isActive) ||
-                         (filterType === 'vip' && customer.totalSpent > 50000);
-    return matchesSearch && matchesFilter;
-  }).sort((a, b) => {
-    if (sortBy === 'name') return a.fullName.localeCompare(b.fullName);
-    if (sortBy === 'totalSpent') return b.totalSpent - a.totalSpent;
-    if (sortBy === 'totalOrders') return b.totalOrders - a.totalOrders;
-    if (sortBy === 'lastOrderDate') {
-      if (!a.lastOrderDate) return 1;
-      if (!b.lastOrderDate) return -1;
-      return new Date(b.lastOrderDate).getTime() - new Date(a.lastOrderDate).getTime();
-    }
-    return 0;
-  });
-
-  const stats = {
-    total: customers.length,
-    active: customers.filter(c => c.isActive).length,
-    vip: customers.filter(c => c.totalSpent > 50000).length,
-    totalRevenue: customers.reduce((acc, c) => acc + c.totalSpent, 0),
-    averageOrderValue: customers.reduce((acc, c) => acc + c.averageOrderValue, 0) / (customers.length || 1)
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    void fetchCustomers();
   };
 
-  const exportToCSV = () => {
-    const headers = ['Name', 'Email', 'Phone', 'Total Orders', 'Total Spent (PKR)', 'Avg Order Value (PKR)', 'Last Order', 'Status'];
-    const rows = filteredCustomers.map((c) => [
-      c.fullName,
-      c.email,
-      c.phone || '',
-      c.totalOrders ?? 0,
-      c.totalSpent ?? 0,
-      c.averageOrderValue ?? 0,
-      c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : 'Never',
-      c.isActive ? 'Active' : 'Inactive'
-    ]);
-    exportCsvFile(`customers-${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
+  const handleFilterChange = (type: 'all' | 'active' | 'blocked') => {
+    setFilterType(type);
+    setPage(1);
   };
 
-  const getCustomerBadge = (customer: Customer) => {
-    if (customer.totalSpent > 50000) {
-      return { bg: 'rgba(255, 138, 0, 0.12)', color: 'var(--accent-text)', text: 'VIP Customer', icon: Star };
+  const handleSortChange = (sort: 'createdAt-desc' | 'createdAt-asc' | 'name-asc' | 'name-desc') => {
+    setSortBy(sort);
+    setPage(1);
+  };
+
+  const openProfileModal = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setEditFullName(customer.fullName || '');
+    setEditPhone(customer.phone || '');
+    setProfileError(null);
+    setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCustomer) return;
+
+    if (!editFullName.trim() || editFullName.trim().length < 3) {
+      setProfileError('Full name must be at least 3 characters.');
+      return;
     }
-    if (customer.totalOrders > 10) {
-      return { bg: 'var(--info-light)', color: 'var(--info-text)', text: 'Loyal', icon: CheckCircle };
+
+    setProfileSaving(true);
+    setProfileError(null);
+
+    try {
+      const response = await api.patch(`/customers/${selectedCustomer._id}/profile`, {
+        fullName: editFullName.trim(),
+        phone: editPhone.trim()
+      });
+
+      if (response.data.success) {
+        setShowProfileModal(false);
+        if (selectedCustomer) {
+          setSelectedCustomer({
+            ...selectedCustomer,
+            fullName: editFullName.trim(),
+            phone: editPhone.trim()
+          });
+        }
+        await fetchCustomers();
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to update profile';
+      setProfileError(msg);
+    } finally {
+      setProfileSaving(false);
     }
-    if (!customer.isActive) {
-      return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', text: 'Inactive', icon: XCircle };
+  };
+
+  const openBlockDialog = (customer: Customer) => {
+    setBlockTarget(customer);
+    setBlockReason('');
+  };
+
+  const handleConfirmBlockToggle = async () => {
+    if (!blockTarget) return;
+
+    setBlockLoading(true);
+    try {
+      const targetState = !blockTarget.isBlocked;
+      const response = await api.put(`/customers/${blockTarget._id}/block`, {
+        isBlocked: targetState,
+        reason: blockReason || (targetState ? 'Account blocked by admin' : 'Account unblocked by admin')
+      });
+
+      if (response.data.success) {
+        setBlockTarget(null);
+        if (selectedCustomer && selectedCustomer._id === blockTarget._id) {
+          setSelectedCustomer({
+            ...selectedCustomer,
+            isBlocked: targetState,
+            isActive: !targetState
+          });
+        }
+        await fetchCustomers();
+      }
+    } catch (err) {
+      console.error('Failed to toggle block status:', err);
+    } finally {
+      setBlockLoading(false);
     }
-    return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', text: 'Active', icon: CheckCircle };
+  };
+
+  const handleExportCSV = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const params: Record<string, string> = {};
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+      if (filterType !== 'all') params.status = filterType;
+
+      const response = await api.get('/customers/export', {
+        params,
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `customers_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to export customer dataset';
+      setExportError(msg);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const globalStats = summary?.global || {
+    totalCustomers: totalRecords,
+    activeCustomers: customers.filter((c) => c.isActive).length,
+    blockedCustomers: customers.filter((c) => c.isBlocked).length,
+    newCustomersToday: 0,
+    totalRealizedSpend: 0,
+    averageLifetimeValue: 0
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '1400px', margin: '0 auto', paddingBottom: '40px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '6px', letterSpacing: '-0.5px' }}>
             Customers
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-            Manage customer accounts, view order history, and track engagement.
+            Authoritative customer records, realized lifetime metrics, and access controls.
           </p>
         </div>
-        <button
-          onClick={exportToCSV}
-          style={{
-            padding: '12px 20px',
-            backgroundColor: 'var(--card-bg)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '10px',
-            fontWeight: '700',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s'
-          }}
-          onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--hover-bg)'; }}
-          onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--card-bg)'; }}
-        >
-          <Download size={18} /> Export Current View ({filteredCustomers.length})
-        </button>
-      </div>
-
-      {/* Stats Cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
-      }}>
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          padding: '20px',
-          border: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px'
-        }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'var(--info-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Users size={24} color="var(--info-text)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Customers</div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.total}</div>
-          </div>
-        </div>
-
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          padding: '20px',
-          border: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px'
-        }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle size={24} color="var(--success-text)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Customers</div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.active}</div>
-          </div>
-        </div>
-
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          padding: '20px',
-          border: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px'
-        }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Star size={24} color="var(--accent-text)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>VIP Customers</div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.vip}</div>
-          </div>
-        </div>
-
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          padding: '20px',
-          border: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px'
-        }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <TrendingUp size={24} color="var(--accent-text)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Revenue</div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {(stats.totalRevenue / 1000).toFixed(1)}k</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filters & Search */}
-      <div style={{
-        backgroundColor: 'var(--card-bg)',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        border: '1px solid var(--border-color)',
-        marginBottom: '24px',
-        display: 'flex',
-        gap: '12px',
-        flexWrap: 'wrap',
-        alignItems: 'center'
-      }}>
-        <div style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
-          <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-          <input
-            type="text"
-            placeholder="Search by name, email, or phone..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <button
+            onClick={handleExportCSV}
+            disabled={exporting}
             style={{
-              width: '100%',
-              padding: '10px 14px 10px 42px',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              backgroundColor: 'var(--input-bg)',
+              padding: '12px 20px',
+              backgroundColor: 'var(--card-bg)',
               color: 'var(--text-primary)',
-              fontSize: '14px',
-              outline: 'none'
+              border: '1px solid var(--border-color)',
+              borderRadius: '10px',
+              fontWeight: '700',
+              cursor: exporting ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              opacity: exporting ? 0.6 : 1
             }}
-          />
+          >
+            {exporting ? <Loader size={18} className="animate-spin" /> : <Download size={18} />}
+            {exporting ? 'Exporting...' : `Export Full Dataset (${totalRecords})`}
+          </button>
         </div>
-
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as typeof filterType)}
-          style={{
-            padding: '10px 32px 10px 14px',
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            backgroundColor: 'var(--input-bg)',
-            color: 'var(--text-primary)',
-            fontSize: '14px',
-            fontWeight: '500',
-            outline: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          <option value="all">All Customers</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="vip">VIP Only</option>
-        </select>
-
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-          style={{
-            padding: '10px 32px 10px 14px',
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            backgroundColor: 'var(--input-bg)',
-            color: 'var(--text-primary)',
-            fontSize: '14px',
-            fontWeight: '500',
-            outline: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          <option value="name">Sort by Name</option>
-          <option value="totalSpent">Sort by Spending</option>
-          <option value="totalOrders">Sort by Orders</option>
-          <option value="lastOrderDate">Last Order</option>
-        </select>
       </div>
 
-      {/* Customers List */}
-      {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[...Array(6)].map((_, i) => (
-            <div key={i} style={{
-              backgroundColor: 'var(--card-bg)',
-              borderRadius: '12px',
-              height: '100px',
-              animation: 'pulse 1.5s infinite',
-              border: '1px solid var(--border-color)'
-            }} />
-          ))}
-        </div>
-      ) : filteredCustomers.length === 0 ? (
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          padding: '80px 20px',
-          textAlign: 'center',
-          border: '1px solid var(--border-color)',
-          borderStyle: 'dashed'
-        }}>
-          <Users size={48} color="var(--text-secondary)" style={{ opacity: 0.3, marginBottom: '16px' }} />
-          <h3 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>
-            No customers found
-          </h3>
-          <p style={{ color: 'var(--text-secondary)' }}>Try adjusting your filters or search query</p>
-        </div>
-      ) : (
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          border: '1px solid var(--border-color)',
-          overflow: 'hidden'
-        }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
-              <thead>
-                <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Customer</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Contact</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Orders</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Spent</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Status</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Last Order</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
-                {filteredCustomers.map((customer) => {
-                  const badge = getCustomerBadge(customer);
-                  const BadgeIcon = badge.icon;
-
-                  return (
-                    <tr
-                      key={customer._id}
-                      style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s', cursor: 'pointer' }}
-                      onClick={() => { setSelectedCustomer(customer); setShowDetails(true); }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                      <td style={{ padding: '16px 20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{
-                            width: '48px', height: '48px', borderRadius: '50%',
-                            backgroundColor: '#0B132B',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: '#FFFFFF', fontWeight: '700', fontSize: '18px',
-                            flexShrink: 0
-                          }}>
-                            {customer.fullName.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '14px' }}>
-                              {customer.fullName}
-                            </div>
-                            {customer.tags && customer.tags.length > 0 && (
-                              <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                                {customer.tags.map((tag, i) => (
-                                  <span key={i} style={{
-                                    fontSize: '10px',
-                                    padding: '2px 6px',
-                                    backgroundColor: 'var(--bg-primary)',
-                                    color: 'var(--text-secondary)',
-                                    borderRadius: '4px',
-                                    fontWeight: '600'
-                                  }}>
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px 20px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                            <Mail size={14} />
-                            {customer.email}
-                          </div>
-                          {customer.phone && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                              <Phone size={14} />
-                              {customer.phone}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px 20px' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '14px' }}>
-                          {customer.totalOrders}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          Avg: Rs. {customer.averageOrderValue.toFixed(0)}
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px 20px' }}>
-                        <div style={{ fontWeight: '800', color: 'var(--text-primary)', fontSize: '15px' }}>
-                          Rs. {customer.totalSpent.toLocaleString()}
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px 20px' }}>
-                        <div style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '6px 12px',
-                          backgroundColor: badge.bg,
-                          color: badge.color,
-                          borderRadius: '20px',
-                          fontSize: '12px',
-                          fontWeight: '700'
-                        }}>
-                          <BadgeIcon size={14} />
-                          {badge.text}
-                        </div>
-                      </td>
-                      <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        {customer.lastOrderDate ? new Date(customer.lastOrderDate).toLocaleDateString() : 'Never'}
-                      </td>
-                      <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedCustomer(customer); setShowDetails(true); }}
-                          style={{
-                            padding: '8px 12px',
-                            backgroundColor: 'var(--bg-primary)',
-                            color: 'var(--accent-text)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '600'
-                          }}
-                        >
-                          View Details
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {exportError && (
+        <div style={{ padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', borderRadius: '10px', color: 'var(--danger-text)', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+            <AlertCircle size={18} /> {exportError}
           </div>
+          <button onClick={() => setExportError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}><X size={16} /></button>
         </div>
       )}
 
+      {/* Global Truthful KPI Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+        <div style={{ backgroundColor: 'var(--card-bg)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Customers (Global)</span>
+            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Users size={20} color="var(--primary)" />
+            </div>
+          </div>
+          <div style={{ fontSize: '30px', fontWeight: '800', color: 'var(--text-primary)' }}>{globalStats.totalCustomers.toLocaleString()}</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Complete verified customer base</div>
+        </div>
+
+        <div style={{ backgroundColor: 'var(--card-bg)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Customers</span>
+            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'rgba(22, 163, 74, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CheckCircle size={20} color="var(--success-text)" />
+            </div>
+          </div>
+          <div style={{ fontSize: '30px', fontWeight: '800', color: 'var(--success-text)' }}>{globalStats.activeCustomers.toLocaleString()}</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Accounts in good standing</div>
+        </div>
+
+        <div style={{ backgroundColor: 'var(--card-bg)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Blocked / Inactive</span>
+            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <XCircle size={20} color="var(--danger-text)" />
+            </div>
+          </div>
+          <div style={{ fontSize: '30px', fontWeight: '800', color: 'var(--danger-text)' }}>{globalStats.blockedCustomers.toLocaleString()}</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Revoked or blocked accounts</div>
+        </div>
+
+        <div style={{ backgroundColor: 'var(--card-bg)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Realized Net Spend</span>
+            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'rgba(255, 138, 0, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TrendingUp size={20} color="var(--accent-text)" />
+            </div>
+          </div>
+          <div style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {globalStats.totalRealizedSpend.toLocaleString()}</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Phase 1 canonical realized revenue</div>
+        </div>
+      </div>
+
+      {/* Controls / Filter Bar */}
+      <div style={{ backgroundColor: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-color)', marginBottom: '24px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px', flex: '1', minWidth: '280px', maxWidth: '460px' }}>
+          <div style={{ position: 'relative', width: '100%' }}>
+            <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              placeholder="Search by name, email, or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 14px 12px 42px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+                outline: 'none'
+              }}
+            />
+          </div>
+          <button
+            type="submit"
+            style={{
+              padding: '0 18px',
+              backgroundColor: 'var(--primary)',
+              color: '#0B132B',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: '700',
+              fontSize: '14px',
+              cursor: 'pointer'
+            }}
+          >
+            Search
+          </button>
+        </form>
+
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Status Filter */}
+          <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-primary)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+            {(['all', 'active', 'blocked'] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => handleFilterChange(st)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: filterType === st ? 'var(--card-bg)' : 'transparent',
+                  color: filterType === st ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontWeight: filterType === st ? '700' : '500',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  boxShadow: filterType === st ? '0 2px 4px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                {st === 'all' ? 'All' : st === 'active' ? 'Active' : 'Blocked'}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort Select */}
+          <select
+            value={sortBy}
+            onChange={(e) => handleSortChange(e.target.value as 'createdAt-desc' | 'createdAt-asc' | 'name-asc' | 'name-desc')}
+            style={{
+              padding: '10px 14px',
+              borderRadius: '10px',
+              border: '1px solid var(--border-color)',
+              backgroundColor: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontWeight: '600',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="createdAt-desc">Newest First</option>
+            <option value="createdAt-asc">Oldest First</option>
+            <option value="name-asc">Name (A-Z)</option>
+            <option value="name-desc">Name (Z-A)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Customer Table */}
+      <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            <Loader size={28} className="animate-spin" style={{ margin: '0 auto 12px' }} />
+            <p>Loading customers...</p>
+          </div>
+        ) : customers.length === 0 ? (
+          <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            <Users size={48} style={{ margin: '0 auto 16px', opacity: 0.4 }} />
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>No Customers Found</h3>
+            <p style={{ fontSize: '14px' }}>Try adjusting your search query or status filter.</p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <th style={{ padding: '16px 20px' }}>Customer</th>
+                  <th style={{ padding: '16px 20px' }}>Contact</th>
+                  <th style={{ padding: '16px 20px' }}>Orders</th>
+                  <th style={{ padding: '16px 20px' }}>Realized Spend</th>
+                  <th style={{ padding: '16px 20px' }}>Status</th>
+                  <th style={{ padding: '16px 20px' }}>Last Order</th>
+                  <th style={{ padding: '16px 20px', textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map((c) => (
+                  <tr key={c._id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.15s' }}>
+                    <td style={{ padding: '16px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#0B132B', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '16px' }}>
+                          {c.fullName ? c.fullName.charAt(0).toUpperCase() : 'C'}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{c.fullName}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Joined {new Date(c.createdAt).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px 20px' }}>
+                      <div style={{ color: 'var(--text-primary)' }}>{c.email}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{c.phone || 'No phone'}</div>
+                    </td>
+                    <td style={{ padding: '16px 20px' }}>
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{c.totalOrders} total</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{c.realizedOrders} realized</div>
+                    </td>
+                    <td style={{ padding: '16px 20px' }}>
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {c.totalSpent.toLocaleString()}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AOV: Rs. {c.averageOrderValue.toFixed(0)}</div>
+                    </td>
+                    <td style={{ padding: '16px 20px' }}>
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        backgroundColor: c.isBlocked ? 'rgba(239, 68, 68, 0.12)' : 'rgba(22, 163, 74, 0.12)',
+                        color: c.isBlocked ? 'var(--danger-text)' : 'var(--success-text)'
+                      }}>
+                        {c.isBlocked ? 'Blocked' : 'Active'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '16px 20px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      {c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : 'Never'}
+                    </td>
+                    <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => {
+                            setSelectedCustomer(c);
+                            setShowDetails(true);
+                          }}
+                          title="View Details"
+                          style={{
+                            padding: '8px',
+                            backgroundColor: 'var(--bg-primary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <button
+                          onClick={() => openProfileModal(c)}
+                          title="Edit Profile"
+                          style={{
+                            padding: '8px',
+                            backgroundColor: 'var(--bg-primary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => openBlockDialog(c)}
+                          title={c.isBlocked ? 'Unblock Customer' : 'Block Customer'}
+                          style={{
+                            padding: '8px',
+                            backgroundColor: c.isBlocked ? 'rgba(22, 163, 74, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px',
+                            color: c.isBlocked ? 'var(--success-text)' : 'var(--danger-text)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {c.isBlocked ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination Footer */}
+        <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            Showing {customers.length > 0 ? (page - 1) * 15 + 1 : 0} to {Math.min(page * 15, totalRecords)} of {totalRecords} filtered customers
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              style={{
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                opacity: page <= 1 ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '13px',
+                fontWeight: '600'
+              }}
+            >
+              <ChevronLeft size={16} /> Previous
+            </button>
+            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', padding: '0 8px' }}>
+              Page {page} of {totalPages}
+            </span>
+            <button
+              disabled={page >= totalPages || loading}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              style={{
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                opacity: page >= totalPages ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '13px',
+                fontWeight: '600'
+              }}
+            >
+              Next <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Customer Details Modal */}
       {showDetails && selectedCustomer && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '20px'
-        }}
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
           onClick={() => setShowDetails(false)}
         >
           <div
@@ -508,122 +641,97 @@ function CustomersListContent() {
               width: '100%',
               maxHeight: '90vh',
               overflowY: 'auto',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              border: '1px solid var(--border-color)'
             }}
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{
-                  width: '64px', height: '64px', borderRadius: '50%',
-                  backgroundColor: '#0B132B',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#FFFFFF', fontWeight: '700', fontSize: '24px'
-                }}>
-                  {selectedCustomer.fullName.charAt(0).toUpperCase()}
+                <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#0B132B', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '24px' }}>
+                  {selectedCustomer.fullName ? selectedCustomer.fullName.charAt(0).toUpperCase() : 'C'}
                 </div>
                 <div>
                   <h2 style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>
                     {selectedCustomer.fullName}
                   </h2>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {getCustomerBadge(selectedCustomer) && (
-                      <span style={{
-                        padding: '4px 12px',
-                        backgroundColor: getCustomerBadge(selectedCustomer).bg,
-                        color: getCustomerBadge(selectedCustomer).color,
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        fontWeight: '700'
-                      }}>
-                        {getCustomerBadge(selectedCustomer).text}
-                      </span>
-                    )}
-                  </div>
+                  <span style={{
+                    padding: '4px 12px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    backgroundColor: selectedCustomer.isBlocked ? 'rgba(239, 68, 68, 0.12)' : 'rgba(22, 163, 74, 0.12)',
+                    color: selectedCustomer.isBlocked ? 'var(--danger-text)' : 'var(--success-text)'
+                  }}>
+                    {selectedCustomer.isBlocked ? 'Blocked Customer' : 'Active Customer'}
+                  </span>
                 </div>
               </div>
               <button
                 onClick={() => setShowDetails(false)}
-                style={{
-                  padding: '8px',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  color: 'var(--text-secondary)'
-                }}
+                style={{ padding: '8px', background: 'none', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'var(--text-secondary)' }}
               >
-                <XCircle size={24} />
+                <X size={24} />
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
-              <div style={{
-                backgroundColor: 'var(--bg-primary)',
-                borderRadius: '12px',
-                padding: '20px'
-              }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '16px', textTransform: 'uppercase' }}>
-                  Contact Information
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <Mail size={18} color="var(--text-secondary)" />
-                    <span style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedCustomer.email}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ backgroundColor: 'var(--bg-primary)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '16px', textTransform: 'uppercase' }}>Contact & Address</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
+                    <Mail size={16} color="var(--text-secondary)" /> {selectedCustomer.email}
                   </div>
-                  {selectedCustomer.phone && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <Phone size={18} color="var(--text-secondary)" />
-                      <span style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedCustomer.phone}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
+                    <Phone size={16} color="var(--text-secondary)" /> {selectedCustomer.phone || 'No phone on file'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', color: 'var(--text-primary)' }}>
+                    <MapPin size={16} color="var(--text-secondary)" style={{ marginTop: '2px' }} />
+                    <div>
+                      {selectedCustomer.primaryAddress ? (
+                        <span>
+                          {selectedCustomer.primaryAddress.address}, {selectedCustomer.primaryAddress.city}, {selectedCustomer.primaryAddress.country || 'Pakistan'} {selectedCustomer.primaryAddress.postalCode || ''}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-secondary)' }}>No default address recorded</span>
+                      )}
                     </div>
-                  )}
-                  {selectedCustomer.address && (
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                      <MapPin size={18} color="var(--text-secondary)" />
-                      <span style={{ color: 'var(--text-primary)', fontSize: '14px' }}>
-                        {selectedCustomer.address.street}, {selectedCustomer.address.city}, {selectedCustomer.address.country} {selectedCustomer.address.postalCode}
-                      </span>
-                    </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
-              <div style={{
-                backgroundColor: 'var(--bg-primary)',
-                borderRadius: '12px',
-                padding: '20px'
-              }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '16px', textTransform: 'uppercase' }}>
-                  Order Statistics
-                </h3>
+              <div style={{ backgroundColor: 'var(--bg-primary)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '16px', textTransform: 'uppercase' }}>Commercial Lifetime Summary</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Orders</div>
-                    <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{selectedCustomer.totalOrders}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>Total Orders</div>
+                    <div style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{selectedCustomer.totalOrders}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Spent</div>
-                    <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {selectedCustomer.totalSpent.toLocaleString()}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>Realized Orders</div>
+                    <div style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{selectedCustomer.realizedOrders}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Avg Order Value</div>
-                    <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {selectedCustomer.averageOrderValue.toFixed(0)}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>Realized Net Spend</div>
+                    <div style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {selectedCustomer.totalSpent.toLocaleString()}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Customer Since</div>
-                    <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                      {new Date(selectedCustomer.createdAt).toLocaleDateString()}
-                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>Avg Order Value</div>
+                    <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {selectedCustomer.averageOrderValue.toFixed(0)}</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
+                onClick={() => {
+                  setShowDetails(false);
+                  openProfileModal(selectedCustomer);
+                }}
                 style={{
-                  padding: '12px 24px',
-                  backgroundColor: 'var(--card-bg)',
+                  padding: '12px 20px',
+                  backgroundColor: 'var(--bg-primary)',
                   color: 'var(--text-primary)',
                   border: '1px solid var(--border-color)',
                   borderRadius: '10px',
@@ -631,9 +739,13 @@ function CustomersListContent() {
                   cursor: 'pointer'
                 }}
               >
-                Edit Customer
+                Edit Profile
               </button>
               <button
+                onClick={() => {
+                  setShowDetails(false);
+                  router.push(`/orders?customer=${selectedCustomer._id}`);
+                }}
                 style={{
                   padding: '12px 24px',
                   backgroundColor: 'var(--primary)',
@@ -647,31 +759,246 @@ function CustomersListContent() {
                   gap: '8px'
                 }}
               >
-                <ShoppingCart size={18} /> View Orders
+                <ShoppingCart size={18} /> View Filtered Orders
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
+      {/* Edit Profile Modal (Strict Allowlist: Name, Phone) */}
+      {showProfileModal && selectedCustomer && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1050,
+            padding: '20px'
+          }}
+          onClick={() => setShowProfileModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--card-bg)',
+              borderRadius: '16px',
+              padding: '30px',
+              maxWidth: '500px',
+              width: '100%',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>Edit Customer Profile</h3>
+              <button onClick={() => setShowProfileModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+
+            {profileError && (
+              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', borderRadius: '8px', color: 'var(--danger-text)', fontSize: '13px', marginBottom: '16px' }}>
+                {profileError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProfile}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '6px' }}>Full Name *</label>
+                <input
+                  type="text"
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                  required
+                />
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '6px' }}>Phone Number</label>
+                <input
+                  type="text"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  placeholder="e.g. +92 300 1234567"
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  style={{
+                    padding: '10px 18px',
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  style={{
+                    padding: '10px 22px',
+                    backgroundColor: 'var(--primary)',
+                    color: '#0B132B',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    cursor: profileSaving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {profileSaving ? <Loader size={16} className="animate-spin" /> : null}
+                  {profileSaving ? 'Saving...' : 'Save Profile'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Block / Unblock Confirmation Dialog */}
+      {blockTarget && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: '20px'
+          }}
+          onClick={() => setBlockTarget(null)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--card-bg)',
+              borderRadius: '16px',
+              padding: '30px',
+              maxWidth: '480px',
+              width: '100%',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: blockTarget.isBlocked ? 'rgba(22, 163, 74, 0.1)' : 'rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ShieldAlert size={22} color={blockTarget.isBlocked ? 'var(--success-text)' : 'var(--danger-text)'} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                  {blockTarget.isBlocked ? 'Unblock Customer Account' : 'Block Customer Account'}
+                </h3>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.5' }}>
+              {blockTarget.isBlocked
+                ? `Are you sure you want to unblock ${blockTarget.fullName}? They will regain access to log in.`
+                : `Are you sure you want to block ${blockTarget.fullName}? Blocking immediately revokes all active customer sessions and prevents login.`}
+            </p>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                Audit Reason (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder={blockTarget.isBlocked ? 'Reason for unblocking...' : 'e.g. Fraud prevention, policy violation'}
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setBlockTarget(null)}
+                style={{
+                  padding: '10px 18px',
+                  backgroundColor: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={blockLoading}
+                onClick={handleConfirmBlockToggle}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: blockTarget.isBlocked ? 'var(--success)' : 'var(--danger)',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '700',
+                  cursor: blockLoading ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {blockLoading ? <Loader size={16} className="animate-spin" /> : null}
+                {blockTarget.isBlocked ? 'Confirm Unblock' : 'Confirm Block & Revoke Sessions'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-
 }
 
 export default function CustomersPage() {
   return (
-    <Suspense fallback={
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>Loading customers...</p>
-      </div>
-    }>
+    <Suspense fallback={<div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading customers...</div>}>
       <CustomersListContent />
     </Suspense>
   );
