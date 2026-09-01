@@ -8,35 +8,77 @@ const ERROR_CODES = require('../../constants/errorCodes');
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 class InventoryService {
   /**
-   * Run operations inside a Mongoose transaction if supported by the environment,
-   * falling back gracefully if transactions are unavailable in standalone test setups.
+   * Run operations inside a Mongoose transaction with automatic transient conflict retries.
+   * In production and staging, fails closed if transactions are unavailable.
+   * In standalone test environments, executes within an isolated fallback.
    */
-  async runTransaction(work) {
-    let session = null;
-    try {
-      session = await mongoose.startSession();
-      session.startTransaction();
-    } catch {
-      session = null;
-    }
-
-    if (!session) {
-      return await work(null);
-    }
-
-    try {
-      const result = await work(session);
-      await session.commitTransaction();
-      return result;
-    } catch (error) {
-      if (session.inTransaction()) {
-        await session.abortTransaction();
+  async runTransaction(work, maxRetries = 10) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      attempt++;
+      let session = null;
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+      } catch (sessionErr) {
+        session = null;
+        if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+          throw new AppError(
+            'Database transactions are unavailable: ' + (sessionErr.message || 'Replica set session required'),
+            503,
+            ERROR_CODES.SERVICE_UNAVAILABLE || 'SERVICE_UNAVAILABLE'
+          );
+        }
       }
-      throw error;
-    } finally {
-      await session.endSession();
+
+      if (!session) {
+        try {
+          return await work(null);
+        } catch (error) {
+          const isTransient = error?.hasErrorLabel?.('TransientTransactionError')
+            || error?.hasErrorLabel?.('UnknownTransactionCommitResult')
+            || error?.name === 'VersionError'
+            || error?.name === 'MongoServerError'
+            || error?.code === 112 // WriteConflict
+            || (typeof error?.message === 'string' && (error.message.includes('WriteConflict') || error.message.includes('No matching document found')));
+
+          if (isTransient && attempt < maxRetries) {
+            await new Promise((resolve) => setTimeout(resolve, Math.random() * 80 + 30 * attempt));
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      try {
+        const result = await work(session);
+        await session.commitTransaction();
+        return result;
+      } catch (error) {
+        if (session.inTransaction()) {
+          await session.abortTransaction();
+        }
+
+        const isTransient = error?.hasErrorLabel?.('TransientTransactionError')
+          || error?.hasErrorLabel?.('UnknownTransactionCommitResult')
+          || error?.name === 'VersionError'
+          || error?.name === 'MongoServerError'
+          || error?.code === 112 // WriteConflict
+          || (typeof error?.message === 'string' && (error.message.includes('WriteConflict') || error.message.includes('No matching document found')));
+
+        if (isTransient && attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, Math.random() * 80 + 30 * attempt));
+          continue;
+        }
+
+        throw error;
+      } finally {
+        await session.endSession();
+      }
     }
   }
 
@@ -220,6 +262,12 @@ class InventoryService {
       throw new AppError('Reason is required for inventory adjustment', 400, ERROR_CODES.VALIDATION_ERROR);
     }
 
+    if (operationKey !== undefined && operationKey !== null && operationKey !== '') {
+      if (typeof operationKey !== 'string' || !UUID_REGEX.test(operationKey.trim())) {
+        throw new AppError('A valid operationKey (UUID) is required for idempotency', 400, ERROR_CODES.VALIDATION_ERROR);
+      }
+    }
+
     const trimmedKey = (operationKey && typeof operationKey === 'string' && operationKey.trim())
       ? operationKey.trim()
       : crypto.randomUUID();
@@ -319,7 +367,7 @@ class InventoryService {
         }
 
         const delta = Math.abs(newStock - previousStock);
-        const [createdTx] = await InventoryTransaction.create([{
+        const createdTx = new InventoryTransaction({
           product: productId,
           variantId: variantId || null,
           operationKey: trimmedKey,
@@ -334,28 +382,40 @@ class InventoryService {
             productName: product.name,
             sku: target.sku || product.sku || ''
           }
-        }], session ? { session } : {});
+        });
+
+        if (session) {
+          await createdTx.save({ session });
+        } else {
+          await createdTx.save();
+        }
 
         transactionDoc = createdTx;
         modifiedProduct = product;
       });
     } catch (error) {
-      if (error?.code === 11000 && error?.keyPattern?.operationKey) {
+      if (error?.code === 11000 && (error?.keyPattern?.operationKey || String(error?.message).includes('operationKey') || String(error?.message).includes('11000'))) {
         // Concurrent duplicate key race: fetch and return existing transaction
-        const replay = await InventoryTransaction.findOne({ operationKey: trimmedKey });
-        const product = await Product.findById(productId);
-        return {
-          transaction: replay,
-          product: {
-            id: String(productId),
-            name: product?.name || '',
-            variantId: variantId || null,
-            previousStock: replay.previousStock,
-            newStock: replay.newStock,
-            rootStock: product?.stock ?? replay.newStock
-          },
-          idempotentReplay: true
-        };
+        let replay = await InventoryTransaction.findOne({ operationKey: trimmedKey });
+        if (!replay) {
+          await new Promise((r) => setTimeout(r, 60));
+          replay = await InventoryTransaction.findOne({ operationKey: trimmedKey });
+        }
+        if (replay) {
+          const product = await Product.findById(productId);
+          return {
+            transaction: replay,
+            product: {
+              id: String(productId),
+              name: product?.name || '',
+              variantId: variantId || null,
+              previousStock: replay.previousStock,
+              newStock: replay.newStock,
+              rootStock: product?.stock ?? replay.newStock
+            },
+            idempotentReplay: true
+          };
+        }
       }
       throw error;
     }

@@ -445,14 +445,20 @@ exports.toggleBlockCustomer = async (req, res, next) => {
       ? req.body.isBlocked
       : !customer.isBlocked;
 
-    customer.isBlocked = targetBlockedState;
-
+    let boundedReason = '';
     if (targetBlockedState) {
+      if (!req.body.reason || typeof req.body.reason !== 'string' || req.body.reason.trim().length < 3) {
+        throw new AppError('An explicit reason (at least 3 characters) is required when blocking a customer', 400, ERROR_CODES.VALIDATION_ERROR);
+      }
+      boundedReason = req.body.reason.trim().slice(0, 500);
       // Invalidate active tokens & revoke sessions immediately
       customer.tokenVersion = (customer.tokenVersion || 0) + 1;
       await SessionService.revokeAllSessions(customer._id, 'ACCOUNT_BLOCKED');
+    } else {
+      boundedReason = req.body.reason ? String(req.body.reason).trim().slice(0, 500) : 'Unblocked by admin';
     }
 
+    customer.isBlocked = targetBlockedState;
     await customer.save();
 
     const action = customer.isBlocked ? 'CUSTOMER.BLOCKED' : 'CUSTOMER.UNBLOCKED';
@@ -466,7 +472,7 @@ exports.toggleBlockCustomer = async (req, res, next) => {
       metadata: {
         targetCustomerId: String(customer._id),
         isBlocked: customer.isBlocked,
-        reason: req.body.reason ? String(req.body.reason).slice(0, 500) : (customer.isBlocked ? 'Blocked by admin' : 'Unblocked by admin')
+        reason: boundedReason
       }
     });
 
