@@ -8,6 +8,7 @@ import {
   Eye, Edit, Trash2, CheckCircle, XCircle, AlertCircle
 } from 'lucide-react';
 import api from '@/lib/api';
+import { exportCsvFile } from '@/lib/csvExport';
 
 interface Customer {
   _id: string;
@@ -101,26 +102,18 @@ function CustomersListContent() {
   };
 
   const exportToCSV = () => {
-    const csvContent = [
-      ['Name', 'Email', 'Phone', 'Total Orders', 'Total Spent', 'Avg Order Value', 'Last Order', 'Status'].join(','),
-      ...filteredCustomers.map(c => [
-        c.fullName,
-        c.email,
-        c.phone || '',
-        c.totalOrders,
-        c.totalSpent,
-        c.averageOrderValue,
-        c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : 'Never',
-        c.isActive ? 'Active' : 'Inactive'
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `customers-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    const headers = ['Name', 'Email', 'Phone', 'Total Orders', 'Total Spent (PKR)', 'Avg Order Value (PKR)', 'Last Order', 'Status'];
+    const rows = filteredCustomers.map((c) => [
+      c.fullName,
+      c.email,
+      c.phone || '',
+      c.totalOrders ?? 0,
+      c.totalSpent ?? 0,
+      c.averageOrderValue ?? 0,
+      c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : 'Never',
+      c.isActive ? 'Active' : 'Inactive'
+    ]);
+    exportCsvFile(`customers-${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
   };
 
   const getCustomerBadge = (customer: Customer) => {

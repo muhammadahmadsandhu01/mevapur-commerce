@@ -46,7 +46,7 @@ describe('Admin Stats Aggregation Integration', () => {
     expect(forbidden.status).toBe(403);
   });
 
-  test('returns 0 for empty database', async () => {
+  test('returns 0 and null baselines for empty database', async () => {
     const admin = await authAdmin();
     const response = await request(app)
       .get('/api/admin/stats')
@@ -66,9 +66,11 @@ describe('Admin Stats Aggregation Integration', () => {
     expect(Object.keys(response.body.data).sort()).toEqual([
       'averageOrderValue',
       'cancelledOrders',
+      'cancelledPaidLiability',
       'conversionRate',
       'customersGrowth',
       'deliveredOrders',
+      'grossCaptured',
       'lowStockProducts',
       'monthlyRevenue',
       'newCustomers',
@@ -83,11 +85,12 @@ describe('Admin Stats Aggregation Integration', () => {
       'totalCustomers',
       'totalOrders',
       'totalProducts',
+      'totalRefunded',
       'totalRevenue'
     ]);
   });
 
-  test('correctly calculates total, today, and monthly revenue with floating point values', async () => {
+  test('correctly calculates total, today, and monthly revenue with floating point values and canonical financial semantics', async () => {
     const admin = await authAdmin();
     const user = await global.createTestUser({ email: `customer-stats-${sequence}@example.test` });
 
@@ -99,7 +102,7 @@ describe('Admin Stats Aggregation Integration', () => {
 
     const testProductId = new mongoose.Types.ObjectId();
 
-    // Create 3 orders
+    // Order 1: Delivered and Paid in today window
     await Order.create({
       user: user._id,
       idempotencyKey: crypto.randomUUID(),
@@ -108,12 +111,14 @@ describe('Admin Stats Aggregation Integration', () => {
       subtotal: 100.10,
       paymentMethod: 'cod',
       orderStatus: 'Delivered',
+      paymentStatus: 'Paid',
       createdAt: today,
       shippingAddress: { fullName: 'U1', phone: '123', address: 'A1', city: 'C1', province: 'Punjab', country: 'PK' },
       items: [{ product: testProductId, name: 'P1', price: 100.10, quantity: 1, lineTotal: 100.10 }],
       statusTimeline: [{ status: 'Delivered', actor: user._id, actorRole: 'customer', timestamp: today, note: '' }]
     });
 
+    // Order 2: Pending and Unpaid in today window
     await Order.create({
       user: user._id,
       idempotencyKey: crypto.randomUUID(),
@@ -122,20 +127,23 @@ describe('Admin Stats Aggregation Integration', () => {
       subtotal: 250.20,
       paymentMethod: 'cod',
       orderStatus: 'Pending',
+      paymentStatus: 'Pending',
       createdAt: today,
       shippingAddress: { fullName: 'U2', phone: '123', address: 'A2', city: 'C2', province: 'Punjab', country: 'PK' },
       items: [{ product: testProductId, name: 'P2', price: 250.20, quantity: 1, lineTotal: 250.20 }],
       statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: today, note: '' }]
     });
 
+    // Order 3: Cancelled but Paid (paid-but-cancelled anomaly/liability)
     await Order.create({
       user: user._id,
       idempotencyKey: crypto.randomUUID(),
       requestHash: crypto.randomBytes(32).toString('hex'),
       totalAmount: 500.00,
       subtotal: 500.00,
-      paymentMethod: 'cod',
+      paymentMethod: 'stripe',
       orderStatus: 'Cancelled',
+      paymentStatus: 'Paid',
       createdAt: pastMonth,
       shippingAddress: { fullName: 'U3', phone: '123', address: 'A3', city: 'C3', province: 'Punjab', country: 'PK' },
       items: [{ product: testProductId, name: 'P3', price: 500.00, quantity: 1, lineTotal: 500.00 }],
@@ -146,35 +154,17 @@ describe('Admin Stats Aggregation Integration', () => {
       .get('/api/admin/stats')
       .set('Authorization', admin.authorization);
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfMonth = new Date(
-      startOfToday.getFullYear(),
-      startOfToday.getMonth(),
-      1
-    );
-    const legacyOrders = await Order.find();
-    const legacyTotalRevenue = legacyOrders.reduce(
-      (sum, order) => sum + (order.totalAmount || 0),
-      0
-    );
-    const legacyTodayRevenue = legacyOrders
-      .filter((order) => order.createdAt >= startOfToday)
-      .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const legacyMonthlyRevenue = legacyOrders
-      .filter((order) => order.createdAt >= startOfMonth)
-      .reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(response.body.data.totalRevenue).toBeCloseTo(legacyTotalRevenue, 10);
-    expect(response.body.data.todayRevenue).toBeCloseTo(legacyTodayRevenue, 10);
-    expect(response.body.data.monthlyRevenue).toBeCloseTo(legacyMonthlyRevenue, 10);
-    expect(response.body.data.totalRevenue).toBeCloseTo(850.30, 10);
-    expect(response.body.data.todayRevenue).toBeCloseTo(350.30, 10);
-    expect(response.body.data.monthlyRevenue).toBeCloseTo(350.30, 10);
+    // Realized revenue isolates paid non-cancelled orders
+    expect(response.body.data.totalRevenue).toBe(100.10);
+    expect(response.body.data.todayRevenue).toBe(100.10);
+    expect(response.body.data.monthlyRevenue).toBe(100.10);
+    expect(response.body.data.grossCaptured).toBe(100.10);
+    expect(response.body.data.cancelledPaidLiability).toBe(500.00);
     expect(response.body.data.totalOrders).toBe(3);
     expect(response.body.data.pendingOrders).toBe(1);
     expect(response.body.data.cancelledOrders).toBe(1);
+    expect(response.body.data.averageOrderValue).toBe(100.10);
   });
 });

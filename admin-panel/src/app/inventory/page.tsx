@@ -8,6 +8,7 @@ import {
   Box, ShoppingCart, Truck, Calendar
 } from 'lucide-react';
 import api from '@/lib/api';
+import { exportCsvFile } from '@/lib/csvExport';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 
 interface InventoryItem {
@@ -82,24 +83,20 @@ export default function InventoryPage() {
   };
 
   const exportToCSV = () => {
-    const csvContent = [
-      ['Product Name', 'SKU', 'Stock', 'Low Stock Threshold', 'Status', 'Last Updated'].join(','),
-      ...inventory.map(item => [
+    const headers = ['Product Name', 'SKU', 'Stock', 'Low Stock Threshold', 'Status', 'Last Updated'];
+    const rows = inventory.map((item) => {
+      const threshold = typeof item.lowStockThreshold === 'number' ? item.lowStockThreshold : 10;
+      const statusText = item.stock <= 0 ? 'Out of Stock' : item.stock <= threshold ? 'Low Stock' : 'In Stock';
+      return [
         item.product.name,
         item.product.sku,
         item.stock,
-        item.lowStockThreshold,
-        item.stock === 0 ? 'Out of Stock' : item.stock < item.lowStockThreshold ? 'Low Stock' : 'In Stock',
+        threshold,
+        statusText,
         new Date(item.lastUpdated).toLocaleDateString()
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `inventory-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+      ];
+    });
+    exportCsvFile(`inventory-${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
   };
 
   const getStatusBadge = (item: InventoryItem) => {

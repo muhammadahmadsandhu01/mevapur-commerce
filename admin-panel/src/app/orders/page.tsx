@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, X, Save, Loader
 } from 'lucide-react';
 import api from '@/lib/api';
+import { exportCsvFile } from '@/lib/csvExport';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 
 interface Order {
@@ -171,26 +172,18 @@ export default function OrdersPage() {
   };
 
   const exportToCSV = () => {
-    const csvContent = [
-      ['Order ID', 'Customer', 'Phone', 'City', 'Status', 'Payment', 'Total', 'Date'].join(','),
-      ...filteredOrders.map(o => [
-        o.orderId,
-        o.shippingAddress.fullName,
-        o.shippingAddress.phone,
-        o.shippingAddress.city,
-        o.orderStatus,
-        o.paymentStatus,
-        o.totalAmount,
-        new Date(o.createdAt).toLocaleDateString()
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    const headers = ['Order ID', 'Customer', 'Phone', 'City', 'Order Status', 'Payment Status', 'Total (PKR)', 'Date'];
+    const rows = filteredOrders.map((o) => [
+      o.orderId || o._id,
+      o.shippingAddress?.fullName || 'N/A',
+      o.shippingAddress?.phone || 'N/A',
+      o.shippingAddress?.city || 'N/A',
+      o.orderStatus || 'Pending',
+      o.paymentStatus || 'Pending',
+      o.totalAmount ?? 0,
+      new Date(o.createdAt).toLocaleDateString()
+    ]);
+    exportCsvFile(`orders-${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
   };
 
   return (

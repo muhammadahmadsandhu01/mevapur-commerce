@@ -43,7 +43,7 @@ exports.getInventory = async (req, res) => {
         images: p.images || []
       },
       stock: p.stock,
-      lowStockThreshold: p.lowStockThreshold || 10,
+      lowStockThreshold: typeof p.lowStockThreshold === 'number' ? p.lowStockThreshold : 10,
       variants: p.variants || [],
       lastUpdated: p.updatedAt,
       category: p.category
@@ -72,25 +72,30 @@ exports.getInventory = async (req, res) => {
 // @access  Private/Admin
 exports.getInventoryOverview = async (req, res) => {
   try {
-    const products = await Product.find({}, 'stock price lowStockThreshold category');
+    const products = await Product.find({}, 'stock lowStockThreshold category');
     
     const totalProducts = products.length;
     const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
-    const totalValue = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.price || 0)), 0);
     
-    const lowStockCount = products.filter(p => p.stock > 0 && p.stock <= (p.lowStockThreshold || 10)).length;
-    const outOfStockCount = products.filter(p => p.stock === 0).length;
-    const overstockCount = products.filter(p => p.stock > 500).length;
+    const lowStockCount = products.filter(p => {
+      const threshold = typeof p.lowStockThreshold === 'number' ? p.lowStockThreshold : 10;
+      return p.stock > 0 && p.stock <= threshold;
+    }).length;
+    const outOfStockCount = products.filter(p => (p.stock || 0) <= 0).length;
+    const inStockCount = products.filter(p => {
+      const threshold = typeof p.lowStockThreshold === 'number' ? p.lowStockThreshold : 10;
+      return p.stock > threshold;
+    }).length;
+    const overstockCount = products.filter(p => (p.stock || 0) > 500).length;
 
     const categoryStock = await Product.aggregate([
       { $group: {
           _id: '$category',
           totalStock: { $sum: '$stock' },
-          totalValue: { $sum: { $multiply: ['$stock', '$price'] } },
           productCount: { $sum: 1 }
         }
       },
-      { $sort: { totalValue: -1 } }
+      { $sort: { totalStock: -1 } }
     ]);
 
     const recentTransactions = await InventoryTransaction.find()
@@ -102,7 +107,7 @@ exports.getInventoryOverview = async (req, res) => {
     res.json({
       success: true,
       data: {
-        summary: { totalProducts, totalStock, totalValue, lowStockCount, outOfStockCount, overstockCount },
+        summary: { totalProducts, totalStock, inStockCount, lowStockCount, outOfStockCount, overstockCount },
         categoryStock,
         recentTransactions
       }
@@ -247,18 +252,14 @@ exports.getInventoryStats = async (req, res) => {
     const totalStockAgg = await Product.aggregate([
       { $group: { _id: null, total: { $sum: '$stock' } } }
     ]);
-    
-    const totalValueAgg = await Product.aggregate([
-      { $group: { _id: null, total: { $sum: { $multiply: ['$stock', '$price'] } } } }
-    ]);
 
-    // Dynamic low stock count based on threshold
+    // Dynamic low stock count based on canonical per-product threshold (default 10)
     const lowStock = await Product.countDocuments({
       $expr: { $lte: ['$stock', { $ifNull: ['$lowStockThreshold', 10] }] },
       stock: { $gt: 0 }
     });
     
-    const outOfStock = await Product.countDocuments({ stock: 0 });
+    const outOfStock = await Product.countDocuments({ stock: { $lte: 0 } });
     const totalTransactions = await InventoryTransaction.countDocuments();
     
     const todayTransactions = await InventoryTransaction.countDocuments({
@@ -270,7 +271,6 @@ exports.getInventoryStats = async (req, res) => {
       data: {
         totalProducts,
         totalStock: totalStockAgg[0]?.total || 0,
-        totalValue: totalValueAgg[0]?.total || 0,
         lowStock,
         outOfStock,
         totalTransactions,

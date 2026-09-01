@@ -308,7 +308,7 @@ export default function AdminForgotPasswordPage() {
               textAlign: 'left',
               marginBottom: '24px'
             }}>
-              <strong>Security Notice:</strong> The reset link expires in 1 hour. Follow the link to establish a new password compliant with enterprise security standards.
+              <strong>Security Notice:</strong> The reset link is time-limited for your security. Follow the link to establish a new password compliant with enterprise security standards.
             </div>
 
             <Link

@@ -98,6 +98,18 @@ class EmailService {
     resetUrl.searchParams.set('token', token);
     const resetLink = resetUrl.toString();
 
+    const { formatExpiryDuration } = require('../utils/durationFormatter');
+    let resetExpiryMs = options.expiryMs;
+    if (!resetExpiryMs) {
+      try {
+        const authConfig = require('../config/auth.config');
+        resetExpiryMs = authConfig?.security?.resetTokenExpiryMs;
+      } catch {
+        resetExpiryMs = 15 * 60 * 1000;
+      }
+    }
+    const expiryDuration = formatExpiryDuration(resetExpiryMs);
+
     const safeFullName = this.escapeHtml(fullName);
     const safeResetLink = this.escapeHtml(resetLink);
     const safeBrandName = this.escapeHtml(config.brandName);
@@ -122,7 +134,7 @@ class EmailService {
     <p>Hello ${safeFullName},</p>
     <p>We received a request to reset your password. Click the button below to set a new password:</p>
     <a href="${safeResetLink}" class="cta">Reset Password</a>
-    <p>This link is valid for exactly one hour. If you did not make this request, please ignore this email; no changes have been made to your account.</p>
+    <p>This link is valid for ${expiryDuration}. If you did not make this request, please ignore this email; no changes have been made to your account.</p>
     <div class="fallback">
       If you are having trouble with the button above, copy and paste this URL into your web browser:<br>
       ${safeResetLink}
@@ -142,7 +154,7 @@ We received a request to reset your password. Copy and paste the link below into
 
 ${resetLink}
 
-This link is valid for exactly one hour. If you did not make this request, please ignore this email; no changes have been made to your account.
+This link is valid for ${expiryDuration}. If you did not make this request, please ignore this email; no changes have been made to your account.
 
 This is an automated security notification from ${config.brandName}.`;
 
