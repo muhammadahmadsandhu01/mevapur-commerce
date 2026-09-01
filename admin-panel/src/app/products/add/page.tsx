@@ -6,14 +6,18 @@ import {
   Package, ChevronDown, ChevronUp, Save, Upload, X,
   Plus, Trash2, Image as ImageIcon, CheckCircle,
   Loader, Eye, DollarSign, Box,
-  Globe, MessageSquare
+  Globe, MessageSquare, ArrowLeft
 } from 'lucide-react';
 import { getCategories, getBrands, createProduct, uploadProductImage } from '@/lib/api';
 import axios from 'axios';
 import {
   validateProductForm,
   prepareProductPayload,
-  mapProductSaveError
+  mapProductSaveError,
+  isFormDirty,
+  transitionUploadState,
+  getFieldAccessibilityProps,
+  type UploadStateMachineState
 } from '@/lib/productFormHelpers';
 import type { LucideIcon } from 'lucide-react';
 
@@ -352,7 +356,29 @@ export default function AddProductPage() {
   }, []);
 
   const [mediaAssetIds, setMediaAssetIds] = useState<string[]>([]);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadState, setUploadState] = useState<UploadStateMachineState>('idle');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const hasChanges = isFormDirty(null, formData, [], mediaAssetIds);
+
+  // Register beforeunload listener only when hasChanges is true
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasChanges]);
+
+  const handleBack = () => {
+    if (hasChanges && !window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
+      return;
+    }
+    router.push('/products');
+  };
 
   const validateForm = (status: 'draft' | 'published'): boolean => {
     const result = validateProductForm(formData, status, mediaAssetIds);
@@ -387,9 +413,10 @@ export default function AddProductPage() {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || uploadState === 'uploading') return;
 
-    setUploadingImage(true);
+    setUploadState(transitionUploadState(uploadState, 'START_UPLOAD').state);
+    setUploadError(null);
     try {
       for (const file of Array.from(files)) {
         const result = await uploadProductImage(file);
@@ -399,15 +426,18 @@ export default function AddProductPage() {
           images: [...prev.images, result.url],
           primaryImage: prev.primaryImage || result.url
         }));
+        setUploadState(transitionUploadState('uploading', 'UPLOAD_SUCCESS', {
+          mediaAssetId: result.mediaAssetId,
+          url: result.url
+        }).state);
       }
     } catch (err: unknown) {
-      alert(
-        axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
-          ? err.response.data.message
-          : 'Failed to upload image'
-      );
-    } finally {
-      setUploadingImage(false);
+      const errorMsg = axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
+        ? err.response.data.message
+        : 'Failed to upload image';
+      setUploadError(errorMsg);
+      setUploadState(transitionUploadState('uploading', 'UPLOAD_FAILURE', { error: errorMsg }).state);
+      alert(errorMsg);
     }
   };
 
@@ -420,6 +450,7 @@ export default function AddProductPage() {
       images: newImages,
       primaryImage: prev.primaryImage === formData.images[index] ? newImages[0] : prev.primaryImage
     }));
+    setUploadState(transitionUploadState(uploadState, 'REMOVE_MEDIA').state);
   };
 
   const addVariant = () => {
@@ -478,13 +509,34 @@ export default function AddProductPage() {
     <div>
       {/* Header */}
       <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <h1 style={{ fontSize: '32px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>
-            Add New Product
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-            Create a new product with variants, pricing, and inventory management
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button
+            onClick={handleBack}
+            style={{
+              padding: '10px',
+              backgroundColor: 'var(--card-bg)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--primary)'; e.currentTarget.style.borderColor = 'var(--primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 style={{ fontSize: '32px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>
+              Add New Product
+            </h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
+              Create a new product with variants, pricing, and inventory management
+            </p>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
@@ -568,11 +620,12 @@ export default function AddProductPage() {
           <Section title="Basic Information" icon={Package} defaultOpen={true}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label htmlFor="field-name" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
                   Product Name <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <input
                   type="text"
+                  {...getFieldAccessibilityProps('name', errors.name)}
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Enter product name"
@@ -587,7 +640,11 @@ export default function AddProductPage() {
                     outline: 'none'
                   }}
                 />
-                {errors.name && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.name}</p>}
+                {errors.name && (
+                  <p id="error-field-name" role="alert" style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>
+                    {errors.name}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1185,6 +1242,11 @@ export default function AddProductPage() {
                   Supports: JPG, PNG, WebP (Max 5MB each)
                 </div>
               </label>
+              {uploadError && (
+                <div role="status" aria-live="polite" style={{ color: 'var(--danger-text)', fontSize: '13px', marginTop: '8px' }}>
+                  {uploadError}
+                </div>
+              )}
             </div>
 
             {/* Image Gallery */}
@@ -1206,6 +1268,7 @@ export default function AddProductPage() {
                     />
                     <button
                       onClick={() => removeImage(index)}
+                      aria-label={`Remove image ${index + 1}`}
                       style={{
                         position: 'absolute',
                         top: '8px',

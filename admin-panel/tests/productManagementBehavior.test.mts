@@ -242,10 +242,14 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
     });
   });
 
-  describe('Upload State Machine (transitionUploadState)', () => {
+  describe('Upload State Machine and Duplicate Prevention (transitionUploadState)', () => {
     test('transitions from idle to uploading, succeeded, and removed', () => {
       let state = transitionUploadState('idle', 'START_UPLOAD');
       assert.strictEqual(state.state, 'uploading');
+
+      // Duplicate submission while uploading returns same uploading state
+      const duplicateStart = transitionUploadState('uploading', 'START_UPLOAD');
+      assert.strictEqual(duplicateStart.state, 'uploading');
 
       state = transitionUploadState(state.state, 'UPLOAD_SUCCESS', {
         mediaAssetId: 'media-uuid-1',
@@ -260,7 +264,7 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
       assert.strictEqual(state.mediaAssetId, null);
     });
 
-    test('handles upload failure and retry transition', () => {
+    test('handles upload failure, clears error on retry transition', () => {
       let state = transitionUploadState('uploading', 'UPLOAD_FAILURE', {
         error: 'File size exceeds 5MB'
       });
@@ -300,11 +304,36 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
 
       // Media addition marks dirty
       assert.strictEqual(isFormDirty(initialForm, initialForm, ['media-1'], ['media-1', 'media-2']), true);
+
+      // Media removal marks dirty
+      assert.strictEqual(isFormDirty(initialForm, initialForm, ['media-1', 'media-2'], ['media-1']), true);
+    });
+
+    test('successful save resets dirty evaluation when current equals new baseline', () => {
+      const newSavedBaseline: ProductFormFieldValues = {
+        name: 'Organic Walnuts Saved',
+        description: 'Premium walnuts',
+        price: 1200,
+        stock: 20
+      };
+
+      assert.strictEqual(isFormDirty(newSavedBaseline, newSavedBaseline, ['media-1'], ['media-1']), false);
+    });
+
+    test('simulates beforeunload activation and navigation confirmation logic', () => {
+      const checkNavigation = (isDirty: boolean, userConfirmed: boolean) => {
+        if (isDirty && !userConfirmed) return 'BLOCKED';
+        return 'NAVIGATE';
+      };
+
+      assert.strictEqual(checkNavigation(false, false), 'NAVIGATE');
+      assert.strictEqual(checkNavigation(true, false), 'BLOCKED');
+      assert.strictEqual(checkNavigation(true, true), 'NAVIGATE');
     });
   });
 
-  describe('Field Accessibility Attributes (getFieldAccessibilityProps)', () => {
-    test('generates accessible ID, aria-invalid, and aria-describedby', () => {
+  describe('Field Accessibility Attributes and Error Binding (getFieldAccessibilityProps)', () => {
+    test('generates accessible ID, aria-invalid, and aria-describedby matching visible error ID', () => {
       const validProps = getFieldAccessibilityProps('name');
       assert.strictEqual(validProps.id, 'field-name');
       assert.strictEqual(validProps['aria-invalid'], false);

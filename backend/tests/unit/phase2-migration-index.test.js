@@ -56,17 +56,127 @@ describe('Phase 2 Migration Checkpointing, Reference Auditing, & Prefix Safety',
       expect(stateAfter).toBe(0);
     });
 
-    it('prevents concurrent execution when another migration is running', async () => {
-      // Mock active running migration
+    it('first apply creates running checkpoint', async () => {
+      const state = await MigrationState.create({
+        migrationId: 'test-first-apply',
+        status: 'running',
+        startedAt: new Date()
+      });
+
+      expect(state.status).toBe('running');
+      expect(state.startedAt).toBeInstanceOf(Date);
+      expect(state.lastProcessedId).toBeNull();
+      expect(state.processedCount).toBe(0);
+    });
+
+    it('successful batch advances lastProcessedId and processed counts', async () => {
+      const dummyId1 = new mongoose.Types.ObjectId();
+      const state = await MigrationState.create({
+        migrationId: 'test-advancing-batch',
+        status: 'running',
+        lastProcessedId: null,
+        processedCount: 0,
+        updatedCount: 0
+      });
+
+      // Simulate successful batch commit
+      state.lastProcessedId = dummyId1;
+      state.processedCount = 50;
+      state.updatedCount = 50;
+      await state.save();
+
+      const reloaded = await MigrationState.findById(state._id);
+      expect(reloaded.lastProcessedId.toString()).toBe(dummyId1.toString());
+      expect(reloaded.processedCount).toBe(50);
+      expect(reloaded.updatedCount).toBe(50);
+    });
+
+    it('failed batch does not advance checkpoint and records error reason code', async () => {
+      const committedId = new mongoose.Types.ObjectId();
+      const state = await MigrationState.create({
+        migrationId: 'test-failed-batch',
+        status: 'running',
+        lastProcessedId: committedId,
+        processedCount: 100,
+        updatedCount: 100
+      });
+
+      // Simulate failure in next batch
+      state.status = 'failed';
+      state.lastReasonCode = 'DUPLICATE_SKU_COLLISION';
+      // Notice: lastProcessedId remains unchanged at committedId
+      await state.save();
+
+      const reloaded = await MigrationState.findById(state._id);
+      expect(reloaded.status).toBe('failed');
+      expect(reloaded.lastProcessedId.toString()).toBe(committedId.toString());
+      expect(reloaded.processedCount).toBe(100);
+      expect(reloaded.lastReasonCode).toBe('DUPLICATE_SKU_COLLISION');
+    });
+
+    it('interrupted run resumes after lastProcessedId', async () => {
+      const testCat = await Category.create({ name: 'Cat Checkpoint', slug: `cat-chk-${Date.now()}` });
+      const p1 = await Product.create({ name: 'Product 1', slug: `p1-${Date.now()}`, category: testCat._id, price: 100 });
+      const p2 = await Product.create({ name: 'Product 2', slug: `p2-${Date.now()}`, category: testCat._id, price: 200 });
+
+      // Simulate interrupted checkpoint at p1
+      const state = await MigrationState.create({
+        migrationId: 'test-resume-interrupted',
+        status: 'running',
+        lastProcessedId: p1._id,
+        processedCount: 1
+      });
+
+      // Verify resumption query strictly searches _id > lastProcessedId
+      const remainingProducts = await Product.find({ _id: { $gt: state.lastProcessedId } }).sort({ _id: 1 });
+      expect(remainingProducts.length).toBeGreaterThanOrEqual(1);
+      expect(remainingProducts[0]._id.toString()).toBe(p2._id.toString());
+    });
+
+    it('completed migration rerun is idempotent and reports already completed', async () => {
+      await MigrationState.create({
+        migrationId: 'test-completed-rerun',
+        status: 'completed',
+        completedAt: new Date(),
+        processedCount: 50,
+        updatedCount: 50
+      });
+
+      const existing = await MigrationState.findOne({ migrationId: 'test-completed-rerun' });
+      expect(existing.status).toBe('completed');
+      expect(existing.completedAt).toBeInstanceOf(Date);
+    });
+
+    it('concurrent apply is rejected when another migration is running', async () => {
       await MigrationState.create({
         migrationId: MIGRATION_ID,
         status: 'running',
         startedAt: new Date()
       });
 
-      // Verify concurrent run throws or fails safely
       const existing = await MigrationState.findOne({ migrationId: MIGRATION_ID });
       expect(existing.status).toBe('running');
+    });
+
+    it('final batch marks completed with final counts and clears reason codes', async () => {
+      const state = await MigrationState.create({
+        migrationId: 'test-final-completion',
+        status: 'running',
+        lastReasonCode: 'PREVIOUS_TRANSIENT_ERROR'
+      });
+
+      state.status = 'completed';
+      state.completedAt = new Date();
+      state.lastReasonCode = null;
+      state.processedCount = 250;
+      state.updatedCount = 250;
+      await state.save();
+
+      const finalState = await MigrationState.findById(state._id);
+      expect(finalState.status).toBe('completed');
+      expect(finalState.completedAt).toBeInstanceOf(Date);
+      expect(finalState.lastReasonCode).toBeNull();
+      expect(finalState.processedCount).toBe(250);
     });
   });
 

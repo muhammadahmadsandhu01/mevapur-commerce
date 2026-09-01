@@ -14,7 +14,11 @@ import {
   validateProductForm,
   prepareProductPayload,
   mapProductSaveError,
-  extractMediaAssetIds
+  extractMediaAssetIds,
+  isFormDirty,
+  transitionUploadState,
+  getFieldAccessibilityProps,
+  type UploadStateMachineState
 } from '@/lib/productFormHelpers';
 import type { LucideIcon } from 'lucide-react';
 
@@ -306,7 +310,6 @@ export default function EditProductPage() {
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   // Auto-generate slug from name (only if user hasn't manually changed it)
@@ -327,7 +330,12 @@ export default function EditProductPage() {
 
   const [expectedVersion, setExpectedVersion] = useState<number>(0);
   const [mediaAssetIds, setMediaAssetIds] = useState<string[]>([]);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [baselineFormData, setBaselineFormData] = useState<ProductFormData | null>(null);
+  const [baselineMediaAssetIds, setBaselineMediaAssetIds] = useState<string[]>([]);
+  const [uploadState, setUploadState] = useState<UploadStateMachineState>('idle');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const hasChanges = isFormDirty(baselineFormData, formData, baselineMediaAssetIds, mediaAssetIds);
 
   // Fetch product data
   useEffect(() => {
@@ -337,7 +345,9 @@ export default function EditProductPage() {
         if (response.success && response.data?.product) {
           const product = response.data.product;
           setExpectedVersion(product.__v ?? 0);
-          setMediaAssetIds(extractMediaAssetIds(product.mediaAssetIds || []));
+          const extractedMedia = extractMediaAssetIds(product.mediaAssetIds || []);
+          setMediaAssetIds(extractedMedia);
+          setBaselineMediaAssetIds(extractedMedia);
 
           // Transform product data to form data
           const formValues: ProductFormData = {
@@ -394,6 +404,7 @@ export default function EditProductPage() {
           };
 
           setFormData(formValues);
+          setBaselineFormData(formValues);
         }
       } catch (error) {
         console.error('Error fetching product:', error);
@@ -426,13 +437,24 @@ export default function EditProductPage() {
     fetchData();
   }, []);
 
-  // Track changes
+  // Register beforeunload listener only when hasChanges is true
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (!loading) setHasChanges(true);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [formData, loading]);
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasChanges]);
+
+  const handleBack = () => {
+    if (hasChanges && !window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
+      return;
+    }
+    router.push('/products');
+  };
 
   const validateForm = (status: 'draft' | 'published'): boolean => {
     const result = validateProductForm(formData, status, mediaAssetIds);
@@ -456,7 +478,6 @@ export default function EditProductPage() {
       const response = await updateProduct(productId, payload);
       if (response.success) {
         alert(status === 'published' ? 'Product updated successfully!' : 'Draft saved successfully!');
-        setHasChanges(false);
         setLastSaved(new Date());
         router.push('/products');
       }
@@ -469,9 +490,10 @@ export default function EditProductPage() {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || uploadState === 'uploading') return;
 
-    setUploadingImage(true);
+    setUploadState(transitionUploadState(uploadState, 'START_UPLOAD').state);
+    setUploadError(null);
     try {
       for (const file of Array.from(files)) {
         const result = await uploadProductImage(file);
@@ -481,16 +503,18 @@ export default function EditProductPage() {
           images: [...prev.images, result.url],
           primaryImage: prev.primaryImage || result.url
         }));
+        setUploadState(transitionUploadState('uploading', 'UPLOAD_SUCCESS', {
+          mediaAssetId: result.mediaAssetId,
+          url: result.url
+        }).state);
       }
-      setHasChanges(true);
     } catch (err: unknown) {
-      alert(
-        axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
-          ? err.response.data.message
-          : 'Failed to upload image'
-      );
-    } finally {
-      setUploadingImage(false);
+      const errorMsg = axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
+        ? err.response.data.message
+        : 'Failed to upload image';
+      setUploadError(errorMsg);
+      setUploadState(transitionUploadState('uploading', 'UPLOAD_FAILURE', { error: errorMsg }).state);
+      alert(errorMsg);
     }
   };
 
@@ -503,7 +527,7 @@ export default function EditProductPage() {
       images: newImages,
       primaryImage: prev.primaryImage === formData.images[index] ? newImages[0] : prev.primaryImage
     }));
-    setHasChanges(true);
+    setUploadState(transitionUploadState(uploadState, 'REMOVE_MEDIA').state);
   };
 
   const addVariant = () => {
@@ -515,7 +539,6 @@ export default function EditProductPage() {
       isDefault: formData.variants.length === 0
     };
     setFormData(prev => ({ ...prev, variants: [...prev.variants, newVariant] }));
-    setHasChanges(true);
   };
 
   const removeVariant = (index: number) => {
@@ -523,7 +546,6 @@ export default function EditProductPage() {
       ...prev,
       variants: prev.variants.filter((_, i) => i !== index)
     }));
-    setHasChanges(true);
   };
 
   const updateVariant = <Key extends keyof Variant>(
@@ -534,7 +556,6 @@ export default function EditProductPage() {
     const newVariants = [...formData.variants];
     newVariants[index] = { ...newVariants[index], [field]: value };
     setFormData(prev => ({ ...prev, variants: newVariants }));
-    setHasChanges(true);
   };
 
   const addAttribute = () => {
@@ -542,14 +563,12 @@ export default function EditProductPage() {
       ...prev,
       attributes: [...prev.attributes, { name: '', value: '' }]
     }));
-    setHasChanges(true);
   };
 
   const updateAttribute = (index: number, field: 'name' | 'value', value: string) => {
     const newAttributes = [...formData.attributes];
     newAttributes[index] = { ...newAttributes[index], [field]: value };
     setFormData(prev => ({ ...prev, attributes: newAttributes }));
-    setHasChanges(true);
   };
 
   const removeAttribute = (index: number) => {
@@ -557,7 +576,6 @@ export default function EditProductPage() {
       ...prev,
       attributes: prev.attributes.filter((_, i) => i !== index)
     }));
-    setHasChanges(true);
   };
 
   const discount = formData.originalPrice && formData.originalPrice > formData.price
@@ -578,7 +596,7 @@ export default function EditProductPage() {
       <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button
-            onClick={() => router.back()}
+            onClick={handleBack}
             style={{
               padding: '10px',
               backgroundColor: 'var(--card-bg)',
@@ -693,13 +711,14 @@ export default function EditProductPage() {
           <Section title="Basic Information" icon={Package} defaultOpen={true}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                <label htmlFor="field-name" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
                   Product Name <span style={{ color: 'var(--danger-text)' }}>*</span>
                 </label>
                 <input
                   type="text"
+                  {...getFieldAccessibilityProps('name', errors.name)}
                   value={formData.name}
-                  onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Enter product name"
                   style={{
                     width: '100%',
@@ -712,7 +731,11 @@ export default function EditProductPage() {
                     outline: 'none'
                   }}
                 />
-                {errors.name && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.name}</p>}
+                {errors.name && (
+                  <p id="error-field-name" role="alert" style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>
+                    {errors.name}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -725,7 +748,6 @@ export default function EditProductPage() {
                   onChange={(e) => {
                     setFormData({ ...formData, slug: e.target.value });
                     setSlugManuallyChanged(true);
-                    setHasChanges(true);
                   }}
                   placeholder="product-slug"
                   style={{
@@ -748,7 +770,7 @@ export default function EditProductPage() {
                 <input
                   type="text"
                   value={formData.sku}
-                  onChange={(e) => { setFormData({ ...formData, sku: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                   placeholder="Auto-generated"
                   style={{
                     width: '100%',
@@ -769,7 +791,7 @@ export default function EditProductPage() {
                 </label>
                 <select
                   value={formData.category}
-                  onChange={(e) => { setFormData({ ...formData, category: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   style={{
                     width: '100%',
                     padding: '12px 16px',
@@ -796,7 +818,7 @@ export default function EditProductPage() {
                 </label>
                 <select
                   value={formData.brand}
-                  onChange={(e) => { setFormData({ ...formData, brand: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
                   style={{
                     width: '100%',
                     padding: '12px 16px',
@@ -836,7 +858,7 @@ export default function EditProductPage() {
                       name="productType"
                       value="simple"
                       checked={formData.productType === 'simple'}
-                      onChange={(e) => { setFormData({ ...formData, productType: e.target.value as 'simple' | 'variable' }); setHasChanges(true); }}
+                      onChange={(e) => setFormData({ ...formData, productType: e.target.value as 'simple' | 'variable' })}
                       style={{ display: 'none' }}
                     />
                     <div style={{ fontWeight: '700', marginBottom: '4px' }}>Simple Product</div>
@@ -857,7 +879,7 @@ export default function EditProductPage() {
                       name="productType"
                       value="variable"
                       checked={formData.productType === 'variable'}
-                      onChange={(e) => { setFormData({ ...formData, productType: e.target.value as 'simple' | 'variable' }); setHasChanges(true); }}
+                      onChange={(e) => setFormData({ ...formData, productType: e.target.value as 'simple' | 'variable' })}
                       style={{ display: 'none' }}
                     />
                     <div style={{ fontWeight: '700', marginBottom: '4px' }}>Variable Product</div>
@@ -872,7 +894,7 @@ export default function EditProductPage() {
                 </label>
                 <TagInput
                   tags={formData.tags}
-                  onChange={(tags) => { setFormData({ ...formData, tags }); setHasChanges(true); }}
+                  onChange={(tags) => setFormData({ ...formData, tags })}
                 />
               </div>
             </div>
@@ -888,7 +910,7 @@ export default function EditProductPage() {
                 <input
                   type="number"
                   value={formData.costPrice}
-                  onChange={(e) => { setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
                   placeholder="0.00"
                   style={{
                     width: '100%',
@@ -910,7 +932,7 @@ export default function EditProductPage() {
                 <input
                   type="number"
                   value={formData.price}
-                  onChange={(e) => { setFormData({ ...formData, price: parseFloat(e.target.value) || 0 }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
                   placeholder="0.00"
                   style={{
                     width: '100%',
@@ -933,7 +955,7 @@ export default function EditProductPage() {
                 <input
                   type="number"
                   value={formData.originalPrice || ''}
-                  onChange={(e) => { setFormData({ ...formData, originalPrice: parseFloat(e.target.value) || undefined }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, originalPrice: parseFloat(e.target.value) || undefined })}
                   placeholder="0.00"
                   style={{
                     width: '100%',
@@ -977,7 +999,7 @@ export default function EditProductPage() {
                 <input
                   type="number"
                   value={formData.stock}
-                  onChange={(e) => { setFormData({ ...formData, stock: parseInt(e.target.value) || 0 }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })}
                   placeholder="0"
                   style={{
                     width: '100%',
@@ -999,7 +1021,7 @@ export default function EditProductPage() {
                 <input
                   type="number"
                   value={formData.lowStockAlert}
-                  onChange={(e) => { setFormData({ ...formData, lowStockAlert: parseInt(e.target.value) || 10 }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, lowStockAlert: parseInt(e.target.value) || 10 })}
                   placeholder="10"
                   style={{
                     width: '100%',
@@ -1028,7 +1050,7 @@ export default function EditProductPage() {
                   <input
                     type="checkbox"
                     checked={formData.trackInventory}
-                    onChange={(e) => { setFormData({ ...formData, trackInventory: e.target.checked }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, trackInventory: e.target.checked })}
                     style={{ width: '20px', height: '20px', cursor: 'pointer' }}
                   />
                   <div>
@@ -1052,7 +1074,7 @@ export default function EditProductPage() {
                   <input
                     type="checkbox"
                     checked={formData.allowBackorders}
-                    onChange={(e) => { setFormData({ ...formData, allowBackorders: e.target.checked }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, allowBackorders: e.target.checked })}
                     style={{ width: '20px', height: '20px', cursor: 'pointer' }}
                   />
                   <div>
@@ -1140,7 +1162,7 @@ export default function EditProductPage() {
                       <input
                         type="text"
                         value={variant.sku}
-                        onChange={(e) => { updateVariant(index, 'sku', e.target.value); setHasChanges(true); }}
+                        onChange={(e) => updateVariant(index, 'sku', e.target.value)}
                         style={{
                           width: '100%',
                           padding: '10px',
@@ -1158,7 +1180,7 @@ export default function EditProductPage() {
                       <input
                         type="number"
                         value={variant.price}
-                        onChange={(e) => { updateVariant(index, 'price', parseFloat(e.target.value) || 0); setHasChanges(true); }}
+                        onChange={(e) => updateVariant(index, 'price', parseFloat(e.target.value) || 0)}
                         style={{
                           width: '100%',
                           padding: '10px',
@@ -1176,7 +1198,7 @@ export default function EditProductPage() {
                       <input
                         type="number"
                         value={variant.stock}
-                        onChange={(e) => { updateVariant(index, 'stock', parseInt(e.target.value) || 0); setHasChanges(true); }}
+                        onChange={(e) => updateVariant(index, 'stock', parseInt(e.target.value) || 0)}
                         style={{
                           width: '100%',
                           padding: '10px',
@@ -1194,7 +1216,7 @@ export default function EditProductPage() {
                       <input
                         type="number"
                         value={variant.weight || ''}
-                        onChange={(e) => { updateVariant(index, 'weight', parseFloat(e.target.value) || undefined); setHasChanges(true); }}
+                        onChange={(e) => updateVariant(index, 'weight', parseFloat(e.target.value) || undefined)}
                         placeholder="Optional"
                         style={{
                           width: '100%',
@@ -1221,7 +1243,6 @@ export default function EditProductPage() {
                             const newAttrs = [...variant.attributes];
                             newAttrs[attrIndex] = { ...newAttrs[attrIndex], name: e.target.value };
                             updateVariant(index, 'attributes', newAttrs);
-                            setHasChanges(true);
                           }}
                           placeholder="Attribute name"
                           style={{ flex: 1, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '13px' }}
@@ -1233,7 +1254,6 @@ export default function EditProductPage() {
                             const newAttrs = [...variant.attributes];
                             newAttrs[attrIndex] = { ...newAttrs[attrIndex], value: e.target.value };
                             updateVariant(index, 'attributes', newAttrs);
-                            setHasChanges(true);
                           }}
                           placeholder="Value"
                           style={{ flex: 1, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '13px' }}
@@ -1242,7 +1262,6 @@ export default function EditProductPage() {
                           onClick={() => {
                             const newAttrs = variant.attributes.filter((_, i) => i !== attrIndex);
                             updateVariant(index, 'attributes', newAttrs);
-                            setHasChanges(true);
                           }}
                           style={{ padding: '8px', backgroundColor: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
                         >
@@ -1254,7 +1273,6 @@ export default function EditProductPage() {
                       onClick={() => {
                         const newAttrs = [...variant.attributes, { name: '', value: '' }];
                         updateVariant(index, 'attributes', newAttrs);
-                        setHasChanges(true);
                       }}
                       style={{
                         padding: '8px 16px',
@@ -1318,6 +1336,11 @@ export default function EditProductPage() {
                   Supports: JPG, PNG, WebP (Max 5MB each)
                 </div>
               </label>
+              {uploadError && (
+                <div role="status" aria-live="polite" style={{ color: 'var(--danger-text)', fontSize: '13px', marginTop: '8px' }}>
+                  {uploadError}
+                </div>
+              )}
             </div>
 
             {/* Image Gallery */}
@@ -1339,6 +1362,7 @@ export default function EditProductPage() {
                     />
                     <button
                       onClick={() => removeImage(index)}
+                      aria-label={`Remove image ${index + 1}`}
                       style={{
                         position: 'absolute',
                         top: '8px',
@@ -1370,7 +1394,7 @@ export default function EditProductPage() {
                       </div>
                     )}
                     <button
-                      onClick={() => { setFormData({ ...formData, primaryImage: img }); setHasChanges(true); }}
+                      onClick={() => setFormData({ ...formData, primaryImage: img })}
                       style={{
                         position: 'absolute',
                         bottom: '0',
@@ -1404,7 +1428,7 @@ export default function EditProductPage() {
               <input
                 type="url"
                 value={formData.videoUrl || ''}
-                onChange={(e) => { setFormData({ ...formData, videoUrl: e.target.value }); setHasChanges(true); }}
+                onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
                 placeholder="https://youtube.com/watch?v=..."
                 style={{
                   width: '100%',
@@ -1429,7 +1453,7 @@ export default function EditProductPage() {
                 </label>
                 <textarea
                   value={formData.shortDescription}
-                  onChange={(e) => { setFormData({ ...formData, shortDescription: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, shortDescription: e.target.value })}
                   placeholder="Brief description for product cards and listings..."
                   rows={3}
                   style={{
@@ -1452,7 +1476,7 @@ export default function EditProductPage() {
                 </label>
                 <textarea
                   value={formData.description}
-                  onChange={(e) => { setFormData({ ...formData, description: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   placeholder="Detailed product description with features, benefits, and specifications..."
                   rows={8}
                   style={{
@@ -1477,7 +1501,7 @@ export default function EditProductPage() {
                   </label>
                   <textarea
                     value={formData.ingredients || ''}
-                    onChange={(e) => { setFormData({ ...formData, ingredients: e.target.value }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, ingredients: e.target.value })}
                     placeholder="List of ingredients..."
                     rows={3}
                     style={{
@@ -1500,7 +1524,7 @@ export default function EditProductPage() {
                   </label>
                   <textarea
                     value={formData.storageInstructions || ''}
-                    onChange={(e) => { setFormData({ ...formData, storageInstructions: e.target.value }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, storageInstructions: e.target.value })}
                     placeholder="How to store this product..."
                     rows={3}
                     style={{
@@ -1526,7 +1550,7 @@ export default function EditProductPage() {
                   <input
                     type="text"
                     value={formData.countryOfOrigin}
-                    onChange={(e) => { setFormData({ ...formData, countryOfOrigin: e.target.value }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, countryOfOrigin: e.target.value })}
                     placeholder="Pakistan"
                     style={{
                       width: '100%',
@@ -1548,7 +1572,7 @@ export default function EditProductPage() {
                   <input
                     type="text"
                     value={formData.shelfLife || ''}
-                    onChange={(e) => { setFormData({ ...formData, shelfLife: e.target.value }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, shelfLife: e.target.value })}
                     placeholder="e.g., 12 months"
                     style={{
                       width: '100%',
@@ -1576,7 +1600,7 @@ export default function EditProductPage() {
                 <input
                   type="text"
                   value={formData.seoTitle || ''}
-                  onChange={(e) => { setFormData({ ...formData, seoTitle: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, seoTitle: e.target.value })}
                   placeholder={formData.name || 'Product SEO Title'}
                   style={{
                     width: '100%',
@@ -1600,7 +1624,7 @@ export default function EditProductPage() {
                 </label>
                 <textarea
                   value={formData.metaDescription || ''}
-                  onChange={(e) => { setFormData({ ...formData, metaDescription: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, metaDescription: e.target.value })}
                   placeholder="Product meta description for search engines..."
                   rows={3}
                   style={{
@@ -1627,7 +1651,7 @@ export default function EditProductPage() {
                 <input
                   type="text"
                   value={formData.keywords || ''}
-                  onChange={(e) => { setFormData({ ...formData, keywords: e.target.value }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
                   placeholder="dry fruits, organic, almonds, premium"
                   style={{
                     width: '100%',
@@ -1659,7 +1683,7 @@ export default function EditProductPage() {
                   <input
                     type="checkbox"
                     checked={formData.isFeatured}
-                    onChange={(e) => { setFormData({ ...formData, isFeatured: e.target.checked }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, isFeatured: e.target.checked })}
                     style={{ display: 'none' }}
                   />
                   <div style={{ fontWeight: '700', marginBottom: '4px' }}>⭐ Featured Product</div>
@@ -1677,7 +1701,7 @@ export default function EditProductPage() {
                   <input
                     type="checkbox"
                     checked={formData.isNewArrival}
-                    onChange={(e) => { setFormData({ ...formData, isNewArrival: e.target.checked }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, isNewArrival: e.target.checked })}
                     style={{ display: 'none' }}
                   />
                   <div style={{ fontWeight: '700', marginBottom: '4px' }}> New Arrival</div>
@@ -1695,7 +1719,7 @@ export default function EditProductPage() {
                   <input
                     type="checkbox"
                     checked={formData.isBestSeller}
-                    onChange={(e) => { setFormData({ ...formData, isBestSeller: e.target.checked }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, isBestSeller: e.target.checked })}
                     style={{ display: 'none' }}
                   />
                   <div style={{ fontWeight: '700', marginBottom: '4px' }}> Best Seller</div>
@@ -1713,7 +1737,7 @@ export default function EditProductPage() {
                   <input
                     type="checkbox"
                     checked={formData.isTrending}
-                    onChange={(e) => { setFormData({ ...formData, isTrending: e.target.checked }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, isTrending: e.target.checked })}
                     style={{ display: 'none' }}
                   />
                   <div style={{ fontWeight: '700', marginBottom: '4px' }}>📈 Trending</div>
@@ -1727,7 +1751,7 @@ export default function EditProductPage() {
                 </label>
                 <select
                   value={formData.status}
-                  onChange={(e) => { setFormData({ ...formData, status: e.target.value as 'draft' | 'published' | 'scheduled' }); setHasChanges(true); }}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value as 'draft' | 'published' | 'scheduled' })}
                   style={{
                     width: '100%',
                     padding: '12px 16px',
@@ -1754,7 +1778,7 @@ export default function EditProductPage() {
                   <input
                     type="datetime-local"
                     value={formData.publishDate || ''}
-                    onChange={(e) => { setFormData({ ...formData, publishDate: e.target.value }); setHasChanges(true); }}
+                    onChange={(e) => setFormData({ ...formData, publishDate: e.target.value })}
                     style={{
                       width: '100%',
                       padding: '12px 16px',
