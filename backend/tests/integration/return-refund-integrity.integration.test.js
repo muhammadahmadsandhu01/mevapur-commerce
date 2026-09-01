@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const request = require('supertest');
 const app = require('../../app');
 const TokenService = require('../../services/TokenService');
@@ -46,6 +47,8 @@ const product = async ({ price = 125, stock = 20, variants = [] } = {}) => {
     name: `Return Integrity Product ${sequence}`,
     slug: `return-integrity-product-${sequence}`,
     description: 'Return integrity test product',
+    category: new mongoose.Types.ObjectId(),
+    images: ['https://example.com/test.webp'],
     sku: `RET-INT-${sequence}`,
     price,
     stock,
@@ -909,20 +912,28 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
   });
 
   test('catalog hard deletion and destructive variant removal are blocked only for historical references', async () => {
-    const [owner, admin, referenced, unreferenced] = await Promise.all([
-      auth(), auth('admin'), product(), product()
+    const [owner, superAdmin, referenced, unreferenced] = await Promise.all([
+      auth(), auth('super_admin'), product(), product()
     ]);
     await deliveredOrder(owner.user, [{ product: referenced, quantity: 1 }]);
 
+    // Archive both products prior to deletion test
+    await request(app)
+      .post(`/api/admin/products/${referenced._id}/archive`)
+      .set('Authorization', superAdmin.authorization);
+    await request(app)
+      .post(`/api/admin/products/${unreferenced._id}/archive`)
+      .set('Authorization', superAdmin.authorization);
+
     const blockedDelete = await request(app)
-      .delete(`/api/products/${referenced._id}`)
-      .set('Authorization', admin.authorization);
+      .delete(`/api/admin/products/${referenced._id}`)
+      .set('Authorization', superAdmin.authorization);
     expect(blockedDelete.status).toBe(409);
     expect(await Product.findById(referenced._id)).not.toBeNull();
 
     const allowedDelete = await request(app)
-      .delete(`/api/products/${unreferenced._id}`)
-      .set('Authorization', admin.authorization);
+      .delete(`/api/admin/products/${unreferenced._id}`)
+      .set('Authorization', superAdmin.authorization);
     expect(allowedDelete.status).toBe(200);
     expect(await Product.findById(unreferenced._id)).toBeNull();
 
@@ -943,8 +954,8 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
     }]);
 
     const blockedVariantRemoval = await request(app)
-      .put(`/api/products/${variantProduct._id}`)
-      .set('Authorization', admin.authorization)
+      .put(`/api/admin/products/${variantProduct._id}`)
+      .set('Authorization', superAdmin.authorization)
       .send({ variants: [] });
     expect(blockedVariantRemoval.status).toBe(409);
     expect((await Product.findById(variantProduct._id)).variants.id(variantId))
@@ -959,9 +970,9 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
       }]
     });
     const allowedVariantRemoval = await request(app)
-      .put(`/api/products/${unreferencedVariantProduct._id}`)
-      .set('Authorization', admin.authorization)
-      .send({ variants: [] });
+      .put(`/api/admin/products/${unreferencedVariantProduct._id}`)
+      .set('Authorization', superAdmin.authorization)
+      .send({ variants: [], price: 125 });
     expect(allowedVariantRemoval.status).toBe(200);
     expect((await Product.findById(unreferencedVariantProduct._id)).variants)
       .toHaveLength(0);

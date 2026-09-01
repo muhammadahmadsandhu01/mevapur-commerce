@@ -119,23 +119,55 @@ export const getProducts = async (page = 1, limit = 10, filters = {}) => {
     limit: limit.toString(),
     ...filters
   });
-  const response = await api.get(`/products?${params}`);
+  const response = await api.get(`/admin/products?${params}`);
+  return response.data;
+};
+
+export const getProduct = async (id: string) => {
+  const response = await api.get(`/admin/products/${id}`);
   return response.data;
 };
 
 export const createProduct = async (productData: AdminMutationPayload) => {
-  const response = await api.post('/products', productData);
+  const endpoint = productData.status === 'draft' ? '/admin/products/draft' : '/admin/products';
+  const response = await api.post(endpoint, productData);
   return response.data;
 };
 
 export const updateProduct = async (id: string, productData: AdminMutationPayload) => {
-  const response = await api.put(`/products/${id}`, productData);
+  const response = await api.put(`/admin/products/${id}`, productData);
+  return response.data;
+};
+
+export const publishProduct = async (id: string, expectedVersion?: number) => {
+  const response = await api.post(`/admin/products/${id}/publish`, { expectedVersion });
+  return response.data;
+};
+
+export const unpublishProduct = async (id: string, expectedVersion?: number) => {
+  const response = await api.post(`/admin/products/${id}/unpublish`, { expectedVersion });
+  return response.data;
+};
+
+export const archiveProduct = async (id: string, expectedVersion?: number) => {
+  const response = await api.post(`/admin/products/${id}/archive`, { expectedVersion });
   return response.data;
 };
 
 export const deleteProduct = async (id: string) => {
-  const response = await api.delete(`/products/${id}`);
+  const response = await api.delete(`/admin/products/${id}`);
   return response.data;
+};
+
+export const uploadProductImage = async (file: File) => {
+  const formData = new FormData();
+  formData.append('image', file);
+  const response = await api.post('/uploads/product-image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data.data;
 };
 
 export const getCategories = async () => {

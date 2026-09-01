@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { 
+import {
   ArrowLeft, Package, User, MapPin, Phone, Mail,
   CreditCard, Truck, CheckCircle, Clock, XCircle,
   Calendar, DollarSign, Printer, Send, Edit3,
@@ -112,7 +112,7 @@ export default function OrderDetailPage() {
 
   const handleStatusUpdate = async () => {
     if (!newStatus) return;
-    
+
     setUpdating(true);
     try {
       await api.put(`/orders/${orderId}/status`, {
@@ -208,7 +208,7 @@ export default function OrderDetailPage() {
           The order you&apos;re looking for doesn&apos;t exist or has been removed.
         </p>
         <button
-          onClick={() => router.push('/admin/orders')}
+          onClick={() => router.push('/orders')}
           style={{
             padding: '12px 24px',
             backgroundColor: 'var(--primary)',
@@ -236,17 +236,17 @@ export default function OrderDetailPage() {
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', paddingBottom: '40px' }}>
       {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'flex-start', 
-        marginBottom: '32px', 
-        flexWrap: 'wrap', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: '32px',
+        flexWrap: 'wrap',
         gap: '16px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button
-            onClick={() => router.push('/admin/orders')}
+            onClick={() => router.push('/orders')}
             style={{
               padding: '10px',
               backgroundColor: 'var(--card-bg)',
@@ -488,11 +488,11 @@ export default function OrderDetailPage() {
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {order.items.map((item, index) => {
-                const productImage = item.image || 
+                const productImage = item.image ||
                   (typeof item.product === 'object' ? item.product.images?.[0] : null) ||
                   PRODUCT_PLACEHOLDER;
                 const productName = item.name || (typeof item.product === 'object' ? item.product.name : 'Unknown Product');
-                
+
                 return (
                   <div key={index} style={{
                     display: 'flex',
@@ -842,7 +842,7 @@ export default function OrderDetailPage() {
 
       {/* Status Update Modal */}
       {showStatusModal && (
-        <div 
+        <div
           style={{
             position: 'fixed',
             inset: 0,
@@ -855,7 +855,7 @@ export default function OrderDetailPage() {
           }}
           onClick={() => setShowStatusModal(false)}
         >
-          <div 
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',
@@ -1002,7 +1002,7 @@ export default function OrderDetailPage() {
 
       {/* Tracking Modal */}
       {showTrackingModal && (
-        <div 
+        <div
           style={{
             position: 'fixed',
             inset: 0,
@@ -1015,7 +1015,7 @@ export default function OrderDetailPage() {
           }}
           onClick={() => setShowTrackingModal(false)}
         >
-          <div 
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',

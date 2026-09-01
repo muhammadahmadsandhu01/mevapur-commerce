@@ -1,17 +1,17 @@
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
-const ProductCatalogIntegrityService = require('../services/ProductCatalogIntegrityService');
 
-// @desc    Get all products with ADVANCED dynamic filtering, sorting, pagination
+// @desc    Get all products for public storefront
 // @route   GET /api/products
 // @access  Public
 exports.getProducts = async (req, res) => {
   try {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = parseInt(req.query.limit, 10) || 12;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 12, 50);
     const skip = (page - 1) * limit;
 
-    const query = { isActive: true }; // Only show active products on frontend
+    // Public catalog strictly requires published active products
+    const query = { isActive: true, status: 'published' };
     const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // 1. Text Search
@@ -24,16 +24,16 @@ exports.getProducts = async (req, res) => {
     }
 
     // 2. Category Filter
-    if (req.query.category) {
+    if (req.query.category && mongoose.Types.ObjectId.isValid(req.query.category)) {
       query.category = new mongoose.Types.ObjectId(req.query.category);
     }
 
-    if (req.query.subcategory) {
+    if (req.query.subcategory && mongoose.Types.ObjectId.isValid(req.query.subcategory)) {
       query.subcategory = new mongoose.Types.ObjectId(req.query.subcategory);
     }
 
     // 3. Brand Filter
-    if (req.query.brand) {
+    if (req.query.brand && mongoose.Types.ObjectId.isValid(req.query.brand)) {
       query.brand = new mongoose.Types.ObjectId(req.query.brand);
     }
 
@@ -53,7 +53,7 @@ exports.getProducts = async (req, res) => {
     if (req.query.inStock === 'true') query.stock = { $gt: 0 };
     else if (req.query.inStock === 'false') query.stock = { $lte: 0 };
 
-    // 🌟 7. DYNAMIC ATTRIBUTE FILTERING
+    // 7. Dynamic Attribute Filtering
     if (req.query.attribute && typeof req.query.attribute === 'object') {
       query.$and = query.$and || [];
       Object.keys(req.query.attribute).forEach(key => {
@@ -64,7 +64,7 @@ exports.getProducts = async (req, res) => {
       });
     }
 
-    // ================= AUTOCOMPLETE SEARCH =================
+    // Autocomplete search
     if (req.query.autocomplete === 'true') {
       const products = await Product.find(query)
         .select('name slug price image primaryImage category')
@@ -79,7 +79,7 @@ exports.getProducts = async (req, res) => {
         slug: product.slug,
         price: product.price,
         image: product.image || product.primaryImage || '/placeholder.png',
-        category: product.category,
+        category: product.category
       }));
 
       return res.json({ success: true, data: formattedProducts });
@@ -87,18 +87,19 @@ exports.getProducts = async (req, res) => {
 
     // 8. Sorting
     let sortOption = {};
-    if (req.query.sortBy === 'price-asc') sortOption = { price: 1 };
-    else if (req.query.sortBy === 'price-desc') sortOption = { price: -1 };
-    else if (req.query.sortBy === 'rating') sortOption = { rating: -1, reviewCount: -1 };
-    else if (req.query.sortBy === 'best-selling') sortOption = { soldCount: -1 };
-    else sortOption = { createdAt: -1 };
+    if (req.query.sortBy === 'price-asc') sortOption = { price: 1, _id: -1 };
+    else if (req.query.sortBy === 'price-desc') sortOption = { price: -1, _id: -1 };
+    else if (req.query.sortBy === 'rating') sortOption = { rating: -1, reviewCount: -1, _id: -1 };
+    else if (req.query.sortBy === 'best-selling') sortOption = { soldCount: -1, _id: -1 };
+    else sortOption = { createdAt: -1, _id: -1 };
 
-    // Execute query
     const [products, total] = await Promise.all([
       Product.find(query)
         .sort(sortOption)
         .limit(limit)
         .skip(skip)
+        .populate('category', 'name slug')
+        .populate('brand', 'name')
         .select('-__v')
         .lean(),
       Product.countDocuments(query)
@@ -117,280 +118,102 @@ exports.getProducts = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get products error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get single product (FIXED: Handles corrupt references safely)
+// @desc    Get single published product by ID or Slug
 // @route   GET /api/products/:id
 // @access  Public
 exports.getProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    let product = null;
-
-    // Check if the input is a valid MongoDB ObjectId
     const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
 
+    let product = null;
     if (isValidObjectId) {
-      // First try to find by _id
-      product = await Product.findOne({ _id: id }).lean();
+      product = await Product.findOne({ _id: id, isActive: true, status: 'published' })
+        .populate('category', 'name slug')
+        .populate('subcategory', 'name slug')
+        .populate('brand', 'name')
+        .lean();
     }
 
-    // If not found by ID (or if ID was invalid), try finding by Slug
     if (!product) {
-      product = await Product.findOne({ slug: id }).lean();
+      product = await Product.findOne({ slug: id, isActive: true, status: 'published' })
+        .populate('category', 'name slug')
+        .populate('subcategory', 'name slug')
+        .populate('brand', 'name')
+        .lean();
     }
 
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
-    }
-
-    // MANUAL POPULATION with Error Handling
-    // Instead of .populate() which crashes on bad data, we fetch references manually
-    try {
-      if (product.category && mongoose.Types.ObjectId.isValid(product.category)) {
-        const Category = mongoose.model('Category');
-        const cat = await Category.findById(product.category).lean();
-        product.category = cat || product.category; // Keep ID if category missing
-      }
-      
-      if (product.subcategory && mongoose.Types.ObjectId.isValid(product.subcategory)) {
-        const Category = mongoose.model('Category');
-        const subcat = await Category.findById(product.subcategory).lean();
-        product.subcategory = subcat || product.subcategory;
-      }
-
-      if (product.brand && mongoose.Types.ObjectId.isValid(product.brand)) {
-        const Brand = mongoose.model('Brand');
-        const br = await Brand.findById(product.brand).lean();
-        product.brand = br || product.brand;
-      }
-    } catch (populateError) {
-      console.warn('Populate failed for product, skipping references:', populateError.message);
-      // Continue with product data even if references fail
     }
 
     res.json({ success: true, data: product });
   } catch (error) {
-    console.error('Get product error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch product details' });
   }
 };
 
-// @desc    Create a product
-// @route   POST /api/products
-// @access  Private/Admin
-exports.createProduct = async (req, res) => {
-  try {
-    // Pre-validation for variants
-    if (req.body.variants?.length > 0) {
-      const hasDefault = req.body.variants.some(v => v.isDefault);
-      if (!hasDefault) {
-        req.body.variants[0].isDefault = true;
-      }
-    }
-
-    const product = new Product(req.body);
-    const createdProduct = await product.save();
-    
-    // Populate references before sending response
-    await createdProduct.populate('category', 'name slug');
-    await createdProduct.populate('brand', 'name slug');
-
-    res.status(201).json({ success: true, data: createdProduct });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'Duplicate product detected.' });
-    }
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// @desc    Update a product
-// @route   PUT /api/products/:id
-// @access  Private/Admin
-exports.updateProduct = async (req, res, next) => {
-  let session;
-  try {
-    session = await mongoose.startSession();
-    // Pre-validation for variants update
-    if (req.body.variants?.length > 0) {
-      const hasDefault = req.body.variants.some(v => v.isDefault);
-      if (!hasDefault) {
-        req.body.variants[0].isDefault = true;
-      }
-    }
-
-    let updatedProduct = null;
-    await session.withTransaction(async () => {
-      updatedProduct = null;
-      const product = await Product.findById(req.params.id).session(session);
-      if (!product) return;
-
-      if (Array.isArray(req.body.variants)) {
-        const retainedVariantIds = new Set(
-          req.body.variants
-            .map((variant) => variant._id)
-            .filter(Boolean)
-            .map(String)
-        );
-        const removedVariantIds = product.variants
-          .filter((variant) => !retainedVariantIds.has(String(variant._id)))
-          .map((variant) => variant._id);
-        await ProductCatalogIntegrityService.assertVariantsRemovable(
-          product._id,
-          removedVariantIds,
-          { session }
-        );
-      }
-
-      updatedProduct = await Product.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        { new: true, runValidators: true, session }
-      );
-    });
-
-    if (!updatedProduct) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
-    }
-    await updatedProduct.populate('category', 'name slug');
-    await updatedProduct.populate('brand', 'name slug');
-
-    res.json({ success: true, data: updatedProduct });
-  } catch (error) {
-    if (error.statusCode) return next(error);
-    if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'Duplicate product detected.' });
-    }
-    res.status(500).json({ success: false, message: error.message });
-  } finally {
-    if (session) await session.endSession();
-  }
-};
-
-// @desc    Delete a product
-// @route   DELETE /api/products/:id
-// @access  Private/Admin
-exports.deleteProduct = async (req, res, next) => {
-  let session;
-  try {
-    session = await mongoose.startSession();
-    let deleted = false;
-    await session.withTransaction(async () => {
-      deleted = false;
-      const product = await Product.findById(req.params.id).session(session);
-      if (!product) return;
-
-      await ProductCatalogIntegrityService.assertProductsDeletable(
-        [product._id],
-        { session }
-      );
-      const result = await Product.deleteOne({ _id: product._id }, { session });
-      deleted = result.deletedCount === 1;
-    });
-    if (!deleted) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
-    }
-    res.json({ success: true, message: 'Product removed successfully' });
-  } catch (error) {
-    if (error.statusCode) return next(error);
-    res.status(500).json({ success: false, message: error.message });
-  } finally {
-    if (session) await session.endSession();
-  }
-};
-
-// @desc    Bulk delete products
-// @route   POST /api/products/bulk-delete
-// @access  Private/Admin
-exports.bulkDeleteProducts = async (req, res, next) => {
-  let session;
-  try {
-    session = await mongoose.startSession();
-    const { ids } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, message: 'No product IDs provided' });
-    }
-    
-    const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
-    await session.withTransaction(async () => {
-      await ProductCatalogIntegrityService.assertProductsDeletable(
-        validIds,
-        { session }
-      );
-      await Product.deleteMany({ _id: { $in: validIds } }, { session });
-    });
-    
-    res.json({ success: true, message: `${validIds.length} products deleted successfully` });
-  } catch (error) {
-    if (error.statusCode) return next(error);
-    res.status(500).json({ success: false, message: error.message });
-  } finally {
-    if (session) await session.endSession();
-  }
-};
-
-// @desc    Get top products
+// @desc    Get top rated published products
 // @route   GET /api/products/top
 // @access  Public
 exports.getTopProducts = async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 5;
-    const products = await Product.find({ isActive: true })
-      .sort({ rating: -1, reviewCount: -1 })
+    const limit = Math.min(parseInt(req.query.limit, 10) || 5, 20);
+    const products = await Product.find({ isActive: true, status: 'published' })
+      .sort({ rating: -1, reviewCount: -1, _id: -1 })
       .limit(limit)
       .populate('category', 'name slug')
-      .populate('brand', 'name slug')
-      .select('name price primaryImage images rating reviewCount slug')
+      .populate('brand', 'name')
       .lean();
-      
+
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get recently viewed products
-// @route   GET /api/products/recently-viewed
-// @access  Public
-exports.getRecentlyViewed = async (req, res) => {
-  try {
-    const { ids } = req.query;
-    if (!ids) return res.json({ success: true, data: [] });
-    
-    const productIds = ids.split(',').filter(id => mongoose.Types.ObjectId.isValid(id));
-    const products = await Product.find({ _id: { $in: productIds }, isActive: true })
-      .select('name price primaryImage images slug rating reviewCount')
-      .limit(10)
-      .lean();
-      
-    res.json({ success: true, data: products });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// @desc    Get recommended products
+// @desc    Get recommended published products
 // @route   GET /api/products/recommended
 // @access  Public
 exports.getRecommendedProducts = async (req, res) => {
   try {
-    const { categoryId, limit = 8 } = req.query;
-    let query = { isActive: true };
-    if (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) {
-      query.category = new mongoose.Types.ObjectId(categoryId);
-    }
-    
-    const products = await Product.find(query)
-      .sort({ rating: -1, reviewCount: -1 })
-      .limit(parseInt(limit, 10))
-      .select('name price primaryImage images slug rating reviewCount')
+    const limit = Math.min(parseInt(req.query.limit, 10) || 8, 20);
+    const products = await Product.find({ isActive: true, status: 'published' })
+      .sort({ isFeatured: -1, rating: -1, soldCount: -1, _id: -1 })
+      .limit(limit)
       .populate('category', 'name slug')
-      .populate('brand', 'name slug');
-      
+      .populate('brand', 'name')
+      .lean();
+
+    res.json({ success: true, data: products });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get recently viewed published products
+// @route   GET /api/products/recently-viewed
+// @access  Public
+exports.getRecentlyViewed = async (req, res) => {
+  try {
+    const ids = req.query.ids ? req.query.ids.split(',').filter(id => mongoose.Types.ObjectId.isValid(id)) : [];
+    if (ids.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const products = await Product.find({
+      _id: { $in: ids },
+      isActive: true,
+      status: 'published'
+    })
+      .populate('category', 'name slug')
+      .populate('brand', 'name')
+      .lean();
+
     res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

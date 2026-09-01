@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const Return = require('../models/Return');
+const InventoryTransaction = require('../models/InventoryTransaction');
 const { AppError } = require('../common/errors/AppError');
 
 const historicalReferenceError = (message, code) => new AppError(
@@ -36,6 +37,16 @@ const assertProductsDeletable = async (productIds, { session = null } = {}) => {
       'PRODUCT_HISTORICAL_RETURN_REFERENCE'
     );
   }
+  const inventoryReference = await withSession(
+    InventoryTransaction.exists({ product: { $in: productIds } }),
+    session
+  );
+  if (inventoryReference) {
+    throw historicalReferenceError(
+      'A product referenced by inventory history cannot be permanently deleted',
+      'PRODUCT_HISTORICAL_INVENTORY_REFERENCE'
+    );
+  }
 };
 
 const assertVariantsRemovable = async (
@@ -70,6 +81,17 @@ const assertVariantsRemovable = async (
     throw historicalReferenceError(
       'A product variant referenced by a return cannot be removed',
       'PRODUCT_VARIANT_HISTORICAL_RETURN_REFERENCE'
+    );
+  }
+
+  const inventoryReference = await withSession(
+    InventoryTransaction.exists({ product: productId, variantId: { $in: variantIds } }),
+    session
+  );
+  if (inventoryReference) {
+    throw historicalReferenceError(
+      'A product variant referenced by inventory history cannot be removed',
+      'PRODUCT_VARIANT_HISTORICAL_INVENTORY_REFERENCE'
     );
   }
 };

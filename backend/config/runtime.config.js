@@ -363,6 +363,61 @@ const createRuntimeConfig = (environment = process.env) => {
     }
   };
 
+  const storageProvider = parseMode(
+    environment,
+    'STORAGE_PROVIDER',
+    new Set(['mock', 's3']),
+    'mock',
+    false
+  );
+
+  let s3Config = null;
+  if (storageProvider === 's3') {
+    const s3Region = requiredValue(environment, 'STORAGE_S3_REGION');
+    const s3Bucket = requiredValue(environment, 'STORAGE_S3_BUCKET');
+    const s3AccessKeyId = requiredValue(environment, 'STORAGE_S3_ACCESS_KEY_ID');
+    const s3SecretAccessKey = requiredValue(environment, 'STORAGE_S3_SECRET_ACCESS_KEY');
+    const s3SessionToken = optionalValue(environment, 'STORAGE_S3_SESSION_TOKEN');
+    const s3ForcePathStyle = parseBoolean(environment, 'STORAGE_S3_FORCE_PATH_STYLE', false);
+    const rawEndpoint = optionalValue(environment, 'STORAGE_S3_ENDPOINT');
+    const s3Endpoint = rawEndpoint ? normalizeOrigin(rawEndpoint, originOptions) : null;
+    const rawPublicBase = optionalValue(environment, 'STORAGE_PUBLIC_BASE_URL');
+    const publicBaseUrl = isDeployed
+      ? normalizeOrigin(requiredValue(environment, 'STORAGE_PUBLIC_BASE_URL'), {
+        allowLoopbackHttp: false,
+        variableName: 'STORAGE_PUBLIC_BASE_URL'
+      })
+      : (rawPublicBase ? normalizeOrigin(rawPublicBase, originOptions) : 'http://localhost:5000/media');
+
+    let keyPrefix = optionalValue(environment, 'STORAGE_S3_KEY_PREFIX') || 'products/';
+    if (keyPrefix.includes('..') || keyPrefix.startsWith('/')) {
+      throw new RuntimeConfigurationError('STORAGE_S3_KEY_PREFIX must be a safe path without traversal');
+    }
+    if (!keyPrefix.endsWith('/')) {
+      keyPrefix += '/';
+    }
+
+    const timeoutMs = parseInteger(
+      environment,
+      'STORAGE_OPERATION_TIMEOUT_MS',
+      10000,
+      { minimum: 1000, maximum: 60000 }
+    );
+
+    s3Config = Object.freeze({
+      region: s3Region,
+      bucket: s3Bucket,
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey,
+      sessionToken: s3SessionToken,
+      endpoint: s3Endpoint,
+      forcePathStyle: s3ForcePathStyle,
+      publicBaseUrl,
+      keyPrefix,
+      timeoutMs
+    });
+  }
+
   return Object.freeze({
     initialized: true,
     environment: runtimeEnvironment,
@@ -408,6 +463,10 @@ const createRuntimeConfig = (environment = process.env) => {
         from: smtpFrom,
         fromName: smtpFromName
       }) : null
+    }),
+    storage: Object.freeze({
+      provider: storageProvider,
+      s3: s3Config
     }),
     filesystem: Object.freeze({
       uploadsMode

@@ -46,6 +46,12 @@ const errorHandler = (err, req, res, next) => {
     message = 'A resource with that value already exists';
   }
 
+  if (err.name === 'VersionError') {
+    statusCode = 409;
+    code = 'CONCURRENCY_CONFLICT';
+    message = 'This record was modified by another request. Please reload and retry.';
+  }
+
   if (err.name === 'ValidationError') {
     statusCode = 400;
     code = ERROR_CODES.VALIDATION_ERROR;

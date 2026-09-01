@@ -37,6 +37,8 @@ const refundRoutes = require('./routes/refundRoutes');
 const commercialCoreRoutes = require('./routes/commercialCoreRoutes');
 const accountRoutes = require('./routes/accountRoutes');
 const assistantRoutes = require('./modules/assistant/assistant.routes');
+const adminProductRoutes = require('./routes/adminProductRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
 
 const app = express();
 const runtimeConfig = getRuntimeConfig();
@@ -122,6 +124,8 @@ app.use('/api/refunds', refundRoutes);
 app.use('/api/commerce', commercialCoreRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/assistant', assistantRoutes);
+app.use('/api/admin/products', adminProductRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // Health Check (Works even if DB is down)
 app.get('/api/health', (req, res) => {

@@ -2,10 +2,10 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { 
-  Package, Search, Plus, Edit, Trash2, Eye, 
-  ChevronLeft, ChevronRight, Loader, TrendingUp, 
-  AlertCircle, CheckCircle, XCircle, LayoutGrid, 
+import {
+  Package, Search, Plus, Edit, Trash2, Eye,
+  ChevronLeft, ChevronRight, Loader, TrendingUp,
+  AlertCircle, CheckCircle, XCircle, LayoutGrid,
   List, X
 } from 'lucide-react';
 import { getProducts, deleteProduct } from '@/lib/api';
@@ -28,6 +28,8 @@ interface Product {
   reviewCount?: number;
   isFeatured?: boolean;
   isActive?: boolean;
+  status?: 'draft' | 'published' | 'inactive' | 'archived';
+  lowStockThreshold?: number;
   variants?: Array<{ _id?: string }>;
   attributes?: { name: string; value: string }[];
   createdAt: string;
@@ -72,6 +74,17 @@ function ProductsPageContent() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  const [globalSummary, setGlobalSummary] = useState<{
+    totalProducts: number;
+    publishedCount: number;
+    draftCount: number;
+    inactiveCount: number;
+    archivedCount: number;
+    inStockCount: number;
+    lowStockCount: number;
+    outOfStockCount: number;
+  } | null>(null);
+
   // Fetch products
   useEffect(() => {
     const fetchProducts = async () => {
@@ -86,11 +99,14 @@ function ProductsPageContent() {
         if (categoryFilter) params.category = categoryFilter;
 
         const data = await getProducts(page, 12, params);
-        
+
         if (data.success) {
           setProducts(data.data);
           setTotalPages(data.pagination?.pages || 1);
           setTotalProducts(data.pagination?.total || 0);
+          if (data.summary?.global) {
+            setGlobalSummary(data.summary.global);
+          }
         }
       } catch (error) {
         console.error('Error fetching products:', error);
@@ -104,7 +120,7 @@ function ProductsPageContent() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!window.confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) return;
-    
+
     setDeletingId(id);
     try {
       await deleteProduct(id);
@@ -126,10 +142,19 @@ function ProductsPageContent() {
   };
 
   const getStatusBadge = (product: Product) => {
-    if (product.stock === 0) {
+    if (product.status === 'draft') {
+      return { bg: 'rgba(100, 116, 139, 0.12)', color: 'var(--text-secondary)', text: 'Draft', icon: AlertCircle };
+    }
+    if (product.status === 'archived') {
+      return { bg: 'rgba(100, 116, 139, 0.12)', color: 'var(--text-secondary)', text: 'Archived', icon: XCircle };
+    }
+    if (product.status === 'inactive') {
+      return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', text: 'Inactive', icon: AlertCircle };
+    }
+    if (product.stock <= 0) {
       return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', text: 'Out of Stock', icon: XCircle };
     }
-    if (product.stock < 10) {
+    if (product.stock <= (product.lowStockThreshold || 10)) {
       return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', text: 'Low Stock', icon: AlertCircle };
     }
     return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', text: 'In Stock', icon: CheckCircle };
@@ -149,6 +174,24 @@ function ProductsPageContent() {
             Manage your product catalog, inventory, and variants.
           </p>
         </div>
+        <button
+          onClick={() => router.push('/products/add')}
+          style={{
+            padding: '12px 20px',
+            backgroundColor: 'var(--primary)',
+            color: '#0B132B',
+            border: 'none',
+            borderRadius: '10px',
+            fontWeight: '700',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px'
+          }}
+        >
+          <Package size={18} /> Add Product
+        </button>
       </div>
 
       {/* Stats Cards */}
@@ -175,7 +218,9 @@ function ProductsPageContent() {
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Total Products</div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalProducts}</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
+              {globalSummary ? globalSummary.totalProducts : totalProducts}
+            </div>
           </div>
         </div>
 
@@ -195,9 +240,55 @@ function ProductsPageContent() {
               <TrendingUp size={24} color="var(--success-text)" />
           </div>
           <div>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Active Products</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Published Products</div>
             <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
-              {products.filter(p => p.isActive !== false).length}
+              {globalSummary ? globalSummary.publishedCount : products.filter(p => p.isActive !== false).length}
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          backgroundColor: 'var(--card-bg)',
+          borderRadius: '12px',
+          padding: '20px',
+          border: '1px solid var(--border-color)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <div style={{
+            width: '48px', height: '48px', borderRadius: '10px',
+            backgroundColor: 'rgba(245, 158, 11, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <AlertCircle size={24} color="var(--warning-text)" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Low Stock</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
+              {globalSummary ? globalSummary.lowStockCount : 0}
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          backgroundColor: 'var(--card-bg)',
+          borderRadius: '12px',
+          padding: '20px',
+          border: '1px solid var(--border-color)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <div style={{
+            width: '48px', height: '48px', borderRadius: '10px',
+            backgroundColor: 'rgba(220, 38, 38, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <XCircle size={24} color="var(--danger-text)" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Out of Stock</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
+              {globalSummary ? globalSummary.outOfStockCount : 0}
             </div>
           </div>
         </div>
@@ -462,12 +553,12 @@ function ProductsPageContent() {
                   const status = getStatusBadge(product);
                   const StatusIcon = status.icon;
                   const imageUrl = product.primaryImage || product.images?.[0] || PRODUCT_PLACEHOLDER;
-                  
+
                   return (
-                    <tr 
-                      key={product._id} 
-                      style={{ 
-                        borderBottom: '1px solid var(--border-color)', 
+                    <tr
+                      key={product._id}
+                      style={{
+                        borderBottom: '1px solid var(--border-color)',
                         transition: 'background-color 0.2s',
                         opacity: deletingId === product._id ? 0.5 : 1
                       }}
@@ -547,7 +638,7 @@ function ProductsPageContent() {
                       <td style={{ padding: '16px 20px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                           <button
-                            onClick={() => router.push(`/admin/products/${product._id}`)}
+                            onClick={() => router.push(`/products/${product._id}/edit`)}
                             aria-label={`View details of ${product.name}`}
                             style={{
                               padding: '8px',
@@ -568,7 +659,7 @@ function ProductsPageContent() {
                             <Eye size={16} />
                           </button>
                           <button
-                            onClick={() => router.push(`/admin/products/${product._id}/edit`)}
+                            onClick={() => router.push(`/products/${product._id}/edit`)}
                             aria-label={`Edit ${product.name}`}
                             style={{
                               padding: '8px',
@@ -643,7 +734,7 @@ function ProductsPageContent() {
             const status = getStatusBadge(product);
             const StatusIcon = status.icon;
             const imageUrl = product.primaryImage || product.images?.[0] || PRODUCT_PLACEHOLDER;
-            
+
             return (
               <div
                 key={product._id}
@@ -676,7 +767,7 @@ function ProductsPageContent() {
                     onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.05)')}
                     onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
                   />
-                  
+
                   <div style={{
                     position: 'absolute',
                     top: '12px',
@@ -771,7 +862,7 @@ function ProductsPageContent() {
 
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button
-                        onClick={() => router.push(`/admin/products/${product._id}`)}
+                        onClick={() => router.push(`/products/${product._id}/edit`)}
                         aria-label={`View details of ${product.name}`}
                         style={{
                           flex: 1,
@@ -803,7 +894,7 @@ function ProductsPageContent() {
                         <Eye size={14} /> View
                       </button>
                       <button
-                        onClick={() => router.push(`/admin/products/${product._id}/edit`)}
+                        onClick={() => router.push(`/products/${product._id}/edit`)}
                         aria-label={`Edit ${product.name}`}
                         style={{
                           flex: 1,

@@ -19,6 +19,8 @@ export interface Product {
   stock: number;
   images: string[];
   isActive: boolean;
+  status?: 'draft' | 'published' | 'inactive' | 'archived';
+  lowStockThreshold?: number;
   createdAt: string;
 }
 

@@ -77,7 +77,7 @@ class OrderService {
 
     for (const item of items) {
       const product = await Product.findById(item.productId).session(session);
-      if (!product || !product.isActive) {
+      if (!product || !product.isActive || product.status !== 'published') {
         throw new AppError(
           'A selected product is unavailable',
           409,
@@ -110,8 +110,11 @@ class OrderService {
       }
       resolvedKeys.add(resolvedKey);
 
-      const price = this.roundMoney(variant ? variant.price : product.price);
-      if (!Number.isFinite(price) || price < 0) {
+      const rawPrice = variant
+        ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
+        : product.price;
+      const price = this.roundMoney(rawPrice);
+      if (!Number.isFinite(price) || price <= 0) {
         throw new AppError(
           'A selected product has an invalid price',
           409,

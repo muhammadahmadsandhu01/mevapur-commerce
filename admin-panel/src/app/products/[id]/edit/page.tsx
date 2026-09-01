@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { 
-  Package, ChevronDown, ChevronUp, Save, Upload, X, 
+import {
+  Package, ChevronDown, ChevronUp, Save, Upload, X,
   Plus, Trash2, Image as ImageIcon, AlertCircle, CheckCircle,
   Loader, Eye, Settings, Tag, DollarSign, Box, Truck,
   Search, Globe, BarChart3, Link as LinkIcon, MessageSquare,
   ArrowLeft
 } from 'lucide-react';
-import api, { getCategories, getBrands } from '@/lib/api';
+import api, { getCategories, getBrands, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
 import axios from 'axios';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 import type { LucideIcon } from 'lucide-react';
@@ -168,16 +168,16 @@ const initialFormData: ProductFormData = {
 };
 
 // Collapsible Section Component
-const Section = ({ 
-  title, 
-  icon: Icon, 
-  children, 
+const Section = ({
+  title,
+  icon: Icon,
+  children,
   defaultOpen = true,
   onSave
-}: { 
-  title: string; 
+}: {
+  title: string;
   icon: LucideIcon;
-  children: React.ReactNode; 
+  children: React.ReactNode;
   defaultOpen?: boolean;
   onSave?: () => void;
 }) => {
@@ -216,7 +216,7 @@ const Section = ({
         </div>
         {isOpen ? <ChevronUp size={20} color="var(--text-secondary)" /> : <ChevronDown size={20} color="var(--text-secondary)" />}
       </button>
-      
+
       {isOpen && (
         <div style={{ padding: '24px' }}>
           {children}
@@ -295,7 +295,7 @@ export default function EditProductPage() {
   const router = useRouter();
   const params = useParams();
   const productId = params.id as string;
-  
+
   const [formData, setFormData] = useState<ProductFormData>(initialFormData);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -321,14 +321,22 @@ export default function EditProductPage() {
     return () => clearTimeout(timer);
   }, [formData.name, slugManuallyChanged]);
 
+  const [expectedVersion, setExpectedVersion] = useState<number>(0);
+  const [mediaAssetIds, setMediaAssetIds] = useState<string[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
   // Fetch product data
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const response = await api.get(`/products/${productId}`);
-        if (response.data.success) {
-          const product = response.data.data;
-          
+        const response = await getProduct(productId);
+        if (response.success && response.data?.product) {
+          const product = response.data.product;
+          setExpectedVersion(product.__v ?? 0);
+          setMediaAssetIds(
+            (product.mediaAssetIds || []).map((m: any) => (typeof m === 'object' && m !== null ? m._id : m))
+          );
+
           // Transform product data to form data
           const formValues: ProductFormData = {
             name: product.name || '',
@@ -336,9 +344,9 @@ export default function EditProductPage() {
             shortName: product.shortName || '',
             sku: product.sku || '',
             barcode: product.barcode || '',
-            brand: typeof product.brand === 'object' ? product.brand._id : product.brand,
-            category: typeof product.category === 'object' ? product.category._id : product.category,
-            subcategory: typeof product.subcategory === 'object' ? product.subcategory._id : product.subcategory,
+            brand: typeof product.brand === 'object' && product.brand !== null ? product.brand._id : product.brand,
+            category: typeof product.category === 'object' && product.category !== null ? product.category._id : product.category,
+            subcategory: typeof product.subcategory === 'object' && product.subcategory !== null ? product.subcategory._id : product.subcategory,
             productType: product.variants && product.variants.length > 0 ? 'variable' : 'simple',
             tags: product.tags || [],
             isFeatured: product.isFeatured || false,
@@ -351,7 +359,7 @@ export default function EditProductPage() {
             salePrice: product.salePrice,
             taxClass: product.taxClass || 'standard',
             stock: product.stock || 0,
-            lowStockAlert: product.lowStockAlert || 10,
+            lowStockAlert: product.lowStockThreshold || product.lowStockAlert || 10,
             allowBackorders: product.allowBackorders || false,
             trackInventory: product.trackInventory !== false,
             images: product.images || product.gallery || [],
@@ -368,8 +376,8 @@ export default function EditProductPage() {
             dimensions: product.dimensions,
             shippingClass: product.shippingClass || 'standard',
             freeShipping: product.freeShipping || false,
-            seoTitle: product.seo?.title,
-            metaDescription: product.seo?.description,
+            seoTitle: product.seo?.metaTitle || product.seo?.title,
+            metaDescription: product.seo?.metaDescription || product.seo?.description,
             keywords: product.seo?.keywords,
             canonicalUrl: product.seo?.canonicalUrl,
             status: product.status || 'published',
@@ -382,13 +390,13 @@ export default function EditProductPage() {
             allowCompare: product.allowCompare !== false,
             allowCOD: product.allowCOD !== false,
           };
-          
+
           setFormData(formValues);
         }
       } catch (error) {
         console.error('Error fetching product:', error);
         alert('Failed to load product data');
-        router.push('/admin/products');
+        router.push('/products');
       } finally {
         setLoading(false);
       }
@@ -424,47 +432,29 @@ export default function EditProductPage() {
     return () => clearTimeout(timer);
   }, [formData, loading]);
 
-  async function handleAutoSave() {
-    setSaving(true);
-    try {
-      await api.put(`/products/${productId}`, formData);
-      setLastSaved(new Date());
-      setHasChanges(false);
-    } catch (error) {
-      console.error('Auto-save failed:', error);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Auto-save every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (hasChanges && formData.status === 'draft') {
-        handleAutoSave();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [formData, hasChanges]);
-
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.name.trim()) newErrors.name = 'Product name is required';
-    if (!formData.slug.trim()) newErrors.slug = 'Slug is required';
     if (!formData.category) newErrors.category = 'Category is required';
-    if (formData.price <= 0) newErrors.price = 'Price must be greater than 0';
+    if (formData.price <= 0 && formData.variants.length === 0) newErrors.price = 'Price must be greater than 0';
     if (formData.productType === 'variable' && formData.variants.length === 0) {
       newErrors.variants = 'At least one variant is required for variable products';
     }
+    if (formData.images.length === 0 && mediaAssetIds.length === 0) {
+      newErrors.images = 'At least one product image is required';
+    }
 
     setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) {
+      const firstField = Object.keys(newErrors)[0];
+      const el = document.getElementById(`field-${firstField}`);
+      if (el) el.focus();
+    }
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (status: 'draft' | 'published') => {
-    setFormData(prev => ({ ...prev, status }));
-    
     if (status === 'published' && !validateForm()) {
       alert('Please fill all required fields correctly');
       return;
@@ -472,20 +462,58 @@ export default function EditProductPage() {
 
     setLoading(true);
     try {
-      const response = await api.put(`/products/${productId}`, formData);
-      if (response.data.success) {
+      const payload: Record<string, unknown> = {
+        name: formData.name.trim(),
+        slug: formData.slug.trim() || undefined,
+        shortDescription: formData.shortDescription || '',
+        description: formData.description || '',
+        category: formData.category || null,
+        subcategory: formData.subcategory || null,
+        brand: formData.brand || null,
+        sku: formData.sku ? formData.sku.trim().toUpperCase() : null,
+        price: Number(formData.price || 0),
+        originalPrice: formData.originalPrice ? Number(formData.originalPrice) : 0,
+        lowStockThreshold: Number(formData.lowStockAlert || 10),
+        isFeatured: Boolean(formData.isFeatured),
+        attributes: formData.attributes,
+        variants: formData.variants.map(v => ({
+          _id: v._id,
+          sku: v.sku.trim().toUpperCase(),
+          barcode: v.barcode || '',
+          attributes: v.attributes,
+          price: Number(v.price),
+          salePrice: v.salePrice ? Number(v.salePrice) : 0,
+          isDefault: Boolean(v.isDefault)
+        })),
+        mediaAssetIds,
+        videoUrl: formData.videoUrl || '',
+        seo: {
+          metaTitle: formData.seoTitle || '',
+          metaDescription: formData.metaDescription || '',
+          keywords: formData.keywords || ''
+        },
+        status,
+        expectedVersion
+      };
+
+      const response = await updateProduct(productId, payload);
+      if (response.success) {
         alert(status === 'published' ? 'Product updated successfully!' : 'Draft saved successfully!');
         setHasChanges(false);
         setLastSaved(new Date());
-        router.push('/admin/products');
+        router.push('/products');
       }
     } catch (error: unknown) {
-      alert(
-        axios.isAxiosError(error)
-        && typeof error.response?.data?.message === 'string'
-          ? error.response.data.message
-          : 'Failed to update product'
-      );
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        alert('This product was modified by another administrator. Please reload and review the latest changes.');
+      } else {
+        alert(
+          axios.isAxiosError(error)
+          && typeof error.response?.data?.message === 'string'
+            ? error.response.data.message
+            : 'Failed to update product'
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -493,23 +521,35 @@ export default function EditProductPage() {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
 
-    // In real implementation, upload to cloud storage
-    const newImages = Array.from(files).map((_, index) => 
-      PRODUCT_PLACEHOLDER
-    );
-    
-    setFormData(prev => ({
-      ...prev,
-      images: [...prev.images, ...newImages],
-      primaryImage: prev.primaryImage || newImages[0]
-    }));
-    setHasChanges(true);
+    setUploadingImage(true);
+    try {
+      for (const file of Array.from(files)) {
+        const result = await uploadProductImage(file);
+        setMediaAssetIds(prev => [...prev, result.mediaAssetId]);
+        setFormData(prev => ({
+          ...prev,
+          images: [...prev.images, result.url],
+          primaryImage: prev.primaryImage || result.url
+        }));
+      }
+      setHasChanges(true);
+    } catch (err: unknown) {
+      alert(
+        axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
+          ? err.response.data.message
+          : 'Failed to upload image'
+      );
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const removeImage = (index: number) => {
     const newImages = formData.images.filter((_, i) => i !== index);
+    const newAssetIds = mediaAssetIds.filter((_, i) => i !== index);
+    setMediaAssetIds(newAssetIds);
     setFormData(prev => ({
       ...prev,
       images: newImages,
@@ -648,7 +688,7 @@ export default function EditProductPage() {
             style={{
               padding: '12px 24px',
               backgroundColor: loading || saving ? 'var(--text-secondary)' : 'var(--primary)',
-              color: loading || saving ? '#FFFFFF' : '#0B132B', 
+              color: loading || saving ? '#FFFFFF' : '#0B132B',
               border: 'none',
               borderRadius: '10px',
               fontWeight: '700',
@@ -734,8 +774,8 @@ export default function EditProductPage() {
                 <input
                   type="text"
                   value={formData.slug}
-                  onChange={(e) => { 
-                    setFormData({ ...formData, slug: e.target.value }); 
+                  onChange={(e) => {
+                    setFormData({ ...formData, slug: e.target.value });
                     setSlugManuallyChanged(true);
                     setHasChanges(true);
                   }}
@@ -1294,7 +1334,7 @@ export default function EditProductPage() {
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '12px' }}>
                 Product Images
               </label>
-              
+
               {/* Upload Area */}
               <label style={{
                 display: 'block',
@@ -1842,7 +1882,7 @@ export default function EditProductPage() {
                 }}>
                   {formData.name || 'Product Name'}
                 </h4>
-                
+
                 {formData.brand && (
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
                     Brand: {brands.find(b => b._id === formData.brand)?.name}

@@ -21,9 +21,7 @@ class InventoryService {
             stock: { $gte: item.quantity }
           }
         };
-        if (item.isDefaultVariant) {
-          query.stock = { $gte: item.quantity };
-        }
+        query.stock = { $gte: item.quantity };
       } else {
         query.stock = { $gte: item.quantity };
       }
@@ -33,7 +31,7 @@ class InventoryService {
         soldCount: item.quantity
       };
 
-      if (item.variantId && item.isDefaultVariant) {
+      if (item.variantId) {
         increment.stock = -item.quantity;
       }
 
@@ -85,9 +83,7 @@ class InventoryService {
 
       if (item.variantId) {
         update.$inc['variants.$.stock'] = item.quantity;
-        if (item.isDefaultVariant) {
-          update.$inc.stock = item.quantity;
-        }
+        update.$inc.stock = item.quantity;
       } else {
         update.$inc.stock = item.quantity;
       }
