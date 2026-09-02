@@ -2,13 +2,15 @@
 
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Lock, User, Phone, CheckCircle, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Lock, User, Phone, CheckCircle, ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { acceptAuthentication, type AuthPayload } from '@/lib/authSession';
 import { User as UserType } from '@/types';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { branding } from '@/config/branding';
+import { Button } from '@/components/ui/Button';
+import { Alert } from '@/components/ui/Alert';
 
 function AcceptInvitationForm() {
   const router = useRouter();
@@ -135,22 +137,10 @@ function AcceptInvitationForm() {
         </div>
 
         {error && (
-          <div
-            role="alert"
-            style={{
-              backgroundColor: '#FEF2F2',
-              color: '#B91C1C',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              fontSize: '13.5px',
-              marginBottom: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}
-          >
-            <AlertCircle size={16} />
-            {error}
+          <div style={{ marginBottom: '20px' }}>
+            <Alert variant="error">
+              {error}
+            </Alert>
           </div>
         )}
 
@@ -277,25 +267,16 @@ function AcceptInvitationForm() {
             />
           </div>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="lg"
+            fullWidth
             disabled={loading || !token}
-            style={{
-              width: '100%',
-              padding: '13px',
-              backgroundColor: '#FF8A00',
-              color: '#0B132B',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '14.5px',
-              fontWeight: '700',
-              cursor: (loading || !token) ? 'not-allowed' : 'pointer',
-              opacity: (loading || !token) ? 0.7 : 1,
-              boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
-            }}
+            loading={loading}
           >
             {loading ? 'Activating Account...' : 'Complete Account Setup'}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

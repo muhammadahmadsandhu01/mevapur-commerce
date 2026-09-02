@@ -11,7 +11,7 @@
 
 | ID | Workstream | Status | Details / Artifacts |
 | :--- | :--- | :--- | :--- |
-| **A** | Dependency and Runtime Security | **COMPLETED** | Audits, lockfiles, safe Next.js 16.3.4 & Nodemailer 6.10.2 patches, SBOM, Node LTS pin |
+| **A** | Dependency and Runtime Security | **COMPLETED** | Audits, lockfiles, safe Next.js 16.3.4 & Nodemailer 9.1.1 patches, 0 audit advisories, Node 24 LTS pin |
 | **B** | Complete Canonical RBAC | **COMPLETED** | 6 canonical roles, centralized `PolicyService`, all modules guarded, roles page matrix, 85/85 tests passing |
 | **C** | Staff Provisioning & Password Lifecycle | **COMPLETED** | Token-based staff invitations, secure email delivery, password validation, demotion protection |
 | **D** | Mandatory Privileged-Account MFA | **COMPLETED** | TOTP enrollment, AES-256-GCM encrypted secrets, hashed recovery codes, login challenge UI |
@@ -30,9 +30,9 @@
 ## Detailed Requirement Status
 
 ### Workstream A: Dependency & Runtime Security
-- [x] Production dependency audit for `backend` and `admin-panel`
-- [x] Safe upgrade of vulnerable direct runtime dependencies (Next.js, Nodemailer)
-- [x] Node LTS pinning in `.nvmrc` and `package.json` engines
+- [x] Production dependency audit for `backend` and `admin-panel` (0 vulnerabilities)
+- [x] Safe upgrade of vulnerable direct runtime dependencies (Next.js 16.3.4, Nodemailer 9.1.1)
+- [x] Node 24 LTS pinning in `.nvmrc` and `package.json` engines (>=22.0.0 <=24.x)
 - [x] License inventory & SBOM generation (`DEPENDENCY_SECURITY_REPORT.md`)
 - [x] Zero Critical / High production vulnerabilities verified
 

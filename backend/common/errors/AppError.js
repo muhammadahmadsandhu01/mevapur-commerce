@@ -31,6 +31,7 @@ class ValidationError extends AppError {
     code = errorCodes.VALIDATION_ERROR
   ) {
     super(message, 400, code, details);
+    this.name = 'ValidationError';
   }
 }
 

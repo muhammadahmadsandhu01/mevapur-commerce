@@ -54,9 +54,9 @@ const errorHandler = (err, req, res, next) => {
 
   if (err.name === 'ValidationError') {
     statusCode = 400;
-    code = ERROR_CODES.VALIDATION_ERROR;
+    code = typeof err.code === 'string' ? err.code : ERROR_CODES.VALIDATION_ERROR;
     message = 'Request validation failed';
-    details = Object.values(err.errors || {}).map((value) => ({
+    details = err.details || Object.values(err.errors || {}).map((value) => ({
       field: value.path,
       message: value.message
     }));
