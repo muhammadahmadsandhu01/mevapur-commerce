@@ -42,9 +42,10 @@ async function run({ batchSize = 100, maxBatches = 10, mode: explicitMode = null
   while (batchesRun < effectiveMaxBatches) {
     batchesRun++;
     // Deterministic FIFO ordering with bounded limit
+    // ONLY selects status: 'reserved' with expiresAt <= now
     const expiredReservations = await CouponRedemption.find({
       status: 'reserved',
-      expiresAt: { $lt: now }
+      expiresAt: { $lte: now }
     })
       .sort({ expiresAt: 1, _id: 1 })
       .limit(effectiveBatchSize);
@@ -64,13 +65,12 @@ async function run({ batchSize = 100, maxBatches = 10, mode: explicitMode = null
       break;
     } else if (mode === 'apply') {
       for (const reservation of expiredReservations) {
-        // Atomic conditional release using CouponService
-        const res = await CouponService.restoreUsage({
-          checkoutKey: reservation.checkoutKey,
-          couponSnapshot: { couponId: reservation.coupon },
-          releaseReason: 'reservation_expired'
+        // Atomic conditional release requiring exact _id, status === 'reserved', and expiresAt <= now
+        const res = await CouponService.releaseExpiredReservation({
+          reservationId: reservation._id,
+          asOfDate: now
         });
-        if (res?.restored) {
+        if (res?.released) {
           totalReleased++;
         }
       }
@@ -79,7 +79,7 @@ async function run({ batchSize = 100, maxBatches = 10, mode: explicitMode = null
 
   const remainingCount = await CouponRedemption.countDocuments({
     status: 'reserved',
-    expiresAt: { $lt: now }
+    expiresAt: { $lte: now }
   });
 
   const summary = {

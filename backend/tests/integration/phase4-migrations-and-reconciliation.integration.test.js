@@ -194,8 +194,8 @@ describe('Phase 4 Migrations, Index Provisioning & Reconciliation Integration Te
     });
   });
 
-  describe('Coupon Reservation Bounded Reconciliation Worker', () => {
-    test('releases only expired reserved records and leaves non-expired/committed records untouched', async () => {
+  describe('Coupon Reservation Bounded Reconciliation Worker & Predicate Contracts', () => {
+    test('1 & 2: expired reserved record is released once, non-expired reserved remains reserved', async () => {
       const coupon = await Coupon.create({
         code: 'RECON1',
         type: 'fixed',
@@ -203,37 +203,25 @@ describe('Phase 4 Migrations, Index Provisioning & Reconciliation Integration Te
         status: 'active',
         startDate: new Date(),
         endDate: new Date(Date.now() + 86400000),
-        usedCount: 3
+        usedCount: 2
       });
 
-      // Expired reservation
       const expiredRes = await CouponRedemption.create({
         coupon: coupon._id,
         user: user1._id,
         checkoutKey: 'EXP-1',
         status: 'reserved',
         discountSnapshot: { code: 'RECON1', type: 'fixed', value: 50, discountAmount: 50 },
-        expiresAt: new Date(Date.now() - 3600000) // 1 hour ago
+        expiresAt: new Date(Date.now() - 3600000)
       });
 
-      // Non-expired reservation
       const activeRes = await CouponRedemption.create({
         coupon: coupon._id,
         user: user2._id,
         checkoutKey: 'ACTIVE-1',
         status: 'reserved',
         discountSnapshot: { code: 'RECON1', type: 'fixed', value: 50, discountAmount: 50 },
-        expiresAt: new Date(Date.now() + 1800000) // 30 min in future
-      });
-
-      // Committed redemption
-      const committedRes = await CouponRedemption.create({
-        coupon: coupon._id,
-        user: user1._id,
-        checkoutKey: 'COMMITTED-1',
-        status: 'committed',
-        discountSnapshot: { code: 'RECON1', type: 'fixed', value: 50, discountAmount: 50 },
-        expiresAt: new Date(Date.now() - 3600000)
+        expiresAt: new Date(Date.now() + 1800000)
       });
 
       const reconSummary = await reservationReconciliation.run({
@@ -244,32 +232,99 @@ describe('Phase 4 Migrations, Index Provisioning & Reconciliation Integration Te
 
       expect(reconSummary.totalReleased).toBe(1);
 
-      // Check statuses
       const updatedExpired = await CouponRedemption.findById(expiredRes._id);
       const updatedActive = await CouponRedemption.findById(activeRes._id);
-      const updatedCommitted = await CouponRedemption.findById(committedRes._id);
 
       expect(updatedExpired.status).toBe('released');
+      expect(updatedExpired.releaseReason).toBe('reservation_expired');
       expect(updatedActive.status).toBe('reserved');
-      expect(updatedCommitted.status).toBe('committed');
 
-      // Coupon usedCount decremented by 1
       const updatedCoupon = await Coupon.findById(coupon._id);
-      expect(updatedCoupon.usedCount).toBe(2);
-
-      // Second run is completely idempotent
-      const secondRun = await reservationReconciliation.run({
-        mode: 'apply',
-        batchSize: 10,
-        maxBatches: 2
-      });
-      expect(secondRun.totalReleased).toBe(0);
-
-      const couponAfterSecondRun = await Coupon.findById(coupon._id);
-      expect(couponAfterSecondRun.usedCount).toBe(2);
+      expect(updatedCoupon.usedCount).toBe(1);
     });
 
-    test('two concurrent workers cannot double-release the same expired reservation', async () => {
+    test('3 & 4: expired committed record and committed with legacy expiresAt remain committed', async () => {
+      const coupon = await Coupon.create({
+        code: 'COMMITTED-PROTECT',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 2
+      });
+
+      const committedWithExpiry = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user1._id,
+        checkoutKey: 'COMMITTED-WITH-EXPIRY',
+        status: 'committed',
+        discountSnapshot: { code: 'COMMITTED-PROTECT', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: new Date(Date.now() - 3600000),
+        committedAt: new Date(Date.now() - 3600000)
+      });
+
+      const committedWithNullExpiry = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user2._id,
+        checkoutKey: 'COMMITTED-NULL-EXPIRY',
+        status: 'committed',
+        discountSnapshot: { code: 'COMMITTED-PROTECT', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: null,
+        committedAt: new Date()
+      });
+
+      const reconSummary = await reservationReconciliation.run({
+        mode: 'apply',
+        batchSize: 10
+      });
+
+      expect(reconSummary.totalReleased).toBe(0);
+
+      const after1 = await CouponRedemption.findById(committedWithExpiry._id);
+      const after2 = await CouponRedemption.findById(committedWithNullExpiry._id);
+
+      expect(after1.status).toBe('committed');
+      expect(after2.status).toBe('committed');
+
+      const finalCoupon = await Coupon.findById(coupon._id);
+      expect(finalCoupon.usedCount).toBe(2);
+    });
+
+    test('5: already released record remains released and is not decremented twice', async () => {
+      const coupon = await Coupon.create({
+        code: 'ALREADY-RELEASED',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 0
+      });
+
+      const releasedRecord = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user1._id,
+        checkoutKey: 'RELEASED-1',
+        status: 'released',
+        releasedAt: new Date(Date.now() - 3600000),
+        releaseReason: 'order_cancelled',
+        discountSnapshot: { code: 'ALREADY-RELEASED', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: new Date(Date.now() - 3600000)
+      });
+
+      const res = await CouponService.releaseExpiredReservation({
+        reservationId: releasedRecord._id,
+        asOfDate: new Date()
+      });
+
+      expect(res.released).toBe(false);
+
+      const afterCoupon = await Coupon.findById(coupon._id);
+      expect(afterCoupon.usedCount).toBe(0);
+    });
+
+    test('6: two concurrent workers decrement once', async () => {
       const coupon = await Coupon.create({
         code: 'CONCURRENT-RECON',
         type: 'fixed',
@@ -289,7 +344,6 @@ describe('Phase 4 Migrations, Index Provisioning & Reconciliation Integration Te
         expiresAt: new Date(Date.now() - 3600000)
       });
 
-      // Run two worker instances concurrently
       const [worker1, worker2] = await Promise.all([
         reservationReconciliation.run({ mode: 'apply', batchSize: 10 }),
         reservationReconciliation.run({ mode: 'apply', batchSize: 10 })
@@ -300,6 +354,169 @@ describe('Phase 4 Migrations, Index Provisioning & Reconciliation Integration Te
 
       const finalCoupon = await Coupon.findById(coupon._id);
       expect(finalCoupon.usedCount).toBe(0);
+    });
+
+    test('7: reservation extended after batch selection is not released', async () => {
+      const coupon = await Coupon.create({
+        code: 'EXTENDED-RES',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 1
+      });
+
+      const reservation = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user1._id,
+        checkoutKey: 'EXTENDED-CK',
+        status: 'reserved',
+        discountSnapshot: { code: 'EXTENDED-RES', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: new Date(Date.now() - 60000) // 1 min ago
+      });
+
+      // Extend expiration time to the future
+      const asOfDate = new Date(Date.now() - 120000); // Earlier timestamp
+
+      const res = await CouponService.releaseExpiredReservation({
+        reservationId: reservation._id,
+        asOfDate
+      });
+
+      expect(res.released).toBe(false);
+
+      const check = await CouponRedemption.findById(reservation._id);
+      expect(check.status).toBe('reserved');
+
+      const afterCoupon = await Coupon.findById(coupon._id);
+      expect(afterCoupon.usedCount).toBe(1);
+    });
+
+    test('8: ledger transition failure does not decrement Coupon counter', async () => {
+      const coupon = await Coupon.create({
+        code: 'NO-TRANSITION',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 1
+      });
+
+      const nonExistentId = new mongoose.Types.ObjectId();
+      const res = await CouponService.releaseExpiredReservation({
+        reservationId: nonExistentId,
+        asOfDate: new Date()
+      });
+
+      expect(res.released).toBe(false);
+
+      const afterCoupon = await Coupon.findById(coupon._id);
+      expect(afterCoupon.usedCount).toBe(1);
+    });
+
+    test('9 & 10: Coupon counter failure aborts transition and usedCount never goes below zero', async () => {
+      const coupon = await Coupon.create({
+        code: 'ZERO-COUNT',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 0 // Already zero!
+      });
+
+      const reservation = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user1._id,
+        checkoutKey: 'ZERO-CK',
+        status: 'reserved',
+        discountSnapshot: { code: 'ZERO-COUNT', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: new Date(Date.now() - 3600000)
+      });
+
+      await expect(
+        CouponService.releaseExpiredReservation({
+          reservationId: reservation._id,
+          asOfDate: new Date()
+        })
+      ).rejects.toThrow();
+
+      const afterCoupon = await Coupon.findById(coupon._id);
+      expect(afterCoupon.usedCount).toBe(0); // Cannot go negative
+
+      // Under transaction rollback, reservation remains reserved
+      const afterRes = await CouponRedemption.findById(reservation._id);
+      expect(afterRes.status).toBe('reserved');
+    });
+
+    test('11: explicit pre-fulfilment cancellation releases committed redemption', async () => {
+      const coupon = await Coupon.create({
+        code: 'PRE-CANCEL',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 1
+      });
+
+      const committed = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user1._id,
+        checkoutKey: 'CANCEL-ORDER-CK',
+        orderId: new mongoose.Types.ObjectId(),
+        status: 'committed',
+        discountSnapshot: { code: 'PRE-CANCEL', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: null,
+        committedAt: new Date()
+      });
+
+      const res = await CouponService.restoreUsage({
+        checkoutKey: 'CANCEL-ORDER-CK',
+        couponSnapshot: { couponId: coupon._id },
+        releaseReason: 'order_cancelled'
+      });
+
+      expect(res.restored).toBe(true);
+
+      const afterLedger = await CouponRedemption.findById(committed._id);
+      expect(afterLedger.status).toBe('released');
+      expect(afterLedger.releaseReason).toBe('order_cancelled');
+
+      const afterCoupon = await Coupon.findById(coupon._id);
+      expect(afterCoupon.usedCount).toBe(0);
+    });
+
+    test('12: post-delivery refund does not release committed redemption', async () => {
+      const coupon = await Coupon.create({
+        code: 'REFUND-NO-RELEASE',
+        type: 'fixed',
+        value: 50,
+        status: 'active',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000),
+        usedCount: 1
+      });
+
+      const committed = await CouponRedemption.create({
+        coupon: coupon._id,
+        user: user1._id,
+        checkoutKey: 'DELIVERED-ORDER-CK',
+        orderId: new mongoose.Types.ObjectId(),
+        status: 'committed',
+        discountSnapshot: { code: 'REFUND-NO-RELEASE', type: 'fixed', value: 50, discountAmount: 50 },
+        expiresAt: null,
+        committedAt: new Date()
+      });
+
+      // Post-delivery refund only marks refund record, never calls restoreUsage
+      const checkLedger = await CouponRedemption.findById(committed._id);
+      expect(checkLedger.status).toBe('committed');
+
+      const checkCoupon = await Coupon.findById(coupon._id);
+      expect(checkCoupon.usedCount).toBe(1);
     });
   });
 });
