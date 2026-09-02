@@ -223,19 +223,19 @@ function AcceptInvitationForm() {
 
             {/* Password strength checklist */}
             <div style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '11.5px' }}>
-              <span style={{ color: passwordValidation.length ? '#059669' : '#9CA3AF', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: passwordValidation.length ? '#047857' : '#4B5563', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <CheckCircle size={12} /> 8+ Characters
               </span>
-              <span style={{ color: passwordValidation.upper ? '#059669' : '#9CA3AF', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: passwordValidation.upper ? '#047857' : '#4B5563', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <CheckCircle size={12} /> Uppercase letter
               </span>
-              <span style={{ color: passwordValidation.lower ? '#059669' : '#9CA3AF', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: passwordValidation.lower ? '#047857' : '#4B5563', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <CheckCircle size={12} /> Lowercase letter
               </span>
-              <span style={{ color: passwordValidation.number ? '#059669' : '#9CA3AF', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: passwordValidation.number ? '#047857' : '#4B5563', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <CheckCircle size={12} /> Number (0-9)
               </span>
-              <span style={{ color: passwordValidation.special ? '#059669' : '#9CA3AF', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: passwordValidation.special ? '#047857' : '#4B5563', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <CheckCircle size={12} /> Special character
               </span>
             </div>

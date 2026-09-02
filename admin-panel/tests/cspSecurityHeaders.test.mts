@@ -88,3 +88,22 @@ test('Production CSP enforces security baselines: object-src, base-uri, frame-an
   assert.ok(policy.includes("form-action 'self'"));
   assert.ok(policy.includes('upgrade-insecure-requests'));
 });
+
+test('Production CSP script-src includes cryptographic nonce when provided', () => {
+  const nonce = 'dGVzdC1ub25jZS0xMjM0NQ==';
+  const policy = buildContentSecurityPolicy({
+    isProduction: true,
+    apiUrl: 'https://api.mevapur.com',
+    nonce
+  });
+
+  const scriptDirective = policy
+    .split(';')
+    .map((s) => s.trim())
+    .find((s) => s.startsWith('script-src'));
+
+  assert.ok(scriptDirective);
+  assert.equal(scriptDirective, `script-src 'self' 'nonce-${nonce}'`);
+  assert.equal(scriptDirective.includes("'unsafe-eval'"), false);
+  assert.equal(scriptDirective.includes("'unsafe-inline'"), false);
+});

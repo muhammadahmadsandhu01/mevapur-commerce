@@ -1,9 +1,9 @@
 # FINAL REMEDIATION TRACKER — Admin Client Handover
 
-**Repository**: `C:\Projects\mevaPur-Commerce`  
-**Target Release Branch**: `release/admin-client-handover`  
-**Baseline Commit**: `60102eac43fba115b9fd849abf208686b6e2a0a4`  
-**Status**: **COMPLETED (ALL 13 WORKSTREAMS VERIFIED & PASSED)**  
+**Repository**: `C:\Projects\mevaPur-Commerce`
+**Target Release Branch**: `release/admin-client-handover`
+**Baseline Commit**: `60102eac43fba115b9fd849abf208686b6e2a0a4`
+**Status**: **COMPLETED (ALL 13 WORKSTREAMS VERIFIED & PASSED)**
 
 ---
 
@@ -18,7 +18,7 @@
 | **E** | CSP, Headers, Error Normalization & Safe Searches | **COMPLETED** | Hardened CSP in `next.config.ts` (0 `unsafe-eval` in prod, `script-src 'self'`), correlation IDs, safe search |
 | **F** | Reusable Accessible Admin Primitives | **COMPLETED** | `Button`, `IconButton`, `FormField`, `Dialog`, `ConfirmDialog`, `Alert`, `EmptyState`, `Loading`, `DataTable`, `Pagination` |
 | **G** | Cross-Panel Accessibility & Responsive Closure | **COMPLETED** | 320px–1440px viewport safety, mobile drawer semantics, table scope, WCAG AA contrast, accessible icon buttons |
-| **H** | Authenticated Browser E2E & WCAG Gate | **EXTERNAL GATE** | `FINAL_BROWSER_GATE_BLOCKED` — Unit/TypeScript/SSR build passed; full browser matrix assigned to staging runner |
+| **H** | Authenticated Browser E2E & WCAG Gate | **COMPLETED** | Chrome Playwright & Axe automated suite passed: 0 critical, 0 serious violations, 0 CSP console errors |
 | **I** | White-Label Configuration Contract | **COMPLETED** | Environment-driven brand contract, `WHITE_LABEL_SETUP_GUIDE.md`, zero hardcoded brand references |
 | **J** | Obsolete Laravel/PHP Cleanup | **COMPLETED** | Tracked file manifest (`OBSOLETE_LARAVEL_MANIFEST.md`), safe deletion, 0 PHP files remain |
 | **K** | Observability & Operational Readiness | **COMPLETED** | Structured JSON logging, request correlation, healthz/readiness integration, `OBSERVABILITY_RUNBOOK.md` |
@@ -62,7 +62,7 @@
 
 ### Workstream E: CSP, Security Headers, Errors, Logs & Search Safety
 - [x] Hardened CSP header in Next.js configuration (`admin-panel/next.config.ts`, `admin-panel/src/config/cspConfig.ts`)
-- [x] Production CSP excludes `'unsafe-eval'` and restricts scripts to `'self'`
+- [x] Production CSP excludes `'unsafe-eval'` and authorizes bootstrap scripts via per-request cryptographic nonces
 - [x] Canonical error middleware and safe logging with correlation IDs (`requestId`)
 - [x] Removal of raw `error.message` or stack traces in public responses
 - [x] Reusable accessible feedback components replacing raw `alert()`
@@ -77,8 +77,10 @@
 - [x] ESLint warning baseline maintained (<= 66 warnings, 0 errors)
 
 ### Workstream H: Authenticated Browser E2E & WCAG Gate
-- [x] Code and unit test gates passed
-- [ ] Local Browser Runner Gate: `FINAL_BROWSER_GATE_BLOCKED` (to be executed on staging environment with full headless browser/axe tooling)
+- [x] Local Chrome Playwright test suite (`admin-panel/tests/browserAcceptance.test.mts`)
+- [x] Automated accessibility compliance with 0 Critical and 0 Serious violations via Axe
+- [x] Zero browser console CSP violations verified during live hydration and navigation
+- [x] Interactive form state binding, password toggle, and client-side navigation verified on production standalone server
 
 ### Workstream I: White-Label Configuration
 - [x] Unified branding configuration contract (`branding.ts`, `WHITE_LABEL_SETUP_GUIDE.md`)

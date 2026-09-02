@@ -1,11 +1,13 @@
 export interface CspOptions {
   isProduction: boolean;
   apiUrl?: string;
+  nonce?: string;
 }
 
 export function buildContentSecurityPolicy({
   isProduction,
-  apiUrl = ''
+  apiUrl = '',
+  nonce
 }: CspOptions): string {
   const cleanApiUrl = apiUrl.trim();
 
@@ -15,10 +17,10 @@ export function buildContentSecurityPolicy({
     ? ["'self'", cleanApiUrl].filter(Boolean).join(' ')
     : ["'self'", 'http://localhost:*', 'https://localhost:*', 'http://127.0.0.1:*', 'https://127.0.0.1:*', cleanApiUrl].filter(Boolean).join(' ');
 
-  // Production CSP strictly eliminates 'unsafe-eval' and unrestricted inline scripts
-  // Development retains 'unsafe-eval' and 'unsafe-inline' solely for Fast Refresh / HMR source-mapping
+  // Production CSP strictly eliminates 'unsafe-eval' and unrestricted inline scripts.
+  // When a per-request nonce is provided, script-src authorizes nonced Next.js bootstrap scripts.
   const scriptSources = isProduction
-    ? "'self'"
+    ? (nonce ? `'self' 'nonce-${nonce}'` : "'self'")
     : "'self' 'unsafe-inline' 'unsafe-eval'";
 
   return [
