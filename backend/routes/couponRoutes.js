@@ -1,9 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect, requireRoles, superAdmin } = require('../middleware/auth');
-const TokenService = require('../services/TokenService');
-const UserRepository = require('../repositories/UserRepository');
-const SessionRepository = require('../repositories/SessionRepository');
+const { protect, optionalAuth, requireRoles, superAdmin } = require('../middleware/auth');
 const {
   getCoupons,
   getCoupon,
@@ -16,27 +13,7 @@ const {
   getCouponStats
 } = require('../controllers/couponController');
 
-// Optional authentication middleware for public validate route (extracts user if valid Bearer token provided)
-const optionalAuth = async (req, res, next) => {
-  try {
-    const authorization = req.get('Authorization');
-    const match = typeof authorization === 'string' ? authorization.match(/^Bearer\s+(.+)$/i) : null;
-    if (match) {
-      const decoded = TokenService.verifyAccessToken(match[1]);
-      if (decoded && decoded.sub) {
-        const user = await UserRepository.findByIdWithTokenVersion(decoded.sub);
-        if (user && !user.isDeleted) {
-          req.user = user.toJSON();
-        }
-      }
-    }
-  } catch (err) {
-    // Ignore invalid tokens in optional auth
-  }
-  next();
-};
-
-// PUBLIC VALIDATION ROUTE (non-binding preview)
+// PUBLIC VALIDATION ROUTE (non-binding preview with optional authentication)
 router.post('/validate', optionalAuth, validateCoupon);
 
 // PROTECTED ADMIN ROUTES

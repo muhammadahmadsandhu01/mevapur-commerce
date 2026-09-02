@@ -161,6 +161,15 @@ class OrderService {
   }
 
   async runTransaction(work) {
+    let isDeployed = false;
+    try {
+      const { getRuntimeConfig } = require('../../config/runtime.config');
+      isDeployed = Boolean(getRuntimeConfig().isDeployed);
+    } catch {
+      const candidate = (process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
+      isDeployed = candidate === 'staging' || candidate === 'production';
+    }
+
     let lastError;
 
     for (
@@ -168,7 +177,19 @@ class OrderService {
       attempt <= ORDER_LIMITS.MAX_TRANSACTION_ATTEMPTS;
       attempt += 1
     ) {
-      const session = await mongoose.startSession();
+      let session;
+      try {
+        session = await mongoose.startSession();
+      } catch (sessionErr) {
+        if (isDeployed) {
+          throw new AppError(
+            'Database transactions are required but unavailable in deployed environments',
+            503,
+            ERROR_CODES.SERVICE_UNAVAILABLE || 'SERVICE_UNAVAILABLE'
+          );
+        }
+        return await work(null, 1);
+      }
       session.startTransaction();
 
       try {

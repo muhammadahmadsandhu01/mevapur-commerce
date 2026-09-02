@@ -260,32 +260,47 @@ class CouponService {
     let redemption = null;
 
     if (checkoutKey) {
-      const q = CouponRedemption.findOne({ checkoutKey });
-      if (session) q.session(session);
-      redemption = await q;
+      redemption = await CouponRedemption.findOneAndUpdate(
+        { checkoutKey, status: { $in: ['reserved', 'committed'] } },
+        {
+          $set: {
+            status: 'released',
+            releasedAt: new Date(),
+            releaseReason: String(releaseReason).slice(0, 200)
+          }
+        },
+        session ? { session, new: true } : { new: true }
+      );
     }
 
     if (!redemption && couponSnapshot?.couponId && userId) {
-      const q = CouponRedemption.findOne({
+      const active = await CouponRedemption.findOne({
         coupon: couponSnapshot.couponId,
         user: userId,
         status: { $in: ['reserved', 'committed'] }
       }).sort({ createdAt: -1 });
-      if (session) q.session(session);
-      redemption = await q;
+
+      if (active) {
+        redemption = await CouponRedemption.findOneAndUpdate(
+          { _id: active._id, status: { $in: ['reserved', 'committed'] } },
+          {
+            $set: {
+              status: 'released',
+              releasedAt: new Date(),
+              releaseReason: String(releaseReason).slice(0, 200)
+            }
+          },
+          session ? { session, new: true } : { new: true }
+        );
+      }
     }
 
     // If redemption already released or not found in active state, do not release twice
-    if (!redemption || redemption.status === 'released') {
-      return;
+    if (!redemption) {
+      return { restored: false, alreadyReleased: true };
     }
 
     const couponId = redemption.coupon || couponSnapshot?.couponId;
-
-    redemption.status = 'released';
-    redemption.releasedAt = new Date();
-    redemption.releaseReason = String(releaseReason).slice(0, 200);
-    await redemption.save({ session });
 
     if (couponId) {
       const updateCouponQuery = Coupon.findOneAndUpdate(
@@ -302,6 +317,8 @@ class CouponService {
         );
       }
     }
+
+    return { restored: true, redemption };
   }
 
   /**

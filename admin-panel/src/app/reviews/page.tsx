@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Star, Search, Trash2, Eye, CheckCircle, XCircle,
   AlertCircle, MessageSquare, Loader, Flag,
-  ChevronLeft, ChevronRight, X, ThumbsUp, User, CornerDownRight
+  ChevronLeft, ChevronRight, X, User, CornerDownRight
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';

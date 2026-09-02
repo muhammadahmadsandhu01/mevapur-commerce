@@ -16,8 +16,7 @@ const couponRedemptionSchema = new mongoose.Schema({
   orderId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Order',
-    default: null,
-    index: true
+    default: null
   },
   checkoutKey: {
     type: String,

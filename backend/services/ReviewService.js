@@ -20,18 +20,24 @@ class ReviewService {
    * Helper to execute a callback inside a MongoDB transaction with bounded transient retry
    */
   async withTransaction(callback) {
-    const isTestEnv = process.env.NODE_ENV === 'test';
-    const isProdOrStaging = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+    let isDeployed = false;
+    try {
+      const { getRuntimeConfig } = require('../config/runtime.config');
+      isDeployed = Boolean(getRuntimeConfig().isDeployed);
+    } catch {
+      const candidate = (process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
+      isDeployed = candidate === 'staging' || candidate === 'production';
+    }
 
     let session;
     try {
       session = await mongoose.startSession();
     } catch (sessionErr) {
-      if (isProdOrStaging) {
+      if (isDeployed) {
         throw new AppError(
-          'Database transactions are required but unavailable in production/staging',
-          500,
-          ERROR_CODES.INTERNAL_SERVER_ERROR || 'TRANSACTIONS_UNAVAILABLE'
+          'Database transactions are required but unavailable in deployed environments',
+          503,
+          ERROR_CODES.SERVICE_UNAVAILABLE || 'SERVICE_UNAVAILABLE'
         );
       }
       // In single-node standalone dev/test without replica set, execute callback directly
@@ -63,7 +69,7 @@ class ReviewService {
 
         // If transactions aren't supported on local standalone mongodb and we're in dev/test
         if (
-          !isProdOrStaging &&
+          !isDeployed &&
           (error.message?.includes('replica set') || error.message?.includes('standalone'))
         ) {
           await session.endSession();

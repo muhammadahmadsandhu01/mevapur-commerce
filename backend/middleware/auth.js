@@ -182,3 +182,59 @@ exports.checkRoles = (...roles) => {
 };
 
 exports.requireRoles = exports.checkRoles;
+
+/*
+|--------------------------------------------------------------------------
+| Optional Authentication
+|--------------------------------------------------------------------------
+*/
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    const authorization = req.get('Authorization');
+    const match = typeof authorization === 'string'
+      ? authorization.match(/^Bearer\s+(.+)$/i)
+      : null;
+
+    if (!match) {
+      return next();
+    }
+
+    const decoded = TokenService.verifyAccessToken(match[1]);
+    const user = await UserRepository.findByIdWithTokenVersion(decoded.sub);
+
+    if (!user || user.isDeleted) {
+      throw new AppError(
+        'Authentication account is unavailable',
+        401,
+        ERROR_CODES.AUTH_ACCOUNT_INACTIVE
+      );
+    }
+
+    if (user.isBlocked) {
+      throw new AppError(
+        'Account has been blocked',
+        403,
+        ERROR_CODES.AUTH_ACCOUNT_BLOCKED
+      );
+    }
+
+    if (Number(user.tokenVersion) !== decoded.tokenVersion) {
+      throw new AppError(
+        'Authentication token has been invalidated',
+        401,
+        ERROR_CODES.AUTH_TOKEN_VERSION_MISMATCH
+      );
+    }
+
+    const safeUser = user.toJSON();
+    req.auth = {
+      userId: String(user._id),
+      tokenVersion: decoded.tokenVersion,
+      tokenId: decoded.jti
+    };
+    req.user = safeUser;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
