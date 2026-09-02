@@ -1,6 +1,7 @@
+const crypto = require('crypto');
 const AuditLogRepository = require('../repositories/AuditLogRepository');
 const logger = require('../common/utils/logger');
-const { v4: uuidv4 } = require('uuid');
+const uuidv4 = () => crypto.randomUUID();
 
 const SENSITIVE_KEY_PATTERNS = [
   'password',

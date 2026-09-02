@@ -4,11 +4,16 @@ const TokenService = require('./TokenService');
 const AuditService = require('./AuditService');
 const EmailService = require('./EmailService');
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
+const uuidv4 = () => crypto.randomUUID();
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 const logger = require('../common/utils/logger');
 const config = require('../config/auth.config');
+const MfaService = require('./MfaService');
+const StaffInvitation = require('../models/StaffInvitation');
+const User = require('../models/User');
+const { validatePasswordStrength } = require('../utils/passwordValidator');
+const { CANONICAL_ROLES, STAFF_ROLES } = require('../constants/roleConstants');
 
 class AuthService {
   publicUser(user) {
@@ -231,6 +236,29 @@ class AuthService {
 
     if (user.loginAttempts > 0 || user.lockUntil) {
       await UserRepository.resetFailedLogin(user._id);
+    }
+
+    if (user.mfaEnabled) {
+      const mfaToken = TokenService.generateMfaToken({
+        userId: user._id,
+        email: user.email,
+        role: user.role
+      });
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.MFA.CHALLENGE_ISSUED',
+        status: 'SUCCESS',
+        metadata: { role: user.role }
+      });
+      return {
+        mfaRequired: true,
+        mfaToken,
+        user: {
+          email: user.email,
+          role: user.role
+        }
+      };
     }
 
     const authSession = await this.createAuthenticatedSession({
@@ -559,6 +587,493 @@ class AuthService {
     });
     return { success: true };
   }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Multi-Factor Authentication (MFA) Workflows
+  |--------------------------------------------------------------------------
+  */
+
+  async verifyMfaLogin({
+    mfaToken,
+    code,
+    recoveryCode,
+    deviceInfo,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const decoded = TokenService.verifyMfaToken(mfaToken);
+    const user = await User.findById(decoded.sub).select('+mfaSecretEncrypted +mfaRecoveryCodeHashes +mfaLastUsedTimestep +tokenVersion');
+
+    if (!user || user.isDeleted) {
+      throw new AppError('Account is unavailable', 401, ERROR_CODES.AUTH_ACCOUNT_INACTIVE);
+    }
+    if (user.isBlocked) {
+      throw new AppError('Account has been blocked', 403, ERROR_CODES.AUTH_ACCOUNT_BLOCKED);
+    }
+    if (!user.mfaEnabled || !user.mfaSecretEncrypted) {
+      throw new AppError('MFA is not configured for this account', 400, ERROR_CODES.AUTH_MFA_NOT_ENABLED);
+    }
+
+    let authenticated = false;
+    let methodUsed = 'totp';
+
+    if (recoveryCode && typeof recoveryCode === 'string') {
+      const { valid, updatedHashes } = MfaService.verifyRecoveryCode(user.mfaRecoveryCodeHashes || [], recoveryCode);
+      if (!valid) {
+        await AuditService.log({
+          ...audit,
+          userId: user._id,
+          eventName: 'AUTH.MFA.VERIFY.FAILED',
+          status: 'FAILURE',
+          errorCode: ERROR_CODES.AUTH_MFA_INVALID,
+          metadata: { method: 'recovery_code' }
+        });
+        throw new AppError('Invalid or already used backup recovery code', 401, ERROR_CODES.AUTH_MFA_INVALID);
+      }
+      user.mfaRecoveryCodeHashes = updatedHashes;
+      authenticated = true;
+      methodUsed = 'recovery_code';
+    } else if (code && typeof code === 'string') {
+      const plainSecret = MfaService.decryptSecret(user.mfaSecretEncrypted);
+      const { valid, timestepUsed } = MfaService.verifyTotp({
+        secret: plainSecret,
+        token: code,
+        lastUsedTimestep: user.mfaLastUsedTimestep
+      });
+
+      if (!valid) {
+        await AuditService.log({
+          ...audit,
+          userId: user._id,
+          eventName: 'AUTH.MFA.VERIFY.FAILED',
+          status: 'FAILURE',
+          errorCode: ERROR_CODES.AUTH_MFA_INVALID,
+          metadata: { method: 'totp' }
+        });
+        throw new AppError('Invalid or expired MFA code', 401, ERROR_CODES.AUTH_MFA_INVALID);
+      }
+
+      user.mfaLastUsedTimestep = timestepUsed;
+      authenticated = true;
+    } else {
+      throw new AppError('MFA code or backup recovery code is required', 400, ERROR_CODES.AUTH_MFA_REQUIRED);
+    }
+
+    await user.save();
+
+    const authSession = await this.createAuthenticatedSession({
+      user,
+      deviceInfo,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent
+    });
+    await UserRepository.updateLastLogin(user._id);
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      sessionId: authSession.session._id,
+      eventName: 'AUTH.MFA.VERIFY.SUCCESS',
+      status: 'SUCCESS',
+      metadata: { method: methodUsed }
+    });
+
+    return {
+      user: this.publicUser(user),
+      ...authSession,
+      expiresIn: TokenService.getAccessTokenExpiry()
+    };
+  }
+
+  async setupMfa({ userId, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const user = await User.findById(userId);
+    this.assertActiveUser(user);
+
+    if (user.mfaEnabled) {
+      throw new AppError('MFA is already configured and enabled for this account', 400, ERROR_CODES.AUTH_MFA_ALREADY_ENABLED);
+    }
+
+    const { secret, otpauthUri } = MfaService.generateSecret({
+      accountEmail: user.email,
+      issuer: config.brandName || 'MevaPur'
+    });
+    const { plainCodes, hashedCodes } = MfaService.generateRecoveryCodes(8);
+
+    user.mfaSecretEncrypted = MfaService.encryptSecret(secret);
+    user.mfaRecoveryCodeHashes = hashedCodes;
+    await user.save();
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.MFA.SETUP.INITIATED',
+      status: 'SUCCESS'
+    });
+
+    return {
+      secret,
+      otpauthUri,
+      recoveryCodes: plainCodes
+    };
+  }
+
+  async confirmMfa({ userId, code, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const user = await User.findById(userId).select('+mfaSecretEncrypted +mfaLastUsedTimestep');
+    this.assertActiveUser(user);
+
+    if (!user.mfaSecretEncrypted) {
+      throw new AppError('MFA setup must be initiated before confirmation', 400, ERROR_CODES.AUTH_MFA_NOT_ENABLED);
+    }
+
+    const plainSecret = MfaService.decryptSecret(user.mfaSecretEncrypted);
+    const { valid, timestepUsed } = MfaService.verifyTotp({
+      secret: plainSecret,
+      token: code,
+      lastUsedTimestep: user.mfaLastUsedTimestep
+    });
+
+    if (!valid) {
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.MFA.CONFIRM.FAILED',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.AUTH_MFA_INVALID
+      });
+      throw new AppError('Invalid MFA verification code', 400, ERROR_CODES.AUTH_MFA_INVALID);
+    }
+
+    user.mfaEnabled = true;
+    user.mfaEnrolledAt = new Date();
+    user.mfaLastUsedTimestep = timestepUsed;
+    await user.save();
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.MFA.ENROLLED',
+      status: 'SUCCESS'
+    });
+
+    return { success: true, mfaEnabled: true };
+  }
+
+  async disableMfa({ userId, password, code, currentUserId, currentUserRole, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const user = await User.findById(userId).select('+password +mfaSecretEncrypted +mfaLastUsedTimestep +tokenVersion');
+    this.assertActiveUser(user);
+
+    if (!user.mfaEnabled) {
+      throw new AppError('MFA is not currently enabled for this account', 400, ERROR_CODES.AUTH_MFA_NOT_ENABLED);
+    }
+
+    // If disabling self, verify current password and TOTP code
+    if (String(userId) === String(currentUserId)) {
+      if (!password || !(await user.matchPassword(password))) {
+        throw new AppError('Current password is incorrect', 401, ERROR_CODES.AUTH_INVALID_CREDENTIALS);
+      }
+
+      if (code) {
+        const plainSecret = MfaService.decryptSecret(user.mfaSecretEncrypted);
+        const { valid } = MfaService.verifyTotp({
+          secret: plainSecret,
+          token: code,
+          lastUsedTimestep: user.mfaLastUsedTimestep
+        });
+        if (!valid) {
+          throw new AppError('Invalid MFA verification code', 400, ERROR_CODES.AUTH_MFA_INVALID);
+        }
+      }
+    } else {
+      // SuperAdmin override check
+      if (currentUserRole !== CANONICAL_ROLES.SUPER_ADMIN) {
+        throw new AppError('Only Super Admin can disable MFA for another staff member', 403, ERROR_CODES.AUTH_FORBIDDEN);
+      }
+    }
+
+    user.mfaEnabled = false;
+    user.mfaSecretEncrypted = null;
+    user.mfaRecoveryCodeHashes = [];
+    user.mfaLastUsedTimestep = null;
+    user.mfaEnrolledAt = null;
+    user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+    await user.save();
+
+    await SessionService.revokeAllSessions(user._id, 'MFA_DISABLED');
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.MFA.DISABLED',
+      status: 'SUCCESS',
+      metadata: { disabledBy: String(currentUserId) }
+    });
+
+    return { success: true, mfaEnabled: false };
+  }
+
+  async regenerateRecoveryCodes({ userId, password, code, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const user = await User.findById(userId).select('+password +mfaSecretEncrypted +mfaLastUsedTimestep');
+    this.assertActiveUser(user);
+
+    if (!user.mfaEnabled) {
+      throw new AppError('MFA is not enabled', 400, ERROR_CODES.AUTH_MFA_NOT_ENABLED);
+    }
+
+    if (!password || !(await user.matchPassword(password))) {
+      throw new AppError('Current password is incorrect', 401, ERROR_CODES.AUTH_INVALID_CREDENTIALS);
+    }
+
+    if (code) {
+      const plainSecret = MfaService.decryptSecret(user.mfaSecretEncrypted);
+      const { valid, timestepUsed } = MfaService.verifyTotp({
+        secret: plainSecret,
+        token: code,
+        lastUsedTimestep: user.mfaLastUsedTimestep
+      });
+      if (!valid) {
+        throw new AppError('Invalid MFA verification code', 400, ERROR_CODES.AUTH_MFA_INVALID);
+      }
+      user.mfaLastUsedTimestep = timestepUsed;
+    }
+
+    const { plainCodes, hashedCodes } = MfaService.generateRecoveryCodes(8);
+    user.mfaRecoveryCodeHashes = hashedCodes;
+    await user.save();
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.MFA.RECOVERY_CODES_REGENERATED',
+      status: 'SUCCESS'
+    });
+
+    return { recoveryCodes: plainCodes };
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Staff Invitation Lifecycle Workflows
+  |--------------------------------------------------------------------------
+  */
+
+  async inviteStaff({ email, role, invitedBy, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const normalizedEmail = (email || '').toLowerCase().trim();
+
+    if (!STAFF_ROLES.includes(role)) {
+      throw new AppError(`Invalid staff role: ${role}`, 400, ERROR_CODES.AUTH_ROLE_NOT_FOUND);
+    }
+
+    const existingUser = await User.findOne({ email: normalizedEmail, isDeleted: false });
+    if (existingUser) {
+      throw new AppError('An active account with this email address already exists', 409, ERROR_CODES.AUTH_EMAIL_EXISTS);
+    }
+
+    // Invalidate any existing pending invitation for this email
+    await StaffInvitation.updateMany(
+      { email: normalizedEmail, status: 'pending' },
+      { $set: { status: 'revoked', revokedAt: new Date() } }
+    );
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48-hour TTL
+
+    const invitation = await StaffInvitation.create({
+      email: normalizedEmail,
+      role,
+      tokenHash,
+      status: 'pending',
+      expiresAt,
+      invitedBy
+    });
+
+    try {
+      await EmailService.sendStaffInvitationEmail(normalizedEmail, role, token);
+    } catch (emailError) {
+      await StaffInvitation.findByIdAndDelete(invitation._id);
+      logger.error('Failed to send staff invitation email, rolling back invitation record', { email: normalizedEmail });
+      throw new AppError('Failed to send invitation email via configured mail transport', 502, ERROR_CODES.EMAIL_DELIVERY_FAILED);
+    }
+
+    await AuditService.log({
+      ...audit,
+      userId: invitedBy,
+      eventName: 'STAFF.INVITATION.CREATED',
+      status: 'SUCCESS',
+      metadata: { invitedEmail: normalizedEmail, role }
+    });
+
+    return {
+      invitationId: String(invitation._id),
+      email: normalizedEmail,
+      role,
+      expiresAt
+    };
+  }
+
+  async acceptInvitation({
+    token,
+    fullName,
+    password,
+    phone,
+    deviceInfo,
+    ipAddress,
+    userAgent,
+    requestId
+  }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    if (!token || typeof token !== 'string') {
+      throw new AppError('Invitation token is required', 400, ERROR_CODES.AUTH_INVITATION_INVALID);
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const invitation = await StaffInvitation.findOne({
+      tokenHash,
+      status: 'pending'
+    });
+
+    if (!invitation) {
+      throw new AppError('Invitation is invalid, revoked, or already accepted', 400, ERROR_CODES.AUTH_INVITATION_INVALID);
+    }
+
+    if (invitation.expiresAt <= new Date()) {
+      invitation.status = 'expired';
+      await invitation.save();
+      throw new AppError('Invitation has expired. Please request a new invitation', 400, ERROR_CODES.AUTH_INVITATION_EXPIRED);
+    }
+
+    const strength = validatePasswordStrength(password);
+    if (!strength.valid) {
+      throw new AppError(strength.message, 400, ERROR_CODES.AUTH_PASSWORD_WEAK);
+    }
+
+    const user = await UserRepository.create({
+      fullName: (fullName || '').trim(),
+      email: invitation.email,
+      password,
+      phone: (phone || '').trim(),
+      role: invitation.role,
+      isVerified: true,
+      isBlocked: false
+    });
+
+    invitation.status = 'accepted';
+    invitation.acceptedAt = new Date();
+    await invitation.save();
+
+    const authSession = await this.createAuthenticatedSession({
+      user,
+      deviceInfo,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent
+    });
+    await UserRepository.updateLastLogin(user._id);
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      sessionId: authSession.session._id,
+      eventName: 'STAFF.INVITATION.ACCEPTED',
+      status: 'SUCCESS',
+      metadata: { role: user.role }
+    });
+
+    return {
+      user: this.publicUser(user),
+      ...authSession,
+      expiresIn: TokenService.getAccessTokenExpiry()
+    };
+  }
+
+  async resendInvitation({ invitationId, invitedBy, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const invitation = await StaffInvitation.findById(invitationId);
+
+    if (!invitation || invitation.status !== 'pending') {
+      throw new AppError('Pending invitation was not found', 404, ERROR_CODES.AUTH_INVITATION_INVALID);
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+    invitation.tokenHash = tokenHash;
+    invitation.expiresAt = expiresAt;
+    await invitation.save();
+
+    await EmailService.sendStaffInvitationEmail(invitation.email, invitation.role, token);
+
+    await AuditService.log({
+      ...audit,
+      userId: invitedBy,
+      eventName: 'STAFF.INVITATION.RESENT',
+      status: 'SUCCESS',
+      metadata: { email: invitation.email }
+    });
+
+    return { success: true, expiresAt };
+  }
+
+  async revokeInvitation({ invitationId, revokedBy, requestId, ipAddress, userAgent }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const invitation = await StaffInvitation.findById(invitationId);
+
+    if (!invitation) {
+      throw new AppError('Invitation was not found', 404, ERROR_CODES.AUTH_INVITATION_INVALID);
+    }
+
+    invitation.status = 'revoked';
+    invitation.revokedAt = new Date();
+    await invitation.save();
+
+    await AuditService.log({
+      ...audit,
+      userId: revokedBy,
+      eventName: 'STAFF.INVITATION.REVOKED',
+      status: 'SUCCESS',
+      metadata: { email: invitation.email }
+    });
+
+    return { success: true };
+  }
+
+  async listInvitations({ status, page = 1, limit = 20 }) {
+    const filter = {};
+    if (status) filter.status = status;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [invitations, total] = await Promise.all([
+      StaffInvitation.find(filter)
+        .populate('invitedBy', 'fullName email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      StaffInvitation.countDocuments(filter)
+    ]);
+
+    return {
+      invitations,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    };
+  }
 }
 
 module.exports = new AuthService();
+

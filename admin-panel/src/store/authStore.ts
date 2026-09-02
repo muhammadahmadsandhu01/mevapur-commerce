@@ -11,9 +11,11 @@ import {
   type AuthPayload,
 } from '@/lib/authSession';
 
-interface AuthResult {
+export interface AuthResult {
   success: boolean;
   message: string;
+  mfaRequired?: boolean;
+  mfaToken?: string;
 }
 
 interface AuthState {
@@ -23,6 +25,7 @@ interface AuthState {
   isInitialized: boolean;
   bootstrap: () => Promise<void>;
   login: (email: string, password: string) => Promise<AuthResult>;
+  verifyMfa: (mfaToken: string, code?: string, recoveryCode?: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
 }
 
@@ -31,8 +34,8 @@ interface ErrorResponse {
   message?: string;
 }
 
-const isAdminUser = (user: User) => (
-  user.role === 'admin' || user.role === 'super_admin'
+const isStaffUser = (user: User) => (
+  ['support', 'inventory', 'manager', 'admin', 'super_admin'].includes(user.role)
 );
 
 const errorMessage = (error: unknown, fallback: string) => {
@@ -58,7 +61,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         const payload = await refreshAuthentication(true) as
           AuthPayload<User> | null;
-        if (payload && isAdminUser(payload.user)) {
+        if (payload && isStaffUser(payload.user)) {
           set({
             user: payload.user,
             token: payload.accessToken,
@@ -83,15 +86,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (email, password) => {
     try {
       const response = await authHttp.post('/auth/login', { email, password });
+      
+      // Check if MFA challenge is required
+      if (response.data?.data?.mfaRequired) {
+        return {
+          success: true,
+          mfaRequired: true,
+          mfaToken: response.data.data.mfaToken,
+          message: 'MFA verification required'
+        };
+      }
+
       const payload = acceptAuthentication(
         response.data.data as AuthPayload<User>
       );
 
-      if (!isAdminUser(payload.user)) {
+      if (!isStaffUser(payload.user)) {
         await logoutAuthentication();
         return {
           success: false,
-          message: 'Access denied. Admin privileges are required.',
+          message: 'Access denied. Administrative staff privileges are required.',
         };
       }
 
@@ -107,6 +121,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return {
         success: false,
         message: errorMessage(error, 'Login failed'),
+      };
+    }
+  },
+
+  verifyMfa: async (mfaToken, code, recoveryCode) => {
+    try {
+      const response = await authHttp.post('/auth/mfa/verify', {
+        mfaToken,
+        code: code || undefined,
+        recoveryCode: recoveryCode || undefined
+      });
+
+      const payload = acceptAuthentication(
+        response.data.data as AuthPayload<User>
+      );
+
+      if (!isStaffUser(payload.user)) {
+        await logoutAuthentication();
+        return {
+          success: false,
+          message: 'Access denied. Administrative staff privileges are required.',
+        };
+      }
+
+      set({
+        user: payload.user,
+        token: payload.accessToken,
+        isAuthenticated: true,
+        isInitialized: true,
+      });
+      return { success: true, message: 'MFA verification successful!' };
+    } catch (error) {
+      return {
+        success: false,
+        message: errorMessage(error, 'MFA verification failed')
       };
     }
   },

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+const uuidv4 = () => crypto.randomUUID();
 const config = require('../config/auth.config');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
@@ -43,6 +44,65 @@ class TokenService {
       issuer: config.jwt.issuer,
       audience: config.jwt.audience
     });
+  }
+
+  generateMfaToken({ userId, email, role }) {
+    const payload = {
+      sub: String(userId),
+      email,
+      role,
+      jti: uuidv4(),
+      type: 'mfa_challenge'
+    };
+
+    return jwt.sign(payload, config.jwt.secret, {
+      algorithm: 'HS256',
+      expiresIn: '5m',
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience
+    });
+  }
+
+  verifyMfaToken(token) {
+    if (!token || typeof token !== 'string') {
+      throw new AppError(
+        'MFA verification token is required',
+        401,
+        ERROR_CODES.AUTH_TOKEN_REQUIRED
+      );
+    }
+
+    try {
+      const decoded = jwt.verify(token, config.jwt.secret, {
+        algorithms: ['HS256'],
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience
+      });
+
+      if (decoded.type !== 'mfa_challenge' || !decoded.sub) {
+        throw new AppError(
+          'Invalid MFA verification token',
+          401,
+          ERROR_CODES.AUTH_TOKEN_INVALID
+        );
+      }
+
+      return decoded;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      if (error.name === 'TokenExpiredError') {
+        throw new AppError(
+          'MFA challenge has expired. Please log in again',
+          401,
+          ERROR_CODES.AUTH_TOKEN_EXPIRED
+        );
+      }
+      throw new AppError(
+        'Invalid MFA verification token',
+        401,
+        ERROR_CODES.AUTH_TOKEN_INVALID
+      );
+    }
   }
 
   verifyToken(token, expectedType) {

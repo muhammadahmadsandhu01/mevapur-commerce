@@ -5,6 +5,7 @@ class AppError extends Error {
     super(message);
     this.statusCode = statusCode;
     this.code = code || errorCodes.INTERNAL_SERVER_ERROR;
+    this.errorCode = this.code;
     this.details = details;
     this.isOperational = true;
     Error.captureStackTrace(this, this.constructor);

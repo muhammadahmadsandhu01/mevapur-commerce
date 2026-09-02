@@ -118,6 +118,37 @@ const userSchema = new mongoose.Schema(
       default: null
     },
 
+    // Security: MFA (Multi-Factor Authentication)
+    mfaEnabled: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
+    mfaSecretEncrypted: {
+      type: String,
+      select: false,
+      default: null
+    },
+    mfaRecoveryCodeHashes: {
+      type: [
+        {
+          hash: { type: String, required: true },
+          usedAt: { type: Date, default: null }
+        }
+      ],
+      select: false,
+      default: []
+    },
+    mfaLastUsedTimestep: {
+      type: Number,
+      select: false,
+      default: null
+    },
+    mfaEnrolledAt: {
+      type: Date,
+      default: null
+    },
+
     lastLoginAt: {
       type: Date,
       default: null

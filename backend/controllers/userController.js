@@ -1,113 +1,215 @@
 const User = require('../models/User');
+const StaffInvitation = require('../models/StaffInvitation');
+const AuthService = require('../services/AuthService');
+const PolicyService = require('../services/PolicyService');
+const SessionService = require('../services/SessionService');
 const { logActivity } = require('../middleware/activityLogger');
+const { AppError } = require('../common/errors/AppError');
+const ERROR_CODES = require('../constants/errorCodes');
+const { CANONICAL_ROLES, STAFF_ROLES } = require('../constants/roleConstants');
 
 // @desc    Get all staff users (exclude customers)
 // @route   GET /api/users/staff
 // @access  Private/Admin
-exports.getStaffUsers = async (req, res) => {
+exports.getStaffUsers = async (req, res, next) => {
   try {
     const { search = '', role = '' } = req.query;
 
-    let query = { role: { $ne: 'customer' } };
+    let query = { role: { $in: STAFF_ROLES }, isDeleted: false };
 
     if (search) {
+      const sanitizedSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { fullName: { $regex: sanitizedSearch, $options: 'i' } },
+        { email: { $regex: sanitizedSearch, $options: 'i' } }
       ];
     }
 
-    if (role) {
+    if (role && STAFF_ROLES.includes(role)) {
       query.role = role;
     }
 
-    const users = await User.find(query).select('-password').sort({ createdAt: -1 });
+    const users = await User.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.json({
       success: true,
       data: users
     });
   } catch (error) {
-    console.error('Get staff users error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    next(error);
   }
 };
 
 // @desc    Get all customers (For Admin Customers Page)
 // @route   GET /api/users/customers
 // @access  Private/Admin
-exports.getCustomers = async (req, res) => {
+exports.getCustomers = async (req, res, next) => {
   try {
     const { search = '', page = 1, limit = 15 } = req.query;
     
-    let query = { role: 'customer' };
+    let query = { role: CANONICAL_ROLES.CUSTOMER, isDeleted: false };
 
     if (search) {
+      const sanitizedSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+        { fullName: { $regex: sanitizedSearch, $options: 'i' } },
+        { email: { $regex: sanitizedSearch, $options: 'i' } },
+        { phone: { $regex: sanitizedSearch, $options: 'i' } }
       ];
     }
 
-    const skip = (page - 1) * limit;
-    const total = await User.countDocuments(query);
-    const pages = Math.ceil(total / limit) || 1;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 15));
+    const skip = (pageNum - 1) * limitNum;
 
-    const customers = await User.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit));
+    const [customers, total] = await Promise.all([
+      User.find(query)
+        .select('-password')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      User.countDocuments(query)
+    ]);
+
+    const pages = Math.ceil(total / limitNum) || 1;
 
     res.json({
       success: true,
       data: customers,
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
         pages,
-        hasNext: page < pages,
-        hasPrev: page > 1
+        hasNext: pageNum < pages,
+        hasPrev: pageNum > 1
       }
     });
   } catch (error) {
-    console.error('Get customers error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    next(error);
   }
 };
 
-// @desc    Create staff user
+// @desc    Invite staff user
+// @route   POST /api/users/invite
+// @access  Private/SuperAdmin
+exports.inviteStaffUser = async (req, res, next) => {
+  try {
+    const { email, role } = req.body;
+    const result = await AuthService.inviteStaff({
+      email,
+      role,
+      invitedBy: req.user._id,
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    await logActivity(req, 'STAFF_INVITE',
+      `Invited staff user ${email} with role ${role}`,
+      { email, role, invitationId: result.invitationId }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Staff invitation sent successfully',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    List staff invitations
+// @route   GET /api/users/invitations
+// @access  Private/SuperAdmin
+exports.listInvitations = async (req, res, next) => {
+  try {
+    const { status, page, limit } = req.query;
+    const result = await AuthService.listInvitations({ status, page, limit });
+    res.json({
+      success: true,
+      data: result.invitations,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Resend staff invitation
+// @route   POST /api/users/invitations/:id/resend
+// @access  Private/SuperAdmin
+exports.resendInvitation = async (req, res, next) => {
+  try {
+    const result = await AuthService.resendInvitation({
+      invitationId: req.params.id,
+      invitedBy: req.user._id,
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    res.json({
+      success: true,
+      message: 'Staff invitation resent successfully',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Revoke staff invitation
+// @route   DELETE /api/users/invitations/:id
+// @access  Private/SuperAdmin
+exports.revokeInvitation = async (req, res, next) => {
+  try {
+    const result = await AuthService.revokeInvitation({
+      invitationId: req.params.id,
+      revokedBy: req.user._id,
+      requestId: req.requestId,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    res.json({
+      success: true,
+      message: 'Staff invitation revoked successfully',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Create staff user (direct provisioning for scripts/superadmins)
 // @route   POST /api/users/staff
 // @access  Private/SuperAdmin
-exports.createStaffUser = async (req, res) => {
+exports.createStaffUser = async (req, res, next) => {
   try {
     const { fullName, email, phone, role, password } = req.body;
+    const normalizedEmail = (email || '').toLowerCase().trim();
 
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already exists with this email'
-      });
+    if (!STAFF_ROLES.includes(role)) {
+      throw new AppError(`Invalid staff role: ${role}`, 400, ERROR_CODES.AUTH_ROLE_NOT_FOUND);
     }
 
-    // 🌟 FIX: Pass plain text password. The pre('save') hook in User.js 
-    // will automatically hash it. Manual hashing here causes double-hashing!
+    const existingUser = await User.findOne({ email: normalizedEmail, isDeleted: false });
+    if (existingUser) {
+      throw new AppError('User already exists with this email', 400, ERROR_CODES.AUTH_EMAIL_EXISTS);
+    }
+
     const user = await User.create({
-      fullName,
-      email,
-      phone,
+      fullName: (fullName || '').trim(),
+      email: normalizedEmail,
+      phone: (phone || '').trim(),
       role,
-      password, // Plain text password
+      password,
       isVerified: true,
       isBlocked: false
     });
@@ -128,45 +230,63 @@ exports.createStaffUser = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Create staff user error:', error);
     if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'Email already in use' });
+      return next(new AppError('Email already in use', 400, ERROR_CODES.AUTH_EMAIL_EXISTS));
     }
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    next(error);
   }
 };
 
 // @desc    Update staff user role/status
 // @route   PUT /api/users/staff/:id
 // @access  Private/SuperAdmin
-exports.updateStaffUser = async (req, res) => {
+exports.updateStaffUser = async (req, res, next) => {
   try {
     const { role, isBlocked, fullName, phone } = req.body;
     const userId = req.params.id;
 
-    // Prevent self-modification
-    if (userId === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'You cannot modify your own account'
-      });
+    if (String(userId) === String(req.user._id || req.user.id)) {
+      throw new AppError('You cannot modify your own administrative role or status', 400, ERROR_CODES.AUTH_FORBIDDEN);
     }
 
     const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    if (!user || user.isDeleted) {
+      throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
     }
 
-    if (fullName) user.fullName = fullName;
-    if (phone) user.phone = phone;
-    if (role) user.role = role;
-    if (isBlocked !== undefined) user.isBlocked = isBlocked;
+    // Protect against demoting or blocking the last active SuperAdmin
+    if (user.role === CANONICAL_ROLES.SUPER_ADMIN && (role !== CANONICAL_ROLES.SUPER_ADMIN || isBlocked === true)) {
+      const activeSuperAdminCount = await User.countDocuments({
+        role: CANONICAL_ROLES.SUPER_ADMIN,
+        isBlocked: false,
+        isDeleted: false
+      });
+
+      if (activeSuperAdminCount <= 1) {
+        throw new AppError(
+          'Cannot demote or block the only active Super Admin account',
+          400,
+          ERROR_CODES.AUTH_SUPERADMIN_DEMOTION_FORBIDDEN
+        );
+      }
+    }
+
+    let roleOrStatusChanged = false;
+    if (fullName) user.fullName = fullName.trim();
+    if (phone !== undefined) user.phone = phone.trim();
+    if (role && STAFF_ROLES.includes(role) && user.role !== role) {
+      user.role = role;
+      roleOrStatusChanged = true;
+    }
+    if (isBlocked !== undefined && user.isBlocked !== isBlocked) {
+      user.isBlocked = Boolean(isBlocked);
+      roleOrStatusChanged = true;
+    }
+
+    if (roleOrStatusChanged) {
+      user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+      await SessionService.revokeAllSessions(user._id, 'ROLE_OR_STATUS_MODIFIED');
+    }
 
     await user.save();
 
@@ -184,40 +304,51 @@ exports.updateStaffUser = async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        isBlocked: user.isBlocked
+        isBlocked: user.isBlocked,
+        mfaEnabled: user.mfaEnabled
       }
     });
   } catch (error) {
-    console.error('Update staff user error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    next(error);
   }
 };
 
 // @desc    Delete staff user
 // @route   DELETE /api/users/staff/:id
 // @access  Private/SuperAdmin
-exports.deleteStaffUser = async (req, res) => {
+exports.deleteStaffUser = async (req, res, next) => {
   try {
     const userId = req.params.id;
 
-    if (userId === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'You cannot delete your own account'
-      });
+    if (String(userId) === String(req.user._id || req.user.id)) {
+      throw new AppError('You cannot delete your own account', 400, ERROR_CODES.AUTH_FORBIDDEN);
     }
 
-    const user = await User.findByIdAndDelete(userId);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted) {
+      throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
     }
+
+    if (user.role === CANONICAL_ROLES.SUPER_ADMIN) {
+      const activeSuperAdminCount = await User.countDocuments({
+        role: CANONICAL_ROLES.SUPER_ADMIN,
+        isBlocked: false,
+        isDeleted: false
+      });
+
+      if (activeSuperAdminCount <= 1) {
+        throw new AppError(
+          'Cannot delete the only active Super Admin account',
+          400,
+          ERROR_CODES.AUTH_SUPERADMIN_DEMOTION_FORBIDDEN
+        );
+      }
+    }
+
+    user.isDeleted = true;
+    user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+    await user.save();
+    await SessionService.revokeAllSessions(user._id, 'USER_DELETED');
 
     await logActivity(req, 'USER_DELETE', 
       `Deleted staff user: ${user.fullName}`, 
@@ -229,10 +360,17 @@ exports.deleteStaffUser = async (req, res) => {
       message: 'Staff user deleted successfully'
     });
   } catch (error) {
-    console.error('Delete staff user error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    next(error);
   }
+};
+
+// @desc    Get Roles & Permissions Matrix
+// @route   GET /api/users/roles-matrix
+// @access  Private/Staff
+exports.getRolesMatrix = (req, res) => {
+  const matrix = PolicyService.getAllRolePermissions();
+  res.json({
+    success: true,
+    data: matrix
+  });
 };

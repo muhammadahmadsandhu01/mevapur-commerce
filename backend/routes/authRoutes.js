@@ -113,4 +113,46 @@ router.post(
   changePassword
 );
 
+// Multi-Factor Authentication (MFA)
+router.post(
+  '/mfa/verify',
+  limiter,
+  require('../controllers/authController').verifyMfa
+);
+
+router.post(
+  '/mfa/setup',
+  csrfProtection,
+  protect,
+  require('../controllers/authController').setupMfa
+);
+
+router.post(
+  '/mfa/confirm',
+  csrfProtection,
+  protect,
+  require('../controllers/authController').confirmMfa
+);
+
+router.post(
+  '/mfa/disable',
+  csrfProtection,
+  protect,
+  require('../controllers/authController').disableMfa
+);
+
+router.post(
+  '/mfa/regenerate-recovery-codes',
+  csrfProtection,
+  protect,
+  require('../controllers/authController').regenerateRecoveryCodes
+);
+
+// Staff Invitation Acceptance
+router.post(
+  '/accept-invitation',
+  limiter,
+  require('../controllers/authController').acceptInvitation
+);
+
 module.exports = router;

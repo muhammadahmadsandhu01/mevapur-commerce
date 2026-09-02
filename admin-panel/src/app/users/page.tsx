@@ -17,8 +17,7 @@ import {
   Loader,
   X,
   Mail,
-  Phone,
-  Lock
+  Phone
 } from 'lucide-react';
 import api from '@/lib/api';
 import axios from 'axios';

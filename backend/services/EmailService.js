@@ -169,6 +169,62 @@ This is an automated security notification from ${config.brandName}.`;
   }
 
   /**
+   * Send Staff Invitation Email
+   */
+  async sendStaffInvitationEmail(email, role, token, options = {}) {
+    const { getRuntimeConfig } = require('../config/runtime.config');
+    const runtimeConfig = getRuntimeConfig();
+    const adminOrigin = runtimeConfig.origins.admin;
+
+    const inviteUrl = new URL('/accept-invitation', adminOrigin);
+    inviteUrl.searchParams.set('token', token);
+    const inviteLink = inviteUrl.toString();
+
+    const safeBrandName = this.escapeHtml(config.brandName);
+    const safeRole = this.escapeHtml(role.replace('_', ' ').toUpperCase());
+    const safeInviteLink = this.escapeHtml(inviteLink);
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Staff Invitation - ${safeBrandName}</title>
+  <style>
+    body { font-family: sans-serif; background-color: #f9f9f9; color: #333; margin: 0; padding: 20px; }
+    .container { max-width: 600px; background-color: #fff; border: 1px solid #ddd; padding: 40px; border-radius: 4px; margin: 0 auto; }
+    .header { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #111; text-align: center; }
+    .cta { display: block; width: 220px; margin: 30px auto; padding: 12px 24px; background-color: #0f172a; color: #fff; text-decoration: none; text-align: center; font-weight: bold; border-radius: 4px; }
+    .footer { font-size: 12px; color: #999; margin-top: 40px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">${safeBrandName} Staff Invitation</div>
+    <p>Hello,</p>
+    <p>You have been invited to join the <strong>${safeBrandName}</strong> administrative team with the role of <strong>${safeRole}</strong>.</p>
+    <p>Please click the button below to accept your invitation and set up your staff credentials:</p>
+    <a href="${safeInviteLink}" class="cta">Accept Invitation</a>
+    <p>This invitation link will expire in 48 hours.</p>
+    <div class="footer">
+      If you were not expecting this invitation, please disregard this email.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const text = `${config.brandName} Staff Invitation\n\nYou have been invited to join the ${config.brandName} administrative team as ${safeRole}.\n\nClick the link below to accept the invitation and set up your account:\n${inviteLink}\n\nThis link will expire in 48 hours.`;
+
+    const emailData = {
+      to: email,
+      subject: `Staff Invitation - ${config.brandName}`,
+      html,
+      text
+    };
+
+    return await this.send(emailData);
+  }
+
+  /**
    * Send Welcome Email
    */
   async sendWelcomeEmail(email, fullName) {

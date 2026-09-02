@@ -86,6 +86,15 @@ exports.login = async (req, res, next) => {
       ...getClientInfo(req),
       deviceInfo: getDeviceInfo(req)
     });
+
+    if (result.mfaRequired) {
+      return success(req, res, 200, 'MFA verification required', {
+        mfaRequired: true,
+        mfaToken: result.mfaToken,
+        user: result.user
+      });
+    }
+
     const csrfToken = issueCsrfToken(res);
     setRefreshCookie(res, result.refreshToken);
 
@@ -225,6 +234,107 @@ exports.changePassword = async (req, res, next) => {
     });
     clearAuthCookies(res);
     return success(req, res, 200, 'Password changed successfully');
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.verifyMfa = async (req, res, next) => {
+  try {
+    const result = await AuthService.verifyMfaLogin({
+      ...req.body,
+      ...getClientInfo(req),
+      deviceInfo: getDeviceInfo(req)
+    });
+    const csrfToken = issueCsrfToken(res);
+    setRefreshCookie(res, result.refreshToken);
+
+    return success(req, res, 200, 'MFA verification successful', {
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+      csrfToken
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.setupMfa = async (req, res, next) => {
+  try {
+    const result = await AuthService.setupMfa({
+      userId: req.auth.userId,
+      ...getClientInfo(req)
+    });
+    return success(req, res, 200, 'MFA setup initiated', result);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.confirmMfa = async (req, res, next) => {
+  try {
+    const result = await AuthService.confirmMfa({
+      userId: req.auth.userId,
+      code: req.body.code,
+      ...getClientInfo(req)
+    });
+    return success(req, res, 200, 'MFA successfully enabled and enrolled', result);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.disableMfa = async (req, res, next) => {
+  try {
+    const targetUserId = req.params.userId || req.auth.userId;
+    const result = await AuthService.disableMfa({
+      userId: targetUserId,
+      password: req.body.password,
+      code: req.body.code,
+      currentUserId: req.auth.userId,
+      currentUserRole: req.user.role,
+      ...getClientInfo(req)
+    });
+    if (String(targetUserId) === String(req.auth.userId)) {
+      clearAuthCookies(res);
+    }
+    return success(req, res, 200, 'MFA disabled successfully', result);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.regenerateRecoveryCodes = async (req, res, next) => {
+  try {
+    const result = await AuthService.regenerateRecoveryCodes({
+      userId: req.auth.userId,
+      password: req.body.password,
+      code: req.body.code,
+      ...getClientInfo(req)
+    });
+    return success(req, res, 200, 'Recovery codes regenerated', result);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.acceptInvitation = async (req, res, next) => {
+  try {
+    const result = await AuthService.acceptInvitation({
+      ...req.body,
+      ...getClientInfo(req),
+      deviceInfo: getDeviceInfo(req)
+    });
+    const csrfToken = issueCsrfToken(res);
+    setRefreshCookie(res, result.refreshToken);
+
+    return success(req, res, 201, 'Invitation accepted successfully', {
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+      csrfToken
+    });
   } catch (error) {
     return next(error);
   }
