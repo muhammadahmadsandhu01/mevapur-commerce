@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { 
-  History, Search, Calendar, Monitor, AlertCircle, Loader, 
-  Download, Trash2, ChevronLeft, ChevronRight, CheckCircle, 
+import { useEffect, useState, useCallback } from 'react';
+import {
+  History, Search, Calendar, Monitor, AlertCircle, Loader,
+  Download, ChevronLeft, ChevronRight, CheckCircle,
   XCircle, Activity, User
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -44,6 +44,7 @@ interface ActivityLogStats {
 export default function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -51,39 +52,33 @@ export default function ActivityLogsPage() {
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [stats, setStats] = useState<ActivityLogStats | null>(null);
-  const [cleaning, setCleaning] = useState(false);
 
-  useEffect(() => {
-    fetchLogs();
-    fetchStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, search, actionFilter, dateFrom, dateTo]);
-
-  async function fetchLogs() {
+  const fetchLogs = useCallback(async () => {
     try {
       setLoading(true);
       const params: Record<string, string | number> = {
         page: currentPage,
         limit: 20
       };
-      if (search) params.search = search;
+      if (search.trim()) params.search = search.trim();
       if (actionFilter) params.action = actionFilter;
       if (dateFrom) params.startDate = dateFrom;
       if (dateTo) params.endDate = dateTo;
 
       const response = await api.get('/activity-logs', { params });
       if (response.data.success) {
-        setLogs(response.data.data);
-        setPagination(response.data.pagination);
+        setLogs(response.data.data || []);
+        setPagination(response.data.pagination || null);
       }
     } catch (error) {
       console.error('Error fetching logs:', error);
+      setLogs([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, [currentPage, search, actionFilter, dateFrom, dateTo]);
 
-  async function fetchStats() {
+  const fetchStats = useCallback(async () => {
     try {
       const response = await api.get('/activity-logs/stats');
       if (response.data.success) {
@@ -92,35 +87,37 @@ export default function ActivityLogsPage() {
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
-  }
+  }, []);
 
-  const handleCleanup = async () => {
-    if (!confirm('Are you sure you want to delete logs older than 90 days? This action cannot be undone.')) return;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetchLogs();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchLogs]);
 
-    setCleaning(true);
-    try {
-      const response = await api.delete('/activity-logs/cleanup', { data: { days: 90 } });
-      if (response.data.success) {
-        alert(`Successfully deleted ${response.data.data.deletedCount} old logs.`);
-        await fetchLogs();
-        await fetchStats();
-      }
-    } catch (error) {
-      console.error('Error cleaning up logs:', error);
-      alert('Failed to cleanup logs.');
-    } finally {
-      setCleaning(false);
-    }
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetchStats();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchStats]);
 
   const handleExport = async () => {
+    setExporting(true);
     try {
-      const params: Record<string, string | number> = { limit: 10000 };
-      if (search) params.search = search;
+      const params: Record<string, string | number> = {};
+      if (search.trim()) params.search = search.trim();
       if (actionFilter) params.action = actionFilter;
-      
-      const response = await api.get('/activity-logs/export', { params, responseType: 'blob' });
-      const blob = new Blob([response.data], { type: 'text/csv' });
+      if (dateFrom) params.startDate = dateFrom;
+      if (dateTo) params.endDate = dateTo;
+
+      const response = await api.get('/activity-logs/export', {
+        params,
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -129,9 +126,22 @@ export default function ActivityLogsPage() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error exporting logs:', error);
-      alert('Failed to export logs.');
+      const err = error as { response?: { data?: Blob } };
+      if (err.response?.data instanceof Blob) {
+        const text = await err.response.data.text();
+        try {
+          const parsed = JSON.parse(text);
+          alert(parsed.message || 'Export failed');
+        } catch {
+          alert('Export failed. Please refine your date range or filters.');
+        }
+      } else {
+        alert('Failed to export activity logs.');
+      }
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -148,23 +158,9 @@ export default function ActivityLogsPage() {
   const getActionColor = (action: string) => {
     if (action.includes('CREATE') || action.includes('APPROVE')) return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', icon: CheckCircle };
     if (action.includes('UPDATE')) return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: Activity };
-    if (action.includes('DELETE') || action.includes('REJECT')) return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', icon: XCircle };
+    if (action.includes('DELETE') || action.includes('REJECT') || action.includes('ERASE')) return { bg: 'rgba(220, 38, 38, 0.1)', color: 'var(--danger-text)', icon: XCircle };
     if (action.includes('LOGIN') || action.includes('LOGOUT')) return { bg: 'var(--info-light)', color: 'var(--info-text)', icon: User };
     return { bg: 'var(--bg-primary)', color: 'var(--text-secondary)', icon: History };
-  };
-
-  const getActionIcon = (action: string) => {
-    if (action.includes('LOGIN')) return '🔐';
-    if (action.includes('LOGOUT')) return '🚪';
-    if (action.includes('PRODUCT')) return '📦';
-    if (action.includes('ORDER')) return '🛒';
-    if (action.includes('CUSTOMER')) return '👤';
-    if (action.includes('CATEGORY')) return '📂';
-    if (action.includes('BRAND')) return '🏷️';
-    if (action.includes('REVIEW')) return '⭐';
-    if (action.includes('COUPON')) return '🎟️';
-    if (action.includes('SETTINGS')) return '⚙️';
-    return '📝';
   };
 
   return (
@@ -174,55 +170,35 @@ export default function ActivityLogsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h1 style={{ fontSize: '32px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
-              Activity Logs
+              Activity Feed & Audit
             </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              Track all admin actions, system events, and security activities.
+              Operational stream of administrative and system activities with 90-day retention and export capabilities.
             </p>
           </div>
-          
+
           <div style={{ display: 'flex', gap: '12px' }}>
             <button
               onClick={handleExport}
+              disabled={exporting}
               style={{
                 backgroundColor: 'var(--card-bg)',
                 color: 'var(--text-primary)',
                 padding: '12px 20px',
                 borderRadius: '10px',
                 border: '1px solid var(--border-color)',
-                cursor: 'pointer',
+                cursor: exporting ? 'not-allowed' : 'pointer',
                 fontWeight: '600',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
                 fontSize: '14px',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
-              onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--card-bg)'}
-            >
-              <Download size={18} /> Export CSV
-            </button>
-            <button
-              onClick={handleCleanup}
-              disabled={cleaning}
-              style={{
-                backgroundColor: cleaning ? '#9CA3AF' : '#DC2626',
-                color: 'white',
-                padding: '12px 20px',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: cleaning ? 'not-allowed' : 'pointer',
-                fontWeight: '600',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                opacity: exporting ? 0.7 : 1
               }}
             >
-              {cleaning ? <Loader size={18} className="animate-spin" /> : <Trash2 size={18} />}
-              Cleanup Old Logs
+              {exporting ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={18} />}
+              Export CSV (Max 5k)
             </button>
           </div>
         </div>
@@ -235,7 +211,7 @@ export default function ActivityLogsPage() {
                 <History size={24} color="var(--info-text)" />
               </div>
               <div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Logs</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Feed Events</div>
                 <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.totalLogs || 0}</div>
               </div>
             </div>
@@ -291,7 +267,12 @@ export default function ActivityLogsPage() {
               <option value="PRODUCT_CREATE">Product Created</option>
               <option value="PRODUCT_UPDATE">Product Updated</option>
               <option value="PRODUCT_DELETE">Product Deleted</option>
-              <option value="ORDER_STATUS_UPDATE">Order Status Updated</option>
+              <option value="REVIEW_APPROVE">Review Approved</option>
+              <option value="REVIEW_REJECT">Review Rejected</option>
+              <option value="REVIEW_FLAG">Review Flagged</option>
+              <option value="REVIEW_REPLY">Review Replied</option>
+              <option value="COUPON_CREATE">Coupon Created</option>
+              <option value="COUPON_UPDATE">Coupon Updated</option>
               <option value="CUSTOMER_BLOCK">Customer Blocked</option>
               <option value="SETTINGS_UPDATE">Settings Updated</option>
             </select>
@@ -316,9 +297,9 @@ export default function ActivityLogsPage() {
               style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', outline: 'none' }}
             />
           </div>
-          
+
           <div>
-             <button
+            <button
               onClick={() => { setSearch(''); setActionFilter(''); setDateFrom(''); setDateTo(''); setCurrentPage(1); }}
               style={{ width: '100%', padding: '10px 14px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}
             >
@@ -331,7 +312,7 @@ export default function ActivityLogsPage() {
       {/* Logs Table */}
       {loading ? (
         <div style={{ backgroundColor: 'var(--card-bg)', padding: '60px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-          <Loader size={40} className="animate-spin" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: '#FF8A00' }} />
+          <Loader size={40} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: '#FF8A00' }} />
           <p style={{ color: 'var(--text-secondary)' }}>Loading activity logs...</p>
         </div>
       ) : logs.length === 0 ? (
@@ -356,11 +337,9 @@ export default function ActivityLogsPage() {
                   const actionColor = getActionColor(log.action);
                   const ActionIcon = actionColor.icon;
                   return (
-                    <tr 
-                      key={log._id} 
+                    <tr
+                      key={log._id}
                       style={{ borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
                       <td style={{ padding: '16px 20px' }}>
                         <span style={{
@@ -384,7 +363,7 @@ export default function ActivityLogsPage() {
                             {log.user?.fullName || 'System'}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {log.user?.role || 'Unknown Role'}
+                            {log.user?.role || 'system'}
                           </div>
                         </div>
                       </td>

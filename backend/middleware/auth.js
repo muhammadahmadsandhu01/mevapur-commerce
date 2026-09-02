@@ -180,3 +180,5 @@ exports.checkRoles = (...roles) => {
     return next();
   };
 };
+
+exports.requireRoles = exports.checkRoles;

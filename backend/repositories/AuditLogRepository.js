@@ -1,7 +1,11 @@
 const AuditLog = require('../models/AuditLog');
 
 class AuditLogRepository {
-  async create(data) {
+  async create(data, session = null) {
+    if (session) {
+      const [doc] = await AuditLog.create([data], { session });
+      return doc;
+    }
     return AuditLog.create(data);
   }
 

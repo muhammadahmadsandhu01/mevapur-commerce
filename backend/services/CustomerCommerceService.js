@@ -8,6 +8,7 @@ const Notification = require('../models/Notification');
 const Order = require('../models/Order');
 const MarketService = require('./MarketService');
 const ReturnService = require('./ReturnService');
+const ReviewService = require('./ReviewService');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 
@@ -73,16 +74,30 @@ class CustomerCommerceService {
   }
   async removeWishlist(userId, productId) { const result = await Wishlist.deleteOne({ user: userId, product: productId }); if (!result.deletedCount) throw new AppError('Wishlist item not found', 404, ERROR_CODES.CUSTOMER_WISHLIST_NOT_FOUND); }
 
-  async listPublicReviews(productId, query) { const [items, total, summary] = await Promise.all([Review.find({ product: productId, isApproved: true, isFlagged: false }).populate('user', 'fullName').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit), Review.countDocuments({ product: productId, isApproved: true, isFlagged: false }), Review.aggregate([{ $match: { product: require('mongoose').Types.ObjectId.createFromHexString(productId), isApproved: true, isFlagged: false } }, { $group: { _id: null, averageRating: { $avg: '$rating' }, count: { $sum: 1 } } }])]); return { reviews: items.map((item) => ({ id: String(item._id), rating: item.rating, title: item.title, comment: item.comment, isVerifiedPurchase: item.isVerifiedPurchase, createdAt: item.createdAt, user: { fullName: item.user?.fullName || 'Customer' }, adminReply: item.adminReply || '' })), pagination: { page: query.page, limit: query.limit, total }, summary: { count: summary[0]?.count || 0, averageRating: summary[0]?.averageRating || 0 } }; }
-  async submitReview(userId, input) {
-    const purchased = await Order.exists({ user: userId, orderStatus: 'Delivered', 'items.product': input.productId });
-    if (!purchased) throw new AppError('A delivered purchase is required to review this product', 403, ERROR_CODES.CUSTOMER_REVIEW_NOT_ELIGIBLE);
-    const product = await Product.findOne({ _id: input.productId, isActive: true }); if (!product) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
-    try { return await Review.create({ product: input.productId, user: userId, rating: input.rating, title: input.title || '', comment: input.comment, isVerifiedPurchase: true, isApproved: false }); }
-    catch (error) { if (error?.code === 11000) throw new AppError('You have already reviewed this product', 409, ERROR_CODES.CUSTOMER_REVIEW_EXISTS); throw error; }
+  async listPublicReviews(productId, query) {
+    return await ReviewService.listPublicReviews(productId, query);
   }
-  async updateReview(userId, reviewId, input) { const review = await Review.findOne({ _id: reviewId, user: userId }); if (!review) throw new AppError('Review not found', 404, ERROR_CODES.CUSTOMER_REVIEW_NOT_FOUND); if (input.rating !== undefined) review.rating = input.rating; if (input.title !== undefined) review.title = input.title; if (input.comment !== undefined) review.comment = input.comment; review.isApproved = false; await review.save(); return review; }
-  async deleteReview(userId, reviewId) { const result = await Review.deleteOne({ _id: reviewId, user: userId }); if (!result.deletedCount) throw new AppError('Review not found', 404, ERROR_CODES.CUSTOMER_REVIEW_NOT_FOUND); }
+  async submitReview(userId, input) {
+    return await ReviewService.submitReview({
+      userId,
+      productId: input.productId,
+      rating: input.rating,
+      title: input.title,
+      comment: input.comment
+    });
+  }
+  async updateReview(userId, reviewId, input) {
+    return await ReviewService.updateCustomerReview({
+      userId,
+      reviewId,
+      rating: input.rating,
+      title: input.title,
+      comment: input.comment
+    });
+  }
+  async deleteReview(userId, reviewId) {
+    await ReviewService.withdrawCustomerReview({ userId, reviewId });
+  }
 
   async listReturns(userId, query) { const result = await Return.find({ customer: userId }).sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { returns: result.map(returnView), total: await Return.countDocuments({ customer: userId }) }; }
   async requestReturn(userId, input) {

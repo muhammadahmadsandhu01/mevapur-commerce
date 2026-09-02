@@ -1,8 +1,8 @@
 const AuditLogRepository = require('../repositories/AuditLogRepository');
-const logger = require('../common/utils/logger'); // Path fixed here
+const logger = require('../common/utils/logger');
 const { v4: uuidv4 } = require('uuid');
 
-const SENSITIVE_KEYS = new Set([
+const SENSITIVE_KEY_PATTERNS = [
   'password',
   'currentpassword',
   'newpassword',
@@ -13,20 +13,57 @@ const SENSITIVE_KEYS = new Set([
   'authorization',
   'cookie',
   'cookies',
-  'secret'
-]);
+  'secret',
+  'cvv',
+  'creditcard',
+  'cardnumber',
+  'accountnumber',
+  'apikey',
+  'privatekey'
+];
 
-const redact = (value, key = '') => {
-  if (SENSITIVE_KEYS.has(String(key).toLowerCase())) return '[REDACTED]';
-  if (Array.isArray(value)) return value.map((item) => redact(item));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([childKey, childValue]) => [
-        childKey,
-        redact(childValue, childKey)
-      ])
-    );
+const isSensitiveKey = (key = '') => {
+  const normalized = String(key).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => normalized.includes(pattern));
+};
+
+const sanitizeString = (str, maxLen = 500) => {
+  if (typeof str !== 'string') return str;
+  // Neutralize CRLF and control characters to prevent log forging
+  const neutralized = str.replace(/[\r\n\x00-\x1F\x7F]+/g, ' ').trim();
+  return neutralized.slice(0, maxLen);
+};
+
+const sanitizeUrlTokens = (urlStr) => {
+  if (typeof urlStr !== 'string') return urlStr;
+  return urlStr.replace(/([?&](token|key|secret|password|auth)=)[^&]+/gi, '$1[REDACTED]');
+};
+
+const deepSanitizeAndRedact = (value, key = '', depth = 0) => {
+  if (depth > 5) return '[MAX_DEPTH]';
+  if (isSensitiveKey(key)) return '[REDACTED]';
+
+  if (typeof value === 'string') {
+    return sanitizeString(sanitizeUrlTokens(value));
   }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((item) => deepSanitizeAndRedact(item, key, depth + 1));
+  }
+
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const sanitizedObj = {};
+    const entries = Object.entries(value).slice(0, 50);
+    for (const [childKey, childValue] of entries) {
+      if (isSensitiveKey(childKey)) {
+        sanitizedObj[childKey] = '[REDACTED]';
+      } else {
+        sanitizedObj[childKey] = deepSanitizeAndRedact(childValue, childKey, depth + 1);
+      }
+    }
+    return sanitizedObj;
+  }
+
   return value;
 };
 
@@ -43,29 +80,29 @@ class AuditService {
     metadata = {},
     errorMessage = null,
     errorCode = null
-  }) {
+  }, session = null) {
     const normalizedEventName = eventName || action;
     const normalizedRequestId = requestId || uuidv4();
 
     try {
       const auditData = {
         eventId: uuidv4(),
-        requestId: normalizedRequestId,
+        requestId: sanitizeString(normalizedRequestId, 100),
         userId,
         sessionId,
         eventName: normalizedEventName,
-        status,
-        ipAddress,
-        userAgent,
-        metadata: redact(metadata),
-        errorMessage: errorMessage ? String(errorMessage).slice(0, 500) : null,
-        errorCode
+        status: status || 'SUCCESS',
+        ipAddress: sanitizeString(ipAddress, 100),
+        userAgent: sanitizeString(userAgent, 300),
+        metadata: deepSanitizeAndRedact(metadata),
+        errorMessage: errorMessage ? sanitizeString(String(errorMessage), 500) : null,
+        errorCode: errorCode ? sanitizeString(String(errorCode), 100) : null
       };
 
-      const result = await AuditLogRepository.create(auditData);
+      const result = await AuditLogRepository.create(auditData, session);
 
       const logLevel = status === 'FAILURE' ? 'warn' : 'info';
-      logger[logLevel]('Authentication audit event recorded', {
+      logger[logLevel]('Authentication/Security audit event recorded', {
         eventName: normalizedEventName,
         userId,
         status,
@@ -74,11 +111,12 @@ class AuditService {
 
       return result;
     } catch (error) {
-      logger.error('Authentication audit write failed', {
+      logger.error('Audit write failed', {
         eventName: normalizedEventName,
         requestId: normalizedRequestId,
         errorName: error.name,
-        errorCode: error.code
+        errorCode: error.code,
+        message: error.message
       });
       return null;
     }

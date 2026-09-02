@@ -1,14 +1,19 @@
 const ActivityLog = require('../models/ActivityLog');
-const User = require('../models/User');
+const AuditService = require('../services/AuditService');
+const { formatCsv, safeContentDisposition } = require('../utils/csvHelper');
+const { AppError } = require('../common/errors/AppError');
+const ERROR_CODES = require('../constants/errorCodes');
 
-// @desc    Get all activity logs
+const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// @desc    Get all activity logs with server-side pagination
 // @route   GET /api/activity-logs
-// @access  Private/Admin
+// @access  Private (manager, admin, super_admin)
 exports.getActivityLogs = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       userId = '',
       action = '',
       resourceType = '',
@@ -16,6 +21,10 @@ exports.getActivityLogs = async (req, res) => {
       endDate = '',
       search = ''
     } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
 
     let query = {};
 
@@ -28,39 +37,38 @@ exports.getActivityLogs = async (req, res) => {
       if (startDate) query.createdAt.$gte = new Date(startDate);
       if (endDate) {
         const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999); // 🌟 Include the entire end day
+        end.setHours(23, 59, 59, 999);
         query.createdAt.$lte = end;
       }
     }
 
-    if (search) {
+    if (search && typeof search === 'string' && search.trim()) {
+      const sanitized = escapeRegex(search.trim().slice(0, 100));
       query.$or = [
-        { description: { $regex: search, $options: 'i' } },
-        { action: { $regex: search, $options: 'i' } },
-        { ipAddress: { $regex: search, $options: 'i' } }
+        { description: { $regex: sanitized, $options: 'i' } },
+        { action: { $regex: sanitized, $options: 'i' } }
       ];
     }
 
-    const skip = (page - 1) * limit;
     const total = await ActivityLog.countDocuments(query);
-    const pages = Math.ceil(total / limit) || 1;
+    const pages = Math.ceil(total / limitNum) || 1;
 
     const logs = await ActivityLog.find(query)
-      .populate('user', 'fullName email role')
-      .sort({ createdAt: -1 })
+      .populate('user', 'fullName role')
+      .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
-      .limit(Number(limit));
+      .limit(limitNum);
 
     res.json({
       success: true,
       data: logs,
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
         pages,
-        hasNext: page < pages,
-        hasPrev: page > 1
+        hasNext: pageNum < pages,
+        hasPrev: pageNum > 1
       }
     });
   } catch (error) {
@@ -69,13 +77,12 @@ exports.getActivityLogs = async (req, res) => {
   }
 };
 
-// @desc    Get activity log statistics
+// @desc    Get activity log statistics (global)
 // @route   GET /api/activity-logs/stats
-// @access  Private/Admin
+// @access  Private (manager, admin, super_admin)
 exports.getActivityLogStats = async (req, res) => {
   try {
     const totalLogs = await ActivityLog.countDocuments();
-    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayLogs = await ActivityLog.countDocuments({ createdAt: { $gte: today } });
@@ -84,38 +91,12 @@ exports.getActivityLogStats = async (req, res) => {
     thisWeek.setDate(thisWeek.getDate() - 7);
     const weekLogs = await ActivityLog.countDocuments({ createdAt: { $gte: thisWeek } });
 
-    // Get most active users
-    const activeUsers = await ActivityLog.aggregate([
-      { $match: { user: { $ne: null } } },
-      { $group: { _id: '$user', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 5 },
-      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-      { $project: { 
-          userId: '$_id', 
-          fullName: { $ifNull: ['$user.fullName', 'System'] }, 
-          email: { $ifNull: ['$user.email', 'N/A'] }, 
-          count: 1 
-        } 
-      }
-    ]);
-
-    // Get most common actions
-    const commonActions = await ActivityLog.aggregate([
-      { $group: { _id: '$action', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]);
-
     res.json({
       success: true,
       data: {
         totalLogs,
         todayLogs,
-        weekLogs,
-        activeUsers,
-        commonActions
+        weekLogs
       }
     });
   } catch (error) {
@@ -124,71 +105,103 @@ exports.getActivityLogStats = async (req, res) => {
   }
 };
 
-// @desc    Create activity log manually (if needed)
-// @route   POST /api/activity-logs
-// @access  Private/Admin
-exports.createActivityLog = async (req, res) => {
+// @desc    Export activity logs to CSV (Cap: 5000 records, overflow rejected)
+// @route   GET /api/activity-logs/export
+// @access  Private (admin, super_admin)
+exports.exportActivityLogs = async (req, res) => {
   try {
-    const { action, description, details, resourceType, resourceId } = req.body;
+    const {
+      search = '',
+      action = '',
+      resourceType = '',
+      startDate = '',
+      endDate = ''
+    } = req.query;
 
-    const log = await ActivityLog.create({
-      user: req.user.id,
-      action,
-      description,
-      details: details || {},
-      resourceType: resourceType || null,
-      resourceId: resourceId || null,
-      ipAddress: req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress,
-      userAgent: req.headers['user-agent'],
-      browser: getBrowser(req.headers['user-agent']),
-      os: getOS(req.headers['user-agent'])
+    let query = {};
+
+    if (action) query.action = action;
+    if (resourceType) query.resourceType = resourceType;
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const sanitized = escapeRegex(search.trim().slice(0, 100));
+      query.$or = [
+        { description: { $regex: sanitized, $options: 'i' } },
+        { action: { $regex: sanitized, $options: 'i' } }
+      ];
+    }
+
+    const matchCount = await ActivityLog.countDocuments(query);
+    const MAX_EXPORT_CAP = 5000;
+
+    if (matchCount > MAX_EXPORT_CAP) {
+      return res.status(400).json({
+        success: false,
+        code: 'EXPORT_LIMIT_EXCEEDED',
+        message: `Export matches ${matchCount} records, exceeding the 5,000 record cap. Please refine your date range or filters.`
+      });
+    }
+
+    const logs = await ActivityLog.find(query)
+      .populate('user', 'fullName role')
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(MAX_EXPORT_CAP);
+
+    const headers = [
+      'Timestamp',
+      'Event',
+      'Actor ID',
+      'Actor Name',
+      'Actor Role',
+      'Resource Type',
+      'Resource ID',
+      'Description',
+      'Request ID',
+      'Outcome'
+    ];
+
+    const rows = logs.map((log) => [
+      log.createdAt ? log.createdAt.toISOString() : '',
+      log.action || 'ACTIVITY',
+      log.user?._id ? String(log.user._id) : (log.user || 'system'),
+      log.user?.fullName || 'System',
+      log.user?.role || 'system',
+      log.resourceType || 'N/A',
+      log.resourceId ? String(log.resourceId) : 'N/A',
+      log.description || '',
+      req.requestId || 'N/A',
+      'SUCCESS'
+    ]);
+
+    const csvData = formatCsv(headers, rows);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `activity-logs-${dateStr}.csv`;
+
+    await AuditService.log({
+      eventName: 'ACTIVITY.EXPORTED',
+      userId: req.user.id,
+      status: 'SUCCESS',
+      metadata: {
+        recordsExported: rows.length,
+        filters: { action, resourceType, startDate, endDate, search }
+      }
     });
 
-    res.status(201).json({ success: true, message: 'Activity log created', data: log });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', safeContentDisposition(filename));
+    return res.status(200).send(csvData);
   } catch (error) {
-    console.error('Create activity log error:', error);
+    console.error('Export activity logs error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// @desc    Delete old activity logs manually (TTL handles this automatically, but this is for on-demand cleanup)
-// @route   DELETE /api/activity-logs/cleanup
-// @access  Private/SuperAdmin
-exports.cleanupActivityLogs = async (req, res) => {
-  try {
-    const { days = 90 } = req.body;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-
-    const result = await ActivityLog.deleteMany({ createdAt: { $lt: cutoffDate } });
-
-    res.json({
-      success: true,
-      message: `Deleted ${result.deletedCount} old activity logs`,
-      data: { deletedCount: result.deletedCount }
-    });
-  } catch (error) {
-    console.error('Cleanup activity logs error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Helper functions
-function getBrowser(userAgent) {
-  if (!userAgent) return 'Unknown';
-  if (userAgent.includes('Edg')) return 'Edge';
-  if (userAgent.includes('Chrome')) return 'Chrome';
-  if (userAgent.includes('Firefox')) return 'Firefox';
-  if (userAgent.includes('Safari')) return 'Safari';
-  return 'Other';
-}
-
-function getOS(userAgent) {
-  if (!userAgent) return 'Unknown';
-  if (userAgent.includes('Windows')) return 'Windows';
-  if (userAgent.includes('Mac OS X')) return 'macOS';
-  if (userAgent.includes('Linux')) return 'Linux';
-  if (userAgent.includes('Android')) return 'Android';
-  if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'iOS';
-  return 'Other';
-}

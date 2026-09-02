@@ -20,12 +20,21 @@ const reviewSchema = new mongoose.Schema({
   title: {
     type: String,
     maxlength: 100,
-    default: ''
+    default: '',
+    trim: true
   },
   comment: {
     type: String,
     required: true,
-    maxlength: 1000
+    maxlength: 1000,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected', 'flagged', 'withdrawn'],
+    default: 'pending',
+    required: true,
+    index: true
   },
   isVerifiedPurchase: {
     type: Boolean,
@@ -35,33 +44,59 @@ const reviewSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  isFlagged: { // 🌟 ADDED: Matches frontend admin panel exactly
+  isFlagged: {
     type: Boolean,
     default: false
   },
   reportReason: {
     type: String,
-    default: ''
+    default: '',
+    maxlength: 500
   },
   adminReply: {
     type: String,
-    default: ''
+    default: '',
+    maxlength: 1000,
+    trim: true
   },
   repliedAt: {
-    type: Date
+    type: Date,
+    default: null
   },
-  helpfulCount: { // 🌟 ADDED: For "X people found this helpful"
+  helpfulCount: {
     type: Number,
-    default: 0
+    default: 0,
+    min: 0
   }
 }, {
   timestamps: true
 });
 
-// Prevent duplicate reviews from same user on same product
+// Dual-write & compatibility pre-validate hook
+reviewSchema.pre('validate', function(next) {
+  // If status is present, synchronize legacy booleans
+  if (this.status) {
+    this.isApproved = (this.status === 'approved');
+    this.isFlagged = (this.status === 'flagged');
+  } else {
+    // If status is absent on legacy documents, derive status from legacy booleans
+    if (this.isFlagged) {
+      this.status = 'flagged';
+    } else if (this.isApproved) {
+      this.status = 'approved';
+    } else {
+      this.status = 'pending';
+    }
+  }
+  next();
+});
+
+// Prevent duplicate reviews from same user on same product (1 review per customer/product)
 reviewSchema.index({ product: 1, user: 1 }, { unique: true });
 
-// 🌟 Indexes for lightning-fast admin filtering
+// Composite indexes for lightning-fast public and moderation queries
+reviewSchema.index({ product: 1, status: 1, createdAt: -1 });
+reviewSchema.index({ status: 1, createdAt: -1 });
 reviewSchema.index({ isApproved: 1, createdAt: -1 });
 reviewSchema.index({ isFlagged: 1 });
 reviewSchema.index({ rating: 1 });

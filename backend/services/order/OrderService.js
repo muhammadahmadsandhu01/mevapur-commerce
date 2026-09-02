@@ -189,6 +189,9 @@ class OrderService {
         ) {
           throw error;
         }
+
+        const jitter = Math.floor(Math.random() * 50) + 25 * attempt;
+        await new Promise((resolve) => setTimeout(resolve, jitter));
       }
     }
 
@@ -264,6 +267,7 @@ class OrderService {
             subtotal,
             items: pricedItems,
             userId,
+            checkoutKey: idempotencyKey,
             session
           });
           const afterDiscount = this.roundMoney(
@@ -332,6 +336,14 @@ class OrderService {
               note: 'Order placed'
             }]
           }], { session });
+
+          if (coupon.checkoutKey) {
+            await CouponService.commitRedemption({
+              checkoutKey: coupon.checkoutKey,
+              orderId: order._id,
+              session
+            });
+          }
 
           await InventoryService.reserve(persistedItems, {
             session,
@@ -536,7 +548,12 @@ class OrderService {
       order.inventoryRestoredAt = new Date();
 
       if (order.coupon?.couponId) {
-        await CouponService.restoreUsage(order.coupon, order.user, session);
+        await CouponService.restoreUsage({
+          couponSnapshot: order.coupon,
+          userId: order.user,
+          releaseReason: 'order_cancelled',
+          session
+        });
         order.couponRestoredAt = new Date();
       }
 

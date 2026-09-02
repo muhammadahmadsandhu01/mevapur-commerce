@@ -1,24 +1,43 @@
 const express = require('express');
 const router = express.Router();
-const { protect, admin } = require('../middleware/auth');
+const { protect, requireRoles, superAdmin } = require('../middleware/auth');
 const {
   getReviews,
-  updateReview,      
-  deleteReview,
   getReviewStats,
-  reportReview
+  approveReview,
+  rejectReview,
+  flagReview,
+  replyReview,
+  reportReview,
+  resolveReport,
+  exceptionalErase,
+  updateReview,
+  deleteReview
 } = require('../controllers/reviewController');
 
-// Flagging changes moderation state and is therefore an admin operation.
-router.post('/:id/report', protect, admin, reportReview);
+// All review admin routes require authentication
+router.use(protect);
 
-// Admin routes
-router.get('/stats', protect, admin, getReviewStats);
-router.get('/', protect, admin, getReviews);
+// Global Stats & Listing
+router.get('/stats', requireRoles('support', 'manager', 'admin', 'super_admin'), getReviewStats);
+router.get('/', requireRoles('support', 'manager', 'admin', 'super_admin'), getReviews);
 
-// 🌟 Generic update route handles approve, reject, flag, and reply
-router.put('/:id', protect, admin, updateReview);
+// Customer Reporting (Canonical customer role only)
+router.post('/:id/reports', requireRoles('customer'), reportReview);
 
-router.delete('/:id', protect, admin, deleteReview);
+// Moderator Actions
+router.patch('/:id/approve', requireRoles('manager', 'admin', 'super_admin'), approveReview);
+router.patch('/:id/reject', requireRoles('manager', 'admin', 'super_admin'), rejectReview);
+router.patch('/:id/flag', requireRoles('manager', 'admin', 'super_admin'), flagReview);
+router.patch('/:id/reply', requireRoles('manager', 'admin', 'super_admin'), replyReview);
+router.patch('/:id/reports/:reportId/resolve', requireRoles('manager', 'admin', 'super_admin'), resolveReport);
+
+// SuperAdmin Exceptional Legal Erasure
+router.delete('/:id/exceptional-erase', superAdmin, exceptionalErase);
+
+// Legacy Compatibility Routes
+router.post('/:id/report', requireRoles('customer'), reportReview);
+router.put('/:id', requireRoles('manager', 'admin', 'super_admin'), updateReview);
+router.delete('/:id', requireRoles('admin', 'super_admin'), deleteReview);
 
 module.exports = router;

@@ -1,19 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const { protect, admin, superAdmin } = require('../middleware/auth');
+const { protect, requireRoles } = require('../middleware/auth');
 const {
   getActivityLogs,
   getActivityLogStats,
-  createActivityLog,
-  cleanupActivityLogs
+  exportActivityLogs
 } = require('../controllers/activityLogController');
 
-// All routes require authentication and admin role
-router.use(protect, admin);
+// All activity routes require authentication
+router.use(protect);
 
-router.get('/stats', getActivityLogStats);
-router.get('/', getActivityLogs);
-router.post('/', createActivityLog);
-router.delete('/cleanup', superAdmin, cleanupActivityLogs);
+// Specific sub-routes registered before parameterized routes
+router.get('/export', requireRoles('admin', 'super_admin'), exportActivityLogs);
+router.get('/stats', requireRoles('manager', 'admin', 'super_admin'), getActivityLogStats);
+router.get('/', requireRoles('manager', 'admin', 'super_admin'), getActivityLogs);
 
 module.exports = router;
