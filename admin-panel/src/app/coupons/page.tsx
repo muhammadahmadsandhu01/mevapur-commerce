@@ -494,6 +494,7 @@ function CouponsPageContent() {
                     <button
                       onClick={() => handleCopy(coupon.code, coupon._id)}
                       title="Copy code"
+                      aria-label={`Copy coupon code ${coupon.code}`}
                       style={{
                         padding: '6px',
                         backgroundColor: 'transparent',
@@ -502,7 +503,7 @@ function CouponsPageContent() {
                         cursor: 'pointer'
                       }}
                     >
-                      {copiedId === coupon._id ? <CheckCircle size={16} /> : <Copy size={16} />}
+                      {copiedId === coupon._id ? <CheckCircle size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
                     </button>
                   </div>
 

@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { 
-  Users, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Search, 
-  Shield, 
-  ShieldCheck, 
+import {
+  Users,
+  Plus,
+  Edit,
+  Trash2,
+  Search,
+  Shield,
+  ShieldCheck,
   ShieldAlert,
   UserCheck,
   UserX,
@@ -43,7 +43,7 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  
+
   const [formData, setFormData] = useState<{
     fullName: string;
     email: string;
@@ -82,7 +82,7 @@ export default function UsersPage() {
 
   const handleSubmit = async () => {
     setError('');
-    
+
     if (!formData.fullName || !formData.email || (!editingUser && !formData.password)) {
       setError('Please fill all required fields');
       return;
@@ -209,9 +209,9 @@ export default function UsersPage() {
       <div style={{ marginBottom: '32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
-            <h1 style={{ 
-              fontSize: '32px', 
-              fontWeight: '800', 
+            <h1 style={{
+              fontSize: '32px',
+              fontWeight: '800',
               color: 'var(--text-primary)',
               marginBottom: '8px'
             }}>
@@ -221,7 +221,7 @@ export default function UsersPage() {
               Manage admin users, roles, and permissions
             </p>
           </div>
-          
+
           <button
             onClick={() => {
               resetForm();
@@ -247,9 +247,9 @@ export default function UsersPage() {
         </div>
 
         {/* Role Info Cards */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: '16px',
           marginBottom: '24px'
         }}>
@@ -384,11 +384,11 @@ export default function UsersPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead style={{ backgroundColor: 'var(--bg-primary)' }}>
                 <tr>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Staff Member</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Role</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Status</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Joined</th>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Actions</th>
+                  <th scope="col" style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Staff Member</th>
+                  <th scope="col" style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Role</th>
+                  <th scope="col" style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Status</th>
+                  <th scope="col" style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Joined</th>
+                  <th scope="col" style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '600' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -396,8 +396,8 @@ export default function UsersPage() {
                   const roleConfig = getRoleConfig(user.role);
                   const RoleIcon = roleConfig.icon;
                   return (
-                    <tr 
-                      key={user._id} 
+                    <tr
+                      key={user._id}
                       style={{ borderBottom: '1px solid var(--border-color)' }}
                       onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
                       onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -472,6 +472,7 @@ export default function UsersPage() {
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button
                             onClick={() => openEditModal(user)}
+                            aria-label={`Edit ${user.fullName}`}
                             style={{
                               padding: '8px 12px',
                               backgroundColor: 'var(--info-light)',
@@ -486,10 +487,11 @@ export default function UsersPage() {
                               fontSize: '13px'
                             }}
                           >
-                            <Edit size={16} />
+                            <Edit size={16} aria-hidden="true" />
                           </button>
                           <button
                             onClick={() => handleToggleBlock(user)}
+                            aria-label={user.isBlocked ? `Unblock ${user.fullName}` : `Block ${user.fullName}`}
                             style={{
                               padding: '8px 12px',
                               backgroundColor: user.isBlocked ? '#16A34A' : '#6B7280',
@@ -504,10 +506,11 @@ export default function UsersPage() {
                               fontSize: '13px'
                             }}
                           >
-                            {user.isBlocked ? <UserCheck size={16} /> : <UserX size={16} />}
+                            {user.isBlocked ? <UserCheck size={16} aria-hidden="true" /> : <UserX size={16} aria-hidden="true" />}
                           </button>
                           <button
                             onClick={() => handleDelete(user._id)}
+                            aria-label={`Delete ${user.fullName}`}
                             style={{
                               padding: '8px 12px',
                               backgroundColor: '#DC2626',
@@ -522,7 +525,7 @@ export default function UsersPage() {
                               fontSize: '13px'
                             }}
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={16} aria-hidden="true" />
                           </button>
                         </div>
                       </td>
@@ -537,21 +540,25 @@ export default function UsersPage() {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '20px'
-        }} onClick={() => {
-          setShowModal(false);
-          setEditingUser(null);
-          resetForm();
-        }}>
-          <div 
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="staff-modal-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }} onClick={() => {
+            setShowModal(false);
+            setEditingUser(null);
+            resetForm();
+          }}>
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',
@@ -563,7 +570,7 @@ export default function UsersPage() {
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
+              <h2 id="staff-modal-title" style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
                 {editingUser ? 'Edit Staff Member' : 'Add New Staff Member'}
               </h2>
               <button
@@ -572,6 +579,7 @@ export default function UsersPage() {
                   setEditingUser(null);
                   resetForm();
                 }}
+                aria-label="Close dialog"
                 style={{
                   background: 'none',
                   border: 'none',
@@ -580,7 +588,7 @@ export default function UsersPage() {
                   padding: '8px'
                 }}
               >
-                <X size={24} />
+                <X size={24} aria-hidden="true" />
               </button>
             </div>
 

@@ -515,13 +515,13 @@ function InventoryContent() {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <th style={{ padding: '16px 20px', width: '40px' }}></th>
-                  <th style={{ padding: '16px 20px' }}>Product & Root SKU</th>
-                  <th style={{ padding: '16px 20px' }}>Category</th>
-                  <th style={{ padding: '16px 20px' }}>Current Stock</th>
-                  <th style={{ padding: '16px 20px' }}>Threshold</th>
-                  <th style={{ padding: '16px 20px' }}>Stock Status</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'right' }}>Actions</th>
+                  <th scope="col" style={{ padding: '16px 20px', width: '40px' }}><span className="sr-only">Expand</span></th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Product & Root SKU</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Category</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Current Stock</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Threshold</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Stock Status</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -537,9 +537,10 @@ function InventoryContent() {
                             {item.hasVariants && item.variants.length > 0 && (
                               <button
                                 onClick={() => toggleExpand(item._id)}
+                                aria-label={isExpanded ? `Collapse variants for ${item.product.name}` : `Expand variants for ${item.product.name}`}
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
                               >
-                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                {isExpanded ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
                               </button>
                             )}
                           </div>
@@ -617,11 +618,11 @@ function InventoryContent() {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                               <thead>
                                 <tr style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                                  <th style={{ padding: '8px 12px' }}>Variant SKU</th>
-                                  <th style={{ padding: '8px 12px' }}>Attributes</th>
-                                  <th style={{ padding: '8px 12px' }}>Stock</th>
-                                  <th style={{ padding: '8px 12px' }}>Status</th>
-                                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
+                                  <th scope="col" style={{ padding: '8px 12px' }}>Variant SKU</th>
+                                  <th scope="col" style={{ padding: '8px 12px' }}>Attributes</th>
+                                  <th scope="col" style={{ padding: '8px 12px' }}>Stock</th>
+                                  <th scope="col" style={{ padding: '8px 12px' }}>Status</th>
+                                  <th scope="col" style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
                                 </tr>
                               </thead>
                               <tbody>

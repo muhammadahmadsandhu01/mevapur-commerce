@@ -466,13 +466,13 @@ function CustomersListContent() {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <th style={{ padding: '16px 20px' }}>Customer</th>
-                  <th style={{ padding: '16px 20px' }}>Contact</th>
-                  <th style={{ padding: '16px 20px' }}>Orders</th>
-                  <th style={{ padding: '16px 20px' }}>Realized Spend</th>
-                  <th style={{ padding: '16px 20px' }}>Status</th>
-                  <th style={{ padding: '16px 20px' }}>Last Order</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'right' }}>Actions</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Customer</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Contact</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Orders</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Realized Spend</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Status</th>
+                  <th scope="col" style={{ padding: '16px 20px' }}>Last Order</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -524,6 +524,7 @@ function CustomersListContent() {
                             setShowDetails(true);
                           }}
                           title="View Details"
+                          aria-label={`View details for ${c.fullName}`}
                           style={{
                             padding: '8px',
                             backgroundColor: 'var(--bg-primary)',
@@ -533,12 +534,13 @@ function CustomersListContent() {
                             cursor: 'pointer'
                           }}
                         >
-                          <Eye size={16} />
+                          <Eye size={16} aria-hidden="true" />
                         </button>
                         {canEditProfile && (
                           <button
                             onClick={() => openProfileModal(c)}
                             title="Edit Profile"
+                            aria-label={`Edit profile for ${c.fullName}`}
                             style={{
                               padding: '8px',
                               backgroundColor: 'var(--bg-primary)',
@@ -548,13 +550,14 @@ function CustomersListContent() {
                               cursor: 'pointer'
                             }}
                           >
-                            <Edit size={16} />
+                            <Edit size={16} aria-hidden="true" />
                           </button>
                         )}
                         {canBlock && (
                           <button
                             onClick={() => openBlockDialog(c)}
                             title={c.isBlocked ? 'Unblock Customer' : 'Block Customer'}
+                            aria-label={c.isBlocked ? `Unblock ${c.fullName}` : `Block ${c.fullName}`}
                             style={{
                               padding: '8px',
                               backgroundColor: c.isBlocked ? 'rgba(22, 163, 74, 0.1)' : 'rgba(239, 68, 68, 0.1)',
@@ -564,7 +567,7 @@ function CustomersListContent() {
                               cursor: 'pointer'
                             }}
                           >
-                            {c.isBlocked ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                            {c.isBlocked ? <CheckCircle size={16} aria-hidden="true" /> : <XCircle size={16} aria-hidden="true" />}
                           </button>
                         )}
                       </div>

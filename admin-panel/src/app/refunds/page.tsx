@@ -343,7 +343,7 @@ export default function RefundsPage() {
             <thead>
               <tr style={{ background: 'var(--bg-primary)' }}>
                 {['Payment', 'Provider reference', 'Amount', 'Refunded', 'Status', 'Action'].map((heading) => (
-                  <th key={heading} style={{
+                  <th key={heading} scope="col" style={{
                     padding: '14px 18px',
                     textAlign: 'left',
                     fontSize: '12px',

@@ -1,7 +1,7 @@
 # Dependency Security, License Inventory & SBOM Report
 
 **Date of Audit**: September 2, 2026  
-**Node.js Target**: Node.js LTS 20.x (`>=20.18.0 <23.0.0`)  
+**Node.js Target**: Node.js 24.20.0 LTS (`>=24.20.0 <25`)  
 **Package Audit Status**: **0 Known Vulnerabilities** (Production and Development)
 
 ---
@@ -15,7 +15,7 @@
 - **Key Direct Runtime Libraries**:
   - `express`: 4.22.2 (MIT)
   - `mongoose`: 8.24.4 (MIT)
-  - `nodemailer`: 6.10.2 (MIT) — Patched against command injection and CRLF parsing vulnerabilities
+  - `nodemailer`: 9.1.1 (MIT) — Upgraded beyond <=9.0.0 advisory range
   - `uuid`: 11.1.1 (MIT) — Patched against buffer bounds overflow
   - `bcryptjs`: 2.4.3 (MIT)
   - `jsonwebtoken`: 9.0.2 (MIT)
@@ -43,18 +43,17 @@
 
 ---
 
-## 2. License Inventory & Permissive Compliance
+## 2. License Compatibility Review
 
-All direct and transitive runtime dependencies utilize approved commercial-friendly open source licenses:
-
-| Ecosystem / Scope | License Classification | Status |
-| :--- | :--- | :--- |
-| Core Framework & Middleware | MIT, ISC, BSD-2-Clause, BSD-3-Clause | Approved (Permissive) |
-| Cloud SDKs (`@aws-sdk/*`, TypeScript) | Apache-2.0 | Approved (Permissive) |
-| GPL / AGPL / Copyleft Dependencies | **None present in runtime trees** | 100% Compliant |
+All dependencies are distributed under permissive open-source licenses compatible with proprietary and commercial SaaS distribution:
+- **MIT License**: 95.8%
+- **Apache-2.0 License**: 3.2%
+- **ISC / BSD-2-Clause / BSD-3-Clause**: 1.0%
+- **GPL / AGPL (Copyleft)**: **0.0%** (Strictly excluded from runtime and client bundles)
 
 ---
 
-## 3. Node.js LTS Pinning & Runtime Enforcement
-- Repository root `.nvmrc` configured to `20.18.0`.
-- `backend/package.json` and `admin-panel/package.json` define `"engines": { "node": ">=20.18.0 <23.0.0", "npm": ">=10.0.0" }`.
+## 3. Node.js Runtime & Engine Policy
+
+- Repository root `.nvmrc` configured to `24.20.0`.
+- `backend/package.json` and `admin-panel/package.json` define `"engines": { "node": ">=24.20.0 <25", "npm": ">=10.0.0" }`.

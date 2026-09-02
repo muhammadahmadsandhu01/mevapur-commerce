@@ -103,10 +103,10 @@ export default function RolesPage() {
       </header>
 
       {loading ? (
-        <Loading label="Loading roles and permissions..." fullHeight />
+        <Loading label="Loading roles and permissions..." minHeight="300px" />
       ) : error ? (
         <div style={{ display: 'grid', gap: '16px', maxWidth: '600px', margin: '40px auto' }}>
-          <Alert variant="error" title="Roles unavailable">
+          <Alert type="error" title="Roles unavailable">
             {error}
           </Alert>
           <div style={{ textAlign: 'center' }}>
@@ -119,7 +119,7 @@ export default function RolesPage() {
         <>
           {undefinedAssignments.length > 0 && (
             <div style={{ marginBottom: '20px' }}>
-              <Alert variant="warning" title="Assignment roles without stored permission definitions">
+              <Alert type="warning" title="Assignment roles without stored permission definitions">
                 The User model permits {undefinedAssignments.map((role) => titleCase(role.name)).join(', ')}, but no matching Role documents were returned. They are shown as an architecture distinction, not merged with or granted the permissions below. Staff assignments remain under Staff Management.
               </Alert>
             </div>

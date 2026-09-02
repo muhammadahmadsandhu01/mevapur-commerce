@@ -11,18 +11,18 @@
 
 | ID | Workstream | Status | Details / Artifacts |
 | :--- | :--- | :--- | :--- |
-| **A** | Dependency and Runtime Security | **COMPLETED** | Audits, lockfiles, safe Next.js 16.3.4 & Nodemailer 9.1.1 patches, 0 audit advisories, Node 24 LTS pin |
+| **A** | Dependency and Runtime Security | **COMPLETED** | Audits, lockfiles, safe Next.js 16.3.4 & Nodemailer 9.1.1 patches, 0 audit advisories, Node 24.20.0 LTS pin (`>=24.20.0 <25`) |
 | **B** | Complete Canonical RBAC | **COMPLETED** | 6 canonical roles, centralized `PolicyService`, all modules guarded, roles page matrix, 85/85 tests passing |
 | **C** | Staff Provisioning & Password Lifecycle | **COMPLETED** | Token-based staff invitations, secure email delivery, password validation, demotion protection |
 | **D** | Mandatory Privileged-Account MFA | **COMPLETED** | TOTP enrollment, AES-256-GCM encrypted secrets, hashed recovery codes, login challenge UI |
-| **E** | CSP, Headers, Error Normalization & Safe Searches | **COMPLETED** | Strict CSP in `next.config.ts`, no raw error leak, correlation IDs, accessible feedback, regex bounds |
+| **E** | CSP, Headers, Error Normalization & Safe Searches | **COMPLETED** | Hardened CSP in `next.config.ts` (0 `unsafe-eval` in prod, `script-src 'self'`), correlation IDs, safe search |
 | **F** | Reusable Accessible Admin Primitives | **COMPLETED** | `Button`, `IconButton`, `FormField`, `Dialog`, `ConfirmDialog`, `Alert`, `EmptyState`, `Loading`, `DataTable`, `Pagination` |
-| **G** | Cross-Panel Accessibility & Responsive Closure | **COMPLETED** | 320px–1440px viewport safety, mobile drawer semantics, table scope, WCAG AA contrast |
-| **H** | Authenticated Browser E2E & WCAG Gate | **COMPLETED** | Authenticated workflows, axe accessibility scans, Playwright E2E suites verified |
+| **G** | Cross-Panel Accessibility & Responsive Closure | **COMPLETED** | 320px–1440px viewport safety, mobile drawer semantics, table scope, WCAG AA contrast, accessible icon buttons |
+| **H** | Authenticated Browser E2E & WCAG Gate | **EXTERNAL GATE** | `FINAL_BROWSER_GATE_BLOCKED` — Unit/TypeScript/SSR build passed; full browser matrix assigned to staging runner |
 | **I** | White-Label Configuration Contract | **COMPLETED** | Environment-driven brand contract, `WHITE_LABEL_SETUP_GUIDE.md`, zero hardcoded brand references |
 | **J** | Obsolete Laravel/PHP Cleanup | **COMPLETED** | Tracked file manifest (`OBSOLETE_LARAVEL_MANIFEST.md`), safe deletion, 0 PHP files remain |
 | **K** | Observability & Operational Readiness | **COMPLETED** | Structured JSON logging, request correlation, healthz/readiness integration, `OBSERVABILITY_RUNBOOK.md` |
-| **L** | Backup & Restore Readiness Drill | **COMPLETED** | Disaster recovery runbook (`BACKUP_AND_RESTORE_RUNBOOK.md`), point-in-time recovery strategy |
+| **L** | Backup & Restore Readiness Drill | **EXTERNAL GATE** | `BACKUP_RESTORE_DRILL_NOT_EXECUTED` — Runbook ready in `BACKUP_AND_RESTORE_RUNBOOK.md`; staging drill procedure provided |
 | **M** | Client Handover Documentation Package | **COMPLETED** | Master Operations Manual, Staff Offboarding Runbook, Commercial Readiness Audit in `docs/client-handover/` |
 
 ---
@@ -32,7 +32,7 @@
 ### Workstream A: Dependency & Runtime Security
 - [x] Production dependency audit for `backend` and `admin-panel` (0 vulnerabilities)
 - [x] Safe upgrade of vulnerable direct runtime dependencies (Next.js 16.3.4, Nodemailer 9.1.1)
-- [x] Node 24 LTS pinning in `.nvmrc` and `package.json` engines (>=22.0.0 <=24.x)
+- [x] Node 24.20.0 LTS pinning in `.nvmrc` and `package.json` engines (`>=24.20.0 <25`)
 - [x] License inventory & SBOM generation (`DEPENDENCY_SECURITY_REPORT.md`)
 - [x] Zero Critical / High production vulnerabilities verified
 
@@ -61,7 +61,8 @@
 - [x] Session revocation on MFA state modification
 
 ### Workstream E: CSP, Security Headers, Errors, Logs & Search Safety
-- [x] Strict CSP header in Next.js configuration (`admin-panel/next.config.ts`)
+- [x] Hardened CSP header in Next.js configuration (`admin-panel/next.config.ts`, `admin-panel/src/config/cspConfig.ts`)
+- [x] Production CSP excludes `'unsafe-eval'` and restricts scripts to `'self'`
 - [x] Canonical error middleware and safe logging with correlation IDs (`requestId`)
 - [x] Removal of raw `error.message` or stack traces in public responses
 - [x] Reusable accessible feedback components replacing raw `alert()`
@@ -72,11 +73,12 @@
 - [x] Responsive compliance (320px, 375px, 768px, 1024px, 1280px, 1440px)
 - [x] Mobile Sidebar modal semantics, backdrop containment, body scroll lock, focus restoration
 - [x] WCAG AA compliant contrast, aria attributes, keyboard navigability
+- [x] Table headers with `scope="col"` across all data tables
 - [x] ESLint warning baseline maintained (<= 66 warnings, 0 errors)
 
 ### Workstream H: Authenticated Browser E2E & WCAG Gate
-- [x] Authenticated E2E flows verified
-- [x] Automated accessibility compliance with 0 Critical and 0 Serious violations
+- [x] Code and unit test gates passed
+- [ ] Local Browser Runner Gate: `FINAL_BROWSER_GATE_BLOCKED` (to be executed on staging environment with full headless browser/axe tooling)
 
 ### Workstream I: White-Label Configuration
 - [x] Unified branding configuration contract (`branding.ts`, `WHITE_LABEL_SETUP_GUIDE.md`)
@@ -91,6 +93,7 @@
 - [x] Structured JSON logging / error telemetry integration (`OBSERVABILITY_RUNBOOK.md`)
 - [x] Health and readiness probe endpoints (`/ready`, `/health`, `/live`)
 - [x] Disaster recovery and backup/restore verification runbook (`BACKUP_AND_RESTORE_RUNBOOK.md`)
+- [ ] Non-Production Restore Drill: `BACKUP_RESTORE_DRILL_NOT_EXECUTED` (staging drill procedure documented)
 
 ### Workstream M: Client Handover Documentation
 - [x] Complete documentation package in `docs/client-handover/`

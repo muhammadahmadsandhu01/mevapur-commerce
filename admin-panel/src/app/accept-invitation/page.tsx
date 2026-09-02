@@ -138,7 +138,7 @@ function AcceptInvitationForm() {
 
         {error && (
           <div style={{ marginBottom: '20px' }}>
-            <Alert variant="error">
+            <Alert type="error">
               {error}
             </Alert>
           </div>
@@ -271,9 +271,9 @@ function AcceptInvitationForm() {
             type="submit"
             variant="primary"
             size="lg"
-            fullWidth
+            style={{ width: '100%', boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)' }}
             disabled={loading || !token}
-            loading={loading}
+            isLoading={loading}
           >
             {loading ? 'Activating Account...' : 'Complete Account Setup'}
           </Button>
