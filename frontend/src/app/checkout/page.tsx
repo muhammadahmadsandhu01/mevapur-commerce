@@ -80,7 +80,7 @@ export default function CheckoutPage() {
     'raast',
     'stripe',
   ]);
-  const [paymentMethod, setPaymentMethod] = useState<SupportedPaymentMethod>('cod');
+  const [paymentMethod, setPaymentMethod] = useState<SupportedPaymentMethod | ''>('cod');
 
   // Coupon State
   const [couponInput, setCouponInput] = useState('');
@@ -138,12 +138,18 @@ export default function CheckoutPage() {
               validCodes.push('stripe');
             }
           }
-          if (validCodes.length > 0) {
-            setAvailableMethods(validCodes);
-            setPaymentMethod((current) =>
-              validCodes.includes(current) ? current : validCodes[0]
-            );
-          }
+          setAvailableMethods(validCodes);
+          setPaymentMethod((current) => {
+            if (current && !validCodes.includes(current as SupportedPaymentMethod)) {
+              setToast({
+                message:
+                  'Your previously selected payment method is no longer available. Please choose an enabled payment method.',
+                type: 'error',
+              });
+              return '';
+            }
+            return current;
+          });
         }
       } catch {
         // Fall back safely without breaking checkout form
@@ -330,6 +336,12 @@ export default function CheckoutPage() {
 
     if (!validateAllFields()) {
       setToast({ message: 'Please fix the errors in the checkout form', type: 'error' });
+      return;
+    }
+
+    if (!paymentMethod || !availableMethods.includes(paymentMethod as SupportedPaymentMethod)) {
+      setErrors((prev) => ({ ...prev, paymentMethod: 'Please select an available payment method.' }));
+      setToast({ message: 'Please select an available payment method to continue.', type: 'error' });
       return;
     }
 
@@ -768,8 +780,13 @@ export default function CheckoutPage() {
 
             <button
               type="submit"
-              disabled={loading || availableItems.length === 0}
-              className="w-full flex min-h-[50px] items-center justify-center gap-2 rounded-xl bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-black text-base shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={
+                loading ||
+                availableItems.length === 0 ||
+                !paymentMethod ||
+                !availableMethods.includes(paymentMethod as SupportedPaymentMethod)
+              }
+              className="w-full flex min-h-[50px] items-center justify-center gap-2 rounded-xl bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-black text-base shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <>

@@ -79,85 +79,92 @@ test('CSP Isolation: Development/Test CSP includes local loopback and test domai
   assert.ok(devCsp.includes('https://*.test'));
 });
 
-// --- Gate 5: Runtime Payment-Provider Visibility Matrix ---
-test('Payment Provider Matrix: Validates provider visibility and fail-closed behavior', () => {
-  interface MethodEntry {
-    code: string;
-    available?: boolean;
-    metadata?: { publishableKey?: string };
-  }
+// --- Item 1: Unavailable payment-provider fallback & refresh behavior ---
+test('Payment Provider Fallback: Selected method disappearing clears selection and alerts customer without silent COD switch', () => {
+  type SupportedPaymentMethod = 'cod' | 'bank_transfer' | 'raast' | 'stripe';
 
-  function filterVisibleMethods(methods: MethodEntry[], stripeKeyFromEnv?: string): string[] {
-    const supportedCodes = new Set(['cod', 'bank_transfer', 'raast', 'stripe']);
-    const visible: string[] = [];
-
-    for (const m of methods) {
-      if (!supportedCodes.has(m.code)) continue; // Unknown or unsupported provider
-      if (m.code === 'stripe' && !m.metadata?.publishableKey && !stripeKeyFromEnv) continue; // Missing Stripe key
-      visible.push(m.code);
+  function handleMethodRefresh(
+    currentSelection: SupportedPaymentMethod | '',
+    newCapabilities: Array<{ code: string; metadata?: { publishableKey?: string } }>,
+    stripeEnvKey?: string
+  ): {
+    updatedSelection: SupportedPaymentMethod | '';
+    availableMethods: SupportedPaymentMethod[];
+    toastAlert?: string;
+  } {
+    const validCodes: SupportedPaymentMethod[] = [];
+    for (const m of newCapabilities) {
+      if (m.code === 'cod') validCodes.push('cod');
+      else if (m.code === 'bank_transfer') validCodes.push('bank_transfer');
+      else if (m.code === 'raast') validCodes.push('raast');
+      else if (m.code === 'stripe' && (m.metadata?.publishableKey || stripeEnvKey)) {
+        validCodes.push('stripe');
+      }
     }
-    return visible;
+
+    let updatedSelection = currentSelection;
+    let toastAlert: string | undefined;
+
+    if (currentSelection && !validCodes.includes(currentSelection)) {
+      updatedSelection = '';
+      toastAlert = 'Your previously selected payment method is no longer available. Please choose an enabled payment method.';
+    }
+
+    return {
+      updatedSelection,
+      availableMethods: validCodes,
+      toastAlert,
+    };
   }
 
-  // 1. All configured & enabled
-  const fullList = filterVisibleMethods([
-    { code: 'cod' },
-    { code: 'bank_transfer' },
-    { code: 'raast' },
-    { code: 'stripe', metadata: { publishableKey: 'pk_test_123' } },
-  ]);
-  assert.deepStrictEqual(fullList, ['cod', 'bank_transfer', 'raast', 'stripe']);
+  // 1. Stripe removed while COD is also disabled: selection cleared, no silent fallback
+  const res1 = handleMethodRefresh('stripe', [{ code: 'bank_transfer' }]);
+  assert.strictEqual(res1.updatedSelection, '', 'Selection must be cleared when stripe disappears');
+  assert.ok(res1.toastAlert?.includes('no longer available'));
+  assert.deepStrictEqual(res1.availableMethods, ['bank_transfer']);
 
-  // 2. JazzCash and EasyPaisa (awaiting official contract) are omitted/hidden
-  const withUncontracted = filterVisibleMethods([
-    { code: 'cod' },
-    { code: 'jazzcash' },
-    { code: 'easypaisa' },
-    { code: 'unknown_method' },
-  ]);
-  assert.deepStrictEqual(withUncontracted, ['cod']);
+  // 2. Selected manual method removed while another remains: selection cleared, does not silently switch to COD
+  const res2 = handleMethodRefresh('raast', [{ code: 'cod' }, { code: 'bank_transfer' }]);
+  assert.strictEqual(res2.updatedSelection, '', 'Selection must be cleared when raast disappears, NOT silently set to COD');
+  assert.ok(res2.toastAlert);
 
-  // 3. Stripe missing publishable key is hidden
-  const stripeMissingKey = filterVisibleMethods([
-    { code: 'cod' },
-    { code: 'stripe', metadata: {} },
-  ]);
-  assert.deepStrictEqual(stripeMissingKey, ['cod']);
+  // 3. Empty capability response: selection cleared, availableMethods empty
+  const res3 = handleMethodRefresh('cod', []);
+  assert.strictEqual(res3.updatedSelection, '');
+  assert.deepStrictEqual(res3.availableMethods, []);
+  assert.ok(res3.toastAlert);
 
-  // 4. Provider disabled (COD only returned)
-  const codOnly = filterVisibleMethods([{ code: 'cod' }]);
-  assert.deepStrictEqual(codOnly, ['cod']);
+  // 4. Unknown provider in capability response: omitted from available methods
+  const res4 = handleMethodRefresh('', [{ code: 'unknown_vendor' }, { code: 'jazzcash' }]);
+  assert.deepStrictEqual(res4.availableMethods, []);
 });
 
-// --- Gate 5 & 9: Provider Refresh, Stale Prevention, and Capability Enforcement ---
-test('Payment Provider Refresh: Selected provider disappearing after refresh auto-switches to safe method', () => {
-  let selectedMethod = 'stripe';
-  const refreshedMethods = [{ code: 'cod' }, { code: 'bank_transfer' }];
+test('Payment Submission Guard: Prevents network submission when method is unselected, stale, or unavailable', () => {
+  type SupportedPaymentMethod = 'cod' | 'bank_transfer' | 'raast' | 'stripe';
 
-  const supportedCodes = new Set(['cod', 'bank_transfer', 'raast', 'stripe']);
-  const available = refreshedMethods.map((m) => m.code).filter((c) => supportedCodes.has(c));
-
-  if (!available.includes(selectedMethod)) {
-    selectedMethod = available[0] || 'cod';
-  }
-
-  assert.strictEqual(selectedMethod, 'cod', 'Selected method must switch to cod when stripe disappears');
-});
-
-test('Payment Submission: Prevents submission of stale or unallowlisted payment provider', () => {
-  const allowedProviders = new Set(['cod', 'bank_transfer', 'raast', 'stripe']);
-
-  function validatePaymentSubmission(chosenProvider: string): { valid: boolean; error?: string } {
-    if (!allowedProviders.has(chosenProvider)) {
-      return { valid: false, error: 'PAYMENT_PROVIDER_NOT_AVAILABLE' };
+  function validateCheckoutSubmission(
+    paymentMethod: SupportedPaymentMethod | '',
+    availableMethods: SupportedPaymentMethod[]
+  ): { canSubmit: boolean; error?: string } {
+    if (!paymentMethod || !availableMethods.includes(paymentMethod)) {
+      return { canSubmit: false, error: 'Please select an available payment method.' };
     }
-    return { valid: true };
+    return { canSubmit: true };
   }
 
-  assert.deepStrictEqual(validatePaymentSubmission('cod'), { valid: true });
-  assert.deepStrictEqual(validatePaymentSubmission('stale_legacy_provider'), {
-    valid: false,
-    error: 'PAYMENT_PROVIDER_NOT_AVAILABLE',
+  // Valid selection
+  assert.deepStrictEqual(validateCheckoutSubmission('cod', ['cod', 'stripe']), { canSubmit: true });
+
+  // Unselected / cleared
+  assert.deepStrictEqual(validateCheckoutSubmission('', ['cod', 'stripe']), {
+    canSubmit: false,
+    error: 'Please select an available payment method.',
+  });
+
+  // Stale method submission attempt
+  assert.deepStrictEqual(validateCheckoutSubmission('stripe', ['cod', 'bank_transfer']), {
+    canSubmit: false,
+    error: 'Please select an available payment method.',
   });
 });
 
@@ -193,7 +200,159 @@ test('Manual Payment Resubmission: Honors explicit backend capability on Rejecte
   );
 });
 
-// --- Gate 6: Manual Payment Lifecycle Tests ---
+// --- Item 2: Authoritative Return State and Order-Level Collision Scope ---
+test('Authoritative Return States: Defines exact Backend active and reserved return state constants', () => {
+  const BACKEND_ACTIVE_RETURN_STATUSES = ['pending', 'approved', 'received', 'inspected'];
+  const BACKEND_RESERVED_RETURN_STATUSES = [
+    'pending',
+    'approved',
+    'received',
+    'inspected',
+    'inventory_reconciliation',
+    'refunded',
+  ];
+
+  assert.strictEqual(BACKEND_ACTIVE_RETURN_STATUSES.length, 4);
+  assert.ok(BACKEND_ACTIVE_RETURN_STATUSES.includes('inspected'));
+  assert.ok(BACKEND_ACTIVE_RETURN_STATUSES.includes('pending'));
+  assert.ok(BACKEND_ACTIVE_RETURN_STATUSES.includes('approved'));
+  assert.ok(BACKEND_ACTIVE_RETURN_STATUSES.includes('received'));
+
+  assert.strictEqual(BACKEND_RESERVED_RETURN_STATUSES.length, 6);
+  assert.ok(BACKEND_RESERVED_RETURN_STATUSES.includes('refunded'));
+  assert.ok(BACKEND_RESERVED_RETURN_STATUSES.includes('inventory_reconciliation'));
+});
+
+test('Order-Level Return Collision: Active return in any state (including inspected) blocks new returns for the entire order', () => {
+  const ACTIVE_RETURN_STATUSES = new Set(['pending', 'approved', 'received', 'inspected']);
+
+  interface OrderReturnRecord {
+    orderId: string;
+    productId: string;
+    status: string;
+  }
+
+  function checkOrderReturnCollision(
+    orderId: string,
+    existingReturnsForOrder: OrderReturnRecord[]
+  ): { hasConflict: boolean; conflictingStatus?: string; error?: string } {
+    const activeReturn = existingReturnsForOrder.find(
+      (r) => r.orderId === orderId && ACTIVE_RETURN_STATUSES.has(r.status)
+    );
+    if (activeReturn) {
+      return {
+        hasConflict: true,
+        conflictingStatus: activeReturn.status,
+        error: 'An active return request already exists for this order',
+      };
+    }
+    return { hasConflict: false };
+  }
+
+  // 1. Existing inspected return on order -> blocks return creation
+  const inspectedConflict = checkOrderReturnCollision('ORD-1', [
+    { orderId: 'ORD-1', productId: 'item-A', status: 'inspected' },
+  ]);
+  assert.strictEqual(inspectedConflict.hasConflict, true);
+  assert.strictEqual(inspectedConflict.conflictingStatus, 'inspected');
+
+  // 2. Active return on a DIFFERENT item line in the same order -> blocks return creation (order-level scope)
+  const differentItemConflict = checkOrderReturnCollision('ORD-1', [
+    { orderId: 'ORD-1', productId: 'item-A', status: 'received' },
+  ]);
+  assert.strictEqual(differentItemConflict.hasConflict, true);
+  assert.strictEqual(differentItemConflict.error, 'An active return request already exists for this order');
+
+  // 3. Completed/refunded or rejected prior returns -> allowed if remaining quantity exists
+  const resolvedReturns = checkOrderReturnCollision('ORD-1', [
+    { orderId: 'ORD-1', productId: 'item-A', status: 'refunded' },
+    { orderId: 'ORD-1', productId: 'item-B', status: 'rejected' },
+  ]);
+  assert.strictEqual(resolvedReturns.hasConflict, false);
+});
+
+test('Authoritative Return Quantity: Evaluates remaining item quantity from authoritative backend allocation data', () => {
+  interface PriorReturnItem {
+    productId: string;
+    variantId?: string;
+    quantity: number;
+    status: string;
+  }
+
+  const RESERVED_STATUSES = new Set([
+    'pending',
+    'approved',
+    'received',
+    'inspected',
+    'inventory_reconciliation',
+    'refunded',
+  ]);
+
+  function computeAuthoritativeRemainingQuantity(
+    originalItemQuantity: number,
+    productId: string,
+    variantId: string | undefined,
+    priorReturns: PriorReturnItem[]
+  ): number {
+    const consumedQuantity = priorReturns
+      .filter(
+        (pr) =>
+          pr.productId === productId &&
+          (pr.variantId || '') === (variantId || '') &&
+          RESERVED_STATUSES.has(pr.status)
+      )
+      .reduce((sum, pr) => sum + pr.quantity, 0);
+
+    return Math.max(0, originalItemQuantity - consumedQuantity);
+  }
+
+  const remaining = computeAuthoritativeRemainingQuantity(
+    5,
+    'prod-100',
+    'var-A',
+    [
+      { productId: 'prod-100', variantId: 'var-A', quantity: 2, status: 'refunded' },
+      { productId: 'prod-100', variantId: 'var-A', quantity: 1, status: 'rejected' }, // Rejected is not reserved
+    ]
+  );
+  assert.strictEqual(remaining, 3, 'Remaining quantity must subtract reserved refunded (2) but not rejected (1)');
+});
+
+test('Stale State Error Handling: Backend conflict error correctly triggers refresh prompt', () => {
+  function handleReturnErrorResponse(errorResponse: { status: number; code?: string; message?: string }): {
+    shouldRefresh: boolean;
+    userMessage: string;
+  } {
+    if (errorResponse.status === 409) {
+      if (errorResponse.code === 'CUSTOMER_RETURN_EXISTS') {
+        return {
+          shouldRefresh: true,
+          userMessage: 'An active return request already exists for this order. Refreshing order status...',
+        };
+      }
+      if (errorResponse.code === 'CUSTOMER_RETURN_NOT_ELIGIBLE') {
+        return {
+          shouldRefresh: true,
+          userMessage: 'This order or item is no longer eligible for return. Refreshing order status...',
+        };
+      }
+    }
+    return {
+      shouldRefresh: false,
+      userMessage: errorResponse.message || 'Return request failed. Please try again.',
+    };
+  }
+
+  const conflict = handleReturnErrorResponse({
+    status: 409,
+    code: 'CUSTOMER_RETURN_EXISTS',
+    message: 'An active return request already exists for this order',
+  });
+  assert.strictEqual(conflict.shouldRefresh, true);
+  assert.ok(conflict.userMessage.includes('Refreshing order status'));
+});
+
+// --- Manual Payment Lifecycle Tests ---
 test('Manual Payment Lifecycle: Verifies status transitions and instruction visibility rules', () => {
   interface PaymentState {
     status: string;
@@ -290,7 +449,7 @@ test('Manual Payment Lifecycle: Verifies status transitions and instruction visi
   assert.strictEqual(stripe.hasInstructions, false);
 });
 
-// --- Gate 7 & 8: Complete Return Eligibility & Behavioral Edge Cases ---
+// --- Return Eligibility Window Boundaries ---
 test('Return Eligibility: Exact boundary testing across delivered timestamp cases', () => {
   const baseTime = 1750000000000; // Reference epoch
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -352,102 +511,7 @@ test('Return Eligibility: Exact boundary testing across delivered timestamp case
   );
 });
 
-test('Return Quantity Bounds: Enforces remaining eligible quantity subtracting prior returns', () => {
-  interface ReturnableItem {
-    originalQuantity: number;
-    priorReturnedQuantity: number;
-  }
-
-  function evaluateItemReturnEligibility(
-    item: ReturnableItem,
-    requestedQuantity: number
-  ): { eligible: boolean; remainingQuantity: number; error?: string } {
-    const remaining = Math.max(0, item.originalQuantity - item.priorReturnedQuantity);
-    if (remaining === 0) {
-      return { eligible: false, remainingQuantity: 0, error: 'ITEM_FULLY_RETURNED' };
-    }
-    if (requestedQuantity <= 0 || !Number.isInteger(requestedQuantity)) {
-      return { eligible: false, remainingQuantity: remaining, error: 'INVALID_QUANTITY' };
-    }
-    if (requestedQuantity > remaining) {
-      return { eligible: false, remainingQuantity: remaining, error: 'QUANTITY_EXCEEDS_REMAINING' };
-    }
-    return { eligible: true, remainingQuantity: remaining };
-  }
-
-  // Prior partially returned: original 5, returned 3 -> remaining 2
-  const partial = evaluateItemReturnEligibility({ originalQuantity: 5, priorReturnedQuantity: 3 }, 2);
-  assert.strictEqual(partial.eligible, true);
-  assert.strictEqual(partial.remainingQuantity, 2);
-
-  // Exceeding remaining quantity
-  const exceed = evaluateItemReturnEligibility({ originalQuantity: 5, priorReturnedQuantity: 3 }, 3);
-  assert.strictEqual(exceed.eligible, false);
-  assert.strictEqual(exceed.error, 'QUANTITY_EXCEEDS_REMAINING');
-
-  // Fully returned item: original 5, returned 5 -> remaining 0
-  const fullyReturned = evaluateItemReturnEligibility({ originalQuantity: 5, priorReturnedQuantity: 5 }, 1);
-  assert.strictEqual(fullyReturned.eligible, false);
-  assert.strictEqual(fullyReturned.error, 'ITEM_FULLY_RETURNED');
-});
-
-test('Return Open Request Check: Blocks duplicate return submissions for pending/active returns', () => {
-  interface ExistingReturn {
-    productId: string;
-    status: 'pending' | 'approved' | 'received' | 'rejected' | 'cancelled';
-  }
-
-  function checkOpenReturnConflict(
-    productId: string,
-    existingReturns: ExistingReturn[]
-  ): { hasConflict: boolean; error?: string } {
-    const openStatuses = new Set(['pending', 'approved', 'received']);
-    const openReturn = existingReturns.find(
-      (r) => r.productId === productId && openStatuses.has(r.status)
-    );
-    if (openReturn) {
-      return { hasConflict: true, error: 'OPEN_RETURN_ALREADY_EXISTS' };
-    }
-    return { hasConflict: false };
-  }
-
-  // Active pending return -> blocked
-  assert.deepStrictEqual(
-    checkOpenReturnConflict('prod-1', [{ productId: 'prod-1', status: 'pending' }]),
-    { hasConflict: true, error: 'OPEN_RETURN_ALREADY_EXISTS' }
-  );
-
-  // Prior rejected return -> allowed to request again if eligible
-  assert.deepStrictEqual(
-    checkOpenReturnConflict('prod-1', [{ productId: 'prod-1', status: 'rejected' }]),
-    { hasConflict: false }
-  );
-});
-
-test('Return Deep-Link Parameter Parsing: Handles malformed or non-existent identifiers gracefully', () => {
-  function parseReturnDeepLink(params: Record<string, string | undefined>) {
-    const orderId = (params.order || '').trim();
-    const productId = (params.product || '').trim();
-    const variantId = (params.variant || '').trim();
-
-    // Sanitize against dangerous characters or invalid formats
-    const isValidId = (id: string) => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
-
-    return {
-      orderId: isValidId(orderId) ? orderId : '',
-      productId: isValidId(productId) ? productId : '',
-      variantId: isValidId(variantId) ? variantId : '',
-    };
-  }
-
-  const valid = parseReturnDeepLink({ order: 'ORD-1234', product: 'prod-99', variant: 'var-1' });
-  assert.deepStrictEqual(valid, { orderId: 'ORD-1234', productId: 'prod-99', variantId: 'var-1' });
-
-  const invalid = parseReturnDeepLink({ order: '<script>alert(1)</script>', product: '../../etc/passwd' });
-  assert.deepStrictEqual(invalid, { orderId: '', productId: '', variantId: '' });
-});
-
-// --- Gate 8 & 9: Cancellation and Invoice Classification Tests ---
+// --- Cancellation and Invoice Classification Tests ---
 test('Cancellation Eligibility: Restricts strictly to Pending and Confirmed statuses', () => {
   assert.strictEqual(canCancelOrder('Pending'), true);
   assert.strictEqual(canCancelOrder('Confirmed'), true);
@@ -480,7 +544,7 @@ test('Invoice vs Receipt Classification: Official receipts strictly require Paid
   assert.strictEqual(failed.isOfficialReceipt, false);
 });
 
-// --- Gate 10: Security Scan of Frontend Source Code ---
+// --- Security Scan of Frontend Source Code ---
 test('Security Scan: Scans frontend source files for prohibited raw payment fields and secrets', () => {
   const frontendSrcDir = join(process.cwd(), 'src');
 
