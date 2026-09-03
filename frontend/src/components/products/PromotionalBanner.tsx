@@ -6,22 +6,22 @@ import { X, Truck, Percent, Shield } from 'lucide-react';
 const BANNERS = [
   {
     icon: Truck,
-    title: 'Free Shipping',
-    subtitle: 'On orders over Rs. 1500',
-    color: 'bg-[#0b132b]'
+    title: 'Free Shipping Available',
+    subtitle: 'Calculated and confirmed in checkout',
+    color: 'bg-[#0b132b]',
   },
   {
     icon: Percent,
-    title: 'Up to 50% Off',
-    subtitle: 'On selected premium products',
-    color: 'bg-amber-600'
+    title: 'Promotional Savings',
+    subtitle: 'Transparent pricing across active catalogue',
+    color: 'bg-[#9a3412]',
   },
   {
     icon: Shield,
-    title: 'Secure Payment',
-    subtitle: '100% secure checkout',
-    color: 'bg-blue-600'
-  }
+    title: 'Secure Checkout',
+    subtitle: 'Encrypted and customer verified',
+    color: 'bg-[#1e3a8a]',
+  },
 ];
 
 export default function PromotionalBanner() {
@@ -40,22 +40,23 @@ export default function PromotionalBanner() {
   const CurrentBanner = BANNERS[currentBanner];
 
   return (
-    <div className={`${CurrentBanner.color} text-white py-3 px-4 relative overflow-hidden`}>
-      <div className="max-w-7xl mx-auto flex items-center justify-center gap-4">
-        <CurrentBanner.icon size={20} className="flex-shrink-0" />
-        <div className="text-center">
-          <p className="font-semibold text-sm">{CurrentBanner.title}</p>
-          <p className="text-xs opacity-90">{CurrentBanner.subtitle}</p>
+    <div className={`${CurrentBanner.color} text-white py-2.5 px-4 relative overflow-hidden`}>
+      <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
+        <CurrentBanner.icon size={18} className="shrink-0 text-white" />
+        <div className="text-center flex flex-wrap items-center justify-center gap-2">
+          <p className="font-bold text-xs sm:text-sm text-white">{CurrentBanner.title}</p>
+          <span className="hidden sm:inline text-white">•</span>
+          <p className="text-xs text-white font-medium">{CurrentBanner.subtitle}</p>
         </div>
-        <button 
+        <button
+          type="button"
           onClick={() => setIsVisible(false)}
-          className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-white/20 rounded-full transition-colors"
-          aria-label="Close banner"
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-white/20 rounded-full transition text-white"
+          aria-label="Close announcement banner"
         >
-          <X size={16} />
+          <X size={15} />
         </button>
       </div>
     </div>
   );
 }
-

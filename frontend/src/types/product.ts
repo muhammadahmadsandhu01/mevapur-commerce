@@ -4,75 +4,15 @@ export interface ProductAttribute {
 }
 
 export interface ProductVariant {
-  _id?: string;
+  _id: string;
   sku: string;
   barcode?: string;
-  attributes: ProductAttribute[]; // e.g., [{ name: "Weight", value: "500g" }]
+  attributes: ProductAttribute[];
   price: number;
   salePrice?: number;
-  stock?: number;
+  stock: number;
   images: string[];
   isDefault: boolean;
-}
-
-export interface Product {
-  _id: string;
-  id?: string;
-  name: string;
-  slug?: string;
-  description?: string;
-  shortDescription?: string;
-  
-  // Backward Compatibility: Root level price/stock for existing components
-  price: number;
-  originalPrice?: number;
-  stock?: number;
-
-  sku?: string;
-  soldCount?: number;
-  highlights?: string[];
-  specifications?: Record<string,string>;
-  
-  // New Enterprise Fields (Optional for safety)
-  category?:
-  | string
-  | {
-      _id?: string;
-      name: string;
-      slug?: string;
-    };
-
-subcategory?:
-  | string
-  | {
-      _id?: string;
-      name: string;
-      slug?: string;
-    };
-
-brand?:
-  | string
-  | {
-      _id?: string;
-      name: string;
-      slug?: string;
-      logo?: string;
-    };
-  discount?: number;
-  rating?: number;
-  reviewCount?: number;
-  numReviews?: number;
-  
-  image?: string;
-  images?: string[];
-  primaryImage?: string;
-  gallery?: string[];
-  
-  // Advanced Features
-  attributes?: ProductAttribute[];
-  variants?: ProductVariant[];
-  isFeatured?: boolean;
-  isActive?: boolean;
 }
 
 export interface Category {
@@ -82,7 +22,7 @@ export interface Category {
   description?: string;
   image?: string;
   icon?: string;
-  parentId?: string | null; // null = Main Category, string = Subcategory
+  parentId?: string | null;
   isActive?: boolean;
   displayOrder?: number;
 }
@@ -96,4 +36,51 @@ export interface Brand {
   description?: string;
   isFeatured?: boolean;
   isActive?: boolean;
+}
+
+export interface Product {
+  _id: string;
+  id?: string;
+  name: string;
+  slug: string;
+  description?: string;
+  shortDescription?: string;
+  price: number;
+  originalPrice?: number;
+  stock: number;
+  sku?: string;
+  soldCount?: number;
+  highlights?: string[];
+  specifications?: Record<string, string>;
+  category?: Category | { _id?: string; name: string; slug?: string; description?: string; image?: string } | null;
+  subcategory?: Category | { _id?: string; name: string; slug?: string } | null;
+  brand?: Brand | { _id?: string; name: string; slug?: string; logo?: string } | null;
+  discount?: number;
+  rating: number;
+  reviewCount: number;
+  numReviews?: number;
+  image: string;
+  images: string[];
+  primaryImage?: string;
+  gallery?: string[];
+  attributes?: ProductAttribute[];
+  variants?: ProductVariant[];
+  isFeatured?: boolean;
+  isActive?: boolean;
+  status?: 'published' | 'draft' | 'inactive' | 'archived';
+  views?: number;
+  seo?: {
+    metaTitle?: string;
+    metaDescription?: string;
+    keywords?: string;
+  };
+}
+
+export interface PaginationMeta {
+  page: number;
+  pages: number;
+  total: number;
+  limit: number;
+  hasNext: boolean;
+  hasPrev: boolean;
 }

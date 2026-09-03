@@ -3,233 +3,241 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import axios from 'axios';
+import Link from 'next/link';
 import ProductCard from '@/components/products/ProductCard';
-import { Search, Filter, SlidersHorizontal } from 'lucide-react';
-import type { Product } from '@/types/product';
-import { publicApiBaseUrl } from '@/config/publicConfig';
+import { Search, Loader2, AlertCircle } from 'lucide-react';
+import type { Product, Category, Brand } from '@/types/product';
+import { getProducts, getCategories, getBrands } from '@/lib/api';
 
 function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const query = searchParams.get('q') || '';
+  const query = searchParams.get('q') || searchParams.get('keyword') || '';
+
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    category: '',
-    minPrice: '',
-    maxPrice: '',
-    sortBy: 'newest'
-  });
+  const [searchInput, setSearchInput] = useState(query);
+
+  const selectedCategory = searchParams.get('category') || '';
+  const selectedBrand = searchParams.get('brand') || '';
+  const selectedSort = searchParams.get('sortBy') || 'newest';
+  const minPrice = searchParams.get('minPrice') || '';
+  const maxPrice = searchParams.get('maxPrice') || '';
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      setLoading(true);
-      try {
-        let url = `${publicApiBaseUrl}/products?keyword=${encodeURIComponent(query)}`;
-        
-        if (filters.category) url += `&category=${filters.category}`;
-        if (filters.minPrice) url += `&minPrice=${filters.minPrice}`;
-        if (filters.maxPrice) url += `&maxPrice=${filters.maxPrice}`;
-        if (filters.sortBy) url += `&sortBy=${filters.sortBy}`;
+    const timer = window.setTimeout(() => {
+      setSearchInput(query);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
-        const response = await axios.get(url);
-        if (response.data.success) {
-          setProducts(response.data.data);
-        }
-      } catch (error) {
-        console.error('Search error:', error);
-      } finally {
-        setLoading(false);
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([getCategories(), getBrands()]).then(([cats, brs]) => {
+      if (isMounted) {
+        setCategories(cats);
+        setBrands(brs);
       }
+    });
+    return () => {
+      isMounted = false;
     };
+  }, []);
 
-    if (query) {
-      fetchProducts();
+  useEffect(() => {
+    const controller = new AbortController();
+    if (!query.trim() && !selectedCategory && !selectedBrand) {
+      const timer = window.setTimeout(() => {
+        setProducts([]);
+        setLoading(false);
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
-  }, [query, filters]);
+
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+    }, 0);
+
+    getProducts({
+      keyword: query.trim() || undefined,
+      category: selectedCategory || undefined,
+      brand: selectedBrand || undefined,
+      minPrice: minPrice || undefined,
+      maxPrice: maxPrice || undefined,
+      sortBy: selectedSort || undefined,
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!controller.signal.aborted) {
+          setProducts(res.data);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          console.error('Search query failed:', err);
+          setProducts([]);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, selectedCategory, selectedBrand, selectedSort, minPrice, maxPrice]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const params = new URLSearchParams(searchParams.toString());
+    const trimmed = searchInput.trim();
+    if (trimmed) {
+      params.set('q', trimmed);
+    } else {
+      params.delete('q');
+    }
+    router.push(`/search?${params.toString()}`);
+  };
+
+  const updateParam = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+    router.push(`/search?${params.toString()}`);
+  };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC' }}>
+    <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '20px 0' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px' }}>
-          <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '16px' }}>
-            Search Results
+      <div className="bg-white border-b border-slate-200 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mb-4">
+            Search Catalogue
           </h1>
-          
-          {/* Search Bar */}
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-            <div style={{ flex: 1, position: 'relative' }}>
-              <Search size={20} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
+
+          {/* Search Form */}
+          <form onSubmit={handleSearchSubmit} className="flex gap-3 mb-4" role="search">
+            <div className="relative flex-1">
+              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                defaultValue={query}
-                placeholder="Search products..."
-                style={{
-                  width: '100%',
-                  padding: '12px 12px 12px 44px',
-                  border: '2px solid #E5E7EB',
-                  borderRadius: '10px',
-                  fontSize: '14px',
-                  outline: 'none'
-                }}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    router.push(`/search?q=${encodeURIComponent(e.currentTarget.value)}`);
-                  }
-                }}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search products by name, SKU, or category..."
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#ff8a00] bg-white"
+                aria-label="Search keyword"
               />
             </div>
-          </div>
+            <button
+              type="submit"
+              className="px-6 py-2.5 bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-bold text-sm rounded-lg transition"
+            >
+              Search
+            </button>
+          </form>
 
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Quick Filters */}
+          <div className="flex flex-wrap gap-3 items-center text-sm">
             <select
-              value={filters.category}
-              onChange={(e) => setFilters({ ...filters, category: e.target.value })}
-              style={{
-                padding: '10px 14px',
-                border: '2px solid #E5E7EB',
-                borderRadius: '8px',
-                fontSize: '14px',
-                backgroundColor: 'white'
-              }}
+              value={selectedCategory}
+              onChange={(e) => updateParam('category', e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 outline-none cursor-pointer text-sm"
+              aria-label="Filter by category"
             >
               <option value="">All Categories</option>
-              <option value="" disabled>Select categories from the catalogue page</option>
+              {categories.map((c) => (
+                <option key={c._id} value={c._id}>
+                  {c.name}
+                </option>
+              ))}
             </select>
 
             <select
-              value={filters.sortBy}
-              onChange={(e) => setFilters({ ...filters, sortBy: e.target.value })}
-              style={{
-                padding: '10px 14px',
-                border: '2px solid #E5E7EB',
-                borderRadius: '8px',
-                fontSize: '14px',
-                backgroundColor: 'white'
-              }}
+              value={selectedBrand}
+              onChange={(e) => updateParam('brand', e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 outline-none cursor-pointer text-sm"
+              aria-label="Filter by brand"
+            >
+              <option value="">All Brands</option>
+              {brands.map((b) => (
+                <option key={b._id} value={b._id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedSort}
+              onChange={(e) => updateParam('sortBy', e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 outline-none cursor-pointer text-sm"
+              aria-label="Sort products"
             >
               <option value="newest">Newest First</option>
               <option value="price-asc">Price: Low to High</option>
               <option value="price-desc">Price: High to Low</option>
+              <option value="rating">Highest Rated</option>
               <option value="best-selling">Best Selling</option>
             </select>
-
-            <input
-              type="number"
-              placeholder="Min Price"
-              value={filters.minPrice}
-              onChange={(e) => setFilters({ ...filters, minPrice: e.target.value })}
-              style={{
-                padding: '10px 14px',
-                border: '2px solid #E5E7EB',
-                borderRadius: '8px',
-                fontSize: '14px',
-                width: '120px'
-              }}
-            />
-
-            <input
-              type="number"
-              placeholder="Max Price"
-              value={filters.maxPrice}
-              onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}
-              style={{
-                padding: '10px 14px',
-                border: '2px solid #E5E7EB',
-                borderRadius: '8px',
-                fontSize: '14px',
-                width: '120px'
-              }}
-            />
           </div>
         </div>
       </div>
 
-      {/* Results */}
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
+      {/* Results Container */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <div style={{
-              width: '60px',
-              height: '60px',
-              border: '5px solid #FF8A00',
-              borderTop: '5px solid transparent',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 20px'
-            }}></div>
-            <p style={{ color: '#6B7280' }}>Searching products...</p>
+          <div className="text-center py-20">
+            <Loader2 className="w-10 h-10 text-[#ff8a00] animate-spin mx-auto mb-3" />
+            <p className="text-slate-500 font-medium text-sm">Searching active products...</p>
           </div>
         ) : products.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <Search size={64} color="#9CA3AF" style={{ marginBottom: '16px' }} />
-            <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#111827', marginBottom: '8px' }}>
-              No Products Found
-            </h2>
-            <p style={{ color: '#6B7280', marginBottom: '24px' }}>
-              Try adjusting your search or filters
+          <div className="text-center py-16 px-4 bg-white rounded-2xl border border-slate-200">
+            <AlertCircle size={48} className="text-slate-400 mx-auto mb-3" />
+            <h2 className="text-xl font-bold text-slate-900 mb-2">No Products Found</h2>
+            <p className="text-sm text-slate-500 mb-6 max-w-sm mx-auto">
+              {query
+                ? `No matching published products found for "${query}". Try another search term.`
+                : 'Enter a search term above or browse our full catalogue.'}
             </p>
-            <button
-              onClick={() => router.push('/')}
-              style={{
-                padding: '12px 24px',
-                backgroundColor: '#FF8A00',
-                color: '#0B132B',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: '600',
-                cursor: 'pointer'
-              }}
+            <Link
+              href="/products"
+              className="inline-block px-5 py-2.5 bg-[#0b132b] text-white text-sm font-bold rounded-lg hover:bg-slate-800 transition"
             >
               Browse All Products
-            </button>
+            </Link>
           </div>
         ) : (
           <>
-            <p style={{ color: '#6B7280', marginBottom: '24px', fontSize: '14px' }}>
-              Found {products.length} product{products.length !== 1 ? 's' : ''} for &ldquo;{query}&rdquo;
+            <p className="text-sm text-slate-600 mb-6" aria-live="polite">
+              Found <strong className="text-slate-900">{products.length}</strong> product{products.length !== 1 ? 's' : ''}
+              {query && <span> for &ldquo;<strong>{query}</strong>&rdquo;</span>}
             </p>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: '24px'
-            }}>
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
               {products.map((product) => (
                 <ProductCard key={product._id} product={product} />
               ))}
             </div>
           </>
         )}
-      </div>
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
+      </main>
     </div>
   );
 }
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={
-      <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '60px',
-            height: '60px',
-            border: '5px solid #FF8A00',
-            borderTop: '5px solid transparent',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 20px'
-          }}></div>
-          <p style={{ color: '#6B7280' }}>Loading search...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+          <Loader2 className="w-10 h-10 text-[#ff8a00] animate-spin mb-3" />
+          <p className="text-slate-500 text-sm">Loading search interface...</p>
         </div>
-      </div>
-    }>
+      }
+    >
       <SearchContent />
     </Suspense>
   );

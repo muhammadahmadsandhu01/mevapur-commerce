@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Grid3X3, Search, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
-import api, { getCategories } from '@/lib/api';
+import { getCategories, getTopProducts } from '@/lib/api';
 import ProductCard from '@/components/products/ProductCard';
 import { branding } from '@/config/branding';
 import type { Category, Product } from '@/types/product';
@@ -17,12 +17,12 @@ export default function Home() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [categoryRows, productResponse] = await Promise.all([
+      const [categoryRows, topProducts] = await Promise.all([
         getCategories(),
-        api.get('/products/top?limit=8'),
+        getTopProducts(8),
       ]);
       setCategories(Array.isArray(categoryRows) ? categoryRows.filter((category: Category) => category.isActive !== false) : []);
-      setProducts(productResponse.data?.success ? productResponse.data.data ?? [] : []);
+      setProducts(topProducts);
     } catch {
       setError('The catalogue could not be loaded. Please try again.');
     } finally { setLoading(false); }
