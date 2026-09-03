@@ -34,7 +34,12 @@ export default function Toast({ message, type, onClose }: ToastProps) {
     }}>
       <div style={{ color: color.text }}>{color.icon}</div>
       <p style={{ flex: 1, color: color.text, fontWeight: '600', fontSize: '14px', margin: 0 }}>{message}</p>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: color.text, padding: '4px' }}>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Dismiss notification"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: color.text, padding: '4px' }}
+      >
         <X size={16} />
       </button>
       <style>{`

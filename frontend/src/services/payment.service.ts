@@ -7,6 +7,7 @@ export type PaymentProvider =
   | 'jazzcash'
   | 'easypaisa'
   | 'stripe';
+
 export type PaymentStatus =
   | 'Pending'
   | 'AwaitingCustomerPayment'
@@ -23,6 +24,15 @@ export type PaymentStatus =
 export interface CreatePaymentRequest {
   orderId: string;
   provider: PaymentProvider;
+}
+
+export interface PaymentCustomerAction {
+  kind: 'bank_transfer' | 'raast';
+  accountTitle: string;
+  message: string;
+  bankName?: string;
+  accountReference?: string;
+  raastId?: string;
 }
 
 export interface PaymentSummary {
@@ -46,15 +56,6 @@ export interface PaymentSummary {
   completedAt?: string | null;
   failedAt?: string | null;
   cancelledAt?: string | null;
-}
-
-export interface PaymentCustomerAction {
-  kind: 'bank_transfer' | 'raast';
-  accountTitle: string;
-  message: string;
-  bankName?: string;
-  accountReference?: string;
-  raastId?: string;
 }
 
 export interface AvailablePaymentMethod {
@@ -89,8 +90,8 @@ export const paymentService = {
     const response = await api.post('/payments', data, {
       signal,
       headers: {
-        'Idempotency-Key': idempotencyKey
-      }
+        'Idempotency-Key': idempotencyKey,
+      },
     });
     return response.data;
   },
@@ -103,6 +104,18 @@ export const paymentService = {
     return response.data.data.payment;
   },
 
+  getPaymentForOrder: async (
+    orderId: string,
+    signal?: AbortSignal
+  ): Promise<PaymentSummary | null> => {
+    try {
+      const response = await api.get(`/payments/order/${orderId}`, { signal });
+      return response.data.data.payment;
+    } catch {
+      return null;
+    }
+  },
+
   getAvailableMethods: async (
     country = 'PK',
     currency = 'PKR',
@@ -111,7 +124,7 @@ export const paymentService = {
   ): Promise<AvailablePaymentMethod[]> => {
     const response = await api.get('/payments/methods', {
       signal,
-      params: { country, currency, amount }
+      params: { country, currency, amount },
     });
     return response.data.data.methods || [];
   },
@@ -126,5 +139,5 @@ export const paymentService = {
       { transactionReference, note: note || undefined }
     );
     return response.data.data.payment;
-  }
+  },
 };

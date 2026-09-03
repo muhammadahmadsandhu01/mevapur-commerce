@@ -1,230 +1,248 @@
-"use client";
+'use client';
+export const dynamic = 'force-dynamic';
 
-import { Suspense, useEffect, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   AlertCircle,
   CheckCircle2,
   Clock3,
   Loader2,
   RefreshCw,
-} from "lucide-react";
-import {
-  paymentService,
-  type PaymentSummary,
-} from "@/services/payment.service";
-import { secureOrderService } from "@/services/order.service";
-import { useCartStore } from "@/store/cartStore";
+  ArrowRight,
+  ShieldCheck,
+} from 'lucide-react';
+import { paymentService, type PaymentSummary } from '@/services/payment.service';
+import { secureOrderService } from '@/services/order.service';
+import { useCartStore } from '@/store/cartStore';
+import { formatMoney } from '@/lib/money';
 
 const TERMINAL_STATUSES = new Set([
-  "Completed",
-  "Failed",
-  "Cancelled",
-  "PartiallyRefunded",
-  "Refunded",
+  'Completed',
+  'Failed',
+  'Cancelled',
+  'PartiallyRefunded',
+  'Refunded',
 ]);
 
 function PaymentResultContent() {
   const searchParams = useSearchParams();
   const clearCart = useCartStore((state) => state.clearCart);
-  const paymentId = searchParams.get("paymentId") || "";
-  const orderId = searchParams.get("orderId") || "";
+
+  const rawPaymentId = searchParams.get('paymentId') || '';
+  const rawOrderId = searchParams.get('orderId') || '';
+  const paymentId = rawPaymentId ? decodeURIComponent(rawPaymentId) : '';
+  const orderId = rawOrderId ? decodeURIComponent(rawOrderId) : '';
+
   const [payment, setPayment] = useState<PaymentSummary | null>(null);
-  const [orderPaymentStatus, setOrderPaymentStatus] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [orderPaymentStatus, setOrderPaymentStatus] = useState('');
+  const [pollingExpired, setPollingExpired] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [retryGeneration, setRetryGeneration] = useState(0);
-  const invalidLinkMessage = !paymentId || !orderId
-    ? "The payment result link is incomplete."
-    : "";
-  const displayedError = invalidLinkMessage || errorMessage;
+
+  const cartClearedRef = useRef(false);
 
   useEffect(() => {
-    if (!paymentId || !orderId) {
-      return;
+    if (!paymentId || !orderId) return;
+
+    if (!cartClearedRef.current) {
+      clearCart();
+      cartClearedRef.current = true;
     }
 
-    const safeQuery = new URLSearchParams({ paymentId, orderId });
-    window.history.replaceState(
-      null,
-      "",
-      `/payment-result?${safeQuery.toString()}`
-    );
-    clearCart();
-
     const abortController = new AbortController();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
+    const maxAttempts = 30;
 
-    async function pollPayment() {
+    async function pollPaymentStatus() {
+      if (document.hidden) {
+        // If tab is backgrounded, schedule retry without incrementing attempt count
+        timeoutId = setTimeout(pollPaymentStatus, 3000);
+        return;
+      }
+
       try {
-        const [current, order] = await Promise.all([
+        const [currentPayment, currentOrder] = await Promise.all([
           paymentService.getPayment(paymentId, abortController.signal),
           secureOrderService.getOrder(orderId, abortController.signal),
         ]);
+
         if (abortController.signal.aborted) return;
 
-        setPayment(current);
-        setOrderPaymentStatus(order.paymentStatus);
-        setErrorMessage("");
+        setPayment(currentPayment);
+        setOrderPaymentStatus(currentOrder.paymentStatus);
+        setErrorMessage('');
         attempts += 1;
 
-        const reconciliationComplete = (
-          current.status === "Completed" && order.paymentStatus === "Paid"
-        ) || (
-          TERMINAL_STATUSES.has(current.status)
-          && current.status !== "Completed"
-        );
-        if (!reconciliationComplete && attempts < 30) {
-          timeout = setTimeout(pollPayment, 2000);
+        const isReconciled =
+          (currentPayment.status === 'Completed' && currentOrder.paymentStatus === 'Paid') ||
+          (TERMINAL_STATUSES.has(currentPayment.status) && currentPayment.status !== 'Completed');
+
+        if (!isReconciled) {
+          if (attempts < maxAttempts) {
+            timeoutId = setTimeout(pollPaymentStatus, 2000);
+          } else {
+            setPollingExpired(true);
+          }
         }
       } catch {
         if (abortController.signal.aborted) return;
         attempts += 1;
-        if (attempts < 5) {
-          timeout = setTimeout(pollPayment, 2000);
+        if (attempts < maxAttempts) {
+          timeoutId = setTimeout(pollPaymentStatus, 2500);
         } else {
-          setErrorMessage(
-            "We could not refresh the provider-confirmed payment status."
-          );
+          setPollingExpired(true);
         }
       }
     }
 
-    void pollPayment();
+    const handleVisibilityChange = () => {
+      if (!document.hidden && !pollingExpired) {
+        if (timeoutId) clearTimeout(timeoutId);
+        void pollPaymentStatus();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    void pollPaymentStatus();
 
     return () => {
       abortController.abort();
-      if (timeout) clearTimeout(timeout);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [clearCart, orderId, paymentId, retryGeneration]);
+  }, [clearCart, orderId, paymentId, retryGeneration, pollingExpired]);
 
-  const isCompleted = (
-    payment?.status === "Completed" && orderPaymentStatus === "Paid"
-  )
-    || payment?.status === "PartiallyRefunded"
-    || payment?.status === "Refunded";
-  const isFailed = payment?.status === "Failed"
-    || payment?.status === "Cancelled";
+  if (!paymentId || !orderId) {
+    return (
+      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+        <AlertCircle size={40} className="text-amber-600 mb-4" />
+        <h1 className="text-xl font-extrabold text-slate-900 mb-2">Incomplete Payment Link</h1>
+        <p className="text-xs text-slate-600 mb-6">
+          The payment verification URL is missing essential reference parameters.
+        </p>
+        <Link
+          href="/orders"
+          className="px-5 py-2.5 bg-[#0b132b] text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition"
+        >
+          View Your Orders
+        </Link>
+      </main>
+    );
+  }
+
+  const isCompleted =
+    (payment?.status === 'Completed' && orderPaymentStatus === 'Paid') ||
+    payment?.status === 'PartiallyRefunded' ||
+    payment?.status === 'Refunded';
+
+  const isFailed = payment?.status === 'Failed' || payment?.status === 'Cancelled';
 
   return (
     <main className="min-h-[80vh] bg-slate-50 px-4 py-16">
-      <section className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        {!payment && !displayedError && (
-          <>
-            <Loader2
-              aria-hidden="true"
-              className="mx-auto mb-4 animate-spin text-[#ff8a00]"
-              size={44}
-            />
-            <h1 className="text-2xl font-bold text-slate-900">
-              Checking payment status
-            </h1>
-            <p className="mt-2 text-slate-600">
-              We are waiting for secure provider confirmation.
+      <section className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xs">
+        {!payment && !errorMessage && (
+          <div className="space-y-3">
+            <Loader2 aria-hidden="true" className="mx-auto animate-spin text-[#ff8a00]" size={44} />
+            <h1 className="text-xl font-extrabold text-slate-900">Verifying Payment Status</h1>
+            <p className="text-xs text-slate-600">
+              Synchronizing authoritative provider event with your order ledger...
             </p>
-          </>
+          </div>
         )}
 
-        {payment && !isCompleted && !isFailed && (
-          <>
-            <Clock3
-              aria-hidden="true"
-              className="mx-auto mb-4 text-amber-600"
-              size={48}
-            />
-            <h1 className="text-2xl font-bold text-slate-900">
-              Payment is processing
-            </h1>
-            <p className="mt-2 text-slate-600">
-              Your order exists, but payment is not final until the backend
-              receives verified provider confirmation.
+        {payment && !isCompleted && !isFailed && !pollingExpired && (
+          <div className="space-y-3">
+            <Clock3 aria-hidden="true" className="mx-auto text-amber-600" size={48} />
+            <h1 className="text-xl font-extrabold text-slate-900">Payment In Progress</h1>
+            <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+              Your order exists in our system. We are awaiting final provider confirmation before marking the payment confirmed.
             </p>
-          </>
+          </div>
         )}
 
         {payment && isCompleted && (
-          <>
-            <CheckCircle2
-              aria-hidden="true"
-              className="mx-auto mb-4 text-green-600"
-              size={48}
-            />
-            <h1 className="text-2xl font-bold text-slate-900">
-              Payment confirmed
-            </h1>
-            <p className="mt-2 text-slate-600">
-              The verified provider event has been reconciled with your order.
+          <div className="space-y-3">
+            <CheckCircle2 aria-hidden="true" className="mx-auto text-emerald-600" size={48} />
+            <h1 className="text-2xl font-black text-slate-900">Payment Confirmed</h1>
+            <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+              Your payment transaction has been verified and matched with your order record.
             </p>
-          </>
+          </div>
         )}
 
         {payment && isFailed && (
-          <>
-            <AlertCircle
-              aria-hidden="true"
-              className="mx-auto mb-4 text-red-600"
-              size={48}
-            />
-            <h1 className="text-2xl font-bold text-slate-900">
-              Payment was not completed
-            </h1>
-            <p className="mt-2 text-slate-600">
-              Your order was not marked paid. You can return to your orders
-              before trying again.
+          <div className="space-y-3">
+            <AlertCircle aria-hidden="true" className="mx-auto text-rose-600" size={48} />
+            <h1 className="text-2xl font-black text-slate-900">Payment Not Completed</h1>
+            <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+              The payment attempt was not completed by the provider. You can review your order or retry payment.
             </p>
-          </>
+          </div>
         )}
 
+        {pollingExpired && !isCompleted && !isFailed && (
+          <div className="space-y-3">
+            <Clock3 aria-hidden="true" className="mx-auto text-amber-600" size={48} />
+            <h1 className="text-xl font-extrabold text-slate-900">Verification in Progress</h1>
+            <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+              Payment verification is taking longer than expected. Your order remains safely recorded in your account.
+            </p>
+          </div>
+        )}
+
+        {/* Breakdown Card */}
         {payment && (
-          <dl className="mt-6 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-left text-sm">
-            <dt className="text-slate-500">Status</dt>
-            <dd className="text-right font-semibold text-slate-900">
-              {payment.status}
+          <dl className="mt-6 grid grid-cols-2 gap-2.5 rounded-xl bg-slate-50 p-4 text-left text-xs border border-slate-200">
+            <dt className="text-slate-500 font-semibold">Payment Status:</dt>
+            <dd className="text-right font-extrabold text-slate-900">{payment.status}</dd>
+
+            <dt className="text-slate-500 font-semibold">Charged Amount:</dt>
+            <dd className="text-right font-black text-slate-900">
+              {formatMoney(payment.amount, payment.currency)}
             </dd>
-            <dt className="text-slate-500">Amount</dt>
-            <dd className="text-right font-semibold text-slate-900">
-              Rs. {payment.amount.toFixed(2)}
+
+            <dt className="text-slate-500 font-semibold">Provider:</dt>
+            <dd className="text-right font-extrabold capitalize text-slate-900">
+              {payment.providerDisplayName || payment.provider}
             </dd>
-            <dt className="text-slate-500">Provider</dt>
-            <dd className="text-right font-semibold capitalize text-slate-900">
-              {payment.provider}
-            </dd>
-            <dt className="text-slate-500">Order payment</dt>
-            <dd className="text-right font-semibold text-slate-900">
-              {orderPaymentStatus || "Pending"}
+
+            <dt className="text-slate-500 font-semibold">Order Payment Status:</dt>
+            <dd className="text-right font-extrabold text-slate-900">
+              {orderPaymentStatus || 'Pending'}
             </dd>
           </dl>
         )}
 
-        {displayedError && (
-          <div
-            role="alert"
-            className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-          >
-            {displayedError}
-          </div>
-        )}
-
+        {/* Actions */}
         <div className="mt-8 flex flex-wrap justify-center gap-3">
-          {errorMessage && (
+          {(pollingExpired || errorMessage) && (
             <button
               type="button"
               onClick={() => {
-                setErrorMessage("");
-                setRetryGeneration((value) => value + 1);
+                setPollingExpired(false);
+                setErrorMessage('');
+                setRetryGeneration((v) => v + 1);
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#ff8a00] px-5 py-3 font-semibold text-[#0b132b] hover:bg-[#e67c00]"
+              className="inline-flex items-center gap-2 rounded-xl bg-[#ff8a00] hover:bg-[#ffab45] px-5 py-2.5 text-xs font-bold text-[#0b132b] shadow-2xs transition"
             >
-              <RefreshCw size={18} /> Check again
+              <RefreshCw size={14} /> Check Status Again
             </button>
           )}
+
           <Link
             href={`/orders/${encodeURIComponent(orderId)}`}
-            className="rounded-lg border border-[#ff8a00] px-5 py-3 font-semibold text-[#0b132b] hover:bg-[#f7f7f5]"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-5 py-2.5 text-xs font-bold text-slate-800 shadow-2xs transition"
           >
-            View order
+            View Order Details <ArrowRight size={14} />
           </Link>
+        </div>
+
+        <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center gap-2 text-[11px] text-slate-500 font-semibold">
+          <ShieldCheck size={14} className="text-emerald-700" />
+          <span>Authoritative Backend Reconciled Record</span>
         </div>
       </section>
     </main>
@@ -235,7 +253,7 @@ export default function PaymentResultPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[80vh] items-center justify-center">
+        <div className="flex min-h-[80vh] items-center justify-center bg-slate-50">
           <Loader2 className="animate-spin text-[#ff8a00]" size={40} />
         </div>
       }

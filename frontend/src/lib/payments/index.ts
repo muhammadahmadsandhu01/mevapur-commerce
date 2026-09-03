@@ -1,12 +1,9 @@
 import { processCODPayment } from "./cod";
 import { processStripePayment } from "./stripe";
 import { processJazzCashPayment } from "./jazzcash";
+import type { PaymentProvider } from "@/services/payment.service";
 
-export type PaymentMethod =
-  | "COD"
-  | "visa"
-  | "mastercard"
-  | "jazzcash";
+export type PaymentMethod = PaymentProvider;
 
 export interface PaymentRequest {
   amount: number;
@@ -28,18 +25,25 @@ export async function processPayment(
   method: PaymentMethod,
   data: PaymentRequest
 ): Promise<PaymentResult> {
-
   switch (method) {
-
-    case "COD":
+    case "cod":
       return processCODPayment(data);
 
-    case "visa":
-    case "mastercard":
+    case "stripe":
       return processStripePayment(data);
 
     case "jazzcash":
+    case "easypaisa":
       return processJazzCashPayment(data);
+
+    case "bank_transfer":
+    case "raast":
+      return {
+        success: true,
+        provider: method,
+        status: "pending",
+        message: "Manual payment instructions required"
+      };
 
     default:
       return {
