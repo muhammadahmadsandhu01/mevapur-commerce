@@ -32,6 +32,7 @@ import {
 import { formatMoney, calculateSubtotal, roundMoney } from '@/lib/money';
 import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 import Toast from '@/components/Toast';
+import { paymentService } from '@/services/payment.service';
 
 type SupportedPaymentMethod = 'cod' | 'bank_transfer' | 'raast' | 'stripe';
 
@@ -73,6 +74,12 @@ export default function CheckoutPage() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   // Payment Selection
+  const [availableMethods, setAvailableMethods] = useState<SupportedPaymentMethod[]>([
+    'cod',
+    'bank_transfer',
+    'raast',
+    'stripe',
+  ]);
   const [paymentMethod, setPaymentMethod] = useState<SupportedPaymentMethod>('cod');
 
   // Coupon State
@@ -106,6 +113,47 @@ export default function CheckoutPage() {
     : 0;
 
   const estimatedPayable = roundMoney(Math.max(0, subtotal - estimatedDiscount));
+
+  // Query and filter available payment methods dynamically from Backend
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadAvailableMethods() {
+      try {
+        const methods = await paymentService.getAvailableMethods(
+          formData.country || 'PK',
+          'PKR',
+          estimatedPayable,
+          controller.signal
+        );
+        if (!controller.signal.aborted && Array.isArray(methods)) {
+          const validCodes: SupportedPaymentMethod[] = [];
+          for (const m of methods) {
+            if (m.code === 'cod') validCodes.push('cod');
+            else if (m.code === 'bank_transfer') validCodes.push('bank_transfer');
+            else if (m.code === 'raast') validCodes.push('raast');
+            else if (
+              m.code === 'stripe' &&
+              (m.metadata?.publishableKey || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+            ) {
+              validCodes.push('stripe');
+            }
+          }
+          if (validCodes.length > 0) {
+            setAvailableMethods(validCodes);
+            setPaymentMethod((current) =>
+              validCodes.includes(current) ? current : validCodes[0]
+            );
+          }
+        }
+      } catch {
+        // Fall back safely without breaking checkout form
+      }
+    }
+    void loadAvailableMethods();
+    return () => {
+      controller.abort();
+    };
+  }, [formData.country, estimatedPayable]);
 
   // Compute or retain Idempotency Key
   const getIdempotencyKey = () => {
@@ -574,116 +622,130 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            <div className="space-y-3" role="radiogroup" aria-label="Payment method">
-              {/* Cash on Delivery */}
-              <label
-                className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
-                  paymentMethod === 'cod'
-                    ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="cod"
-                  checked={paymentMethod === 'cod'}
-                  onChange={() => setPaymentMethod('cod')}
-                  className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <Truck size={17} className="text-[#0b132b]" />
-                    <span className="text-sm font-bold text-slate-900">Cash on Delivery (COD)</span>
-                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">Standard</span>
-                  </div>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Pay with physical cash directly to the courier upon delivery at your doorstep.
-                  </p>
-                </div>
-              </label>
+            {availableMethods.length === 0 ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-semibold">
+                No payment methods are currently available for this delivery region.
+              </div>
+            ) : (
+              <div className="space-y-3" role="radiogroup" aria-label="Payment method">
+                {/* Cash on Delivery */}
+                {availableMethods.includes('cod') && (
+                  <label
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                      paymentMethod === 'cod'
+                        ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="cod"
+                      checked={paymentMethod === 'cod'}
+                      onChange={() => setPaymentMethod('cod')}
+                      className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Truck size={17} className="text-[#0b132b]" />
+                        <span className="text-sm font-bold text-slate-900">Cash on Delivery (COD)</span>
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">Standard</span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Pay with physical cash directly to the courier upon delivery at your doorstep.
+                      </p>
+                    </div>
+                  </label>
+                )}
 
-              {/* Direct Bank Transfer */}
-              <label
-                className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
-                  paymentMethod === 'bank_transfer'
-                    ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="bank_transfer"
-                  checked={paymentMethod === 'bank_transfer'}
-                  onChange={() => setPaymentMethod('bank_transfer')}
-                  className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <Building2 size={17} className="text-[#0b132b]" />
-                    <span className="text-sm font-bold text-slate-900">Direct Bank Transfer / IBFT</span>
-                  </div>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Transfer directly into our designated business bank account and upload the reference proof.
-                  </p>
-                </div>
-              </label>
+                {/* Direct Bank Transfer */}
+                {availableMethods.includes('bank_transfer') && (
+                  <label
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                      paymentMethod === 'bank_transfer'
+                        ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="bank_transfer"
+                      checked={paymentMethod === 'bank_transfer'}
+                      onChange={() => setPaymentMethod('bank_transfer')}
+                      className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Building2 size={17} className="text-[#0b132b]" />
+                        <span className="text-sm font-bold text-slate-900">Direct Bank Transfer / IBFT</span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Transfer directly into our designated business bank account and upload the reference proof.
+                      </p>
+                    </div>
+                  </label>
+                )}
 
-              {/* Raast Instant Payment */}
-              <label
-                className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
-                  paymentMethod === 'raast'
-                    ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="raast"
-                  checked={paymentMethod === 'raast'}
-                  onChange={() => setPaymentMethod('raast')}
-                  className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <PhoneCall size={17} className="text-[#0b132b]" />
-                    <span className="text-sm font-bold text-slate-900">Raast Instant Payment</span>
-                  </div>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Instant zero-fee account transfer via State Bank of Pakistan Raast ID.
-                  </p>
-                </div>
-              </label>
+                {/* Raast Instant Payment */}
+                {availableMethods.includes('raast') && (
+                  <label
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                      paymentMethod === 'raast'
+                        ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="raast"
+                      checked={paymentMethod === 'raast'}
+                      onChange={() => setPaymentMethod('raast')}
+                      className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <PhoneCall size={17} className="text-[#0b132b]" />
+                        <span className="text-sm font-bold text-slate-900">Raast Instant Payment</span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Instant zero-fee account transfer via State Bank of Pakistan Raast ID.
+                      </p>
+                    </div>
+                  </label>
+                )}
 
-              {/* Credit / Debit Card (Stripe) */}
-              <label
-                className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
-                  paymentMethod === 'stripe'
-                    ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="stripe"
-                  checked={paymentMethod === 'stripe'}
-                  onChange={() => setPaymentMethod('stripe')}
-                  className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <CreditCard size={17} className="text-[#0b132b]" />
-                    <span className="text-sm font-bold text-slate-900">Visa / Mastercard / UnionPay</span>
-                  </div>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Card payment processed securely via encrypted provider session.
-                  </p>
-                </div>
-              </label>
-            </div>
+                {/* Credit / Debit Card (Stripe) */}
+                {availableMethods.includes('stripe') && (
+                  <label
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                      paymentMethod === 'stripe'
+                        ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="stripe"
+                      checked={paymentMethod === 'stripe'}
+                      onChange={() => setPaymentMethod('stripe')}
+                      className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <CreditCard size={17} className="text-[#0b132b]" />
+                        <span className="text-sm font-bold text-slate-900">Visa / Mastercard / UnionPay</span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Card payment processed securely via encrypted provider session.
+                      </p>
+                    </div>
+                  </label>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Terms & Place Order */}

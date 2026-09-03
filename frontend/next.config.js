@@ -1,43 +1,48 @@
 /** @type {import('next').NextConfig} */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { resolvePublicApiContract } = require('./src/config/publicApiContract');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { buildCspHeader } = require('./src/config/csp');
+
+const isProduction = process.env.NODE_ENV === 'production';
+
+let apiOrigin = '';
+try {
+  const contract = resolvePublicApiContract(process.env.NEXT_PUBLIC_API_URL, {
+    environment: process.env.NODE_ENV || 'development',
+  });
+  apiOrigin = contract.apiOrigin;
+} catch {
+  // If NEXT_PUBLIC_API_URL is not set during local dev/testing
+}
+
 const nextConfig = {
   output: 'standalone',
   async headers() {
     return [
       {
-        source: "/:path*",
+        source: '/:path*',
         headers: [
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "X-Frame-Options", value: "DENY" },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Frame-Options', value: 'DENY' },
           {
-            key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=()',
           },
           {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://js.stripe.com",
-              "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-              "connect-src 'self' https://api.stripe.com https://*.mevapur.test https://*.test http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
-              "img-src 'self' data: blob: https://res.cloudinary.com https://via.placeholder.com https://*.stripe.com https://*.mevapur.test https://*.test http://localhost:* http://127.0.0.1:*",
-              "style-src 'self' 'unsafe-inline'",
-              "font-src 'self' data:",
-              "object-src 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-              "frame-ancestors 'none'",
-            ].join("; "),
+            key: 'Content-Security-Policy',
+            value: buildCspHeader({ production: isProduction, origin: apiOrigin }),
           },
         ],
       },
       {
         source:
-          "/(cart|checkout|forgot-password|login|orders|order-success|payment-result|reset-password|wishlist|account)/:path*",
+          '/(cart|checkout|forgot-password|login|orders|order-success|payment-result|reset-password|wishlist|account)/:path*',
         headers: [
           {
-            key: "X-Robots-Tag",
-            value: "noindex, nofollow, noarchive",
+            key: 'X-Robots-Tag',
+            value: 'noindex, nofollow, noarchive',
           },
         ],
       },
@@ -46,20 +51,20 @@ const nextConfig = {
   images: {
     remotePatterns: [
       {
-        protocol: "https",
-        hostname: "via.placeholder.com",
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
       },
       {
-        protocol: "https",
-        hostname: "res.cloudinary.com",
+        protocol: 'https',
+        hostname: 'res.cloudinary.com',
       },
       {
-        protocol: "http",
-        hostname: "localhost",
+        protocol: 'http',
+        hostname: 'localhost',
       },
       {
-        protocol: "http",
-        hostname: "127.0.0.1",
+        protocol: 'http',
+        hostname: '127.0.0.1',
       },
     ],
   },

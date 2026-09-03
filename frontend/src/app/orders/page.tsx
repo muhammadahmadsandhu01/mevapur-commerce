@@ -78,7 +78,7 @@ export default function OrdersPage() {
     void bootstrap();
   }, [bootstrap]);
 
-  const fetchOrders = useCallback(async (pageToFetch = 1) => {
+  const fetchOrders = useCallback(async (pageToFetch = 1, statusToFilter = statusFilter) => {
     if (!isAuthenticated) {
       setLoading(false);
       return;
@@ -87,9 +87,11 @@ export default function OrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/orders/my-orders', {
-        params: { page: pageToFetch, limit: 10 },
-      });
+      const params: Record<string, string | number> = { page: pageToFetch, limit: 10 };
+      if (statusToFilter && statusToFilter !== 'all') {
+        params.status = statusToFilter;
+      }
+      const response = await api.get('/orders/my-orders', { params });
       if (response.data.success) {
         setOrders(response.data.data.orders || []);
         if (response.data.data.pagination) {
@@ -105,13 +107,13 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, statusFilter]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
     if (isInitialized && isAuthenticated) {
       timer = setTimeout(() => {
-        void fetchOrders(1);
+        void fetchOrders(1, statusFilter);
       }, 0);
     } else if (isInitialized && !isAuthenticated) {
       timer = setTimeout(() => {
@@ -121,16 +123,10 @@ export default function OrdersPage() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [isInitialized, isAuthenticated, fetchOrders]);
+  }, [isInitialized, isAuthenticated, statusFilter, fetchOrders]);
 
   const filteredOrders = useMemo(() => {
     let list = [...orders];
-
-    if (statusFilter !== 'all') {
-      list = list.filter(
-        (o) => (o.orderStatus || '').toLowerCase() === statusFilter.toLowerCase()
-      );
-    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -143,7 +139,7 @@ export default function OrdersPage() {
     }
 
     return list;
-  }, [orders, statusFilter, searchQuery]);
+  }, [orders, searchQuery]);
 
   const getOrderStatusBadgeClass = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -234,9 +230,15 @@ export default function OrdersPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by Order ID or item name..."
+              aria-label="Filter loaded orders on current page"
+              placeholder="Filter loaded orders on page..."
               className="w-full pl-9 pr-3.5 py-2 text-xs border border-slate-300 rounded-xl outline-none focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] bg-white text-slate-900 font-medium"
             />
+            {searchQuery.trim() && (
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Filtering page {pagination.page} ({filteredOrders.length} of {orders.length} items match)
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -266,7 +268,7 @@ export default function OrdersPage() {
             <AlertCircle size={32} className="mx-auto mb-2 text-rose-600" />
             <p className="font-bold">{error}</p>
             <button
-              onClick={() => fetchOrders(pagination.page)}
+              onClick={() => fetchOrders(pagination.page, statusFilter)}
               className="mt-4 px-4 py-2 bg-[#0b132b] text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition"
             >
               Retry Loading Orders
@@ -277,20 +279,52 @@ export default function OrdersPage() {
             <div className="w-16 h-16 rounded-full bg-slate-100 mx-auto flex items-center justify-center mb-4 text-slate-400">
               <Package size={28} />
             </div>
-            <h2 className="text-lg font-extrabold text-slate-900 mb-1">
-              {searchQuery || statusFilter !== 'all' ? 'No matching orders' : 'No orders placed yet'}
-            </h2>
-            <p className="text-xs text-slate-600 max-w-sm mx-auto mb-6">
-              {searchQuery || statusFilter !== 'all'
-                ? 'Try adjusting your search terms or status filter.'
-                : 'Browse our natural dry fruits and organic pantry to place your first order.'}
-            </p>
-            <Link
-              href="/products"
-              className="px-6 py-2.5 bg-[#0b132b] text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition inline-block"
-            >
-              Browse Catalogue
-            </Link>
+            {orders.length > 0 && searchQuery.trim() ? (
+              <>
+                <h2 className="text-lg font-extrabold text-slate-900 mb-1">
+                  No matching orders on page {pagination.page}
+                </h2>
+                <p className="text-xs text-slate-600 max-w-sm mx-auto mb-6">
+                  No loaded orders on this page match &quot;{searchQuery}&quot;. Try clearing your page filter or navigating to other pages.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="px-6 py-2.5 bg-[#0b132b] text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition inline-block cursor-pointer"
+                >
+                  Clear Page Filter
+                </button>
+              </>
+            ) : statusFilter !== 'all' ? (
+              <>
+                <h2 className="text-lg font-extrabold text-slate-900 mb-1">
+                  No {statusFilter} orders found
+                </h2>
+                <p className="text-xs text-slate-600 max-w-sm mx-auto mb-6">
+                  There are no orders matching status &quot;{statusFilter}&quot;.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className="px-6 py-2.5 bg-[#0b132b] text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition inline-block cursor-pointer"
+                >
+                  Show All Orders
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-extrabold text-slate-900 mb-1">No orders placed yet</h2>
+                <p className="text-xs text-slate-600 max-w-sm mx-auto mb-6">
+                  Browse our natural dry fruits and organic pantry to place your first order.
+                </p>
+                <Link
+                  href="/products"
+                  className="px-6 py-2.5 bg-[#0b132b] text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition inline-block"
+                >
+                  Browse Catalogue
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
