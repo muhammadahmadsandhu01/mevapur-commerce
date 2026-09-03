@@ -17,7 +17,7 @@ async function getAvailablePort(): Promise<number> {
   });
 }
 
-test('Production Standalone Server Runtime CSP and Browser Verification', async () => {
+test('Production Standalone Server Runtime Nonce-Backed CSP and Browser Verification', async () => {
   const cwd = process.cwd();
   const staticSrc = join(cwd, '.next', 'static');
   const staticDest = join(cwd, '.next', 'standalone', '.next', 'static');
@@ -42,6 +42,8 @@ test('Production Standalone Server Runtime CSP and Browser Verification', async 
       PORT: String(port),
       HOSTNAME: '127.0.0.1',
       NEXT_PUBLIC_API_URL: 'https://api.mevapur.test',
+      NEXT_PUBLIC_SITE_URL: 'https://storefront.mevapur.test',
+      NEXT_PUBLIC_SITE_NAME: 'MevaPur',
     },
     stdio: 'pipe',
   });
@@ -62,7 +64,41 @@ test('Production Standalone Server Runtime CSP and Browser Verification', async 
     }
     assert.ok(started, 'Production standalone server failed to start within timeout');
 
-    // 1. Verify Response Headers from required routes
+    // 1. Prove two separate document requests receive different nonces
+    const res1 = await fetch(`http://127.0.0.1:${port}/`);
+    const csp1 = res1.headers.get('content-security-policy') || '';
+    const html1 = await res1.text();
+
+    const res2 = await fetch(`http://127.0.0.1:${port}/`);
+    const csp2 = res2.headers.get('content-security-policy') || '';
+    const html2 = await res2.text();
+
+    const nonceMatch1 = csp1.match(/'nonce-([A-Za-z0-9+/=_-]+)'/);
+    const nonceMatch2 = csp2.match(/'nonce-([A-Za-z0-9+/=_-]+)'/);
+
+    assert.ok(nonceMatch1, 'First request CSP must contain a cryptographic nonce directive');
+    assert.ok(nonceMatch2, 'Second request CSP must contain a cryptographic nonce directive');
+
+    const nonce1 = nonceMatch1[1];
+    const nonce2 = nonceMatch2[1];
+
+    assert.notStrictEqual(
+      nonce1,
+      nonce2,
+      `Two separate document requests must receive different nonces (received ${nonce1} and ${nonce2})`
+    );
+
+    // 2. Prove CSP header nonce matches Next.js-rendered bootstrap script nonces
+    assert.ok(
+      html1.includes(`nonce="${nonce1}"`),
+      `Rendered HTML bootstrap scripts must include the exact nonce from CSP header (${nonce1})`
+    );
+    assert.ok(
+      html2.includes(`nonce="${nonce2}"`),
+      `Rendered HTML bootstrap scripts must include the exact nonce from CSP header (${nonce2})`
+    );
+
+    // 3. Verify Response Headers and strict production constraints from all required routes
     const routesToTest = [
       '/',
       '/products',
@@ -73,10 +109,27 @@ test('Production Standalone Server Runtime CSP and Browser Verification', async 
 
     for (const route of routesToTest) {
       const res = await fetch(`http://127.0.0.1:${port}${route}`);
-      const csp = res.headers.get('content-security-policy');
+      const csp = res.headers.get('content-security-policy') || '';
       assert.ok(csp, `Missing Content-Security-Policy header on ${route}`);
 
-      // Verify production restrictions
+      // Must NOT contain unrestricted unsafe-inline in script-src
+      const scriptSrcDirective = csp.split(';').find((d) => d.trim().startsWith('script-src')) || '';
+      assert.strictEqual(
+        scriptSrcDirective.includes("'unsafe-inline'"),
+        false,
+        `Production script-src must NOT contain 'unsafe-inline' on ${route}`
+      );
+      assert.strictEqual(
+        scriptSrcDirective.includes("'unsafe-eval'"),
+        false,
+        `Production script-src must NOT contain 'unsafe-eval' on ${route}`
+      );
+
+      // Must authorize nonce and Stripe JS
+      assert.ok(scriptSrcDirective.includes("'nonce-"), `script-src must include nonce on ${route}`);
+      assert.ok(scriptSrcDirective.includes('https://js.stripe.com'), `script-src must include Stripe JS on ${route}`);
+
+      // Verify production connect-src restrictions
       assert.ok(csp.includes("default-src 'self'"), `default-src 'self' missing on ${route}`);
       assert.ok(csp.includes('https://api.stripe.com'), `Stripe connect-src missing on ${route}`);
       assert.ok(csp.includes('https://api.mevapur.test'), `API origin connect-src missing on ${route}`);
@@ -108,7 +161,7 @@ test('Production Standalone Server Runtime CSP and Browser Verification', async 
       );
     }
 
-    // 2. Launch Chromium against the production server
+    // 4. Launch Chromium against the production server to verify hydration and zero CSP violations
     const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
     const browser = await chromium.launch({
       executablePath: CHROME_PATH,
@@ -124,7 +177,7 @@ test('Production Standalone Server Runtime CSP and Browser Verification', async 
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (text.includes('Content Security Policy') || text.includes('CSP')) {
+        if (text.includes('Content Security Policy') || text.includes('CSP') || text.includes('violates')) {
           cspViolations.push(text);
         } else {
           consoleErrors.push(text);

@@ -5,7 +5,6 @@ import { join } from 'node:path';
 
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { buildCspHeader } = require('../src/config/csp.js');
 
 import {
@@ -39,22 +38,29 @@ function calculateDeliveredReturnDeadline(deliveredAt?: string | null): Date | n
 }
 
 // --- Gate 2: CSP Production and Development Isolation Tests ---
-test('CSP Isolation: Production CSP contains only self, exact API origin, and exact Stripe origins', () => {
+test('CSP Isolation: Production CSP contains nonce, eliminates unsafe-inline, and isolates connect-src', () => {
+  const nonce = 'k8sJ19vLm301XzQ==';
   const productionCsp = buildCspHeader({
     production: true,
-    origin: 'https://api.mevapur.com',
+    origin: 'https://api.mevapur.test',
+    nonce,
   });
 
   assert.ok(productionCsp.includes("default-src 'self'"));
-  assert.ok(productionCsp.includes("connect-src 'self' https://api.mevapur.com https://api.stripe.com"));
-  assert.ok(productionCsp.includes("script-src 'self' 'unsafe-inline' https://js.stripe.com"));
+  assert.ok(productionCsp.includes(`script-src 'self' 'nonce-${nonce}' https://js.stripe.com`));
   assert.ok(productionCsp.includes("frame-src 'self' https://js.stripe.com https://hooks.stripe.com"));
+  assert.ok(productionCsp.includes("connect-src 'self' https://api.mevapur.test https://api.stripe.com"));
   assert.ok(productionCsp.includes("object-src 'none'"));
   assert.ok(productionCsp.includes("base-uri 'self'"));
   assert.ok(productionCsp.includes("form-action 'self'"));
   assert.ok(productionCsp.includes("frame-ancestors 'none'"));
 
-  // Must NOT include test/development origins
+  // Must NOT include unrestricted unsafe-inline or unsafe-eval in production script-src
+  const scriptDirective = productionCsp.split(';').find((d) => d.trim().startsWith('script-src')) || '';
+  assert.strictEqual(scriptDirective.includes("'unsafe-inline'"), false, 'Production script-src must not contain unsafe-inline');
+  assert.strictEqual(scriptDirective.includes("'unsafe-eval'"), false, 'Production script-src must not contain unsafe-eval');
+
+  // Must NOT include test/development origins in production
   assert.strictEqual(productionCsp.includes('localhost'), false, 'Production CSP must not contain localhost');
   assert.strictEqual(productionCsp.includes('127.0.0.1'), false, 'Production CSP must not contain 127.0.0.1');
   assert.strictEqual(productionCsp.includes('*.test'), false, 'Production CSP must not contain *.test');
@@ -123,6 +129,70 @@ test('Payment Provider Matrix: Validates provider visibility and fail-closed beh
   assert.deepStrictEqual(codOnly, ['cod']);
 });
 
+// --- Gate 5 & 9: Provider Refresh, Stale Prevention, and Capability Enforcement ---
+test('Payment Provider Refresh: Selected provider disappearing after refresh auto-switches to safe method', () => {
+  let selectedMethod = 'stripe';
+  const refreshedMethods = [{ code: 'cod' }, { code: 'bank_transfer' }];
+
+  const supportedCodes = new Set(['cod', 'bank_transfer', 'raast', 'stripe']);
+  const available = refreshedMethods.map((m) => m.code).filter((c) => supportedCodes.has(c));
+
+  if (!available.includes(selectedMethod)) {
+    selectedMethod = available[0] || 'cod';
+  }
+
+  assert.strictEqual(selectedMethod, 'cod', 'Selected method must switch to cod when stripe disappears');
+});
+
+test('Payment Submission: Prevents submission of stale or unallowlisted payment provider', () => {
+  const allowedProviders = new Set(['cod', 'bank_transfer', 'raast', 'stripe']);
+
+  function validatePaymentSubmission(chosenProvider: string): { valid: boolean; error?: string } {
+    if (!allowedProviders.has(chosenProvider)) {
+      return { valid: false, error: 'PAYMENT_PROVIDER_NOT_AVAILABLE' };
+    }
+    return { valid: true };
+  }
+
+  assert.deepStrictEqual(validatePaymentSubmission('cod'), { valid: true });
+  assert.deepStrictEqual(validatePaymentSubmission('stale_legacy_provider'), {
+    valid: false,
+    error: 'PAYMENT_PROVIDER_NOT_AVAILABLE',
+  });
+});
+
+test('Manual Payment Resubmission: Honors explicit backend capability on Rejected status', () => {
+  interface PaymentDetail {
+    status: string;
+    capabilities: { canResubmitManualReference?: boolean };
+  }
+
+  function canResubmitManualPayment(payment: PaymentDetail): boolean {
+    if (payment.status === 'Rejected') {
+      return payment.capabilities.canResubmitManualReference === true;
+    }
+    return payment.status === 'AwaitingCustomerPayment';
+  }
+
+  // Capability allowed
+  assert.strictEqual(
+    canResubmitManualPayment({
+      status: 'Rejected',
+      capabilities: { canResubmitManualReference: true },
+    }),
+    true
+  );
+
+  // Capability disallowed
+  assert.strictEqual(
+    canResubmitManualPayment({
+      status: 'Rejected',
+      capabilities: { canResubmitManualReference: false },
+    }),
+    false
+  );
+});
+
 // --- Gate 6: Manual Payment Lifecycle Tests ---
 test('Manual Payment Lifecycle: Verifies status transitions and instruction visibility rules', () => {
   interface PaymentState {
@@ -175,7 +245,7 @@ test('Manual Payment Lifecycle: Verifies status transitions and instruction visi
           status,
           provider,
           hasInstructions: false,
-          canSubmitReference: true, // Allow resubmission if rejected
+          canSubmitReference: true,
           showsMaskedReference: false,
         };
       case 'Failed':
@@ -220,7 +290,7 @@ test('Manual Payment Lifecycle: Verifies status transitions and instruction visi
   assert.strictEqual(stripe.hasInstructions, false);
 });
 
-// --- Gate 7: Complete Return Eligibility & Deadline Boundary Tests ---
+// --- Gate 7 & 8: Complete Return Eligibility & Behavioral Edge Cases ---
 test('Return Eligibility: Exact boundary testing across delivered timestamp cases', () => {
   const baseTime = 1750000000000; // Reference epoch
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -280,6 +350,101 @@ test('Return Eligibility: Exact boundary testing across delivered timestamp case
     deadline?.getTime(),
     new Date(delivered10DaysAgo).getTime() + THIRTY_DAYS_MS
   );
+});
+
+test('Return Quantity Bounds: Enforces remaining eligible quantity subtracting prior returns', () => {
+  interface ReturnableItem {
+    originalQuantity: number;
+    priorReturnedQuantity: number;
+  }
+
+  function evaluateItemReturnEligibility(
+    item: ReturnableItem,
+    requestedQuantity: number
+  ): { eligible: boolean; remainingQuantity: number; error?: string } {
+    const remaining = Math.max(0, item.originalQuantity - item.priorReturnedQuantity);
+    if (remaining === 0) {
+      return { eligible: false, remainingQuantity: 0, error: 'ITEM_FULLY_RETURNED' };
+    }
+    if (requestedQuantity <= 0 || !Number.isInteger(requestedQuantity)) {
+      return { eligible: false, remainingQuantity: remaining, error: 'INVALID_QUANTITY' };
+    }
+    if (requestedQuantity > remaining) {
+      return { eligible: false, remainingQuantity: remaining, error: 'QUANTITY_EXCEEDS_REMAINING' };
+    }
+    return { eligible: true, remainingQuantity: remaining };
+  }
+
+  // Prior partially returned: original 5, returned 3 -> remaining 2
+  const partial = evaluateItemReturnEligibility({ originalQuantity: 5, priorReturnedQuantity: 3 }, 2);
+  assert.strictEqual(partial.eligible, true);
+  assert.strictEqual(partial.remainingQuantity, 2);
+
+  // Exceeding remaining quantity
+  const exceed = evaluateItemReturnEligibility({ originalQuantity: 5, priorReturnedQuantity: 3 }, 3);
+  assert.strictEqual(exceed.eligible, false);
+  assert.strictEqual(exceed.error, 'QUANTITY_EXCEEDS_REMAINING');
+
+  // Fully returned item: original 5, returned 5 -> remaining 0
+  const fullyReturned = evaluateItemReturnEligibility({ originalQuantity: 5, priorReturnedQuantity: 5 }, 1);
+  assert.strictEqual(fullyReturned.eligible, false);
+  assert.strictEqual(fullyReturned.error, 'ITEM_FULLY_RETURNED');
+});
+
+test('Return Open Request Check: Blocks duplicate return submissions for pending/active returns', () => {
+  interface ExistingReturn {
+    productId: string;
+    status: 'pending' | 'approved' | 'received' | 'rejected' | 'cancelled';
+  }
+
+  function checkOpenReturnConflict(
+    productId: string,
+    existingReturns: ExistingReturn[]
+  ): { hasConflict: boolean; error?: string } {
+    const openStatuses = new Set(['pending', 'approved', 'received']);
+    const openReturn = existingReturns.find(
+      (r) => r.productId === productId && openStatuses.has(r.status)
+    );
+    if (openReturn) {
+      return { hasConflict: true, error: 'OPEN_RETURN_ALREADY_EXISTS' };
+    }
+    return { hasConflict: false };
+  }
+
+  // Active pending return -> blocked
+  assert.deepStrictEqual(
+    checkOpenReturnConflict('prod-1', [{ productId: 'prod-1', status: 'pending' }]),
+    { hasConflict: true, error: 'OPEN_RETURN_ALREADY_EXISTS' }
+  );
+
+  // Prior rejected return -> allowed to request again if eligible
+  assert.deepStrictEqual(
+    checkOpenReturnConflict('prod-1', [{ productId: 'prod-1', status: 'rejected' }]),
+    { hasConflict: false }
+  );
+});
+
+test('Return Deep-Link Parameter Parsing: Handles malformed or non-existent identifiers gracefully', () => {
+  function parseReturnDeepLink(params: Record<string, string | undefined>) {
+    const orderId = (params.order || '').trim();
+    const productId = (params.product || '').trim();
+    const variantId = (params.variant || '').trim();
+
+    // Sanitize against dangerous characters or invalid formats
+    const isValidId = (id: string) => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
+
+    return {
+      orderId: isValidId(orderId) ? orderId : '',
+      productId: isValidId(productId) ? productId : '',
+      variantId: isValidId(variantId) ? variantId : '',
+    };
+  }
+
+  const valid = parseReturnDeepLink({ order: 'ORD-1234', product: 'prod-99', variant: 'var-1' });
+  assert.deepStrictEqual(valid, { orderId: 'ORD-1234', productId: 'prod-99', variantId: 'var-1' });
+
+  const invalid = parseReturnDeepLink({ order: '<script>alert(1)</script>', product: '../../etc/passwd' });
+  assert.deepStrictEqual(invalid, { orderId: '', productId: '', variantId: '' });
 });
 
 // --- Gate 8 & 9: Cancellation and Invoice Classification Tests ---
