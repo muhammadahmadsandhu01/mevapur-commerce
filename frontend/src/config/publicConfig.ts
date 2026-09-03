@@ -49,9 +49,9 @@ const readOrigin = (
 };
 
 const readSiteName = () => {
-  const value = process.env.NEXT_PUBLIC_SITE_NAME?.trim();
-  if (value) return value.slice(0, 80);
-  if (!isProductionBuild) return 'HARZAAR';
+  const raw = process.env.NEXT_PUBLIC_SITE_NAME?.replace(/[\r\n\t\x00-\x1F\x7F]/g, '').trim();
+  if (raw) return raw.slice(0, 80);
+  if (!isProductionBuild) return 'Local Store';
   throw new Error('NEXT_PUBLIC_SITE_NAME is required for production builds');
 };
 

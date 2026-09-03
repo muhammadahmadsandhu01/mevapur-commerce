@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle, Loader, AlertCircle } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowLeft, Loader, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
 import BrandLogo from '@/components/brand/BrandLogo';
@@ -45,7 +45,7 @@ function LoginContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validate()) return;
 
     setLoading(true);
@@ -60,7 +60,7 @@ function LoginContent() {
       } else {
         setToast({ message: '❌ ' + result.message, type: 'error' });
       }
-    } catch (error) {
+    } catch {
       setToast({ message: '❌ Something went wrong', type: 'error' });
     } finally {
       setLoading(false);
@@ -69,8 +69,8 @@ function LoginContent() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      
-      <Link href="/" style={{ 
+
+      <Link href="/" style={{
         position: 'fixed', top: '20px', left: '20px',
         display: 'flex', alignItems: 'center', gap: '8px',
         color: '#0B132B', textDecoration: 'none', fontWeight: '600',
@@ -85,7 +85,7 @@ function LoginContent() {
         <ArrowLeft size={16} /> Back to Home
       </Link>
 
-      <div style={{ 
+      <div style={{
         width: '100%', maxWidth: '1000px',
         backgroundColor: 'white', borderRadius: '24px',
         boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
@@ -93,8 +93,8 @@ function LoginContent() {
         display: 'grid', gridTemplateColumns: '1fr 1fr',
         minHeight: '600px'
       }}>
-        
-        <div style={{ 
+
+        <div style={{
           background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
           padding: '60px 40px',
           color: 'white',
@@ -122,7 +122,7 @@ function LoginContent() {
                 { icon: '🎁', title: 'Exclusive Offers', desc: 'Members-only discounts' }
               ].map((feature, idx) => (
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ 
+                  <div style={{
                     width: '48px', height: '48px', borderRadius: '12px',
                     backgroundColor: 'rgba(255,255,255,0.15)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -151,7 +151,7 @@ function LoginContent() {
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            
+
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
                 Email Address
@@ -179,7 +179,7 @@ function LoginContent() {
                 />
               </div>
               {errors.email && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
                   <AlertCircle size={12} /> {errors.email}
                 </div>
               )}
@@ -213,6 +213,7 @@ function LoginContent() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   style={{
                     position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
                     background: 'none', border: 'none', cursor: 'pointer',
@@ -223,7 +224,7 @@ function LoginContent() {
                 </button>
               </div>
               {errors.password && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
                   <AlertCircle size={12} /> {errors.password}
                 </div>
               )}
@@ -273,58 +274,11 @@ function LoginContent() {
               )}
             </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0' }}>
-              <div style={{ flex: 1, height: '1px', backgroundColor: '#E5E7EB' }} />
-              <span style={{ fontSize: '12px', color: '#9CA3AF' }}>OR</span>
-              <div style={{ flex: 1, height: '1px', backgroundColor: '#E5E7EB' }} />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <button type="button" style={{
-                padding: '12px', backgroundColor: 'white', color: '#374151',
-                border: '2px solid #E5E7EB', borderRadius: '10px',
-                cursor: 'pointer', fontSize: '14px', fontWeight: '600',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                transition: 'all 0.2s'
-              }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.backgroundColor = 'white'; }}
-              >
-                🔵 Google
-              </button>
-              <button type="button" style={{
-                padding: '12px', backgroundColor: 'white', color: '#374151',
-                border: '2px solid #E5E7EB', borderRadius: '10px',
-                cursor: 'pointer', fontSize: '14px', fontWeight: '600',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                transition: 'all 0.2s'
-              }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.backgroundColor = 'white'; }}
-              >
-                 Facebook
-              </button>
-            </div>
-
             <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '14px', color: '#6B7280' }}>
               Don&apos;t have an account?{' '}
               <Link href="/register" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
                 Create Account
               </Link>
-            </div>
-
-            <div style={{ 
-              marginTop: '16px', padding: '16px',
-              backgroundColor: '#FEF3C7', borderRadius: '10px',
-              border: '1px solid #F59E0B'
-            }}>
-              <div style={{ fontSize: '12px', fontWeight: '700', color: '#92400E', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle size={14} /> Demo Credentials
-              </div>
-              <div style={{ fontSize: '12px', color: '#78350F', lineHeight: '1.6' }}>
-                <strong>Email:</strong> ahmed@mevapur.com<br />
-                <strong>Password:</strong> Ahmed123!
-              </div>
             </div>
 
           </form>

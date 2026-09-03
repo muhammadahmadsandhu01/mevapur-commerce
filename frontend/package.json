@@ -2,6 +2,10 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=24.20.0 <25",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,26 +15,28 @@
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.0",
     "@stripe/stripe-js": "^9.12.0",
-    "autoprefixer": "^10.5.2",
+    "autoprefixer": "^10.4.21",
     "axios": "^1.18.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.23.0",
-    "next": "16.2.10",
-    "postcss": "^8.5.16",
+    "next": "^16.3.4",
+    "postcss": "^8.5.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "^3.4.17",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^20",
+    "@types/node": "^20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "^16.3.4",
+    "playwright": "^1.62.1",
     "typescript": "^5"
   }
 }

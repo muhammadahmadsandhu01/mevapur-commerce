@@ -2,7 +2,6 @@
 export const dynamic = 'force-dynamic';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Mail, ArrowLeft, CheckCircle, Loader, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
@@ -10,7 +9,6 @@ import Toast from '@/components/Toast';
 import BrandLogo from '@/components/brand/BrandLogo';
 
 export default function ForgotPasswordPage() {
-  const router = useRouter();
   const { forgotPassword } = useAuthStore();
 
   const [email, setEmail] = useState('');
@@ -45,7 +43,7 @@ export default function ForgotPasswordPage() {
         setError(result.message);
         setToast({ message: '❌ ' + result.message, type: 'error' });
       }
-    } catch (error) {
+    } catch {
       setToast({ message: '❌ Something went wrong', type: 'error' });
     } finally {
       setLoading(false);
@@ -54,9 +52,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      
+
       {/* Back Button */}
-      <Link href="/login" style={{ 
+      <Link href="/login" style={{
         position: 'fixed', top: '20px', left: '20px',
         display: 'flex', alignItems: 'center', gap: '8px',
         color: '#0B132B', textDecoration: 'none', fontWeight: '600',
@@ -71,7 +69,7 @@ export default function ForgotPasswordPage() {
         <ArrowLeft size={16} /> Back to Login
       </Link>
 
-      <div style={{ 
+      <div style={{
         width: '100%', maxWidth: '480px',
         backgroundColor: 'white', borderRadius: '24px',
         boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
@@ -79,13 +77,13 @@ export default function ForgotPasswordPage() {
         textAlign: 'center'
       }}>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
-          <BrandLogo theme="dark" height={34} />
+          <BrandLogo theme="dark" href="/" height={34} />
         </div>
-        
+
         {!success ? (
           <>
             {/* Icon */}
-            <div style={{ 
+            <div style={{
               width: '80px', height: '80px', borderRadius: '50%',
               backgroundColor: '#FEF3C7', margin: '0 auto 24px',
               display: 'flex', alignItems: 'center', justifyContent: 'center'
@@ -125,7 +123,7 @@ export default function ForgotPasswordPage() {
                   />
                 </div>
                 {error && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                  <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
                     <AlertCircle size={12} /> {error}
                   </div>
                 )}
@@ -169,7 +167,7 @@ export default function ForgotPasswordPage() {
         ) : (
           <>
             {/* Success State */}
-            <div style={{ 
+            <div style={{
               width: '80px', height: '80px', borderRadius: '50%',
               backgroundColor: '#DCFCE7', margin: '0 auto 24px',
               display: 'flex', alignItems: 'center', justifyContent: 'center'
@@ -187,7 +185,7 @@ export default function ForgotPasswordPage() {
               Please check your inbox and follow the instructions.
             </p>
 
-            <div style={{ 
+            <div style={{
               padding: '16px', backgroundColor: '#FEF3C7', borderRadius: '10px',
               border: '1px solid #F59E0B', marginBottom: '24px',
               fontSize: '13px', color: '#78350F', textAlign: 'left'

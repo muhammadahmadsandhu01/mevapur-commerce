@@ -88,7 +88,7 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validate()) return;
 
     setLoading(true);
@@ -108,7 +108,7 @@ export default function RegisterPage() {
       } else {
         setToast({ message: '❌ ' + result.message, type: 'error' });
       }
-    } catch (error) {
+    } catch {
       setToast({ message: '❌ Something went wrong', type: 'error' });
     } finally {
       setLoading(false);
@@ -117,9 +117,9 @@ export default function RegisterPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      
+
       {/* Back Button */}
-      <Link href="/" style={{ 
+      <Link href="/" style={{
         position: 'fixed', top: '20px', left: '20px',
         display: 'flex', alignItems: 'center', gap: '8px',
         color: '#0B132B', textDecoration: 'none', fontWeight: '600',
@@ -134,7 +134,7 @@ export default function RegisterPage() {
         <ArrowLeft size={16} /> Back to Home
       </Link>
 
-      <div style={{ 
+      <div style={{
         width: '100%', maxWidth: '1100px',
         backgroundColor: 'white', borderRadius: '24px',
         boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
@@ -142,9 +142,9 @@ export default function RegisterPage() {
         display: 'grid', gridTemplateColumns: '1fr 1fr',
         minHeight: '700px'
       }}>
-        
+
         {/* Left Side - Branding */}
-        <div style={{ 
+        <div style={{
           background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
           padding: '60px 40px',
           color: 'white',
@@ -162,7 +162,7 @@ export default function RegisterPage() {
               Join {branding.siteName}
             </h1>
             <p style={{ fontSize: '16px', opacity: '0.9', marginBottom: '40px', lineHeight: '1.6' }}>
-              Create your account to explore available products across the marketplace.
+              Create your account to explore available products across our store.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -173,7 +173,7 @@ export default function RegisterPage() {
                 { icon: '🎂', title: 'Birthday Rewards', desc: 'Special gifts on your birthday' }
               ].map((feature, idx) => (
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ 
+                  <div style={{
                     width: '48px', height: '48px', borderRadius: '12px',
                     backgroundColor: 'rgba(255,255,255,0.15)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -203,7 +203,7 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            
+
             {/* Full Name */}
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
@@ -229,7 +229,7 @@ export default function RegisterPage() {
                 />
               </div>
               {errors.fullName && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
                   <AlertCircle size={12} /> {errors.fullName}
                 </div>
               )}
@@ -260,7 +260,7 @@ export default function RegisterPage() {
                 />
               </div>
               {errors.email && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
                   <AlertCircle size={12} /> {errors.email}
                 </div>
               )}
@@ -269,10 +269,10 @@ export default function RegisterPage() {
             {/* Phone */}
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                Phone Number <span style={{ color: '#9CA3AF', fontWeight: '400' }}>(Optional)</span>
+                Phone Number <span style={{ color: '#4B5563', fontWeight: '400' }}>(Optional)</span>
               </label>
               <div style={{ position: 'relative' }}>
-                <Phone size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.phone ? '#EF4444' : '#9CA3AF' }} />
+                <Phone size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.phone ? '#EF4444' : '#6B7280' }} />
                 <input
                   type="tel"
                   value={formData.phone}
@@ -291,7 +291,7 @@ export default function RegisterPage() {
                 />
               </div>
               {errors.phone && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#DC2626', fontWeight: '600' }}>
                   <AlertCircle size={12} /> {errors.phone}
                 </div>
               )}
@@ -303,7 +303,7 @@ export default function RegisterPage() {
                 Password <span style={{ color: '#EF4444' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.password ? '#EF4444' : '#9CA3AF' }} />
+                <Lock size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.password ? '#EF4444' : '#6B7280' }} />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
@@ -323,10 +323,11 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   style={{
                     position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
                     background: 'none', border: 'none', cursor: 'pointer',
-                    color: '#6B7280', display: 'flex', alignItems: 'center'
+                    color: '#4B5563', display: 'flex', alignItems: 'center'
                   }}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -347,7 +348,7 @@ export default function RegisterPage() {
                     ))}
                   </div>
                   {passwordStrength.label && (
-                    <div style={{ fontSize: '12px', fontWeight: '600', color: passwordStrength.color, marginBottom: '8px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '700', color: passwordStrength.level === 'weak' ? '#B91C1C' : passwordStrength.level === 'medium' ? '#B45309' : '#047857', marginBottom: '8px' }}>
                       {passwordStrength.label}
                     </div>
                   )}
@@ -361,8 +362,8 @@ export default function RegisterPage() {
                       { check: passwordChecks.number, text: 'One number' },
                       { check: passwordChecks.special, text: 'One special character' }
                     ].map((req, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: req.check ? '#166534' : '#6B7280' }}>
-                        {req.check ? <CheckCircle size={12} color="#16A34A" /> : <XCircle size={12} color="#9CA3AF" />}
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: req.check ? '#047857' : '#4B5563' }}>
+                        {req.check ? <CheckCircle size={12} color="#047857" /> : <XCircle size={12} color="#4B5563" />}
                         {req.text}
                       </div>
                     ))}
@@ -370,7 +371,7 @@ export default function RegisterPage() {
                 </div>
               )}
               {errors.password && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#DC2626', fontWeight: '600' }}>
                   <AlertCircle size={12} /> {errors.password}
                 </div>
               )}
@@ -382,7 +383,7 @@ export default function RegisterPage() {
                 Confirm Password <span style={{ color: '#EF4444' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
-                <Shield size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.confirmPassword ? '#EF4444' : '#9CA3AF' }} />
+                <Shield size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.confirmPassword ? '#EF4444' : '#6B7280' }} />
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
@@ -402,22 +403,23 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
                   style={{
                     position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
                     background: 'none', border: 'none', cursor: 'pointer',
-                    color: '#6B7280', display: 'flex', alignItems: 'center'
+                    color: '#4B5563', display: 'flex', alignItems: 'center'
                   }}
                 >
                   {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               {formData.confirmPassword && formData.password === formData.confirmPassword && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#166534', fontWeight: '500' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#047857', fontWeight: '600' }}>
                   <CheckCircle size={12} /> Passwords match
                 </div>
               )}
               {errors.confirmPassword && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#DC2626', fontWeight: '600' }}>
                   <AlertCircle size={12} /> {errors.confirmPassword}
                 </div>
               )}
@@ -443,7 +445,7 @@ export default function RegisterPage() {
                 </span>
               </label>
               {errors.acceptTerms && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
                   <AlertCircle size={12} /> {errors.acceptTerms}
                 </div>
               )}
@@ -491,7 +493,6 @@ export default function RegisterPage() {
         </div>
       </div>
 
-      {/* Toast */}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       <style>{`

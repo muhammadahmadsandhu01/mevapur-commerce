@@ -17,6 +17,7 @@ import {
   type HistoricalOrderLine,
   type ReturnReason
 } from '@/services/account.service';
+import { branding } from '@/config/branding';
 
 interface ReturnRequestFormProps {
   initialOrderId?: string;
@@ -183,7 +184,7 @@ export default function ReturnRequestForm({
       <h3>Request a return</h3>
       <p>
         Select the exact item purchased in your delivered order. Refund amounts
-        are verified by HARZAAR after review.
+        are verified by {branding.siteName} after review.
       </p>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
