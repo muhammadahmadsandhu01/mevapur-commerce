@@ -6,19 +6,19 @@ import {
   clearAuthentication,
   getAccessToken,
   refreshAuthentication,
-} from "@/lib/authSession";
-import { publicApiBaseUrl } from "@/config/publicConfig";
+} from "./authSession.ts";
+import { publicApiBaseUrl } from "../config/publicConfig.ts";
 import {
   normalizeProduct,
   normalizePagination,
   getSafeMediaUrl,
-} from "@/lib/catalogAdapter";
+} from "./catalogAdapter.ts";
 import type {
   Product,
   Category,
   Brand,
   PaginationMeta,
-} from "@/types/product";
+} from "../types/product.ts";
 
 const api = axios.create({
   baseURL: publicApiBaseUrl,

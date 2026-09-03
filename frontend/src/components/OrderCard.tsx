@@ -1,10 +1,24 @@
 'use client';
 
-import { Package, Truck, CreditCard, Calendar, MapPin, ChevronDown, ChevronUp, Eye, Download, RotateCcw, XCircle, ShoppingCart, Star, MessageCircle, Clock } from 'lucide-react';
+import {
+  Package,
+  Truck,
+  CreditCard,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Download,
+  RotateCcw,
+  XCircle,
+} from 'lucide-react';
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import OrderTimeline from './OrderTimeline';
 import { Order } from '@/data/mockOrders';
+import { getSafeMediaUrl } from '@/lib/catalogAdapter';
+import { formatMoney } from '@/lib/money';
 
 interface OrderCardProps {
   order: Order;
@@ -16,129 +30,109 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
   const [showTimeline, setShowTimeline] = useState(false);
 
   const statusColors: Record<string, { bg: string; text: string; border: string }> = {
-    'pending': { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
-    'confirmed': { bg: '#DBEAFE', text: '#1E40AF', border: '#3B82F6' },
-    'processing': { bg: '#E0E7FF', text: '#4338CA', border: '#6366F1' },
-    'packed': { bg: '#FCE7F3', text: '#9D174D', border: '#EC4899' },
-    'shipped': { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
+    pending: { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
+    confirmed: { bg: '#DBEAFE', text: '#1E40AF', border: '#3B82F6' },
+    processing: { bg: '#E0E7FF', text: '#4338CA', border: '#6366F1' },
+    packed: { bg: '#FCE7F3', text: '#9D174D', border: '#EC4899' },
+    shipped: { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
     'out-for-delivery': { bg: '#CFFAFE', text: '#155E75', border: '#06B6D4' },
-    'delivered': { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
-    'cancelled': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' },
-    'returned': { bg: '#FED7AA', text: '#9A3412', border: '#F97316' },
-    'refunded': { bg: '#E5E7EB', text: '#374151', border: '#6B7280' }
+    delivered: { bg: '#DCFCE7', text: '#166534', border: '#16A34A' },
+    cancelled: { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' },
+    returned: { bg: '#FED7AA', text: '#9A3412', border: '#F97316' },
+    refunded: { bg: '#E5E7EB', text: '#374151', border: '#6B7280' },
   };
 
   const paymentStatusColors: Record<string, { bg: string; text: string }> = {
-    'pending': { bg: '#FEF3C7', text: '#92400E' },
-    'paid': { bg: '#DCFCE7', text: '#166534' },
+    pending: { bg: '#FEF3C7', text: '#92400E' },
+    paid: { bg: '#DCFCE7', text: '#166534' },
     'cod-pending': { bg: '#FEF3C7', text: '#92400E' },
-    'refunded': { bg: '#E5E7EB', text: '#374151' },
-    'failed': { bg: '#FEE2E2', text: '#991B1B' }
+    refunded: { bg: '#E5E7EB', text: '#374151' },
+    failed: { bg: '#FEE2E2', text: '#991B1B' },
   };
 
   const statusColor = statusColors[order.orderStatus] || statusColors.pending;
   const paymentColor = paymentStatusColors[order.paymentStatus] || paymentStatusColors.pending;
 
-  // ✅ Calculate if within 7 days of delivery
-  const isWithin7DaysOfDelivery = () => {
-    const deliveredStep = order.timeline.find(t => t.status === 'Delivered');
-    if (!deliveredStep || !deliveredStep.completed) return false;
-    
-    const deliveryDate = new Date(deliveredStep.date);
-    const now = new Date();
-    const daysDiff = (now.getTime() - deliveryDate.getTime()) / (1000 * 60 * 60 * 24);
-    return daysDiff <= 7 && daysDiff >= 0;
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
   };
 
-  // ✅ UPDATED: Conditional actions based on order status
-  const getActions = () => {
-    const actions = [];
-    
-    // Always show View Details
-    actions.push({ label: 'View Details', icon: <Eye size={14} />, type: 'view', primary: true });
-    
-    // Track Shipment - for shipped, out-for-delivery, delivered
-    if (['shipped', 'out-for-delivery', 'delivered'].includes(order.orderStatus)) {
-      actions.push({ label: 'Track Shipment', icon: <Truck size={14} />, type: 'track' });
-    }
-    
-    // ✅ CANCEL ORDER - Only before shipping (pending, confirmed, processing, packed)
-    if (['pending', 'confirmed'].includes(order.orderStatus)) {
-      actions.push({ 
-        label: 'Cancel Order', 
-        icon: <XCircle size={14} />, 
-        type: 'cancel', 
-        danger: true 
-      });
-    }
-    
-    // ✅ RETURN & OTHER OPTIONS - Only after delivery (within 7 days)
-    if (order.orderStatus === 'delivered') {
-      actions.push({ label: 'Buy Again', icon: <ShoppingCart size={14} />, type: 'buy-again' });
-      actions.push({ label: 'Leave Review', icon: <Star size={14} />, type: 'review' });
-      
-      // Return button - only within 7 days
-      if (isWithin7DaysOfDelivery()) {
-        actions.push({ 
-          label: 'Request Return', 
-          icon: <RotateCcw size={14} />, 
-          type: 'return',
-          subtitle: '7 days remaining'
-        });
-      }
-    }
-    
-    // Download Invoice - for delivered, cancelled, returned, refunded
-    if (['delivered', 'cancelled', 'returned', 'refunded'].includes(order.orderStatus)) {
-      actions.push({ label: 'Download Invoice', icon: <Download size={14} />, type: 'invoice' });
-    }
-    
-    actions.push({ label: 'Contact Support', icon: <MessageCircle size={14} />, type: 'support' });
-    
-    return actions;
-  };
-
-  const actions = getActions();
+  const canCancel = order.orderStatus === 'pending' || order.orderStatus === 'confirmed';
+  const canReturn = order.orderStatus === 'delivered';
+  const displayId = order.orderNumber || order.id;
 
   return (
-    <div style={{
-      backgroundColor: 'white', borderRadius: '16px', padding: '24px',
-      boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: '1px solid #E5E7EB',
-      transition: 'all 0.3s', marginBottom: '20px'
-    }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.1)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.06)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+    <div
+      style={{
+        backgroundColor: 'white',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+        border: '1px solid #E5E7EB',
+        marginBottom: '20px',
+      }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '20px',
+          paddingBottom: '16px',
+          borderBottom: '1px solid #F3F4F6',
+        }}
+      >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <Package size={18} color="#FF8A00" />
-            <span style={{ fontSize: '16px', fontWeight: '800', color: '#111827' }}>Order #{order.orderNumber}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <span style={{ fontSize: '18px', fontWeight: '800', color: '#0B132B' }}>
+              #{displayId}
+            </span>
           </div>
-          <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: '#6B7280', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Calendar size={14} /> Placed: {new Date(order.orderDate).toLocaleDateString('en-PK', { year: 'numeric', month: 'short', day: 'numeric' })}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Truck size={14} /> Est. Delivery: {new Date(order.estimatedDelivery).toLocaleDateString('en-PK', { year: 'numeric', month: 'short', day: 'numeric' })}
-            </div>
+          <div style={{ fontSize: '13px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Calendar size={14} /> {formatDate(order.orderDate || new Date().toISOString())}
           </div>
         </div>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
-          <div style={{
-            backgroundColor: statusColor.bg, color: statusColor.text,
-            padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700',
-            border: `1px solid ${statusColor.border}`, textTransform: 'capitalize'
-          }}>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Order Status Badge */}
+          <div
+            style={{
+              backgroundColor: statusColor.bg,
+              color: statusColor.text,
+              border: `1px solid ${statusColor.border}`,
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              textTransform: 'capitalize',
+            }}
+          >
+            <Package size={14} />
             {order.orderStatus.replace('-', ' ')}
           </div>
-          <div style={{
-            backgroundColor: paymentColor.bg, color: paymentColor.text,
-            padding: '4px 10px', borderRadius: '16px', fontSize: '11px', fontWeight: '600',
-            textTransform: 'capitalize'
-          }}>
+
+          {/* Payment Status Badge */}
+          <div
+            style={{
+              backgroundColor: paymentColor.bg,
+              color: paymentColor.text,
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: '700',
+              textTransform: 'capitalize',
+            }}
+          >
             💳 {order.paymentStatus.replace('-', ' ')}
           </div>
         </div>
@@ -147,18 +141,43 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
       {/* Products Preview */}
       <div style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
-          <img src={order.items[0].image} alt={order.items[0].name} style={{ width: '80px', height: '80px', borderRadius: '10px', objectFit: 'cover', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+          <div style={{ position: 'relative', width: '80px', height: '80px', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#F8FAFC', flexShrink: 0 }}>
+            <Image
+              src={getSafeMediaUrl(order.items[0]?.image)}
+              alt={order.items[0]?.name || 'Product'}
+              fill
+              sizes="80px"
+              style={{ objectFit: 'cover' }}
+            />
+          </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{order.items[0].name}</div>
-            <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>{order.items[0].variant} • Qty: {order.items[0].quantity}</div>
-            <div style={{ fontSize: '14px', fontWeight: '700', color: '#FF8A00' }}>Rs. {order.items[0].price}</div>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+              {order.items[0]?.name}
+            </div>
+            <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
+              {order.items[0]?.variant} • Qty: {order.items[0]?.quantity}
+            </div>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: '#FF8A00' }}>
+              {formatMoney(order.items[0]?.price)}
+            </div>
           </div>
           {order.items.length > 1 && (
-            <button onClick={() => setExpanded(!expanded)} style={{
-              background: 'none', border: '1px solid #E5E7EB', borderRadius: '8px',
-              padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '600',
-              color: '#0B132B', display: 'flex', alignItems: 'center', gap: '4px'
-            }}>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                background: 'none',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#0B132B',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
               {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               +{order.items.length - 1} More
             </button>
@@ -166,23 +185,61 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
         </div>
 
         {/* Expanded Products */}
-        {expanded && order.items.slice(1).map(item => (
-          <div key={item.id} style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '10px' }}>
-            <img src={item.image} alt={item.name} style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover' }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>{item.name}</div>
-              <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '2px' }}>{item.variant} • Qty: {item.quantity}</div>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#FF8A00' }}>Rs. {item.price}</div>
+        {expanded &&
+          order.items.slice(1).map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+                marginBottom: '12px',
+                padding: '12px',
+                backgroundColor: '#F8FAFC',
+                borderRadius: '10px',
+              }}
+            >
+              <div style={{ position: 'relative', width: '60px', height: '60px', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff', flexShrink: 0 }}>
+                <Image
+                  src={getSafeMediaUrl(item.image)}
+                  alt={item.name}
+                  fill
+                  sizes="60px"
+                  style={{ objectFit: 'cover' }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+                  {item.name}
+                </div>
+                <div style={{ fontSize: '12px', color: '#6B7280', marginBottom: '2px' }}>
+                  {item.variant} • Qty: {item.quantity}
+                </div>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: '#FF8A00' }}>
+                  {formatMoney(item.price)}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
       </div>
 
       {/* Order Info Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px', padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '12px',
+          marginBottom: '20px',
+          padding: '16px',
+          backgroundColor: '#F8FAFC',
+          borderRadius: '12px',
+        }}
+      >
         <div>
           <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Total Amount</div>
-          <div style={{ fontSize: '16px', fontWeight: '800', color: '#FF8A00' }}>Rs. {order.totalAmount.toLocaleString()}</div>
+          <div style={{ fontSize: '16px', fontWeight: '800', color: '#0B132B' }}>
+            {formatMoney(order.totalAmount)}
+          </div>
         </div>
         <div>
           <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Payment Method</div>
@@ -192,88 +249,138 @@ export default function OrderCard({ order, onAction }: OrderCardProps) {
         </div>
         <div>
           <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Products</div>
-          <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>{order.productCount} items</div>
+          <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+            {order.productCount} items
+          </div>
         </div>
         {order.trackingNumber && (
           <div>
             <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Tracking</div>
-            <div style={{ fontSize: '12px', fontWeight: '600', color: '#111827', fontFamily: 'monospace' }}>{order.trackingNumber}</div>
+            <div style={{ fontSize: '12px', fontWeight: '600', color: '#111827', fontFamily: 'monospace' }}>
+              {order.trackingNumber}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Shipping Address */}
-      <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '10px', borderLeft: '3px solid #FF8A00' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-          <MapPin size={14} color="#FF8A00" />
-          <span style={{ fontSize: '12px', fontWeight: '700', color: '#0B132B' }}>Shipping Address</span>
-        </div>
-        <div style={{ fontSize: '13px', color: '#374151', lineHeight: '1.6' }}>
-          {order.shippingAddress.name}<br />
-          {order.shippingAddress.address}<br />
-          {order.shippingAddress.city}, {order.shippingAddress.province} {order.shippingAddress.postalCode}<br />
-          📞 {order.shippingAddress.phone}
-        </div>
-      </div>
-
       {/* Timeline Toggle */}
-      <button onClick={() => setShowTimeline(!showTimeline)} style={{
-        width: '100%', background: 'none', border: '1px solid #E5E7EB', borderRadius: '10px',
-        padding: '12px', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
-        color: '#0B132B', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-        marginBottom: '16px', transition: 'all 0.2s'
-      }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
-        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+      {showTimeline && order.timeline && (
+        <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '12px' }}>
+          <OrderTimeline timeline={order.timeline} />
+        </div>
+      )}
+
+      {/* Actions */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px',
+        }}
       >
-        {showTimeline ? 'Hide' : 'View'} Order Timeline
-        {showTimeline ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-      </button>
-
-      {showTimeline && <OrderTimeline timeline={order.timeline} />}
-
-      {/* Action Buttons */}
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', paddingTop: '16px', borderTop: '1px solid #E5E7EB' }}>
-        {actions.map((action, index) => (
-          action.type === 'view' ? (
-            <Link key={index} href={`/orders/${order.id}`} style={{
-              flex: 1, minWidth: '120px',
-              backgroundColor: '#FF8A00', color: '#0B132B',
-              padding: '10px 16px', borderRadius: '10px',
-              fontSize: '13px', fontWeight: '700', textDecoration: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(255,138,0,0.3)'
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <Link
+            href={`/orders/${order.id}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              backgroundColor: '#0B132B',
+              color: 'white',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              textDecoration: 'none',
             }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; }}
-            >
-              {action.icon} {action.label}
-            </Link>
-          ) : (
-            <button key={index} onClick={() => onAction(action.type, order.id)} style={{
-              flex: 1, minWidth: '120px',
-              backgroundColor: action.danger ? '#FEE2E2' : 'white',
-              color: action.danger ? '#DC2626' : '#374151',
-              border: `1px solid ${action.danger ? '#FCA5A5' : '#E5E7EB'}`,
-              padding: '10px 16px', borderRadius: '10px',
-              fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              transition: 'all 0.2s'
+          >
+            <Eye size={14} /> View Details
+          </Link>
+
+          <button
+            onClick={() => setShowTimeline(!showTimeline)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              backgroundColor: 'white',
+              border: '1px solid #E5E7EB',
+              color: '#374151',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
             }}
-              onMouseEnter={e => { 
-                e.currentTarget.style.backgroundColor = action.danger ? '#FEE2E2' : '#F8FAFC';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={e => { 
-                e.currentTarget.style.backgroundColor = action.danger ? '#FEE2E2' : 'white';
-                e.currentTarget.style.transform = 'translateY(0)';
+          >
+            <Truck size={14} /> {showTimeline ? 'Hide Tracking' : 'Track Order'}
+          </button>
+
+          <button
+            onClick={() => onAction('invoice', order.id)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              backgroundColor: 'white',
+              border: '1px solid #E5E7EB',
+              color: '#374151',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+            }}
+          >
+            <Download size={14} /> Invoice
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {canCancel && (
+            <button
+              onClick={() => onAction('cancel', order.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                backgroundColor: '#FEE2E2',
+                color: '#991B1B',
+                border: '1px solid #FCA5A5',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: 'pointer',
               }}
             >
-              {action.icon} {action.label}
-              {action.subtitle && <span style={{ fontSize: '10px', opacity: 0.7 }}>({action.subtitle})</span>}
+              <XCircle size={14} /> Cancel Order
             </button>
-          )
-        ))}
+          )}
+
+          {canReturn && (
+            <button
+              onClick={() => onAction('return', order.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                backgroundColor: '#FEF3C7',
+                color: '#92400E',
+                border: '1px solid #FCD34D',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              <RotateCcw size={14} /> Return
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

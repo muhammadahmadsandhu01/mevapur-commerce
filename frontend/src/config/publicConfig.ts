@@ -1,4 +1,4 @@
-import { resolvePublicApiContract } from './publicApiContract';
+import { resolvePublicApiContract } from './publicApiContract.js';
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 

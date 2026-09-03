@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { publicApiBaseUrl } from '@/config/publicConfig';
+import { publicApiBaseUrl } from '../config/publicConfig.ts';
 
 export interface AuthPayload<TUser> {
   user: TUser;
@@ -114,17 +114,10 @@ export const logoutAuthentication = async () => {
   );
 
   try {
-    if (!accessToken || !csrfToken) {
-      await refreshAuthentication(true);
+    if (!csrfToken) {
+      await fetchCsrfContext().catch(() => undefined);
     }
-    if (accessToken && csrfToken) {
-      try {
-        await sendLogout();
-      } catch {
-        const refreshed = await refreshAuthentication();
-        if (refreshed) await sendLogout();
-      }
-    }
+    await sendLogout();
   } finally {
     clearAuthentication();
   }

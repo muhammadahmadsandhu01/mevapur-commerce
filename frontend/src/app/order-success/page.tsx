@@ -2,479 +2,367 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import api from '@/lib/api';
-import { useAuthStore } from '@/store/authStore';
-import { CheckCircle, Package, Truck, CreditCard, Calendar, Copy, ArrowLeft } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { branding } from '@/config/branding';
+import Image from 'next/image';
+import {
+  CheckCircle2,
+  Package,
+  Truck,
+  CreditCard,
+  Copy,
+  ArrowRight,
+  AlertCircle,
+  Loader2,
+  PhoneCall,
+  Building2,
+} from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
+import { getVerifiedOrder, type CreatedOrderResult } from '@/lib/checkoutService';
+import { formatMoney } from '@/lib/money';
+import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 
-interface OrderItem {
+interface PopulatedOrderItem {
   product?: {
     _id: string;
     name: string;
+    primaryImage?: string;
     images?: string[];
   } | string;
   name: string;
-  price: number | string;
+  price: number;
   quantity: number;
   image?: string;
+  variant?: string;
+  variantId?: string;
 }
 
-interface Order {
-  _id: string;
-  orderId: string;
-  items: OrderItem[];
-  shippingAddress: {
-    fullName: string;
-    phone: string;
-    address: string;
-    city: string;
-    postalCode?: string;
-  };
-  paymentMethod: string;
-  orderStatus: string;
-  paymentStatus: string;
-  subtotal: number | string;
-  shippingCost: number | string;
-  discount: number | string;
-  totalAmount: number | string;
-  createdAt: string;
+interface PopulatedOrder extends Omit<CreatedOrderResult, 'items'> {
+  items: PopulatedOrderItem[];
+  subtotal?: number;
+  shippingCost?: number;
+  taxAmount?: number;
+  discount?: number;
 }
 
 function OrderSuccessContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const { token } = useAuthStore();
-  const [order, setOrder] = useState<Order | null>(null);
+  const { isAuthenticated } = useAuthStore();
+
+  const [order, setOrder] = useState<PopulatedOrder | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const orderIdParam = searchParams.get('orderId');
+
   useEffect(() => {
-    const fetchOrder = async () => {
-      const orderId = searchParams.get('orderId');
-      
-      if (!orderId || !token) {
-        router.push('/');
+    const controller = new AbortController();
+
+    async function loadOrder() {
+      if (!orderIdParam) {
+        setError('No order reference specified.');
+        setLoading(false);
+        return;
+      }
+
+      if (!isAuthenticated) {
+        setError('Please sign in to view and verify your order confirmation.');
+        setLoading(false);
         return;
       }
 
       try {
-        const response = await api.get(`/orders/${orderId}`);
-
-        if (response.data.success) {
-          setOrder(response.data.data.order);
+        setLoading(true);
+        setError(null);
+        const data = await getVerifiedOrder(orderIdParam, controller.signal);
+        if (!controller.signal.aborted) {
+          setOrder(data as PopulatedOrder);
+          setLoading(false);
         }
-      } catch (error) {
-        console.error('Error fetching order:', error);
-        router.push('/');
-      } finally {
-        setLoading(false);
+      } catch (err: unknown) {
+        if (!controller.signal.aborted) {
+          const msg =
+            (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+            (err instanceof Error ? err.message : 'Unable to verify order confirmation.');
+          setError(msg);
+          setLoading(false);
+        }
       }
-    };
+    }
 
-    fetchOrder();
-  }, [searchParams, token, router]);
+    void loadOrder();
+
+    return () => {
+      controller.abort();
+    };
+  }, [orderIdParam, isAuthenticated]);
 
   const copyOrderId = () => {
     if (order) {
-      navigator.clipboard.writeText(order.orderId || order._id);
+      const ref = order.orderId || order._id;
+      navigator.clipboard.writeText(ref);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'Just now';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
   if (loading) {
     return (
-      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '60px',
-            height: '60px',
-            border: '5px solid #FF8A00',
-            borderTop: '5px solid transparent',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 20px'
-          }}></div>
-          <p style={{ color: '#6B7280' }}>Loading order details...</p>
-        </div>
-      </div>
+      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+        <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
+        <h1 className="text-xl font-bold text-slate-900 mb-1">Verifying Order Confirmation</h1>
+        <p className="text-sm text-slate-600">Retrieving authoritative receipt from server...</p>
+      </main>
     );
   }
 
-  if (!order) {
+  if (error || !order) {
     return (
-      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ color: '#6B7280', marginBottom: '20px' }}>Order not found</p>
-          <Link href="/" style={{ color: '#0B132B', fontWeight: '600' }}>← Back to Home</Link>
+      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+        <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mb-4">
+          <AlertCircle size={32} className="text-rose-600" />
         </div>
-      </div>
-    );
-  }
-
-  const subtotal = Number(order.subtotal) || 0;
-  const shippingCost = Number(order.shippingCost) || 0;
-  const discount = Number(order.discount) || 0;
-  const totalAmount = Number(order.totalAmount) || 0;
-
-  return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', paddingBottom: '60px' }}>
-      
-      {/* Header */}
-      <div style={{ backgroundColor: 'white', borderBottom: '1px solid #E5E7EB', padding: '20px 0' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px' }}>
-          <Link href="/" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <ArrowLeft size={20} /> Back to Home
+        <h1 className="text-2xl font-extrabold text-slate-900 mb-2">Order Lookup</h1>
+        <p className="text-sm text-slate-700 mb-6">{error || 'Order could not be located.'}</p>
+        <div className="flex flex-wrap gap-3 justify-center">
+          <Link
+            href="/orders"
+            className="px-5 py-2.5 rounded-xl bg-[#0b132b] text-white text-sm font-bold hover:bg-slate-800 transition"
+          >
+            View Your Orders
+          </Link>
+          <Link
+            href="/products"
+            className="px-5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-50 transition"
+          >
+            Browse Products
           </Link>
         </div>
-      </div>
+      </main>
+    );
+  }
 
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
-        
-        {/* Success Message */}
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{
-            width: '100px',
-            height: '100px',
-            backgroundColor: '#16A34A',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 24px'
-          }}>
-            <CheckCircle size={60} color="white" />
+  const isManualPayment = order.paymentMethod === 'bank_transfer' || order.paymentMethod === 'raast';
+
+  return (
+    <main className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Success Banner */}
+        <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs text-center">
+          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center mb-4">
+            <CheckCircle2 size={36} />
           </div>
-          <h1 style={{ fontSize: '36px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>
-            Order Confirmed! 
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900">
+            Thank You for Your Order!
           </h1>
-          <p style={{ fontSize: '18px', color: '#6B7280', marginBottom: '8px' }}>
-            Thank you for shopping with {branding.siteName}
+          <p className="text-sm text-slate-700 mt-2 max-w-md mx-auto">
+            Your order has been confirmed and placed into our fulfillment queue. An electronic confirmation has been logged.
           </p>
-          <p style={{ fontSize: '14px', color: '#166534', fontWeight: '600' }}>
-            We&apos;ve sent a confirmation email to your registered email address
-          </p>
+
+          <div className="mt-6 inline-flex flex-wrap items-center justify-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs sm:text-sm font-bold">
+            <span className="text-slate-600">Order Reference:</span>
+            <span className="font-mono text-slate-900">{order.orderId || order._id}</span>
+            <button
+              type="button"
+              onClick={copyOrderId}
+              className="p-1 hover:bg-slate-200 rounded text-slate-700 transition"
+              aria-label="Copy order reference"
+            >
+              <Copy size={15} />
+            </button>
+            {copied && <span className="text-xs text-emerald-800 font-semibold ml-1">Copied!</span>}
+          </div>
         </div>
 
-        {/* Order ID Card */}
-        <div style={{
-          backgroundColor: 'white',
-          borderRadius: '16px',
-          padding: '32px',
-          marginBottom: '24px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-          textAlign: 'center',
-          border: '2px solid #FF8A00'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '12px' }}>
-            <Package size={20} color="#FF8A00" />
-            <span style={{ fontSize: '14px', fontWeight: '600', color: '#6B7280' }}>Your Order ID</span>
+        {/* Manual Payment Instructions Notice if applicable */}
+        {isManualPayment && order.paymentStatus !== 'Paid' && (
+          <div className="p-6 bg-amber-50 border border-amber-300 rounded-2xl text-slate-900" role="alert">
+            <h2 className="text-base font-extrabold text-amber-950 mb-2 flex items-center gap-2">
+              {order.paymentMethod === 'raast' ? <PhoneCall size={18} /> : <Building2 size={18} />}
+              Manual Payment Instructions Required
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed mb-4">
+              Your order is currently in <strong className="font-bold">Pending Payment</strong> status. Please complete the {order.paymentMethod === 'raast' ? 'Raast transfer' : 'Direct Bank IBFT transfer'} using your order reference as the transaction remark.
+            </p>
+            <Link
+              href={`/payment-instructions?orderId=${encodeURIComponent(order._id || order.orderId)}`}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0b132b] text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition"
+            >
+              View Payment Account Details <ArrowRight size={14} />
+            </Link>
           </div>
-          <div style={{
-            fontSize: '28px',
-            fontWeight: '800',
-            color: '#0B132B',
-            fontFamily: 'monospace',
-            marginBottom: '16px',
-            letterSpacing: '1px'
-          }}>
-            {order.orderId || order._id}
-          </div>
-          <button
-            onClick={copyOrderId}
-            style={{
-              backgroundColor: copied ? '#16A34A' : '#0B132B',
-              color: 'white',
-              border: 'none',
-              padding: '12px 24px',
-              borderRadius: '8px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={e => {
-              if (!copied) {
-                e.currentTarget.style.backgroundColor = '#1A2744';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }
-            }}
-            onMouseLeave={e => {
-              if (!copied) {
-                e.currentTarget.style.backgroundColor = '#0B132B';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }
-            }}
-          >
-            <Copy size={16} />
-            {copied ? 'Copied!' : 'Copy Order ID'}
-          </button>
-        </div>
+        )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginBottom: '24px' }}>
-          
-          {/* Order Details */}
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Calendar size={20} color="#FF8A00" /> Order Details
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-                <span style={{ color: '#6B7280', fontSize: '14px' }}>Order Date</span>
-                <span style={{ fontWeight: '600', color: '#111827' }}>{formatDate(order.createdAt)}</span>
+        {/* Order Details Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Shipping Details */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+            <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Truck size={17} className="text-[#ff8a00]" /> Delivery Address
+            </h2>
+            <div className="text-xs sm:text-sm text-slate-800 space-y-1">
+              <p className="font-bold text-slate-900">{order.shippingAddress?.fullName}</p>
+              <p>{order.shippingAddress?.phone}</p>
+              <p>{order.shippingAddress?.address}</p>
+              {order.shippingAddress?.addressLine2 && <p>{order.shippingAddress.addressLine2}</p>}
+              <p>
+                {[order.shippingAddress?.city, order.shippingAddress?.province, order.shippingAddress?.postalCode]
+                  .filter(Boolean)
+                  .join(', ')}
+              </p>
+              <p className="font-bold">{order.shippingAddress?.country || 'Pakistan'}</p>
+            </div>
+          </div>
+
+          {/* Order Metadata */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+            <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <CreditCard size={17} className="text-[#ff8a00]" /> Payment & Status
+            </h2>
+            <div className="text-xs sm:text-sm space-y-2.5">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Placed Date:</span>
+                <span className="font-semibold text-slate-900">{formatDate(order.createdAt)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-                <span style={{ color: '#6B7280', fontSize: '14px' }}>Order Status</span>
-                <span style={{
-                  padding: '4px 12px',
-                  backgroundColor: '#F7F7F5',
-                  color: '#0B132B',
-                  borderRadius: '20px',
-                  fontWeight: '600',
-                  fontSize: '13px'
-                }}>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Payment Method:</span>
+                <span className="font-bold uppercase text-slate-900">{order.paymentMethod}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Order Status:</span>
+                <span className="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded text-xs">
                   {order.orderStatus}
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-                <span style={{ color: '#6B7280', fontSize: '14px' }}>Payment Status</span>
-                <span style={{
-                  padding: '4px 12px',
-                  backgroundColor: order.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
-                  color: order.paymentStatus === 'Paid' ? '#166534' : '#92400E',
-                  borderRadius: '20px',
-                  fontWeight: '600',
-                  fontSize: '13px'
-                }}>
-                  {order.paymentStatus}
+              <div className="flex justify-between">
+                <span className="text-slate-600">Payment Status:</span>
+                <span className={`font-bold px-2 py-0.5 rounded text-xs ${
+                  order.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                }`}>
+                  {order.paymentStatus || 'Pending'}
                 </span>
               </div>
             </div>
           </div>
-
-          {/* Payment Method */}
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <CreditCard size={20} color="#FF8A00" /> Payment Method
-            </h3>
-            <div style={{ padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-              <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '4px' }}>
-                {order.paymentMethod.toLowerCase() === 'cod' ? '💵 Cash on Delivery' : 'Card via Stripe'}
-              </div>
-              <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                {order.paymentMethod.toLowerCase() === 'cod' ? 'Pay when you receive' : 'Online payment'}
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Shipping Address */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Truck size={20} color="#FF8A00" /> Shipping Address
-          </h3>
-          <div style={{ padding: '20px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
-            <div style={{ fontWeight: '700', color: '#111827', fontSize: '16px', marginBottom: '8px' }}>
-              {order.shippingAddress.fullName}
-            </div>
-            <div style={{ color: '#374151', lineHeight: '1.6', marginBottom: '8px' }}>
-              {order.shippingAddress.address}<br />
-              {order.shippingAddress.city} {order.shippingAddress.postalCode && `- ${order.shippingAddress.postalCode}`}
-            </div>
-            <div style={{ color: '#6B7280', fontSize: '14px' }}>
-              📱 {order.shippingAddress.phone}
-            </div>
-          </div>
-        </div>
+        {/* Ordered Items */}
+        <div className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs">
+          <h2 className="text-base font-extrabold text-slate-900 mb-4 pb-3 border-b border-slate-100 flex items-center gap-2">
+            <Package size={18} className="text-[#ff8a00]" /> Ordered Products
+          </h2>
 
-        {/* Order Items */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '20px' }}>
-            Order Items ({order.items.length})
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {order.items.map((item, index) => {
-              const productName = typeof item.product === 'object' ? item.product.name : item.name;
-              const productImage = item.image || (typeof item.product === 'object' ? item.product.images?.[0] : null) || '/placeholder.png';
-              
+          <div className="divide-y divide-slate-100">
+            {order.items?.map((item, idx) => {
+              const itemImage =
+                item.image ||
+                (typeof item.product === 'object' ? item.product?.primaryImage || item.product?.images?.[0] : '') ||
+                '/placeholder.png';
+
               return (
-                <div key={index} style={{
-                  display: 'flex',
-                  gap: '16px',
-                  padding: '20px',
-                  backgroundColor: '#F8FAFC',
-                  borderRadius: '12px',
-                  border: '1px solid #E5E7EB'
-                }}>
-                  <img
-                    src={productImage}
-                    alt={productName}
-                    style={{
-                      width: '100px',
-                      height: '100px',
-                      objectFit: 'cover',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: '700', color: '#111827', fontSize: '16px', marginBottom: '8px' }}>
-                      {productName}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontSize: '14px', color: '#6B7280' }}>
-                        Quantity: <span style={{ fontWeight: '600', color: '#111827' }}>{item.quantity}</span>
-                      </div>
-                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#FF8A00' }}>
-                        Rs. {(Number(item.price) * item.quantity).toFixed(2)}
-                      </div>
-                    </div>
+                <div key={idx} className="py-4 flex items-center gap-4">
+                  <div className="relative w-14 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                    <Image
+                      src={getSafeMediaUrl(itemImage)}
+                      alt={item.name}
+                      fill
+                      sizes="56px"
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-900 truncate">{item.name}</p>
+                    {item.variant && <p className="text-xs text-slate-600 truncate">{item.variant}</p>}
+                    <p className="text-xs text-slate-600 mt-0.5">Quantity: {item.quantity}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-black text-[#0b132b]">
+                      {formatMoney(Number(item.price) * item.quantity)}
+                    </p>
+                    <p className="text-xs text-slate-500 font-medium">
+                      {formatMoney(Number(item.price))} each
+                    </p>
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
 
-        {/* Order Summary */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827', marginBottom: '20px' }}>
-            Order Summary
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
-              <span style={{ color: '#6B7280' }}>Subtotal ({order.items.reduce((a, b) => a + b.quantity, 0)} items)</span>
-              <span style={{ fontWeight: '600', color: '#111827' }}>Rs. {subtotal.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
-              <span style={{ color: '#6B7280' }}>Shipping</span>
-              <span style={{ fontWeight: '600', color: shippingCost === 0 ? '#166534' : '#111827' }}>
-                {shippingCost === 0 ? 'FREE' : `Rs. ${shippingCost.toFixed(2)}`}
-              </span>
-            </div>
-            {discount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #E5E7EB' }}>
-                <span style={{ color: '#FF8A00' }}>Discount</span>
-                <span style={{ fontWeight: '600', color: '#FF8A00' }}>-Rs. {discount.toFixed(2)}</span>
+          {/* Totals Breakdown */}
+          <div className="mt-6 pt-5 border-t border-slate-200 space-y-2 text-xs sm:text-sm">
+            {order.subtotal !== undefined && (
+              <div className="flex justify-between text-slate-700">
+                <span>Subtotal</span>
+                <span className="font-semibold text-slate-900">{formatMoney(order.subtotal)}</span>
               </div>
             )}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              padding: '20px 0',
-              marginTop: '12px',
-              borderTop: '2px solid #E5E7EB',
-              fontSize: '20px',
-              fontWeight: '800',
-              color: '#FF8A00'
-            }}>
-              <span>Total</span>
-              <span>Rs. {totalAmount.toFixed(2)}</span>
+            {order.discount !== undefined && order.discount > 0 && (
+              <div className="flex justify-between text-emerald-700 font-semibold">
+                <span>Discount</span>
+                <span>-{formatMoney(order.discount)}</span>
+              </div>
+            )}
+            {order.shippingCost !== undefined && (
+              <div className="flex justify-between text-slate-700">
+                <span>Shipping</span>
+                <span className="font-semibold text-slate-900">{formatMoney(order.shippingCost)}</span>
+              </div>
+            )}
+            {order.taxAmount !== undefined && order.taxAmount > 0 && (
+              <div className="flex justify-between text-slate-700">
+                <span>Tax</span>
+                <span className="font-semibold text-slate-900">{formatMoney(order.taxAmount)}</span>
+              </div>
+            )}
+            <div className="pt-3 border-t border-slate-200 flex justify-between items-baseline text-base font-black text-[#0b132b]">
+              <span>Final Total</span>
+              <span className="text-xl sm:text-2xl">{formatMoney(order.totalAmount)}</span>
             </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => router.push(`/orders/${order._id}`)}
-            style={{
-              backgroundColor: '#FF8A00',
-              color: '#0B132B',
-              border: 'none',
-              padding: '16px 32px',
-              borderRadius: '12px',
-              fontWeight: '700',
-              fontSize: '16px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              transition: 'all 0.3s'
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = '#E67C00';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = '#FF8A00';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
-          >
-            <Package size={20} /> Track Order
-          </button>
+        {/* Actions */}
+        <div className="flex flex-wrap gap-4 justify-between items-center pt-4">
           <Link
-            href="/"
-            style={{
-              backgroundColor: 'white',
-              color: '#0B132B',
-              border: '2px solid #FF8A00',
-              padding: '16px 32px',
-              borderRadius: '12px',
-              fontWeight: '700',
-              fontSize: '16px',
-              textDecoration: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              transition: 'all 0.3s'
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = '#F7F7F5';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = 'white';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
+            href="/orders"
+            className="px-6 py-3 rounded-xl bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-sm shadow-sm transition"
           >
-            <ArrowLeft size={20} /> Continue Shopping
+            View All Your Orders
+          </Link>
+          <Link
+            href="/products"
+            className="px-6 py-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-800 font-bold text-sm bg-white transition"
+          >
+            Continue Shopping
           </Link>
         </div>
-
       </div>
-
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
-    </div>
+    </main>
   );
 }
 
 export default function OrderSuccessPage() {
   return (
-    <Suspense fallback={
-      <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '60px',
-            height: '60px',
-            border: '5px solid #FF8A00',
-            borderTop: '5px solid transparent',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 20px'
-          }}></div>
-          <p style={{ color: '#6B7280' }}>Loading order details...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+          <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
+          <p className="text-slate-600 font-medium">Loading confirmation...</p>
         </div>
-      </div>
-    }>
+      }
+    >
       <OrderSuccessContent />
     </Suspense>
   );

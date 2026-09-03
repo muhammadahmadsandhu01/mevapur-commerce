@@ -1,18 +1,28 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { roundMoney } from '../lib/money.ts';
+
+export const MAX_LINES = 50;
+export const MAX_QUANTITY_PER_LINE = 20;
 
 export interface CartItem {
-  id: string;
-  _id?: string;
-  price: number;
+  id: string; // Product ID
+  _id?: string; // Compatibility alias
+  productId?: string; // Canonical product ID
+  variantId?: string; // Stable backend variant ID
   name: string;
-  product?: string;
+  price: number;
   image: string;
   quantity: number;
   stock?: number | null;
-  variantId?: string;
-  variant?: string;
   sku?: string;
+  variant?: string; // Display label
+  slug?: string;
+  isUnavailable?: boolean;
+  priceChanged?: boolean;
+  oldPrice?: number;
+  stockReduced?: boolean;
+  oldStock?: number;
 }
 
 export interface WishlistItem {
@@ -22,21 +32,28 @@ export interface WishlistItem {
   price: number;
   image: string;
   variant?: string;
+  variantId?: string;
   slug?: string;
   stock?: number | null;
-  variantId?: string;
   sku?: string;
+}
+
+export function getCartLineKey(productId: string, variantId?: string): string {
+  const pId = String(productId || '').trim();
+  const vId = variantId ? String(variantId).trim() : 'default';
+  return `${pId}:${vId}`;
 }
 
 interface CartStore {
   items: CartItem[];
   wishlist: WishlistItem[];
   totalItems: number;
-  addToCart: (item: Omit<CartItem, 'quantity'>) => void;
-  removeFromCart: (id: string, variant?: string) => void;
-  updateQuantity: (id: string, quantity: number, variant?: string) => void;
+  addToCart: (item: Omit<CartItem, 'quantity'>, quantity?: number) => void;
+  removeFromCart: (productId: string, variantId?: string) => void;
+  updateQuantity: (productId: string, quantity: number, variantId?: string) => void;
   clearCart: () => void;
   totalPrice: () => number;
+  reconcileItems: (updatedItems: CartItem[]) => void;
   addToWishlist: (item: WishlistItem) => void;
   removeFromWishlist: (id: string) => void;
   isInWishlist: (id: string) => boolean;
@@ -46,87 +63,145 @@ interface CartStore {
 export const useCartStore = create<CartStore>()(
   persist(
     (set, get) => {
-      const matchesCartLine = (
-        item: Pick<CartItem, 'id' | 'variantId' | 'variant'>,
-        id: string,
-        variant?: string
-      ) => item.id === id
-        && (variant === undefined || (item.variantId || item.variant) === variant);
+      const matchesLine = (
+        item: CartItem,
+        productId: string,
+        variantId?: string
+      ) => {
+        const itemPId = item.productId || item.id || item._id;
+        const targetPId = productId;
+        const itemVId = item.variantId || undefined;
+        const targetVId = variantId || undefined;
+        return itemPId === targetPId && itemVId === targetVId;
+      };
+
+      const calculateTotalItems = (items: CartItem[]) => {
+        return items.reduce((sum, item) => sum + Math.max(0, Math.floor(item.quantity || 0)), 0);
+      };
+
+      const sanitizeItem = (raw: Partial<CartItem>): CartItem | null => {
+        const pId = String(raw.productId || raw.id || raw._id || '').trim();
+        if (!pId) return null;
+
+        const quantity = Math.min(
+          MAX_QUANTITY_PER_LINE,
+          Math.max(1, Math.floor(Number(raw.quantity) || 1))
+        );
+        const price = roundMoney(raw.price ?? 0);
+        const name = String(raw.name || 'Product').slice(0, 200).trim();
+        const image = typeof raw.image === 'string' ? raw.image : '/placeholder.png';
+        const stock = typeof raw.stock === 'number' && Number.isFinite(raw.stock) ? Math.max(0, Math.floor(raw.stock)) : null;
+
+        return {
+          id: pId,
+          _id: pId,
+          productId: pId,
+          variantId: raw.variantId ? String(raw.variantId).trim() : undefined,
+          name,
+          price,
+          image,
+          quantity,
+          stock,
+          sku: raw.sku ? String(raw.sku).trim() : undefined,
+          variant: raw.variant ? String(raw.variant).trim() : undefined,
+          slug: raw.slug ? String(raw.slug).trim() : undefined,
+          isUnavailable: Boolean(raw.isUnavailable),
+          priceChanged: Boolean(raw.priceChanged),
+          oldPrice: raw.oldPrice !== undefined ? roundMoney(raw.oldPrice) : undefined,
+          stockReduced: Boolean(raw.stockReduced),
+          oldStock: raw.oldStock !== undefined ? Number(raw.oldStock) : undefined,
+        };
+      };
 
       const store: CartStore = {
         items: [],
         wishlist: [],
         totalItems: 0,
 
-        addToCart: (item) => {
+        addToCart: (itemData, addQty = 1) => {
           const state = get();
+          const cleanItem = sanitizeItem(itemData);
+          if (!cleanItem) return;
 
-          if (
-            item.stock !== undefined && item.stock !== null && item.stock <= 0) {
-            return;
-          }
-          const existingItem = state.items.find(
-            i => matchesCartLine(i, item.id, item.variantId || item.variant)
-          );
-          
-          if (existingItem) {
-            if (
-              existingItem.stock !== undefined && existingItem.stock !== null && existingItem.quantity >= existingItem.stock) {
-              return;
-            }
-            const updatedItems = state.items.map(i => 
-              matchesCartLine(i, item.id, item.variantId || item.variant)
-                ? { ...i, quantity: i.quantity + 1 }
-                : i
+          const pId = cleanItem.productId!;
+          const vId = cleanItem.variantId;
+          const targetQty = Math.max(1, Math.min(MAX_QUANTITY_PER_LINE, Math.floor(addQty)));
+
+          // Check if product line already exists
+          const existingIndex = state.items.findIndex((i) => matchesLine(i, pId, vId));
+
+          let newItems: CartItem[];
+          if (existingIndex >= 0) {
+            const existing = state.items[existingIndex];
+            const maxAllowed = typeof cleanItem.stock === 'number'
+              ? Math.min(MAX_QUANTITY_PER_LINE, cleanItem.stock)
+              : MAX_QUANTITY_PER_LINE;
+
+            const nextQty = Math.min(maxAllowed, existing.quantity + targetQty);
+
+            newItems = state.items.map((it, idx) =>
+              idx === existingIndex
+                ? {
+                    ...it,
+                    quantity: nextQty,
+                    price: cleanItem.price,
+                    stock: cleanItem.stock,
+                    image: cleanItem.image,
+                    isUnavailable: false,
+                  }
+                : it
             );
-            set({
-              items: updatedItems,
-              totalItems: updatedItems.reduce((sum, i) => sum + i.quantity, 0)
-            });
           } else {
-            const newItems = [...state.items, { ...item, quantity: 1 }];
-            set({
-              items: newItems,
-              totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
-            });
-          }
-        },
+            if (state.items.length >= MAX_LINES) {
+              return; // Exceeded maximum line capacity
+            }
 
-        removeFromCart: (id: string, variant?: string) => {
-          const newItems = get().items.filter(item => 
-            !matchesCartLine(item, id, variant)
-          );
+            cleanItem.quantity = typeof cleanItem.stock === 'number'
+              ? Math.min(targetQty, cleanItem.stock)
+              : targetQty;
+
+            newItems = [...state.items, cleanItem];
+          }
+
           set({
             items: newItems,
-            totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
+            totalItems: calculateTotalItems(newItems),
           });
         },
 
-        updateQuantity: (id: string, quantity: number, variant?: string) => {
-          if (quantity <= 0) {
-            get().removeFromCart(id, variant);
+        removeFromCart: (productId: string, variantId?: string) => {
+          const state = get();
+          const newItems = state.items.filter((item) => !matchesLine(item, productId, variantId));
+          set({
+            items: newItems,
+            totalItems: calculateTotalItems(newItems),
+          });
+        },
+
+        updateQuantity: (productId: string, quantity: number, variantId?: string) => {
+          const state = get();
+          const targetQty = Math.floor(quantity);
+
+          if (targetQty <= 0) {
+            store.removeFromCart(productId, variantId);
             return;
           }
-          
-          const newItems = get().items.map(item => {
-            if (matchesCartLine(item, id, variant)) {
-              const maxQty =
-                item.stock !== undefined && item.stock !== null
-                  ? Math.min(quantity, item.stock)
-                  : quantity;
 
+          const newItems = state.items.map((item) => {
+            if (matchesLine(item, productId, variantId)) {
+              const maxStock = typeof item.stock === 'number' ? item.stock : MAX_QUANTITY_PER_LINE;
+              const boundedQty = Math.min(MAX_QUANTITY_PER_LINE, Math.min(maxStock, targetQty));
               return {
                 ...item,
-                quantity: maxQty,
+                quantity: Math.max(1, boundedQty),
               };
             }
-
             return item;
           });
-          
+
           set({
             items: newItems,
-            totalItems: newItems.reduce((sum, i) => sum + i.quantity, 0)
+            totalItems: calculateTotalItems(newItems),
           });
         },
 
@@ -136,15 +211,22 @@ export const useCartStore = create<CartStore>()(
 
         totalPrice: () => {
           return get().items.reduce((total, item) => {
-            return total + (Number(item.price) * item.quantity);
+            return roundMoney(total + item.price * item.quantity);
           }, 0);
+        },
+
+        reconcileItems: (updatedItems: CartItem[]) => {
+          const clean = updatedItems.map(sanitizeItem).filter(Boolean) as CartItem[];
+          set({
+            items: clean,
+            totalItems: calculateTotalItems(clean),
+          });
         },
 
         addToWishlist: (item: WishlistItem) => {
           const state = get();
-          const exists = state.wishlist.find(
-            i => i.id === item.id
-              && (i.variantId || i.variant) === (item.variantId || item.variant)
+          const exists = state.wishlist.some(
+            (i) => i.id === item.id && (i.variantId || undefined) === (item.variantId || undefined)
           );
           if (!exists) {
             set({ wishlist: [...state.wishlist, item] });
@@ -153,40 +235,65 @@ export const useCartStore = create<CartStore>()(
 
         removeFromWishlist: (id: string) => {
           set({
-            wishlist: get().wishlist.filter(item => item.id !== id)
+            wishlist: get().wishlist.filter((item) => item.id !== id),
           });
         },
 
         isInWishlist: (id: string) => {
-          return get().wishlist.some(item => item.id === id);
+          return get().wishlist.some((item) => item.id === id);
         },
 
         moveWishlistToCart: (id: string) => {
           const state = get();
-          const item = state.wishlist.find(i => i.id === id);
+          const item = state.wishlist.find((i) => i.id === id);
           if (item) {
-            get().addToCart({
+            store.addToCart({
               id: item.id,
-              _id: item._id,
+              productId: item.id,
               name: item.name,
-              price: Number(item.price) || 0,
+              price: item.price,
               image: item.image,
               variant: item.variant,
               variantId: item.variantId,
               stock: item.stock,
-              sku: item.sku
+              sku: item.sku,
             });
             set({
-              wishlist: state.wishlist.filter(i => i.id !== id)
+              wishlist: state.wishlist.filter((i) => i.id !== id),
             });
           }
-        }
+        },
       };
 
       return store;
     },
     {
       name: 'mevapur-cart-storage',
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        if (version < 2 && persistedState && typeof persistedState === 'object') {
+          const oldState = persistedState as { items?: CartItem[]; wishlist?: WishlistItem[] };
+          const migratedItems = Array.isArray(oldState.items)
+            ? oldState.items
+                .filter((item) => item && (item.id || item._id))
+                .slice(0, MAX_LINES)
+                .map((item) => ({
+                  ...item,
+                  id: String(item.id || item._id),
+                  productId: String(item.id || item._id),
+                  quantity: Math.min(MAX_QUANTITY_PER_LINE, Math.max(1, Math.floor(Number(item.quantity) || 1))),
+                  price: roundMoney(item.price ?? 0),
+                }))
+            : [];
+
+          return {
+            items: migratedItems,
+            wishlist: Array.isArray(oldState.wishlist) ? oldState.wishlist : [],
+            totalItems: migratedItems.reduce((sum, i) => sum + i.quantity, 0),
+          };
+        }
+        return persistedState as CartStore;
+      },
     }
   )
 );
