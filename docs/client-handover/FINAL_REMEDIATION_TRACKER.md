@@ -160,3 +160,53 @@
 ### 4. External Release Gates Carried Forward
 - `DEPENDENCY_AUDIT_NETWORK_BLOCKED`: Dependency audits remain network-isolated pending connected local or approved CI execution.
 - `MAX_SIZE_MULTIBYTE_CMS_STAGING`: Maximum payload and multibyte CMS content testing must be executed on staging infrastructure prior to production deployment.
+
+---
+
+## Storefront Remediation Workstream — Phase 8: Performance and SEO
+
+**Execution Branch**: `release/storefront-client-handover`  
+**Baseline Checkpoint**: `d196b9e`  
+**Standard Target**: Core Web Vitals Optimization, Safe JSON-LD Structured Data, Truthful Ratings & Comprehensive SEO Directives
+
+### 1. Discovered Gaps & Remediations
+1. **Sitemap & Crawl Boundary Isolation**:
+   - *Gap*: `sitemap.ts` contained `/payment-instructions`, exposing order transaction flows to search engine crawlers.
+   - *Remediation*: Removed `/payment-instructions`. Added dynamic published CMS page discovery (`/pages/[slug]`) and limited static paths to core discovery routes (`/`, `/products`, `/search`).
+2. **Robots.txt Disallow Directives**:
+   - *Gap*: `robots.ts` lacked explicit disallows for `/account`, `/account/*`, `/checkout/*`, `/orders/*`, `/order-success`, `/register`, `/payment-instructions`, `/healthz`.
+   - *Remediation*: Added explicit disallow directives covering all private, authentication, payment, transaction, and healthcheck routes.
+3. **Safe JSON-LD Structured Data Serialization**:
+   - *Gap*: `products/[id]/page.tsx` used unescaped `JSON.stringify` directly in `<script type="application/ld+json">`, vulnerable to `</script>` tag injection breakout.
+   - *Remediation*: Created `frontend/src/lib/safeJsonLd.ts` with `safeJsonLdStringify` converting `<`, `>`, and `&` to Unicode escapes (`\u003c`, `\u003e`, `\u0026`).
+4. **Truthful Product Ratings (Zero Synthetic Fabrication)**:
+   - *Gap*: `products/[id]/page.tsx` contained synthetic rating fallback `reviewCount: product.reviewCount || 1`, fabricating a review when none exist.
+   - *Remediation*: Only emit `aggregateRating` schema when `rating > 0 && Number(product.reviewCount || 0) > 0`.
+5. **Dynamic CMS Page Structured Data & Metadata**:
+   - *Gap*: `pages/[slug]/page.tsx` lacked structured data schema and Open Graph / Twitter / canonical alternate tags.
+   - *Remediation*: Added safe Article/WebPage JSON-LD schema, canonical alternate URLs, Open Graph (`article`), and Twitter metadata.
+6. **Canonical URL & Metadata Standardization**:
+   - *Gap*: `<CanonicalUrl />` was rendered inside `<body>` as a client component; `layout.tsx` was missing Twitter card metadata.
+   - *Remediation*: Removed client `<CanonicalUrl />` component; added standard `metadata.alternates.canonical = '/'`, Open Graph, and Twitter (`summary_large_image`) metadata in `layout.tsx`.
+7. **Hero LCP & Image Optimization**:
+   - *Gap*: `Hero.tsx` used raw unoptimized `<img>` with `loading="eager"`; `BrandLogo.tsx` unconditionally enforced `priority={true}` in footers.
+   - *Remediation*: Updated `Hero.tsx` to Next.js `<Image>` with priority bound strictly to the initial active slide (`currentIndex === 0`) and responsive `sizes`; made `BrandLogo.tsx` priority configurable defaulting to false, passed true only for top navbar.
+8. **Third-Party Script Isolation**:
+   - *Verification*: Confirmed Stripe SDK (`loadStripe`) in `PaymentModal.tsx` is only invoked upon active modal mount (`isOpen`), avoiding waterfall delays during general page browsing.
+
+### 2. Verification Gate Results
+
+| Gate | Description | Command | Result |
+| :--- | :--- | :--- | :---: |
+| **Gate 1** | Frontend Linter | `npm run lint` | **PASSED** (0 errors, 0 warnings) |
+| **Gate 2** | TypeScript Typecheck | `npx tsc --noEmit` | **PASSED** (0 errors) |
+| **Gate 3** | Production Build | `npm run build` | **PASSED** (All 21 routes compiled) |
+| **Gate 4** | Phase 8 Performance & SEO Suite | `npx tsx --test tests/browserPhase8PerformanceSeoAcceptance.test.mts` | **PASSED** (7/7 tests pass) |
+| **Gate 5** | Complete Frontend Contract Suite | `tests/*Contracts.test.mts`, `safeContentRenderer.test.mts` | **PASSED** (111/111 tests pass) |
+| **Gate 6** | Complete Browser UX & WCAG Suite | `tests/browser*.test.mts` (Catalog, Cart, Auth, Account, CMS, Payment, Phase 7) | **PASSED** (44/44 tests pass) |
+| **Gate 7** | CMS Document HTTP Semantics | `npx tsx --test tests/cmsDocumentHttpSemantics.test.mts` | **PASSED** (14/14 tests pass) |
+| **Gate 8** | Production CSP & Runtime Smoke | `npx tsx --test tests/productionCspServerSmoke.test.mts` | **PASSED** (0 violations) |
+
+### 3. Acceptance Declaration
+**STOREFRONT_PHASE8_ACCEPTED**: Storefront Phase 8 Performance and SEO has satisfied all defined criteria and verified zero regression across all existing contracts and browser suites.
+

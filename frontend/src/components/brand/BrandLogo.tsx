@@ -8,6 +8,7 @@ interface BrandLogoProps {
   href?: string;
   className?: string;
   height?: number;
+  priority?: boolean;
 }
 
 export default function BrandLogo({
@@ -16,6 +17,7 @@ export default function BrandLogo({
   href = '/',
   className = '',
   height = 32,
+  priority = false,
 }: BrandLogoProps) {
   const src =
     variant === 'symbol'
@@ -33,7 +35,7 @@ export default function BrandLogo({
       alt={branding.siteName}
       width={width}
       height={height}
-      priority
+      priority={priority}
       className={className}
     />
   );

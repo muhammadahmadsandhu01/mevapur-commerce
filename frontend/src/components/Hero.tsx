@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   ChevronLeft,
@@ -160,12 +161,13 @@ export default function Hero() {
             <div className="relative flex justify-center items-center">
               {safeImage ? (
                 <div className="relative w-full max-w-md aspect-[4/3] rounded-xl overflow-hidden bg-slate-800 shadow-2xl border border-slate-700">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={safeImage}
-                    alt={current.title}
-                    className="w-full h-full object-cover"
-                    loading="eager"
+                    alt={current.title || 'Slide highlight'}
+                    fill
+                    priority={currentIndex === 0}
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 448px"
+                    className="object-cover"
                   />
                 </div>
               ) : (

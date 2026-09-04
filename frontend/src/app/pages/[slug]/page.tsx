@@ -7,6 +7,7 @@ import { headers } from 'next/headers';
 import { getContentBySlug, normalizeContentItem } from '@/services/content.service';
 import SafeContentRenderer from '@/components/content/SafeContentRenderer';
 import CMSOutageRetry from '@/components/content/CMSOutageRetry';
+import { safeJsonLdStringify } from '@/lib/safeJsonLd';
 import type { ContentItem } from '@/types/content';
 
 export const dynamic = 'force-dynamic';
@@ -58,14 +59,33 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (error) {
     return {
       title: 'Page Unavailable',
+      robots: { index: false, follow: false },
     };
   }
   if (!page || !page.isActive) {
     notFound();
   }
+  const title = page.seo?.metaTitle || page.title;
+  const description = page.seo?.metaDescription || page.subtitle || page.description;
+  const canonicalPath = `/pages/${encodeURIComponent(page.slug || slug)}`;
+
   return {
-    title: page.seo?.metaTitle || page.title,
-    description: page.seo?.metaDescription || page.subtitle || page.description,
+    title,
+    description,
+    alternates: {
+      canonical: canonicalPath,
+    },
+    openGraph: {
+      title,
+      description,
+      type: 'article',
+      url: canonicalPath,
+    },
+    twitter: {
+      card: 'summary',
+      title,
+      description,
+    },
   };
 }
 
@@ -89,8 +109,21 @@ export default async function CMSDynamicPage({ params }: PageProps) {
     notFound();
   }
 
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: page.title,
+    description: page.seo?.metaDescription || page.subtitle || page.description || '',
+    dateModified: page.updatedAt || undefined,
+  };
+
   return (
     <div className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
+      {/* Structured Data Script */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLdStringify(jsonLd) }}
+      />
       <div className="mx-auto max-w-4xl">
         {/* Breadcrumb Navigation */}
         <nav aria-label="Breadcrumb" className="mb-6">

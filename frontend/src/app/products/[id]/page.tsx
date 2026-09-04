@@ -34,6 +34,7 @@ import {
   findMatchingVariant,
   getAttributeOptionMatrix,
 } from '@/lib/catalogAdapter';
+import { safeJsonLdStringify } from '@/lib/safeJsonLd';
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -283,6 +284,9 @@ export default function ProductDetailPage() {
   const brandName = typeof product.brand === 'object' ? product.brand?.name : product.brand;
 
   // JSON-LD structured data for SEO
+  const reviewCountNumber = Number(product.reviewCount || 0);
+  const ratingNumber = Number(product.rating || 0);
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -296,10 +300,10 @@ export default function ProductDetailPage() {
       priceCurrency: 'PKR',
       availability: availableStock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
     },
-    aggregateRating: product.rating > 0 ? {
+    aggregateRating: ratingNumber > 0 && reviewCountNumber > 0 ? {
       '@type': 'AggregateRating',
-      ratingValue: product.rating,
-      reviewCount: product.reviewCount || 1,
+      ratingValue: ratingNumber,
+      reviewCount: reviewCountNumber,
     } : undefined,
   };
 
@@ -308,7 +312,7 @@ export default function ProductDetailPage() {
       {/* Structured Data Script */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLdStringify(jsonLd) }}
       />
 
       {/* Breadcrumbs */}
