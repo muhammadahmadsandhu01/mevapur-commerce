@@ -117,5 +117,5 @@
 - **Private Field Projection**: Customer review endpoint never projects `internalModerationNotes`, `moderatorId`, or `deletedBy`.
 - **Race Condition Protection**: `getSessionGeneration()` protects against late asynchronous API responses from User A populating User B's state upon logout/switch.
 - **Market Country Filtering**: Delivery addresses are restricted strictly to enabled market countries (e.g. `'PK'`) from `MarketService.getPublicConfig()`.
-- **Roadmap Alignment**: Package `ACCOUNT-01` fulfills all customer account, review, address, wishlist, and session requirements. Original roadmap IDs remain scheduled: CMS Pages under Phase 6 proper; Responsive / Accessibility under Phase 7; SEO under Phase 8; White-label under Phase 9; Final E2E under Phase 10.
+- **Roadmap Alignment**: Package `ACCOUNT-01` fulfills all customer account, review, address, wishlist, and session requirements. Original roadmap IDs remain scheduled: CMS Pages under Phase 6 proper; Responsive / Accessibility under Phase 7; SEO under Phase 8; White-Label Configuration and Brand Isolation (single-merchant, separate per-client deployment, configurable branding, zero multi-tenant architecture) under Phase 9; Final E2E under Phase 10.
 - **Zero Live Payments/SMTP/Deployments**: Verified isolated in test mode with zero production side effects.
