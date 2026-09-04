@@ -6,8 +6,12 @@ import fs from 'node:fs';
 import { chromium, type Browser, type Page } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
+import http from 'node:http';
+
 const PORT = 3469;
+const API_PORT = 5044;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const API_URL = `http://127.0.0.1:${API_PORT}`;
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 const VIEWPORTS = [
@@ -29,6 +33,136 @@ async function waitForServer(url: string, maxRetries = 60): Promise<void> {
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error(`Server failed to start at ${url}`);
+}
+
+function createMockApiServer(): http.Server {
+  return http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const url = req.url || '';
+
+    if (url.includes('/api/content/slug/about-us')) {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          _id: 'page-about',
+          type: 'page',
+          title: 'About MevaPur',
+          subtitle: 'Our Origin & Commitment to Pure Produce',
+          slug: 'about-us',
+          content: `# About MevaPur\n\nMevaPur connects authentic northern farmers with conscious consumers.\n\n## Our Standards\n- **100% Traceable**: Single-origin produce sourced from Gilgit-Baltistan.\n- **Zero Additives**: Free from artificial sulphur or preservatives.\n- **Ethical Commerce**: Fair compensation directly to harvesting families.\n\n> "Purity is not a feature, it is our founding promise."\n\nFor inquiries, visit our [Customer Support](/pages/faqs) or browse [All Products](/products).`,
+          isActive: true,
+          updatedAt: '2026-09-01T12:00:00.000Z',
+          seo: {
+            metaTitle: 'About MevaPur - Single-Origin Pure Produce',
+            metaDescription: 'Discover the story behind MevaPur natural dried fruits and organic honey.',
+          },
+        },
+      }));
+      return;
+    }
+
+    if (url.includes('/api/content/slug/privacy-policy')) {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          _id: 'page-privacy',
+          type: 'page',
+          title: 'Privacy Policy',
+          slug: 'privacy-policy',
+          content: `# Privacy Policy\n\nYour personal information is protected under strict client isolation.\n\n1. We never sell your personal data.\n2. Payment credentials are handled through PCI-compliant gateways.\n3. Cookies are strictly utilized for session security.`,
+          isActive: true,
+          updatedAt: '2026-09-02T10:00:00.000Z',
+        },
+      }));
+      return;
+    }
+
+    if (url.includes('/api/content/slug/server-error-slug')) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ success: false, message: 'Internal Database Connection Error' }));
+      return;
+    }
+
+    if (url.includes('/api/content/slug/')) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ success: false, message: 'Content not found' }));
+      return;
+    }
+
+    if (url.includes('/api/content/public/slider')) {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: [
+          {
+            _id: 'slider-1',
+            type: 'slider',
+            title: 'Fresh Himalayan Harvest',
+            subtitle: 'Seasonal Specials',
+            description: 'Sun-dried organic apricots and wild walnuts from Skardu.',
+            image: 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d',
+            button: { text: 'Shop Harvest', link: '/products?category=dry-fruits' },
+            position: 1,
+            isActive: true,
+          },
+          {
+            _id: 'slider-2',
+            type: 'slider',
+            title: 'Pure Sidr Honey',
+            subtitle: '100% Unpasteurized',
+            description: 'Cold-extracted mountain honey with natural wellness properties.',
+            image: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38',
+            button: { text: 'Discover Honey', link: '/products?category=organic-honey' },
+            position: 2,
+            isActive: true,
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (url.includes('/api/content/public/banner')) {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: [
+          {
+            _id: 'banner-1',
+            type: 'banner',
+            title: 'Free Express Shipping Nationwide',
+            subtitle: 'On all orders above PKR 3,000',
+            button: { text: 'View Details', link: '/pages/shipping-and-returns' },
+            position: 1,
+            isActive: true,
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (url.includes('/api/settings/public')) {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          store: {
+            store_name: 'MevaPur Natural Groceries',
+            store_email: 'care@mevapur.com',
+            store_phone: '+92 300 1234567',
+            store_address: 'Main Boulevard, Gulberg III, Lahore, Pakistan',
+            currency: 'PKR',
+          },
+          storeName: 'MevaPur',
+        },
+      }));
+      return;
+    }
+
+    res.writeHead(200);
+    res.end(JSON.stringify({ success: true, data: [] }));
+  });
 }
 
 async function setupCmsApiMocks(page: Page) {
@@ -53,7 +187,6 @@ async function setupCmsApiMocks(page: Page) {
       });
     }
 
-    // Public Categories
     if (url.includes('/api/categories') || url.includes('/categories')) {
       return route.fulfill({
         status: 200,
@@ -68,7 +201,6 @@ async function setupCmsApiMocks(page: Page) {
       });
     }
 
-    // Top Products
     if (url.includes('/api/products/top') || url.includes('/products/top')) {
       return route.fulfill({
         status: 200,
@@ -91,7 +223,6 @@ async function setupCmsApiMocks(page: Page) {
       });
     }
 
-    // Public CMS Sliders
     if (url.includes('/api/content/public/slider') || url.includes('/content/public/slider')) {
       return route.fulfill({
         status: 200,
@@ -132,7 +263,6 @@ async function setupCmsApiMocks(page: Page) {
       });
     }
 
-    // Public CMS Banners
     if (url.includes('/api/content/public/banner') || url.includes('/content/public/banner')) {
       return route.fulfill({
         status: 200,
@@ -157,7 +287,6 @@ async function setupCmsApiMocks(page: Page) {
       });
     }
 
-    // Public Store Settings
     if (url.includes('/api/settings/public') || url.includes('/settings/public')) {
       return route.fulfill({
         status: 200,
@@ -178,84 +307,22 @@ async function setupCmsApiMocks(page: Page) {
       });
     }
 
-    // Single CMS Page Lookups
-    if (url.includes('/api/content/slug/') || url.includes('/content/slug/')) {
-      const slug = url.split('/slug/')[1]?.split('?')[0];
-
-      if (slug === 'about-us') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            data: {
-              _id: 'page-about',
-              type: 'page',
-              title: 'About MevaPur',
-              subtitle: 'Our Origin & Commitment to Pure Produce',
-              slug: 'about-us',
-              content: `# About MevaPur\n\nMevaPur connects authentic northern farmers with conscious consumers.\n\n## Our Standards\n- **100% Traceable**: Single-origin produce sourced from Gilgit-Baltistan.\n- **Zero Additives**: Free from artificial sulphur or preservatives.\n- **Ethical Commerce**: Fair compensation directly to harvesting families.\n\n> "Purity is not a feature, it is our founding promise."\n\nFor inquiries, visit our [Customer Support](/pages/faqs) or browse [All Products](/products).`,
-              isActive: true,
-              updatedAt: '2026-09-01T12:00:00.000Z',
-              seo: {
-                metaTitle: 'About MevaPur - Single-Origin Pure Produce',
-                metaDescription: 'Discover the story behind MevaPur natural dried fruits and organic honey.',
-              },
-            },
-          }),
-        });
-      }
-
-      if (slug === 'privacy-policy') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            data: {
-              _id: 'page-privacy',
-              type: 'page',
-              title: 'Privacy Policy',
-              slug: 'privacy-policy',
-              content: `# Privacy Policy\n\nYour personal information is protected under strict client isolation.\n\n1. We never sell your personal data.\n2. Payment credentials are handled through PCI-compliant gateways.\n3. Cookies are strictly utilized for session security.`,
-              isActive: true,
-              updatedAt: '2026-09-02T10:00:00.000Z',
-            },
-          }),
-        });
-      }
-
-      if (slug === 'server-error-slug') {
-        return route.fulfill({
-          status: 500,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: false,
-            message: 'Internal Database Connection Error',
-          }),
-        });
-      }
-
-      // Default 404 for draft or nonexistent pages
-      return route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: false,
-          message: 'Content not found',
-        }),
-      });
-    }
-
     return route.continue();
   });
 }
 
 describe('Storefront CMS UX Acceptance & Dynamic Content Verification', () => {
   let nextServer: ChildProcess | null = null;
+  let apiServer: http.Server | null = null;
   let browser: Browser | null = null;
 
   test.before(async () => {
+    // Start mock backend HTTP server for server-side Next.js SSR requests
+    apiServer = createMockApiServer();
+    await new Promise<void>((resolve) => {
+      apiServer?.listen(API_PORT, '127.0.0.1', () => resolve());
+    });
+
     const standaloneServer = path.resolve(
       process.cwd(),
       '.next',
@@ -270,6 +337,8 @@ describe('Storefront CMS UX Acceptance & Dynamic Content Verification', () => {
           ...process.env,
           PORT: String(PORT),
           NODE_ENV: 'production',
+          INTERNAL_API_URL: API_URL,
+          NEXT_PUBLIC_API_URL: API_URL,
         },
         stdio: 'ignore',
       });
@@ -283,6 +352,8 @@ describe('Storefront CMS UX Acceptance & Dynamic Content Verification', () => {
             ...process.env,
             PORT: String(PORT),
             NODE_ENV: 'production',
+            INTERNAL_API_URL: API_URL,
+            NEXT_PUBLIC_API_URL: API_URL,
           },
           stdio: 'ignore',
           shell: true,
@@ -310,6 +381,13 @@ describe('Storefront CMS UX Acceptance & Dynamic Content Verification', () => {
       if (nextServer) {
         nextServer.kill('SIGTERM');
         nextServer.kill('SIGKILL');
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      if (apiServer) {
+        apiServer.close();
       }
     } catch {
       // ignore

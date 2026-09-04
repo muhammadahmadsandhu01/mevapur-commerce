@@ -1,54 +1,72 @@
-'use client';
-export const dynamic = 'force-dynamic';
-
-import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronRight, FileText, AlertCircle, RefreshCw, ArrowLeft } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import type { Metadata } from 'next';
+import { cache } from 'react';
 import { getContentBySlug } from '@/services/content.service';
 import SafeContentRenderer from '@/components/content/SafeContentRenderer';
+import CMSOutageRetry from '@/components/content/CMSOutageRetry';
 import type { ContentItem } from '@/types/content';
 
-export default function CMSDynamicPage() {
-  const params = useParams();
-  const slug = typeof params?.slug === 'string' ? params.slug : Array.isArray(params?.slug) ? params.slug[0] : '';
+export const dynamic = 'force-dynamic';
 
-  const [page, setPage] = useState<ContentItem | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isNotFound, setIsNotFound] = useState(false);
+// Request-scoped deduplication so generateMetadata and page component share 1 backend fetch
+const getCachedPage = cache(async (slug: string): Promise<{ page: ContentItem | null; error: string | null }> => {
+  if (!slug) return { page: null, error: null };
+  try {
+    const page = await getContentBySlug(slug);
+    return { page, error: null };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[CMS Server Fetch Error] slug="${slug}": ${msg}`);
+    return {
+      page: null,
+      error: 'Unable to load page content at this time. Please check your connection or try again.',
+    };
+  }
+});
 
-  const fetchPage = useCallback(async () => {
-    if (!slug) return;
-    setLoading(true);
-    setError(null);
-    setIsNotFound(false);
+interface PageProps {
+  params: Promise<{ slug: string }> | { slug: string };
+}
 
-    try {
-      const result = await getContentBySlug(slug);
-      if (!result || !result.isActive) {
-        setIsNotFound(true);
-      } else {
-        setPage(result);
-      }
-    } catch {
-      setError('Unable to load page content at this time. Please check your connection or try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [slug]);
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const resolvedParams = await params;
+  const slug = resolvedParams?.slug || '';
+  const { page, error } = await getCachedPage(slug);
+  if (error) {
+    return {
+      title: 'Page Unavailable',
+    };
+  }
+  if (!page || !page.isActive) {
+    notFound();
+  }
+  return {
+    title: page.seo?.metaTitle || page.title,
+    description: page.seo?.metaDescription || page.subtitle || page.description,
+  };
+}
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => void fetchPage(), 0);
-    return () => window.clearTimeout(timer);
-  }, [fetchPage]);
+export default async function CMSDynamicPage({ params }: PageProps) {
+  const resolvedParams = await params;
+  const slug = resolvedParams?.slug || '';
 
-  // Update document title for client-side navigation
-  useEffect(() => {
-    if (page?.title) {
-      document.title = `${page.seo?.metaTitle || page.title} - MevaPur`;
-    }
-  }, [page]);
+  const { page, error } = await getCachedPage(slug);
+
+  if (error) {
+    return (
+      <main className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl">
+          <CMSOutageRetry error={error} />
+        </div>
+      </main>
+    );
+  }
+
+  if (!page || !page.isActive) {
+    notFound();
+  }
 
   return (
     <main className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
@@ -67,7 +85,7 @@ export default function CMSDynamicPage() {
             <li>
               <span className="text-slate-700">Pages</span>
             </li>
-            {page?.title && (
+            {page.title && (
               <>
                 <li>
                   <ChevronRight size={14} className="text-slate-600" aria-hidden="true" />
@@ -80,88 +98,26 @@ export default function CMSDynamicPage() {
           </ol>
         </nav>
 
-        {/* Loading Skeleton */}
-        {loading && (
-          <div className="rounded-xl border border-slate-200 bg-white p-6 sm:p-10 shadow-sm animate-pulse">
-            <div className="h-8 w-2/3 bg-slate-200 rounded mb-4" />
-            <div className="h-4 w-1/3 bg-slate-200 rounded mb-8" />
-            <div className="space-y-3">
-              <div className="h-4 bg-slate-200 rounded w-full" />
-              <div className="h-4 bg-slate-200 rounded w-5/6" />
-              <div className="h-4 bg-slate-200 rounded w-4/6" />
-              <div className="h-4 bg-slate-200 rounded w-full" />
-              <div className="h-4 bg-slate-200 rounded w-3/4" />
-            </div>
-          </div>
-        )}
-
-        {/* 404 Not Found State */}
-        {!loading && isNotFound && (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 sm:p-12 text-center shadow-sm">
-            <FileText size={48} className="mx-auto text-slate-500 mb-4" />
-            <h1 className="text-2xl font-bold text-[#0b132b] mb-2">Page Not Found</h1>
-            <p className="text-sm text-slate-700 max-w-md mx-auto mb-6">
-              The page you are looking for does not exist, is in draft mode, or is not currently published.
-            </p>
-            <div className="flex flex-wrap justify-center gap-3">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-2 rounded-md bg-[#0b132b] px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition"
-              >
-                <ArrowLeft size={16} /> Return to Storefront
-              </Link>
-              <Link
-                href="/products"
-                className="inline-flex items-center gap-2 rounded-md border border-slate-400 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 transition"
-              >
-                Browse Catalogue
-              </Link>
-            </div>
-          </div>
-        )}
-
-        {/* Outage / Server Error State */}
-        {!loading && error && !isNotFound && (
-          <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-6 sm:p-8 shadow-sm">
-            <div className="flex items-start gap-3">
-              <AlertCircle size={22} className="text-amber-800 shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-base font-bold text-amber-900">Unable to load page</h2>
-                <p className="mt-1 text-sm text-amber-900">{error}</p>
-                <button
-                  type="button"
-                  onClick={() => fetchPage()}
-                  className="mt-4 inline-flex items-center gap-2 rounded-md bg-amber-900 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-800 transition"
-                >
-                  <RefreshCw size={14} /> Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Page Content */}
-        {!loading && page && (
-          <article className="rounded-xl border border-slate-200 bg-white p-6 sm:p-10 shadow-sm">
-            <header className="border-b border-slate-200 pb-6 mb-8">
-              <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-[#0b132b]">
-                {page.title}
-              </h1>
-              {page.subtitle && (
-                <p className="mt-2 text-base sm:text-lg text-slate-700 font-medium">
-                  {page.subtitle}
-                </p>
-              )}
-              {page.updatedAt && (
-                <p className="mt-3 text-xs text-slate-600 font-medium">
-                  Last updated: {new Date(page.updatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
-                </p>
-              )}
-            </header>
+        <article className="rounded-xl border border-slate-200 bg-white p-6 sm:p-10 shadow-sm">
+          <header className="border-b border-slate-200 pb-6 mb-8">
+            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-[#0b132b]">
+              {page.title}
+            </h1>
+            {page.subtitle && (
+              <p className="mt-2 text-base sm:text-lg text-slate-700 font-medium">
+                {page.subtitle}
+              </p>
+            )}
+            {page.updatedAt && (
+              <p className="mt-3 text-xs text-slate-600 font-medium">
+                Last updated: {new Date(page.updatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+            )}
+          </header>
 
-            <SafeContentRenderer content={page.content} />
-          </article>
-        )}
+          <SafeContentRenderer content={page.content} />
+        </article>
       </div>
     </main>
   );

@@ -3,13 +3,23 @@ import { publicApiBaseUrl } from '../config/publicConfig.ts';
 import { getSafeMediaUrl } from '../lib/catalogAdapter.ts';
 import type { ContentItem, ContentType, PublicStoreSettings } from '../types/content.ts';
 
-const client = axios.create({
-  baseURL: publicApiBaseUrl,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 10000,
-});
+/**
+ * Resolves the authoritative API base URL for server and client execution boundaries
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    const runtimeUrl = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL;
+    if (runtimeUrl) {
+      try {
+        const parsed = new URL(runtimeUrl);
+        return `${parsed.origin}/api`;
+      } catch {
+        // Fallback to static config
+      }
+    }
+  }
+  return publicApiBaseUrl;
+}
 
 /**
  * Normalizes a raw backend content object into a safe ContentItem
@@ -94,7 +104,11 @@ export function normalizeContentItem(raw: unknown): ContentItem | null {
  */
 export async function getPublicContent(type: ContentType): Promise<ContentItem[]> {
   try {
-    const response = await client.get(`/content/public/${encodeURIComponent(type)}`);
+    const baseUrl = getApiBaseUrl();
+    const response = await axios.get(`${baseUrl}/content/public/${encodeURIComponent(type)}`, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000,
+    });
     if (!response.data?.success || !Array.isArray(response.data.data)) {
       return [];
     }
@@ -113,7 +127,11 @@ export async function getPublicContent(type: ContentType): Promise<ContentItem[]
  */
 export async function getContentBySlug(slug: string): Promise<ContentItem | null> {
   try {
-    const response = await client.get(`/content/slug/${encodeURIComponent(slug)}`);
+    const baseUrl = getApiBaseUrl();
+    const response = await axios.get(`${baseUrl}/content/slug/${encodeURIComponent(slug)}`, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000,
+    });
     if (!response.data?.success || !response.data.data) {
       return null;
     }
@@ -133,7 +151,11 @@ export async function getContentBySlug(slug: string): Promise<ContentItem | null
  */
 export async function getPublicSettings(): Promise<PublicStoreSettings | null> {
   try {
-    const response = await client.get('/settings/public');
+    const baseUrl = getApiBaseUrl();
+    const response = await axios.get(`${baseUrl}/settings/public`, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000,
+    });
     if (!response.data?.success || !response.data.data) {
       return null;
     }
