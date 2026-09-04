@@ -37,6 +37,7 @@ describe('CMS Storefront Document-Level HTTP Semantics & Isolation (Unmocked E2E
   let futurePageId: string;
   let expiredPageId: string;
   let draftPageId: string;
+  let largePageId: string;
 
   test.before(async () => {
     // 1. Start isolated MongoDB & Backend HTTP Server
@@ -132,6 +133,19 @@ describe('CMS Storefront Document-Level HTTP Semantics & Isolation (Unmocked E2E
       isActive: true,
       views: 0
     });
+
+    // Realistically large policy page (near 50,000 char schema limit)
+    const largeClause = 'This is a detailed enterprise policy paragraph explaining customer privacy, data retention, GDPR compliance, and encryption standards. ';
+    const largeMarkdown = '# Enterprise Terms and Privacy Policy\n\n' + largeClause.repeat(350); // ~48KB
+    const largePage = await Content.create({
+      type: 'page',
+      title: 'Enterprise Terms and Privacy Policy',
+      slug: 'enterprise-privacy',
+      content: largeMarkdown,
+      isActive: true,
+      views: 0
+    });
+    largePageId = largePage._id.toString();
 
     // 3. Start Production Next.js Standalone Server
     const standaloneServerPath = path.resolve(process.cwd(), '.next', 'standalone', 'server.js');
@@ -284,6 +298,114 @@ describe('CMS Storefront Document-Level HTTP Semantics & Isolation (Unmocked E2E
     assert.equal(docRes.status, 404);
     const html = await docRes.text();
     assert.ok(html.includes('Page Not Found'));
+  });
+
+  test('largeContent: realistically large policy page (~48KB) renders complete content without truncation or HTTP 431', async () => {
+    const largeRes = await fetch(`${FRONTEND_URL}/pages/enterprise-privacy`);
+    assert.equal(largeRes.status, 200);
+
+    const largeHtml = await largeRes.text();
+    assert.ok(largeHtml.includes('Enterprise Terms and Privacy Policy'));
+    assert.ok(largeHtml.includes('GDPR compliance'));
+    assert.ok(largeHtml.includes('encryption standards.'));
+
+    // Verify view counter incremented exactly once
+    const dbLarge = await Content.findById(largePageId);
+    assert.equal(dbLarge.views, 1);
+  });
+
+  test('security: client-supplied x-cms-page-payload header is stripped and cannot forge content on nonexistent page', async () => {
+    const forgedPayload = Buffer.from(JSON.stringify({
+      _id: '67c123456789abcdef012345',
+      type: 'page',
+      title: 'HACKED FORGED TITLE INJECTION',
+      slug: 'completely-nonexistent-slug',
+      content: '# HACKED FORGED CONTENT\n\nAttacker injected payload.',
+      isActive: true
+    })).toString('base64');
+
+    const forgedRes = await fetch(`${FRONTEND_URL}/pages/completely-nonexistent-slug`, {
+      headers: {
+        'x-cms-page-payload': forgedPayload
+      }
+    });
+
+    assert.equal(forgedRes.status, 404);
+    const forgedHtml = await forgedRes.text();
+    assert.equal(forgedHtml.includes('HACKED FORGED TITLE INJECTION'), false);
+    assert.equal(forgedHtml.includes('HACKED FORGED CONTENT'), false);
+    assert.ok(forgedHtml.includes('Page Not Found'));
+  });
+
+  test('security: client-supplied x-cms-page-payload header is stripped and cannot bypass publication checks on draft page', async () => {
+    const forgedPayload = Buffer.from(JSON.stringify({
+      _id: draftPageId,
+      type: 'page',
+      title: 'DRAFT OVERRIDE TITLE',
+      slug: 'internal-draft-memo',
+      content: '# DRAFT OVERRIDE CONTENT',
+      isActive: true
+    })).toString('base64');
+
+    const draftRes = await fetch(`${FRONTEND_URL}/pages/internal-draft-memo`, {
+      headers: {
+        'x-cms-page-payload': forgedPayload
+      }
+    });
+
+    assert.equal(draftRes.status, 404);
+    const draftHtml = await draftRes.text();
+    assert.equal(draftHtml.includes('DRAFT OVERRIDE TITLE'), false);
+    assert.equal(draftHtml.includes('Must never be publicly visible'), false);
+    assert.ok(draftHtml.includes('Page Not Found'));
+  });
+
+  test('security: client-supplied x-cms-fetch-error header is stripped and cannot force false outage on active page', async () => {
+    // Reactivate page
+    await fetch(`${BACKEND_URL}/api/content/${activePageId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: adminAuth },
+      body: JSON.stringify({ isActive: true })
+    });
+
+    const spoofErrorRes = await fetch(`${FRONTEND_URL}/pages/about-us`, {
+      headers: {
+        'x-cms-fetch-error': 'outage'
+      }
+    });
+
+    assert.equal(spoofErrorRes.status, 200);
+    const spoofHtml = await spoofErrorRes.text();
+    assert.ok(spoofHtml.includes('About MevaPur Heritage'));
+    assert.equal(spoofHtml.includes('Page Unavailable'), false);
+    assert.equal(spoofHtml.includes('Unable to load page content at this time'), false);
+  });
+
+  test('security: client-supplied forged headers are stripped across prefetch and client navigation / RSC paths', async () => {
+    const forgedPayload = Buffer.from(JSON.stringify({
+      _id: '67c123456789abcdef012345',
+      type: 'page',
+      title: 'FORGED RSC INJECTION',
+      slug: 'completely-nonexistent-slug',
+      content: '# FORGED RSC CONTENT',
+      isActive: true
+    })).toString('base64');
+
+    // Test with prefetch and RSC headers
+    const prefetchRes = await fetch(`${FRONTEND_URL}/pages/completely-nonexistent-slug`, {
+      headers: {
+        'next-router-prefetch': '1',
+        'purpose': 'prefetch',
+        'RSC': '1',
+        'x-cms-page-payload': forgedPayload,
+        'x-cms-fetch-error': 'outage'
+      }
+    });
+
+    assert.equal(prefetchRes.status, 404);
+    const prefetchText = await prefetchRes.text();
+    assert.equal(prefetchText.includes('FORGED RSC INJECTION'), false);
+    assert.equal(prefetchText.includes('FORGED RSC CONTENT'), false);
   });
 
   test('outage/error distinction: backend outage renders honest error state with retry rather than false 404', async () => {

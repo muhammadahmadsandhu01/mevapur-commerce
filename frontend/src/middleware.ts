@@ -15,6 +15,10 @@ export async function middleware(request: NextRequest) {
   });
 
   const requestHeaders = new Headers(request.headers);
+  // Strictly strip any client-supplied internal CMS headers to prevent header injection/spoofing
+  requestHeaders.delete('x-cms-page-payload');
+  requestHeaders.delete('x-cms-fetch-error');
+
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', cspHeader);
 
@@ -70,12 +74,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    {
-      source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
-      missing: [
-        { type: 'header', key: 'next-router-prefetch' },
-        { type: 'header', key: 'purpose', value: 'prefetch' },
-      ],
-    },
+    '/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)',
   ],
 };
