@@ -1,5 +1,6 @@
 const Content = require('../models/Content');
 const { logActivity } = require('../middleware/activityLogger');
+const ContentPublicationService = require('../services/ContentPublicationService');
 
 // @desc    Get all content
 // @route   GET /api/content
@@ -68,10 +69,23 @@ exports.getSingleContent = async (req, res) => {
 // @access  Public
 exports.getContentBySlug = async (req, res) => {
   try {
-    const content = await Content.findOne({ 
-      slug: req.params.slug,
-      isActive: true 
+    const { slug } = req.params;
+
+    if (!ContentPublicationService.isValidSlug(slug)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Content not found'
+      });
+    }
+
+    const now = new Date();
+    const query = ContentPublicationService.buildPublicationQuery({
+      slug: slug.toLowerCase().trim(),
+      type: 'page',
+      referenceDate: now
     });
+
+    const content = await Content.findOne(query).select(ContentPublicationService.PUBLIC_PROJECTION);
 
     if (!content) {
       return res.status(404).json({
@@ -80,9 +94,9 @@ exports.getContentBySlug = async (req, res) => {
       });
     }
 
-    // Increment views
+    // Atomically increment views only after successful publication filter
+    await Content.updateOne({ _id: content._id }, { $inc: { views: 1 } });
     content.views += 1;
-    await content.save();
 
     res.json({
       success: true,
@@ -102,6 +116,17 @@ exports.getContentBySlug = async (req, res) => {
 // @access  Private/Admin
 exports.createContent = async (req, res) => {
   try {
+    const { startDate, endDate } = req.body;
+
+    try {
+      ContentPublicationService.validateSchedule({ startDate, endDate });
+    } catch (schedErr) {
+      return res.status(400).json({
+        success: false,
+        message: schedErr.message
+      });
+    }
+
     const contentData = {
       ...req.body,
       slug: req.body.slug || req.body.title.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '')
@@ -133,18 +158,34 @@ exports.createContent = async (req, res) => {
 // @access  Private/Admin
 exports.updateContent = async (req, res) => {
   try {
-    const content = await Content.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
-    if (!content) {
+    const existing = await Content.findById(req.params.id);
+    if (!existing) {
       return res.status(404).json({
         success: false,
         message: 'Content not found'
       });
     }
+
+    const { startDate, endDate } = req.body;
+    try {
+      ContentPublicationService.validateSchedule({
+        startDate,
+        endDate,
+        existingStartDate: existing.startDate,
+        existingEndDate: existing.endDate
+      });
+    } catch (schedErr) {
+      return res.status(400).json({
+        success: false,
+        message: schedErr.message
+      });
+    }
+
+    const content = await Content.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
 
     await logActivity(req, 'CONTENT_UPDATE', 
       `Updated ${content.type}: ${content.title}`, 
@@ -238,20 +279,23 @@ exports.getContentStats = async (req, res) => {
 exports.getPublicContent = async (req, res) => {
   try {
     const { type } = req.params;
+
+    if (!ContentPublicationService.isValidContentType(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid content type'
+      });
+    }
+
     const now = new Date();
-    
-    const content = await Content.find({
+    const query = ContentPublicationService.buildPublicationQuery({
       type,
-      isActive: true,
-      $or: [
-        { startDate: { $lte: now } },
-        { startDate: { $exists: false } }
-      ],
-      $or: [
-        { endDate: { $gte: now } },
-        { endDate: { $exists: false } }
-      ]
-    }).sort({ position: 1 });
+      referenceDate: now
+    });
+
+    const content = await Content.find(query)
+      .select(ContentPublicationService.PUBLIC_PROJECTION)
+      .sort(ContentPublicationService.PUBLIC_CONTENT_SORT);
 
     res.json({
       success: true,

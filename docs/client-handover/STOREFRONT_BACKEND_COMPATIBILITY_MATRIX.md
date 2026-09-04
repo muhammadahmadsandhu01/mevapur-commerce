@@ -114,8 +114,8 @@
 
 | Caller File & Line | Method | Storefront Endpoint | Auth | Request Body / Query | Storefront Expected Response | Authoritative Backend Handler | Compatibility Status | Remediation & Security Notes |
 | :--- | :---: | :--- | :---: | :--- | :--- | :--- | :---: | :--- |
-| `src/services/content.service.ts:25` | `GET` | `/api/content/public/:type` | Public | `type` (`slider`, `banner`, `testimonial`, `faq`, `custom`) | `{ success: true, data: { items } }` | `backend/routes/content.js` -> `ContentController.getPublicContent` | **`COMPATIBLE`** | Excludes draft and inactive content; enforces date scheduling boundaries; orders stably by `position: 1, createdAt: -1`. |
-| `src/services/content.service.ts:48` | `GET` | `/api/content/public/page/:slug` | Public | `slug` | `{ success: true, data: { item } }` | `backend/routes/content.js` -> `ContentController.getContentBySlug` | **`COMPATIBLE`** | Restricts type strictly to `page`; returns real 404 for draft, inactive, or non-existent pages. |
+| `src/services/content.service.ts:25` | `GET` | `/api/content/public/:type` | Public | `type` (`banner`, `slider`, `page`, `blog`) | `{ success: true, data: { items } }` | `backend/routes/content.js` -> `ContentController.getPublicContent` | **`COMPATIBLE`** | Excludes draft and inactive content; enforces date scheduling boundaries via `ContentPublicationService.buildPublicationQuery` ($and conjunction of start/end bounds); orders stably by `position: 1, createdAt: -1, _id: 1`. Validates allowed content type parameter (returns 400 for invalid types). |
+| `src/services/content.service.ts:48` | `GET` | `/api/content/slug/:slug` | Public | `slug` (1-200 chars, regex `^[a-z0-9]+(?:-[a-z0-9]+)*$`) | `{ success: true, data: { item } }` | `backend/routes/content.js` -> `ContentController.getContentBySlug` | **`COMPATIBLE`** | Restricts type strictly to `page`; validates slug syntax; applies authoritative publication window; projects customer-safe fields; returns uniform 404 for draft, inactive, future, expired, wrong-type, or non-existent pages; increments view counter atomically only after successful publication filtering. |
 | `src/services/content.service.ts:70` | `GET` | `/api/settings/public` | Public | None | `{ success: true, data: { settings } }` | `backend/routes/settingsRoutes.js` -> `SettingsController.getPublicSettings` | **`COMPATIBLE`** | Exposes store name, email, phone, address, and currency metadata without exposing internal keys or credentials. |
 
 ---
@@ -125,8 +125,16 @@
 - **Private Field Projection**: Customer review endpoint never projects `internalModerationNotes`, `moderatorId`, or `deletedBy`.
 - **Race Condition Protection**: `getSessionGeneration()` protects against late asynchronous API responses from User A populating User B's state upon logout/switch.
 - **Market Country Filtering**: Delivery addresses are restricted strictly to enabled market countries (e.g. `'PK'`) from `MarketService.getPublicConfig()`.
-- **CMS Publication Invariant**: Draft (`isActive: false`) and scheduled content outside active start/end timestamps are excluded at the database query layer. Public page lookups return 404. Safe markdown rendering uses pure React JSX elements with zero `dangerouslySetInnerHTML`.
+- **CMS Authoritative Publication Invariant**: Draft (`isActive: false`), future-scheduled (`startDate > now`), and expired (`endDate < now`) content are strictly excluded at the database query layer via `$and` conjunction of start and end boundary `$or` clauses. Missing or explicit-null dates are treated as open bounds. Public page lookups enforce `type: 'page'` and return uniform 404. View counters are incremented atomically exclusively upon successful publication match.
+- **CMS Schedule Mutation Validation**: `POST /api/content` and `PUT /api/content/:id` validate date syntax, reject `startDate > endDate`, and validate partial updates against the merged existing schedule.
+- **CMS Caching & Refresh Behavior**:
+  - **Fresh Request**: Fetches the latest published content from backend database query.
+  - **Already-Open Tab**: Mounted components (Hero Slider, Announcement Banner, Footer) fetch on initial mount or page navigation. They do not auto-poll in the background; content updates/expiries reflect on the next navigation or manual reload.
+  - **Schedule Expiry**: Takes effect on subsequent API requests immediately; already-rendered React DOM in an active browser tab remains in memory until the next fetch or component mount.
+  - **Cache Protection**: CMS API endpoints do not leak cached private data; HTML document delivery retains nonce-bearing CSP and standard no-cache protections.
+- **Safe Markdown Rendering**: Storefront CMS page rendering uses custom structured React JSX parsing (`SafeContentRenderer`) with zero `dangerouslySetInnerHTML`, strict URL protocol validation (`mailto:`, `tel:`, and safe `https:`), and HTML entity escaping.
 - **Product Management Control Clarification**: Product creation/mutations are executed exclusively via authenticated Admin endpoints (`POST /api/admin/products`, `PUT /api/admin/products/:id`, `PATCH /api/admin/products/:id/pricing`, etc.). `/api/products/top` ranks strictly by ratings/reviews; `/api/products/recommended` is the featured selection endpoint.
 - **Roadmap Alignment**: Single-merchant architecture preserved (dedicated deployment per client, zero multi-tenant or marketplace expansion).
 - **Zero Live Payments/SMTP/Deployments**: Verified isolated in test mode with zero production side effects.
+
 
