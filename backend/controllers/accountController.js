@@ -11,6 +11,7 @@ exports.listWishlist = async (req, res, next) => { try { return success(res, 200
 exports.addWishlist = async (req, res, next) => { try { return success(res, 201, { item: await service.addWishlist(req.user.id, req.params.productId) }, req.requestId); } catch (error) { return next(error); } };
 exports.removeWishlist = async (req, res, next) => { try { await service.removeWishlist(req.user.id, req.params.productId); return res.status(204).end(); } catch (error) { return next(error); } };
 exports.listPublicReviews = async (req, res, next) => { try { return success(res, 200, await service.listPublicReviews(req.params.productId, req.query), req.requestId); } catch (error) { return next(error); } };
+exports.listMyReviews = async (req, res, next) => { try { return success(res, 200, await service.listMyReviews(req.user.id, req.query), req.requestId); } catch (error) { return next(error); } };
 exports.submitReview = async (req, res, next) => { try { return success(res, 201, { review: await service.submitReview(req.user.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
 exports.updateReview = async (req, res, next) => { try { return success(res, 200, { review: await service.updateReview(req.user.id, req.params.id, req.body) }, req.requestId); } catch (error) { return next(error); } };
 exports.deleteReview = async (req, res, next) => { try { await service.deleteReview(req.user.id, req.params.id); return res.status(204).end(); } catch (error) { return next(error); } };

@@ -65,7 +65,27 @@ class CustomerCommerceService {
     await user.save();
   }
 
-  async listWishlist(userId) { return Wishlist.find({ user: userId }).populate({ path: 'product', match: { isActive: true }, select: 'name slug price salePrice images stock' }).sort({ createdAt: -1 }).then((items) => items.filter((item) => item.product).map((item) => ({ id: String(item._id), product: item.product }))); }
+  async listWishlist(userId) {
+    return Wishlist.find({ user: userId })
+      .populate({ path: 'product', match: { isActive: true }, select: 'name slug price salePrice images stock variants attributes' })
+      .sort({ createdAt: -1 })
+      .then((items) => items.filter((item) => item.product).map((item) => ({
+        id: String(item._id),
+        product: {
+          _id: item.product._id,
+          id: String(item.product._id),
+          name: item.product.name,
+          slug: item.product.slug,
+          price: item.product.price,
+          salePrice: item.product.salePrice,
+          images: item.product.images || [],
+          stock: item.product.stock,
+          hasVariants: Boolean(item.product.variants && item.product.variants.length > 0),
+          variants: item.product.variants || [],
+          attributes: item.product.attributes || []
+        }
+      })));
+  }
   async addWishlist(userId, productId) {
     const product = await Product.findOne({ _id: productId, isActive: true });
     if (!product) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
@@ -73,6 +93,57 @@ class CustomerCommerceService {
     catch (error) { if (error?.code === 11000) return this.addWishlist(userId, productId); throw error; }
   }
   async removeWishlist(userId, productId) { const result = await Wishlist.deleteOne({ user: userId, product: productId }); if (!result.deletedCount) throw new AppError('Wishlist item not found', 404, ERROR_CODES.CUSTOMER_WISHLIST_NOT_FOUND); }
+
+  async listMyReviews(userId, query = {}) {
+    const page = Number(query.page) || 1;
+    const limit = Math.min(Number(query.limit) || 12, 50);
+    const skip = (page - 1) * limit;
+
+    const [reviews, total] = await Promise.all([
+      Review.find({ user: userId })
+        .populate({
+          path: 'product',
+          select: 'name slug price salePrice images stock hasVariants variants attributes isActive'
+        })
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit),
+      Review.countDocuments({ user: userId })
+    ]);
+
+    const reviewView = (entry) => ({
+      id: String(entry._id),
+      product: entry.product ? {
+        id: String(entry.product._id || entry.product),
+        name: entry.product.name || 'Unavailable Product',
+        slug: entry.product.slug || '',
+        price: entry.product.price,
+        salePrice: entry.product.salePrice,
+        images: entry.product.images || [],
+        stock: entry.product.stock,
+        hasVariants: Boolean(entry.product.hasVariants),
+        variants: entry.product.variants || [],
+        attributes: entry.product.attributes || [],
+        isActive: Boolean(entry.product.isActive)
+      } : null,
+      rating: entry.rating,
+      title: entry.title || '',
+      comment: entry.comment,
+      status: entry.status,
+      isVerifiedPurchase: Boolean(entry.isVerifiedPurchase),
+      adminReply: entry.adminReply || '',
+      repliedAt: entry.repliedAt || null,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt
+    });
+
+    return {
+      reviews: reviews.map(reviewView),
+      total,
+      page,
+      limit
+    };
+  }
 
   async listPublicReviews(productId, query) {
     return await ReviewService.listPublicReviews(productId, query);

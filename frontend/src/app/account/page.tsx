@@ -1,74 +1,72 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { type FormEvent, useCallback, useEffect, useState, useRef, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { type FormEvent, useCallback, useEffect, useState, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   User,
   MapPin,
   RotateCcw,
   Bell,
   Loader2,
-  Plus,
-  Edit2,
-  Trash2,
+  ShieldCheck,
+  MessageSquare
 } from 'lucide-react';
 import ReturnRequestForm from '@/components/account/ReturnRequestForm';
+import AddressBook from '@/components/account/AddressBook';
+import MyReviewsList from '@/components/account/MyReviewsList';
+import ChangePasswordForm from '@/components/account/ChangePasswordForm';
+import SessionManager from '@/components/account/SessionManager';
+import NotificationsList from '@/components/account/NotificationsList';
 import {
   accountService,
   type AccountProfile,
   type AccountRefundSummary,
   type AccountReturnSummary,
-  type Address,
+  getAccountApiErrorMessage
 } from '@/services/account.service';
 import { useAuthStore } from '@/store/authStore';
 import { formatMoney } from '@/lib/money';
+import { getSessionGeneration, isCurrentSessionGeneration } from '@/lib/authSession';
 import Toast from '@/components/Toast';
 
-interface AccountNotification {
-  id: string;
-  title: string;
-  message: string;
-  isRead: boolean;
-  createdAt: string;
-}
-
-const blankAddress = (): Omit<Address, 'id'> => ({
-  fullName: '',
-  phone: '',
-  address: '',
-  addressLine2: '',
-  city: '',
-  province: 'Punjab',
-  postalCode: '',
-  country: 'PK',
-  isDefault: false,
-});
+type AccountTab = 'profile' | 'addresses' | 'orders' | 'reviews' | 'security' | 'notifications';
 
 function AccountPageContent() {
   const { isAuthenticated, isInitialized, updateUser, bootstrap } = useAuthStore();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
+  const [activeTab, setActiveTab] = useState<AccountTab>('profile');
   const [profile, setProfile] = useState<AccountProfile | null>(null);
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [address, setAddress] = useState<Omit<Address, 'id'>>(blankAddress());
-  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
-  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [avatar, setAvatar] = useState('');
   const [returns, setReturns] = useState<AccountReturnSummary[]>([]);
   const [refunds, setRefunds] = useState<AccountRefundSummary[]>([]);
-  const [notifications, setNotifications] = useState<AccountNotification[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  const returnsSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
 
+  // Sync tab with search params if present
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const tabParam = searchParams.get('tab') as AccountTab;
+      if (tabParam && ['profile', 'addresses', 'orders', 'reviews', 'security', 'notifications'].includes(tabParam)) {
+        setActiveTab(tabParam);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [searchParams]);
+
   const loadData = useCallback(async () => {
+    const gen = getSessionGeneration();
     if (!isAuthenticated) {
       setLoading(false);
       return;
@@ -76,26 +74,28 @@ function AccountPageContent() {
 
     try {
       setLoading(true);
-      const [profileResult, addressResult, returnResult, refundResult, notificationResult] =
-        await Promise.all([
-          accountService.profile(),
-          accountService.addresses(),
-          accountService.returns(),
-          accountService.refunds(),
-          accountService.notifications(),
-        ]);
+      const [profileResult, returnResult, refundResult] = await Promise.all([
+        accountService.profile(),
+        accountService.returns().catch(() => ({ returns: [] })),
+        accountService.refunds().catch(() => ({ refunds: [] }))
+      ]);
 
-      setProfile(profileResult.profile);
-      setAddresses(addressResult.addresses);
-      setReturns(returnResult.returns);
-      setRefunds(refundResult.refunds);
-      setNotifications(
-        (notificationResult as { notifications: AccountNotification[] }).notifications || []
-      );
+      if (isCurrentSessionGeneration(gen)) {
+        setProfile(profileResult.profile);
+        setFullName(profileResult.profile.fullName || '');
+        setPhone(profileResult.profile.phone || '');
+        setAvatar(profileResult.profile.avatar || '');
+        setReturns(returnResult.returns || []);
+        setRefunds(refundResult.refunds || []);
+      }
     } catch {
-      setToast({ message: 'Your account data could not be fully loaded.', type: 'error' });
+      if (isCurrentSessionGeneration(gen)) {
+        setToast({ message: 'Your account details could not be loaded.', type: 'error' });
+      }
     } finally {
-      setLoading(false);
+      if (isCurrentSessionGeneration(gen)) {
+        setLoading(false);
+      }
     }
   }, [isAuthenticated]);
 
@@ -115,91 +115,38 @@ function AccountPageContent() {
     };
   }, [isInitialized, isAuthenticated, loadData]);
 
-  // Handle deep-link to returns section
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab === 'returns' && returnsSectionRef.current) {
-      returnsSectionRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [searchParams, loading]);
+  const handleSaveProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    if (savingProfile) return;
 
-  const saveProfile = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!profile || saving) return;
-
-    setSaving(true);
+    setSavingProfile(true);
     try {
-      const result = await accountService.updateProfile({
-        fullName: profile.fullName,
-        phone: profile.phone,
-      });
+      const payload: Partial<Pick<AccountProfile, 'fullName' | 'phone' | 'avatar'>> = {
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        ...(avatar.trim() ? { avatar: avatar.trim() } : { avatar: '' })
+      };
+      const result = await accountService.updateProfile(payload);
       setProfile(result.profile);
       updateUser(result.profile);
       setToast({ message: 'Profile updated successfully.', type: 'success' });
-    } catch {
-      setToast({ message: 'Profile could not be saved. Please check details.', type: 'error' });
+    } catch (err) {
+      setToast({ message: getAccountApiErrorMessage(err, 'Failed to update profile.'), type: 'error' });
     } finally {
-      setSaving(false);
+      setSavingProfile(false);
     }
   };
 
-  const saveAddress = async (event: FormEvent) => {
-    event.preventDefault();
-    if (saving) return;
-
-    setSaving(true);
-    try {
-      if (editingAddressId) {
-        await accountService.updateAddress(editingAddressId, address);
-        setToast({ message: 'Address updated.', type: 'success' });
-      } else {
-        await accountService.addAddress(address);
-        setToast({ message: 'New address added.', type: 'success' });
-      }
-      setShowAddressForm(false);
-      setEditingAddressId(null);
-      setAddress(blankAddress());
-      await loadData();
-    } catch {
-      setToast({ message: 'Address could not be saved.', type: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteAddress = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this address?')) return;
-    try {
-      await accountService.removeAddress(id);
-      setToast({ message: 'Address removed.', type: 'success' });
-      await loadData();
-    } catch {
-      setToast({ message: 'Failed to delete address.', type: 'error' });
-    }
-  };
-
-  const getReturnStatusBadge = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'refunded':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case 'approved':
-      case 'received':
-      case 'inspected':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'rejected':
-      case 'cancelled':
-        return 'bg-rose-100 text-rose-800 border-rose-200';
-      case 'pending':
-      default:
-        return 'bg-amber-100 text-amber-900 border-amber-200';
-    }
+  const selectTab = (tab: AccountTab) => {
+    setActiveTab(tab);
+    router.replace(`/account?tab=${tab}`);
   };
 
   if (!isInitialized || loading) {
     return (
       <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
-        <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
-        <p className="text-sm font-semibold text-slate-700">Loading your account profile...</p>
+        <Loader2 className="w-10 h-10 text-[#ff8a00] animate-spin mb-4" />
+        <p className="text-sm font-semibold text-slate-700">Loading your account...</p>
       </main>
     );
   }
@@ -210,9 +157,9 @@ function AccountPageContent() {
         <div className="w-16 h-16 rounded-full bg-orange-100 text-[#0b132b] flex items-center justify-center mb-4">
           <User size={32} className="text-[#ff8a00]" />
         </div>
-        <h1 className="text-2xl font-black text-slate-900 mb-2">Sign in to view account</h1>
+        <h1 className="text-2xl font-black text-slate-900 mb-2">Sign In to Your Account</h1>
         <p className="text-sm text-slate-600 mb-6">
-          Access your personal profile, addresses, returns, and notifications.
+          Access your personal profile, addresses, orders, reviews, security settings, and notifications.
         </p>
         <Link
           href="/login?redirect=/account"
@@ -225,374 +172,254 @@ function AccountPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#0b132b]">My Account</h1>
-          <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-            Manage your customer profile, delivery address book, and return requests.
-          </p>
+    <main className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header Banner */}
+        <div className="flex flex-col justify-between gap-4 rounded-2xl bg-white p-6 border border-slate-200 shadow-xs sm:flex-row sm:items-center">
+          <div className="flex items-center gap-4">
+            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xl">
+              {profile?.avatar ? (
+                <Image src={profile.avatar} alt={profile.fullName || 'User'} fill sizes="56px" className="object-cover" />
+              ) : (
+                (profile?.fullName?.[0] || 'U').toUpperCase()
+              )}
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-[#0b132b]">{profile?.fullName || 'Customer Account'}</h1>
+              <p className="text-xs text-slate-500">{profile?.email}</p>
+            </div>
+          </div>
+          <Link
+            href="/products"
+            className="inline-flex items-center justify-center rounded-xl bg-[#0b132b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1c2a4f] shadow-xs"
+          >
+            Continue Shopping
+          </Link>
         </div>
 
-        {/* Profile Settings */}
-        <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs">
-          <h2 className="text-base font-extrabold text-slate-900 mb-4 pb-3 border-b border-slate-100 flex items-center gap-2">
-            <User size={18} className="text-[#ff8a00]" /> Personal Profile
-          </h2>
+        {/* Dashboard Navigation Tabs */}
+        <div className="flex overflow-x-auto border-b border-slate-200 bg-white rounded-xl p-1.5 shadow-xs gap-1" role="tablist">
+          <button
+            role="tab"
+            aria-selected={activeTab === 'profile'}
+            onClick={() => selectTab('profile')}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition ${
+              activeTab === 'profile' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <User className="h-4 w-4" /> Personal Profile
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'addresses'}
+            onClick={() => selectTab('addresses')}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition ${
+              activeTab === 'addresses' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <MapPin className="h-4 w-4" /> Address Book
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'orders'}
+            onClick={() => selectTab('orders')}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition ${
+              activeTab === 'orders' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <RotateCcw className="h-4 w-4" /> Orders & Returns
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'reviews'}
+            onClick={() => selectTab('reviews')}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition ${
+              activeTab === 'reviews' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" /> My Reviews
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'security'}
+            onClick={() => selectTab('security')}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition ${
+              activeTab === 'security' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <ShieldCheck className="h-4 w-4" /> Security & Sessions
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'notifications'}
+            onClick={() => selectTab('notifications')}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition ${
+              activeTab === 'notifications' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Bell className="h-4 w-4" /> Notifications
+          </button>
+        </div>
 
-          <form onSubmit={saveProfile} className="space-y-4 max-w-lg">
-            <div>
-              <label htmlFor="accountFullName" className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
-                Full Name
-              </label>
-              <input
-                id="accountFullName"
-                type="text"
-                required
-                value={profile?.fullName || ''}
-                onChange={(e) => setProfile(profile ? { ...profile, fullName: e.target.value } : null)}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] bg-white"
-              />
+        {/* Tab 1: Profile Form */}
+        {activeTab === 'profile' && (
+          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                <User className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-[#0b132b]">Personal Details</h2>
+                <p className="text-xs text-slate-500">
+                  Update your contact information and public account details.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label htmlFor="accountEmail" className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
-                Email Address
-              </label>
-              <input
-                id="accountEmail"
-                type="email"
-                disabled
-                value={profile?.email || ''}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-500 outline-none cursor-not-allowed"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="accountPhone" className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
-                Phone Number
-              </label>
-              <input
-                id="accountPhone"
-                type="tel"
-                value={profile?.phone || ''}
-                onChange={(e) => setProfile(profile ? { ...profile, phone: e.target.value } : null)}
-                placeholder="03001234567"
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-900 outline-none focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] bg-white"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2.5 bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition shadow-2xs disabled:opacity-50"
-            >
-              {saving ? 'Saving Profile...' : 'Save Profile'}
-            </button>
-          </form>
-        </section>
-
-        {/* Address Book */}
-        <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <MapPin size={18} className="text-[#ff8a00]" /> Saved Delivery Addresses
-            </h2>
-            {!showAddressForm && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingAddressId(null);
-                  setAddress(blankAddress());
-                  setShowAddressForm(true);
-                }}
-                className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-bold text-xs rounded-lg transition shadow-2xs"
-              >
-                <Plus size={14} /> Add Address
-              </button>
-            )}
-          </div>
-
-          {showAddressForm && (
-            <form onSubmit={saveAddress} className="mb-6 p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-              <h3 className="text-xs font-black uppercase text-slate-900">
-                {editingAddressId ? 'Edit Address' : 'Add New Delivery Address'}
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={address.fullName}
-                    onChange={(e) => setAddress({ ...address, fullName: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-xs bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Phone</label>
-                  <input
-                    type="tel"
-                    required
-                    value={address.phone}
-                    onChange={(e) => setAddress({ ...address, phone: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-xs bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">City</label>
-                  <input
-                    type="text"
-                    required
-                    value={address.city}
-                    onChange={(e) => setAddress({ ...address, city: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-xs bg-white"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Address</label>
-                  <input
-                    type="text"
-                    required
-                    value={address.address}
-                    onChange={(e) => setAddress({ ...address, address: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-xs bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Province</label>
-                  <select
-                    value={address.province}
-                    onChange={(e) => setAddress({ ...address, province: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-xs bg-white"
-                  >
-                    <option value="Punjab">Punjab</option>
-                    <option value="Sindh">Sindh</option>
-                    <option value="Khyber Pakhtunkhwa">Khyber Pakhtunkhwa</option>
-                    <option value="Balochistan">Balochistan</option>
-                    <option value="Islamabad Capital Territory">Islamabad Capital Territory</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Postal Code</label>
-                  <input
-                    type="text"
-                    value={address.postalCode || ''}
-                    onChange={(e) => setAddress({ ...address, postalCode: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-xs bg-white"
-                  />
-                </div>
+            <form onSubmit={handleSaveProfile} className="mt-6 max-w-xl space-y-4">
+              <div>
+                <label htmlFor="prof-name" className="block text-xs font-semibold text-slate-700">Full Name *</label>
+                <input
+                  id="prof-name"
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0b132b] focus:outline-none"
+                  placeholder="Enter full name"
+                />
               </div>
 
-              <div className="flex items-center justify-between pt-2">
-                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={address.isDefault}
-                    onChange={(e) => setAddress({ ...address, isDefault: e.target.checked })}
-                    className="rounded text-[#ff8a00]"
-                  />
-                  Set as default shipping address
+              <div>
+                <label htmlFor="prof-email" className="block text-xs font-semibold text-slate-700">
+                  Email Address <span className="text-slate-600 font-normal">(Read-only)</span>
                 </label>
+                <input
+                  id="prof-email"
+                  type="email"
+                  disabled
+                  value={profile?.email || ''}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+                />
+                <p className="mt-1 text-[11px] text-slate-600">
+                  Email address is permanently associated with your login account and cannot be modified directly.
+                </p>
+              </div>
 
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddressForm(false)}
-                    className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="px-4 py-1.5 bg-[#0b132b] text-white rounded-lg text-xs font-bold hover:bg-slate-800 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Save Address'}
-                  </button>
-                </div>
+              <div>
+                <label htmlFor="prof-phone" className="block text-xs font-semibold text-slate-700">Phone Number</label>
+                <input
+                  id="prof-phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0b132b] focus:outline-none"
+                  placeholder="03001234567"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="prof-avatar" className="block text-xs font-semibold text-slate-700">Avatar Image URL (Optional)</label>
+                <input
+                  id="prof-avatar"
+                  type="url"
+                  value={avatar}
+                  onChange={(e) => setAvatar(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0b132b] focus:outline-none"
+                  placeholder="https://example.com/avatar.jpg"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={savingProfile || !fullName.trim()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#0b132b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#1c2a4f] disabled:opacity-50"
+                >
+                  {savingProfile && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Save Profile Changes
+                </button>
               </div>
             </form>
-          )}
-
-          {addresses.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">No saved addresses yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {addresses.map((addr) => (
-                <div
-                  key={addr.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition text-xs space-y-1 relative"
-                >
-                  {addr.isDefault && (
-                    <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] rounded mb-1">
-                      Default Shipping Address
-                    </span>
-                  )}
-                  <p className="font-extrabold text-slate-900">{addr.fullName}</p>
-                  <p className="text-slate-600">{addr.phone}</p>
-                  <p className="text-slate-700">{addr.address}</p>
-                  <p className="text-slate-700">
-                    {[addr.city, addr.province, addr.postalCode].filter(Boolean).join(', ')}
-                  </p>
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingAddressId(addr.id);
-                        setAddress({
-                          fullName: addr.fullName,
-                          phone: addr.phone,
-                          address: addr.address,
-                          addressLine2: addr.addressLine2,
-                          city: addr.city,
-                          province: addr.province,
-                          postalCode: addr.postalCode,
-                          country: addr.country || 'PK',
-                          isDefault: addr.isDefault,
-                        });
-                        setShowAddressForm(true);
-                      }}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 hover:text-slate-900"
-                    >
-                      <Edit2 size={12} /> Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteAddress(addr.id)}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:text-rose-800 ml-2"
-                    >
-                      <Trash2 size={12} /> Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Returns & Refunds Section */}
-        <section
-          id="returns"
-          ref={returnsSectionRef}
-          className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs space-y-6"
-        >
-          <div className="pb-3 border-b border-slate-100">
-            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <RotateCcw size={18} className="text-[#ff8a00]" /> Returns & Refunds Management
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Submit return requests for delivered orders within our authoritative 30-day window.
-            </p>
           </div>
+        )}
 
-          {/* Return Request Form Component */}
-          <ReturnRequestForm
-            initialOrderId={searchParams.get('order') || ''}
-            initialProductId={searchParams.get('product') || ''}
-            initialVariantId={searchParams.get('variant') || ''}
-            onSubmitted={loadData}
-          />
+        {/* Tab 2: Address Book */}
+        {activeTab === 'addresses' && <AddressBook />}
 
-          {/* Submitted Returns List */}
-          {returns.length > 0 && (
-            <div className="pt-4 border-t border-slate-100 space-y-3">
-              <h3 className="text-xs font-black uppercase text-slate-900">Your Submitted Return Requests</h3>
-              <div className="divide-y divide-slate-100">
-                {returns.map((entry) => (
-                  <div key={entry.id} className="py-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-mono font-bold text-slate-900">Return #{entry.returnNumber}</span>
-                      <span className="text-slate-500 ml-2">({entry.status})</span>
+        {/* Tab 3: Orders & Returns */}
+        {activeTab === 'orders' && (
+          <div className="space-y-6">
+            <ReturnRequestForm onSubmitted={loadData} />
+
+            {/* Past Returns List */}
+            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-base font-bold text-[#0b132b] mb-4">Past Return Requests</h3>
+              {returns.length === 0 ? (
+                <p className="text-xs text-slate-500">No return requests filed.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {returns.map((ret) => (
+                    <div key={ret.id} className="py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">Return #{ret.returnNumber}</p>
+                        <p className="text-[11px] text-slate-500">Status: <span className="capitalize font-semibold">{ret.status}</span></p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 capitalize">
+                        {ret.status}
+                      </span>
                     </div>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${getReturnStatusBadge(entry.status)}`}>
-                      {entry.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Refunds List */}
-          {refunds.length > 0 && (
-            <div className="pt-4 border-t border-slate-100 space-y-3">
-              <h3 className="text-xs font-black uppercase text-slate-900">Recorded Refunds</h3>
-              <div className="divide-y divide-slate-100">
-                {refunds.map((entry) => (
-                  <div key={entry.id} className="py-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-mono font-bold text-slate-900">Refund #{entry.refundNumber}</span>
-                      <span className="text-slate-500 ml-2">Status: {entry.status}</span>
-                    </div>
-                    <span className="font-black text-slate-900">
-                      {formatMoney(entry.amount, entry.currency)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Notifications Section */}
-        <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <Bell size={18} className="text-[#ff8a00]" /> Account Notifications
-            </h2>
-            {notifications.some((n) => !n.isRead) && (
-              <button
-                type="button"
-                onClick={async () => {
-                  await accountService.markAllNotificationsRead();
-                  await loadData();
-                }}
-                className="text-xs font-bold text-[#0b132b] hover:underline"
-              >
-                Mark all read
-              </button>
-            )}
-          </div>
-
-          {notifications.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">No account notifications.</p>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {notifications.map((entry) => (
-                <div key={entry.id} className="py-3 flex items-start justify-between gap-4 text-xs">
-                  <div className="flex-1">
-                    <p className={`font-bold ${entry.isRead ? 'text-slate-700' : 'text-slate-900 font-extrabold'}`}>
-                      {!entry.isRead && <span className="inline-block w-2 h-2 rounded-full bg-[#ff8a00] mr-2" />}
-                      {entry.title}
-                    </p>
-                    <p className="text-slate-600 mt-0.5">{entry.message}</p>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  {!entry.isRead && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await accountService.markNotificationRead(entry.id);
-                        await loadData();
-                      }}
-                      className="text-[11px] font-bold text-slate-500 hover:text-slate-900 shrink-0"
-                    >
-                      Mark read
-                    </button>
-                  )}
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </section>
+
+            {/* Refunds List */}
+            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-base font-bold text-[#0b132b] mb-4">Refund History</h3>
+              {refunds.length === 0 ? (
+                <p className="text-xs text-slate-500">No refunds recorded.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {refunds.map((ref) => (
+                    <div key={ref.id} className="py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">Refund #{ref.refundNumber}</p>
+                        <p className="text-[11px] text-slate-500">Amount: {formatMoney(ref.amount, ref.currency)}</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 capitalize">
+                        {ref.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: My Reviews */}
+        {activeTab === 'reviews' && <MyReviewsList />}
+
+        {/* Tab 5: Security & Active Sessions */}
+        {activeTab === 'security' && (
+          <div className="space-y-6">
+            <ChangePasswordForm />
+            <SessionManager />
+          </div>
+        )}
+
+        {/* Tab 6: Notifications */}
+        {activeTab === 'notifications' && <NotificationsList />}
       </div>
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </main>
   );
 }
@@ -601,9 +428,8 @@ export default function AccountPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
-          <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
-          <p className="text-slate-600 font-medium">Loading account...</p>
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[#0b132b]" />
         </div>
       }
     >

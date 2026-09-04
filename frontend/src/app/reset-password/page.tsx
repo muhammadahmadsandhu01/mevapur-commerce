@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { authHttp } from '@/lib/authSession';
+import { validatePasswordPolicy } from '@/lib/passwordPolicy';
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -33,24 +34,8 @@ function ResetPasswordForm() {
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
 
   // Canonical Enterprise Password Policy Checks
-  const hasLength = newPassword.length >= 12;
-  const hasUpper = /[A-Z]/.test(newPassword);
-  const hasLower = /[a-z]/.test(newPassword);
-  const hasNumber = /\d/.test(newPassword);
-  const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
-  const hasNoRepeat = !/(.)\1{2,}/.test(newPassword);
-  const hasNoSequential = (() => {
-    const lower = newPassword.toLowerCase();
-    for (let i = 0; i < lower.length - 2; i++) {
-      const charCode = lower.charCodeAt(i);
-      const next1 = lower.charCodeAt(i + 1);
-      const next2 = lower.charCodeAt(i + 2);
-      if (next1 === charCode + 1 && next2 === charCode + 2) {
-        return false;
-      }
-    }
-    return true;
-  })();
+  const policy = validatePasswordPolicy(newPassword);
+  const { hasLength, hasUpper, hasLower, hasNumber, hasSpecial, hasNoRepeat, hasNoSequential } = policy;
   const isMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
   const handleSubmit = async (e: React.FormEvent) => {

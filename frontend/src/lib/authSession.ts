@@ -25,9 +25,13 @@ let accessToken: string | null = null;
 let csrfToken: string | null = null;
 let refreshInFlight: Promise<AuthPayload<unknown> | null> | null = null;
 let invalidationHandler: (() => void) | null = null;
+let activeSessionGeneration = 0;
 
 export const getAccessToken = () => accessToken;
 export const getCsrfToken = () => csrfToken;
+export const getSessionGeneration = () => activeSessionGeneration;
+export const bumpSessionGeneration = () => ++activeSessionGeneration;
+export const isCurrentSessionGeneration = (gen: number) => gen === activeSessionGeneration;
 
 export const setInvalidationHandler = (handler: () => void) => {
   invalidationHandler = handler;
@@ -42,16 +46,18 @@ export const acceptAuthentication = <TUser>(
 
   accessToken = payload.accessToken;
   csrfToken = payload.csrfToken;
+  bumpSessionGeneration();
   return payload;
 };
 
 export const clearAuthentication = (notify = false) => {
   accessToken = null;
   csrfToken = null;
+  bumpSessionGeneration();
   if (notify) invalidationHandler?.();
 };
 
-const fetchCsrfContext = async (): Promise<CsrfContext> => {
+export const fetchCsrfContext = async (): Promise<CsrfContext> => {
   const response = await authHttp.get('/auth/csrf-token');
   const context = response.data?.data as CsrfContext;
   if (!context?.csrfToken) {
@@ -121,4 +127,88 @@ export const logoutAuthentication = async () => {
   } finally {
     clearAuthentication();
   }
+};
+
+export interface ActiveSession {
+  id: string;
+  ipAddress?: string;
+  userAgent?: string;
+  isCurrent?: boolean;
+  createdAt: string;
+  expiresAt?: string;
+  deviceInfo?: {
+    browser?: string;
+    os?: string;
+    device?: string;
+  };
+}
+
+export const authService = {
+  changePassword: async (data: { currentPassword: string; newPassword: string }) => {
+    if (!csrfToken) {
+      await fetchCsrfContext().catch(() => undefined);
+    }
+    const response = await authHttp.post(
+      '/auth/change-password',
+      data,
+      {
+        headers: {
+          Authorization: accessToken ? `Bearer ${accessToken}` : undefined,
+          'X-CSRF-Token': csrfToken,
+        },
+      }
+    );
+    clearAuthentication(true);
+    return response.data;
+  },
+
+  getSessions: async () => {
+    const response = await authHttp.get(
+      '/auth/sessions',
+      {
+        headers: {
+          Authorization: accessToken ? `Bearer ${accessToken}` : undefined,
+        },
+      }
+    );
+    return (response.data?.data?.sessions || []) as ActiveSession[];
+  },
+
+  revokeSession: async (sessionId: string) => {
+    if (!csrfToken) {
+      await fetchCsrfContext().catch(() => undefined);
+    }
+    const response = await authHttp.delete(
+      `/auth/sessions/${sessionId}`,
+      {
+        headers: {
+          Authorization: accessToken ? `Bearer ${accessToken}` : undefined,
+          'X-CSRF-Token': csrfToken,
+        },
+      }
+    );
+    const result = response.data?.data;
+    if (result?.revokedCurrent) {
+      clearAuthentication(true);
+    }
+    return result;
+  },
+
+  logoutAll: async () => {
+    if (!csrfToken) {
+      await fetchCsrfContext().catch(() => undefined);
+    }
+    const response = await authHttp.post(
+      '/auth/logout-all',
+      {},
+      {
+        headers: {
+          Authorization: accessToken ? `Bearer ${accessToken}` : undefined,
+          'X-CSRF-Token': csrfToken,
+        },
+      }
+    );
+    clearAuthentication(true);
+    return response.data;
+  },
 };

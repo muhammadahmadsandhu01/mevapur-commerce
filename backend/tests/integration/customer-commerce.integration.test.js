@@ -37,7 +37,11 @@ describe('P6B customer commerce ownership contracts', () => {
     await request(app).post(`/api/account/wishlist/${item._id}`).set('Authorization', first.authorization);
     expect(await Wishlist.countDocuments({ user: first.user._id, product: item._id })).toBe(1);
     expect((await request(app).delete(`/api/account/wishlist/${item._id}`).set('Authorization', second.authorization)).status).toBe(404);
-    expect((await request(app).get('/api/account/wishlist').set('Authorization', second.authorization)).body.data.items).toHaveLength(0); expect((await request(app).delete(`/api/account/wishlist/${item._id}`).set('Authorization', first.authorization)).status).toBe(204);
+    expect((await request(app).get('/api/account/wishlist').set('Authorization', second.authorization)).body.data.items).toHaveLength(0);
+    const wishlistFirst = await request(app).get('/api/account/wishlist').set('Authorization', first.authorization);
+    expect(wishlistFirst.body.data.items).toHaveLength(1);
+    expect(wishlistFirst.body.data.items[0].product).toHaveProperty('hasVariants');
+    expect((await request(app).delete(`/api/account/wishlist/${item._id}`).set('Authorization', first.authorization)).status).toBe(204);
   });
   test('reviews require a delivered purchase and only approved reviews are public', async () => {
     const [first, second, item] = await Promise.all([auth(), auth(), product()]); await order(first.user, item);
@@ -48,6 +52,55 @@ describe('P6B customer commerce ownership contracts', () => {
     expect((await request(app).patch(`/api/account/reviews/${created.body.data.review._id}`).set('Authorization', second.authorization).send({ comment: 'Not mine.' })).status).toBe(404);
     expect((await request(app).patch(`/api/account/reviews/${created.body.data.review._id}`).set('Authorization', first.authorization).send({ comment: 'Updated review text.' })).status).toBe(200); expect((await request(app).delete(`/api/account/reviews/${created.body.data.review._id}`).set('Authorization', first.authorization)).status).toBe(204);
     expect((await request(app).post('/api/account/reviews').set('Authorization', second.authorization).send({ productId: String(item._id), rating: 6, comment: 'invalid' })).status).toBe(400);
+  });
+  test('authenticated customer can retrieve own reviews across moderation states with strict owner isolation and field allowlisting', async () => {
+    const [first, second, item1, item2] = await Promise.all([auth(), auth(), product(), product()]);
+    await Promise.all([order(first.user, item1), order(first.user, item2), order(second.user, item1)]);
+
+    // Unauthenticated request rejected
+    expect((await request(app).get('/api/account/reviews')).status).toBe(401);
+
+    // Create review 1 for user 1 (pending)
+    const rev1 = await request(app).post('/api/account/reviews').set('Authorization', first.authorization).send({ productId: String(item1._id), rating: 5, comment: 'First review by user 1' });
+    expect(rev1.status).toBe(201);
+
+    // Create review 2 for user 1 (approved)
+    const rev2 = await request(app).post('/api/account/reviews').set('Authorization', first.authorization).send({ productId: String(item2._id), rating: 4, comment: 'Second review by user 1' });
+    await Review.findByIdAndUpdate(rev2.body.data.review._id, { status: 'approved', isApproved: true, reportReason: 'INTERNAL_SECRET_NOTE' });
+
+    // Create review for user 2 (rejected)
+    const revUser2 = await request(app).post('/api/account/reviews').set('Authorization', second.authorization).send({ productId: String(item1._id), rating: 3, comment: 'Review by user 2' });
+    await Review.findByIdAndUpdate(revUser2.body.data.review._id, { status: 'rejected', isApproved: false, reportReason: 'SPAM_FLAG_INTERNAL' });
+
+    // User 1 lists own reviews: should see 2 reviews (pending and approved), and NOT user 2's review
+    const user1List = await request(app).get('/api/account/reviews?page=1&limit=10').set('Authorization', first.authorization);
+    expect(user1List.status).toBe(200);
+    expect(user1List.body.data.reviews).toHaveLength(2);
+    expect(user1List.body.data.total).toBe(2);
+    expect(user1List.body.data.page).toBe(1);
+
+    // Verify fields are allowlisted and internal secrets / reportReason are excluded
+    const reviewData = user1List.body.data.reviews.find((r) => String(r.id) === String(rev2.body.data.review._id));
+    expect(reviewData).toBeDefined();
+    expect(reviewData.status).toBe('approved');
+    expect(reviewData.product.name).toBe(item2.name);
+    expect(reviewData).not.toHaveProperty('reportReason');
+    expect(reviewData).not.toHaveProperty('user');
+
+    // Query with userId override attempt is rejected by strict pagination validator and cannot change user scoping
+    const overrideAttempt = await request(app).get(`/api/account/reviews?userId=${second.user._id}`).set('Authorization', first.authorization);
+    expect(overrideAttempt.status).toBe(400);
+
+    // Invalid pagination rejected
+    expect((await request(app).get('/api/account/reviews?page=0').set('Authorization', first.authorization)).status).toBe(400);
+    expect((await request(app).get('/api/account/reviews?limit=1000').set('Authorization', first.authorization)).status).toBe(400);
+
+    // User 2 lists own reviews: should see 1 review (rejected)
+    const user2List = await request(app).get('/api/account/reviews').set('Authorization', second.authorization);
+    expect(user2List.status).toBe(200);
+    expect(user2List.body.data.reviews).toHaveLength(1);
+    expect(user2List.body.data.reviews[0].status).toBe('rejected');
+    expect(user2List.body.data.reviews[0]).not.toHaveProperty('reportReason');
   });
   test('returns do not refund or restock and enforce delivered-order ownership', async () => {
     const [first, second, item] = await Promise.all([auth(), auth(), product()]); const delivered = await order(first.user, item); const pending = await order(first.user, item, 'Pending'); const before = (await Product.findById(item._id)).stock;

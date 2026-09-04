@@ -1,5 +1,5 @@
 import { isAxiosError } from 'axios';
-import api from '@/lib/api';
+import api from '../lib/api.ts';
 
 export type Address = { id: string; fullName: string; phone: string; address: string; addressLine2?: string; city: string; province: string; postalCode?: string; country: string; isDefault: boolean };
 export type AccountProfile = { id: string; fullName: string; email: string; phone?: string; avatar?: string; isVerified: boolean };
@@ -102,6 +102,42 @@ export const getAccountApiErrorMessage = (
 };
 
 const data = <T>(response: { data: { data: T } }) => response.data.data;
+export interface AccountOwnReviewProduct {
+  id: string;
+  _id?: string;
+  name: string;
+  slug?: string;
+  price?: number;
+  salePrice?: number;
+  images?: string[];
+  stock?: number;
+  hasVariants?: boolean;
+  variants?: unknown[];
+  attributes?: unknown[];
+  isActive?: boolean;
+}
+
+export interface AccountOwnReview {
+  id: string;
+  product: AccountOwnReviewProduct | null;
+  rating: number;
+  title: string;
+  comment: string;
+  status: 'pending' | 'approved' | 'rejected' | 'flagged' | 'withdrawn';
+  isVerifiedPurchase: boolean;
+  adminReply?: string;
+  repliedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketCapability {
+  homeCountry: string;
+  enabledCountries: string[];
+  defaultCurrency: string;
+  enabledCurrencies: string[];
+}
+
 export const accountService = {
   profile: () => api.get('/account/profile').then(data<{ profile: AccountProfile }>),
   updateProfile: (payload: Partial<Pick<AccountProfile, 'fullName' | 'phone' | 'avatar'>>) => api.patch('/account/profile', payload).then(data<{ profile: AccountProfile }>),
@@ -109,11 +145,16 @@ export const accountService = {
   addAddress: (payload: Omit<Address, 'id'>) => api.post('/account/addresses', payload).then(data<{ address: Address }>),
   updateAddress: (id: string, payload: Partial<Omit<Address, 'id'>>) => api.patch(`/account/addresses/${id}`, payload).then(data<{ address: Address }>),
   removeAddress: (id: string) => api.delete(`/account/addresses/${id}`),
-  wishlist: () => api.get('/account/wishlist').then(data<{ items: Array<{ id: string; product: Record<string, unknown> }> }>),
+  wishlist: () => api.get('/account/wishlist').then(data<{ items: Array<{ id: string; product: AccountOwnReviewProduct }> }>),
   addWishlist: (productId: string) => api.post(`/account/wishlist/${productId}`).then(data),
   removeWishlist: (productId: string) => api.delete(`/account/wishlist/${productId}`),
   reviews: (productId: string) => api.get(`/account/reviews/product/${productId}`).then(data),
   submitReview: (payload: { productId: string; rating: number; title?: string; comment: string }) => api.post('/account/reviews', payload).then(data),
+  myReviews: (params?: { page?: number; limit?: number }) => api.get('/account/reviews', { params }).then(data<{ reviews: AccountOwnReview[]; total: number; page: number; limit: number }>),
+  updateReview: (id: string, payload: { rating?: number; title?: string; comment?: string }) => api.patch(`/account/reviews/${id}`, payload).then(data<{ review: AccountOwnReview }>),
+  deleteReview: (id: string) => api.delete(`/account/reviews/${id}`),
+  reportReview: (reviewId: string, payload: { category: string; details?: string }) => api.post(`/reviews/${reviewId}/report`, payload).then(data),
+  market: () => api.get('/commerce/market').then(data<MarketCapability>).catch(() => ({ homeCountry: 'PK', enabledCountries: ['PK'], defaultCurrency: 'PKR', enabledCurrencies: ['PKR'] })),
   returns: () => api.get('/account/returns').then(data<{ returns: AccountReturnSummary[] }>),
   requestReturn: (payload: ReturnRequestPayload) => api.post('/account/returns', payload).then(data),
   refunds: () => api.get('/account/refunds').then(data<{ refunds: AccountRefundSummary[] }>),

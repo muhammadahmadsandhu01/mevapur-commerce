@@ -20,7 +20,7 @@ export default function AuthBootstrap({ children }: { children: ReactNode }) {
           minHeight: '100vh',
           display: 'grid',
           placeItems: 'center',
-          color: '#FF8A00',
+          color: '#0B132B',
           fontWeight: 600,
         }}
       >

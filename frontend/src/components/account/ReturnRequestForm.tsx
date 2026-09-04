@@ -23,7 +23,7 @@ interface ReturnRequestFormProps {
   initialOrderId?: string;
   initialProductId?: string;
   initialVariantId?: string;
-  onSubmitted: () => Promise<void>;
+  onSubmitted?: () => Promise<void>;
 }
 
 const lineKey = (line: HistoricalOrderLine, index: number): string => (
@@ -150,7 +150,7 @@ export default function ReturnRequestForm({
         reason,
         details
       }));
-      await onSubmitted();
+      await onSubmitted?.();
       await loadOrder(order.orderId || order._id);
       setMessage('Return request submitted for review.');
       setSelectedLineKey('');
@@ -162,7 +162,7 @@ export default function ReturnRequestForm({
         'The return request could not be submitted. Refresh the order and try again.'
       );
       try {
-        await onSubmitted();
+        await onSubmitted?.();
         await loadOrder(order.orderId || order._id);
       } catch {
         // The request error remains authoritative if the follow-up refresh also fails.

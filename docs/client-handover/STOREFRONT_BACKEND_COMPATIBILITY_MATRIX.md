@@ -86,13 +86,21 @@
 | `src/services/commerce.service.ts:105` | `POST` | `/reviews` | Bearer | `{ productId, rating, title, comment }` | `{ success: true, data: { review } }` | `backend/routes/reviews.js` -> `ReviewController.createReview` | **`COMPATIBLE`** | Enforces verified-purchase check and sets status to `pending`. |
 | `src/services/commerce.service.ts:120` | `POST` | `/reviews/:id/report` | Bearer | `{ reason }` | `{ success: true, message }` | `backend/routes/reviews.js` -> `ReviewController.reportReview` | **`COMPATIBLE`** | Flags review for Admin moderation queue. |
 
-### 2.8 Customer Account, Wishlist & Refunds
+### 2.8 Customer Account, Reviews, Wishlist & Sessions (Package `ACCOUNT-01`)
 
 | Caller File & Line | Method | Storefront Endpoint | Auth | Request Body / Query | Storefront Expected Response | Authoritative Backend Handler | Compatibility Status | Remediation & Security Notes |
 | :--- | :---: | :--- | :---: | :--- | :--- | :--- | :---: | :--- |
-| `src/services/account.service.ts:15` | `PUT` | `/customers/profile` | Bearer | `{ fullName, phone, addresses }` | `{ success: true, data: { user } }` | `backend/routes/customers.js` -> `CustomerController.updateProfile` | **`COMPATIBLE`** | Updates customer profile and address book. |
-| `src/services/account.service.ts:60` | `GET` | `/wishlist` | Bearer | None | `{ success: true, data: { items } }` | `backend/routes/wishlist.js` -> `WishlistController.getWishlist` | **`COMPATIBLE`** | Customer wishlist synchronization. |
-| `src/services/account.service.ts:75` | `POST` | `/refunds/request` | Bearer | `{ orderId, items, reason, bankDetails }` | `{ success: true, data: { refundRequest } }` | `backend/routes/refunds.js` -> `RefundController.requestRefund` | **`COMPATIBLE`** | Creates formal refund claim for merchant approval. |
+| `src/services/account.service.ts:42` | `GET` | `/api/account/reviews` | Bearer | `page, limit` | `{ success: true, data: { reviews, total, page, limit } }` | `backend/routes/accountRoutes.js` -> `AccountController.listMyReviews` | **`COMPATIBLE`** | Strictly owner-isolated (`req.user._id`). Excludes internal admin notes/moderator IDs. Exposes status (`pending`, `approved`, `rejected`, `flagged`, `withdrawn`) and staff reply. |
+| `src/services/account.service.ts:25` | `GET` | `/api/account/profile` | Bearer | None | `{ success: true, data: { profile } }` | `backend/routes/accountRoutes.js` -> `AccountController.getProfile` | **`COMPATIBLE`** | Returns customer profile. Strict field allowlist on updates (`fullName`, `phone`, `avatar`). `email` is strictly read-only. |
+| `src/services/account.service.ts:32` | `PATCH` | `/api/account/profile` | Bearer | `{ fullName?, phone?, avatar? }` | `{ success: true, data: { profile } }` | `backend/routes/accountRoutes.js` -> `AccountController.updateProfile` | **`COMPATIBLE`** | Updates owner profile. Ignores or rejects role/email modifications. |
+| `src/services/account.service.ts:55` | `GET` | `/api/account/addresses` | Bearer | None | `{ success: true, data: { addresses } }` | `backend/routes/accountRoutes.js` -> `AccountController.listAddresses` | **`COMPATIBLE`** | Returns delivery addresses. Form delivery countries filtered strictly by `MarketService.getPublicConfig()` enabled countries. |
+| `src/services/account.service.ts:70` | `GET` | `/api/commerce/market` | Public | None | `{ success: true, data: { homeCountry, enabledCountries, defaultCurrency } }` | `backend/routes/commerce.js` -> `MarketController.getPublicConfig` | **`COMPATIBLE`** | Authoritative market delivery configuration. |
+| `src/lib/authSession.ts:165` | `POST` | `/auth/change-password` | Bearer | `{ currentPassword, newPassword }` | `{ success: true, message }` | `backend/routes/auth.js` -> `AuthController.changePassword` | **`COMPATIBLE`** | Validates canonical 12-char policy, revokes all active refresh tokens/sessions on backend, and clears storefront auth tokens. |
+| `src/lib/authSession.ts:180` | `GET` | `/auth/sessions` | Bearer | None | `{ success: true, data: { sessions } }` | `backend/routes/auth.js` -> `AuthController.getSessions` | **`COMPATIBLE`** | Lists active sessions with device/browser info and current-session indicator. |
+| `src/lib/authSession.ts:195` | `DELETE` | `/auth/sessions/:id` | Bearer | None | `{ success: true, message }` | `backend/routes/auth.js` -> `AuthController.revokeSession` | **`COMPATIBLE`** | Revokes specified session ID. |
+| `src/lib/authSession.ts:210` | `POST` | `/auth/logout-all` | Bearer | None | `{ success: true, message }` | `backend/routes/auth.js` -> `AuthController.logoutAll` | **`COMPATIBLE`** | Revokes all active sessions for authenticated customer. |
+| `src/services/account.service.ts:90` | `GET` | `/api/account/wishlist` | Bearer | None | `{ success: true, data: { items } }` | `backend/routes/accountRoutes.js` -> `AccountController.listWishlist` | **`COMPATIBLE`** | Populates products with `hasVariants`, `variants`, and `attributes` for variable product "Choose Options" routing. |
+| `src/services/account.service.ts:110` | `GET` | `/api/account/notifications` | Bearer | None | `{ success: true, data: { notifications, total, unreadCount } }` | `backend/routes/accountRoutes.js` -> `AccountController.listNotifications` | **`COMPATIBLE`** | Owner-scoped notification feed with optimistic update and failure rollback. |
 
 ### 2.9 Dead Callers & Unsafe Patterns
 
@@ -104,7 +112,10 @@
 
 ---
 
-## 3. Mandatory Safety Audit Findings
-- **Zero Raw Error Disclosure**: Storefront API client normalizes all Axios/network errors to safe user-facing alerts.
-- **Zero Client Price Authority**: Cart pricing is illustrative only; order creation calculates all totals authoritatively on backend.
-- **CSRF Token Handling**: All state-changing POST/PUT/DELETE requests correctly append the `X-CSRF-Token` header.
+## 3. Mandatory Safety & Roadmap Alignment Findings
+- **Customer Own-Reviews Owner Isolation**: `GET /api/account/reviews` strictly filters by authenticated `req.user._id`. Query parameter pollution (e.g. `?userId=...`) is rejected with `400 Bad Request` via strict pagination schema.
+- **Private Field Projection**: Customer review endpoint never projects `internalModerationNotes`, `moderatorId`, or `deletedBy`.
+- **Race Condition Protection**: `getSessionGeneration()` protects against late asynchronous API responses from User A populating User B's state upon logout/switch.
+- **Market Country Filtering**: Delivery addresses are restricted strictly to enabled market countries (e.g. `'PK'`) from `MarketService.getPublicConfig()`.
+- **Roadmap Alignment**: Package `ACCOUNT-01` fulfills all customer account, review, address, wishlist, and session requirements. Original roadmap IDs remain scheduled: CMS Pages under Phase 6 proper; Responsive / Accessibility under Phase 7; SEO under Phase 8; White-label under Phase 9; Final E2E under Phase 10.
+- **Zero Live Payments/SMTP/Deployments**: Verified isolated in test mode with zero production side effects.
