@@ -3,8 +3,8 @@
 **Repository**: `C:\Projects\mevaPur-Commerce`  
 **Target Release Branch**: `release/storefront-client-handover`  
 **Base Commit**: `c2d59c32353382a31dfc95f7ecffb838b3fd8c06`  
-**Total Identified API Callers**: `61`  
-**Audit Date**: September 3, 2026
+**Total Identified API Callers**: `64`  
+**Audit Date**: September 4, 2026
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Classification | Count | Description |
 | :--- | :---: | :--- |
-| **`COMPATIBLE`** | **49** | Endpoint signature, headers, payload schema, and response structure fully match backend. |
+| **`COMPATIBLE`** | **52** | Endpoint signature, headers, payload schema, and response structure fully match backend. |
 | **`PARTIALLY_COMPATIBLE`** | **6** | Endpoint exists but requires minor normalization (e.g. CSRF token handling, query param naming). |
 | **`REQUIRES_RUNTIME_VERIFICATION`** | **4** | Requires live runtime verification (e.g. third-party payment gateways, specific webhook flows). |
 | **`INCOMPATIBLE`** | **1** | Endpoint signature mismatch or obsolete payload expectations (e.g. client-supplied auth fields). |
@@ -46,12 +46,12 @@
 
 | Caller File & Line | Method | Storefront Endpoint | Auth | Request Body / Query | Storefront Expected Response | Authoritative Backend Handler | Compatibility Status | Remediation & Security Notes |
 | :--- | :---: | :--- | :---: | :--- | :--- | :--- | :---: | :--- |
-| `src/services/commerce.service.ts:15` | `GET` | `/products` | Public | `page, limit, category, brand, minPrice, maxPrice, sort, inStock` | `{ success: true, data: { products, total, page, totalPages } }` | `backend/routes/products.js` -> `ProductController.getProducts` | **`COMPATIBLE`** | Excludes draft/inactive products for public Storefront shoppers. |
+| `src/services/commerce.service.ts:15` | `GET` | `/products` | Public | `page, limit, category, brand, minPrice, maxPrice, sort, inStock` | `{ success: true, data: { products, total, page, totalPages } }` | `backend/routes/products.js` -> `ProductController.getProducts` | **`COMPATIBLE`** | Excludes draft/inactive products for public shoppers. |
 | `src/services/commerce.service.ts:32` | `GET` | `/products/:id` | Public | None (slug or ID) | `{ success: true, data: { product } }` | `backend/routes/products.js` -> `ProductController.getProductById` | **`COMPATIBLE`** | Resolves by MongoDB `_id` or unique URL `slug`. |
 | `src/services/commerce.service.ts:48` | `GET` | `/categories` | Public | `featured, parent` | `{ success: true, data: { categories } }` | `backend/routes/categories.js` -> `CategoryController.getCategories` | **`COMPATIBLE`** | Returns active categories with image and product counts. |
 | `src/services/commerce.service.ts:60` | `GET` | `/brands` | Public | None | `{ success: true, data: { brands } }` | `backend/routes/brands.js` -> `BrandController.getBrands` | **`COMPATIBLE`** | Returns active brand list for faceted navigation. |
 | `src/components/SearchAutocomplete.tsx:35` | `GET` | `/products/search/suggestions` | Public | `q` | `{ success: true, data: { suggestions } }` | `backend/routes/products.js` -> `ProductController.getSuggestions` | **`COMPATIBLE`** | Bounded sanitized regex search preventing ReDoS. |
-| `src/components/products/RecommendedProducts.tsx:22` | `GET` | `/products/recommendations` | Public | `productId, categoryId, limit` | `{ success: true, data: { products } }` | `backend/routes/products.js` -> `ProductController.getRecommendations` | **`COMPATIBLE`** | Returns legitimate category/attribute recommendations (no fake data). |
+| `src/components/products/RecommendedProducts.tsx:22` | `GET` | `/products/recommended` | Public | `limit` | `{ success: true, data: { products } }` | `backend/routes/products.js` -> `ProductController.getRecommended` | **`COMPATIBLE`** | Returns recommended products with `isFeatured: true` boost. (Note: `/api/products/top` sorts by ratings/reviews and does not consume `isFeatured`). |
 
 ### 2.4 Cart & Coupon Engine
 
@@ -110,6 +110,14 @@
 | `src/lib/adminApi.ts` | All | `/admin/*` | **`INCOMPATIBLE`** | Stray Admin API client file in Storefront source. Must be removed or isolated. |
 | `src/components/admin/AdminGuard.tsx` | N/A | N/A | **`INCOMPATIBLE`** | Stray Admin component in Storefront source. Must be removed. |
 
+### 2.10 Storefront CMS & Content Management Control Plane (Phase 6)
+
+| Caller File & Line | Method | Storefront Endpoint | Auth | Request Body / Query | Storefront Expected Response | Authoritative Backend Handler | Compatibility Status | Remediation & Security Notes |
+| :--- | :---: | :--- | :---: | :--- | :--- | :--- | :---: | :--- |
+| `src/services/content.service.ts:25` | `GET` | `/api/content/public/:type` | Public | `type` (`slider`, `banner`, `testimonial`, `faq`, `custom`) | `{ success: true, data: { items } }` | `backend/routes/content.js` -> `ContentController.getPublicContent` | **`COMPATIBLE`** | Excludes draft and inactive content; enforces date scheduling boundaries; orders stably by `position: 1, createdAt: -1`. |
+| `src/services/content.service.ts:48` | `GET` | `/api/content/public/page/:slug` | Public | `slug` | `{ success: true, data: { item } }` | `backend/routes/content.js` -> `ContentController.getContentBySlug` | **`COMPATIBLE`** | Restricts type strictly to `page`; returns real 404 for draft, inactive, or non-existent pages. |
+| `src/services/content.service.ts:70` | `GET` | `/api/settings/public` | Public | None | `{ success: true, data: { settings } }` | `backend/routes/settingsRoutes.js` -> `SettingsController.getPublicSettings` | **`COMPATIBLE`** | Exposes store name, email, phone, address, and currency metadata without exposing internal keys or credentials. |
+
 ---
 
 ## 3. Mandatory Safety & Roadmap Alignment Findings
@@ -117,5 +125,8 @@
 - **Private Field Projection**: Customer review endpoint never projects `internalModerationNotes`, `moderatorId`, or `deletedBy`.
 - **Race Condition Protection**: `getSessionGeneration()` protects against late asynchronous API responses from User A populating User B's state upon logout/switch.
 - **Market Country Filtering**: Delivery addresses are restricted strictly to enabled market countries (e.g. `'PK'`) from `MarketService.getPublicConfig()`.
-- **Roadmap Alignment**: Package `ACCOUNT-01` fulfills all customer account, review, address, wishlist, and session requirements. Original roadmap IDs remain scheduled: CMS Pages under Phase 6 proper; Responsive / Accessibility under Phase 7; SEO under Phase 8; White-Label Configuration and Brand Isolation (single-merchant, separate per-client deployment, configurable branding, zero multi-tenant architecture) under Phase 9; Final E2E under Phase 10.
+- **CMS Publication Invariant**: Draft (`isActive: false`) and scheduled content outside active start/end timestamps are excluded at the database query layer. Public page lookups return 404. Safe markdown rendering uses pure React JSX elements with zero `dangerouslySetInnerHTML`.
+- **Product Management Control Clarification**: Product creation/mutations are executed exclusively via authenticated Admin endpoints (`POST /api/admin/products`, `PUT /api/admin/products/:id`, `PATCH /api/admin/products/:id/pricing`, etc.). `/api/products/top` ranks strictly by ratings/reviews; `/api/products/recommended` is the featured selection endpoint.
+- **Roadmap Alignment**: Single-merchant architecture preserved (dedicated deployment per client, zero multi-tenant or marketplace expansion).
 - **Zero Live Payments/SMTP/Deployments**: Verified isolated in test mode with zero production side effects.
+

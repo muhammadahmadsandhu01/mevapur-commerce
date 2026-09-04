@@ -1,62 +1,124 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, Truck, Percent, Shield } from 'lucide-react';
-
-const BANNERS = [
-  {
-    icon: Truck,
-    title: 'Free Shipping Available',
-    subtitle: 'Calculated and confirmed in checkout',
-    color: 'bg-[#0b132b]',
-  },
-  {
-    icon: Percent,
-    title: 'Promotional Savings',
-    subtitle: 'Transparent pricing across active catalogue',
-    color: 'bg-[#9a3412]',
-  },
-  {
-    icon: Shield,
-    title: 'Secure Checkout',
-    subtitle: 'Encrypted and customer verified',
-    color: 'bg-[#1e3a8a]',
-  },
-];
+import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { X, Megaphone, ArrowRight } from 'lucide-react';
+import { getPublicContent } from '@/services/content.service';
+import { getSafeNavigationUrl } from '@/lib/navigation';
+import type { ContentItem } from '@/types/content';
 
 export default function PromotionalBanner() {
+  const [banners, setBanners] = useState<ContentItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
-  const [currentBanner, setCurrentBanner] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentBanner((prev) => (prev + 1) % BANNERS.length);
-    }, 5000);
-    return () => clearInterval(timer);
+    let mounted = true;
+    getPublicContent('banner')
+      .then((items) => {
+        if (mounted) {
+          setBanners(items);
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setBanners([]);
+          setLoaded(true);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  if (!isVisible) return null;
+  const total = banners.length;
 
-  const CurrentBanner = BANNERS[currentBanner];
+  const nextBanner = useCallback(() => {
+    if (total <= 1) return;
+    setCurrentIndex((prev) => (prev + 1) % total);
+  }, [total]);
+
+  useEffect(() => {
+    if (total <= 1 || isPaused || !isVisible) return;
+
+    // Respect user's reduced-motion preference
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (mediaQuery.matches) return;
+
+    const timer = setInterval(nextBanner, 6000);
+    return () => clearInterval(timer);
+  }, [total, isPaused, isVisible, nextBanner]);
+
+  if (!loaded || !isVisible || total === 0) {
+    return null;
+  }
+
+  const current = banners[currentIndex];
+  const safeButtonNav = current.button?.link ? getSafeNavigationUrl(current.button.link) : null;
 
   return (
-    <div className={`${CurrentBanner.color} text-white py-2.5 px-4 relative overflow-hidden`}>
-      <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
-        <CurrentBanner.icon size={18} className="shrink-0 text-white" />
-        <div className="text-center flex flex-wrap items-center justify-center gap-2">
-          <p className="font-bold text-xs sm:text-sm text-white">{CurrentBanner.title}</p>
-          <span className="hidden sm:inline text-white">•</span>
-          <p className="text-xs text-white font-medium">{CurrentBanner.subtitle}</p>
+    <aside
+      aria-label="Promotions and announcements"
+      className="bg-[#0b132b] text-white py-2.5 px-4 relative overflow-hidden border-b border-slate-700 transition-colors"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocus={() => setIsPaused(true)}
+      onBlur={() => setIsPaused(false)}
+    >
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        <div className="flex-1 flex items-center justify-center gap-3 text-center">
+          <Megaphone size={16} className="shrink-0 text-[#ffb45a]" aria-hidden="true" />
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs sm:text-sm">
+            <span className="font-bold text-white">{current.title}</span>
+            {current.subtitle && (
+              <>
+                <span className="hidden sm:inline text-slate-400">•</span>
+                <span className="text-slate-300 font-normal">{current.subtitle}</span>
+              </>
+            )}
+            {safeButtonNav && (
+              safeButtonNav.isExternal || safeButtonNav.isAction ? (
+                <a
+                  href={safeButtonNav.url}
+                  target={safeButtonNav.target}
+                  rel={safeButtonNav.rel}
+                  className="inline-flex items-center gap-1 font-semibold text-[#ffb45a] hover:text-white underline ml-1"
+                >
+                  {current.button?.text || 'Learn more'}
+                  <ArrowRight size={13} aria-hidden="true" />
+                </a>
+              ) : (
+                <Link
+                  href={safeButtonNav.url}
+                  className="inline-flex items-center gap-1 font-semibold text-[#ffb45a] hover:text-white underline ml-1"
+                >
+                  {current.button?.text || 'Learn more'}
+                  <ArrowRight size={13} aria-hidden="true" />
+                </Link>
+              )
+            )}
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsVisible(false)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-white/20 rounded-full transition text-white"
-          aria-label="Close announcement banner"
-        >
-          <X size={15} />
-        </button>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {total > 1 && (
+            <span className="text-[11px] text-slate-400 font-mono hidden sm:inline" aria-live="polite">
+              {currentIndex + 1}/{total}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsVisible(false)}
+            className="p-1 hover:bg-white/10 rounded-md transition text-slate-300 hover:text-white focus:outline-none focus:ring-2 focus:ring-white"
+            aria-label="Dismiss announcement banner"
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
-    </div>
+    </aside>
   );
 }
