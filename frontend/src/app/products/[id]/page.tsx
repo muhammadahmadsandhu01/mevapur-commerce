@@ -254,16 +254,16 @@ export default function ProductDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
         <p className="text-slate-700 font-medium">Loading product details...</p>
-      </main>
+      </div>
     );
   }
 
   if (error || !product) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <AlertCircle className="w-16 h-16 text-slate-500 mb-4" />
         <h1 className="text-2xl font-bold text-slate-900 mb-2">Product Not Found</h1>
         <p className="text-slate-700 max-w-md mb-6">
@@ -275,7 +275,7 @@ export default function ProductDetailPage() {
         >
           Browse All Products
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -330,7 +330,7 @@ export default function ProductDetailPage() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Main Product Presentation */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm mb-10">
           {/* Gallery Column */}
@@ -644,7 +644,7 @@ export default function ProductDetailPage() {
             )}
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Fullscreen Image Modal */}
       {showFullscreen && (

@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, Loader, AlertCircle } from 'lucide-react';
@@ -26,6 +26,9 @@ function LoginContent() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+
   const validate = () => {
     const newErrors: Record<string, string> = {};
 
@@ -40,6 +43,13 @@ function LoginContent() {
     }
 
     setErrors(newErrors);
+
+    if (newErrors.email) {
+      emailInputRef.current?.focus();
+    } else if (newErrors.password) {
+      passwordInputRef.current?.focus();
+    }
+
     return Object.keys(newErrors).length === 0;
   };
 
@@ -68,71 +78,43 @@ function LoginContent() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 relative">
+      <div className="w-full max-w-5xl mb-4 flex justify-start">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-[#0b132b] hover:text-[#ff8a00] font-semibold text-sm px-4 py-2 bg-white rounded-xl shadow-xs border border-slate-200 transition"
+        >
+          <ArrowLeft size={16} /> Back to Home
+        </Link>
+      </div>
 
-      <Link href="/" style={{
-        position: 'fixed', top: '20px', left: '20px',
-        display: 'flex', alignItems: 'center', gap: '8px',
-        color: '#0B132B', textDecoration: 'none', fontWeight: '600',
-        fontSize: '14px', padding: '10px 16px',
-        backgroundColor: 'white', borderRadius: '10px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        transition: 'all 0.2s'
-      }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
-        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.transform = 'translateX(0)'; }}
-      >
-        <ArrowLeft size={16} /> Back to Home
-      </Link>
-
-      <div style={{
-        width: '100%', maxWidth: '1000px',
-        backgroundColor: 'white', borderRadius: '24px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
-        overflow: 'hidden',
-        display: 'grid', gridTemplateColumns: '1fr 1fr',
-        minHeight: '600px'
-      }}>
-
-        <div style={{
-          background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
-          padding: '60px 40px',
-          color: 'white',
-          display: 'flex', flexDirection: 'column', justifyContent: 'center',
-          position: 'relative', overflow: 'hidden'
-        }}>
-          <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)' }} />
-          <div style={{ position: 'absolute', bottom: '-80px', left: '-80px', width: '300px', height: '300px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)' }} />
-
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <div style={{ marginBottom: '24px' }}>
+      <div className="w-full max-w-5xl bg-white rounded-3xl shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-2 border border-slate-100">
+        {/* Left Branding Side */}
+        <div className="bg-gradient-to-br from-[#0b132b] to-[#1a2744] p-8 sm:p-12 text-white flex flex-col justify-between relative overflow-hidden">
+          <div className="relative z-10">
+            <div className="mb-6">
               <BrandLogo theme="light" height={38} />
             </div>
-            <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '16px', lineHeight: '1.2' }}>
+            <h1 className="text-2xl sm:text-3xl font-extrabold mb-3 leading-tight">
               Welcome to {branding.siteName}
             </h1>
-            <p style={{ fontSize: '16px', opacity: '0.9', marginBottom: '40px', lineHeight: '1.6' }}>
+            <p className="text-sm sm:text-base text-slate-300 mb-8 leading-relaxed">
               {branding.tagline} Sign in to access your orders, wishlist, and account.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="space-y-4 hidden sm:block">
               {[
                 { icon: '🚚', title: 'Fast Delivery', desc: 'Track your orders in real-time' },
                 { icon: '💝', title: 'Wishlist', desc: 'Save your favorite products' },
                 { icon: '🎁', title: 'Exclusive Offers', desc: 'Members-only discounts' }
               ].map((feature, idx) => (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{
-                    width: '48px', height: '48px', borderRadius: '12px',
-                    backgroundColor: 'rgba(255,255,255,0.15)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '24px', flexShrink: 0
-                  }}>
+                <div key={idx} className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center text-xl shrink-0">
                     {feature.icon}
                   </div>
                   <div>
-                    <div style={{ fontWeight: '700', fontSize: '15px', marginBottom: '2px' }}>{feature.title}</div>
-                    <div style={{ fontSize: '13px', opacity: '0.85' }}>{feature.desc}</div>
+                    <div className="font-bold text-sm text-white">{feature.title}</div>
+                    <div className="text-xs text-slate-300">{feature.desc}</div>
                   </div>
                 </div>
               ))}
@@ -140,25 +122,27 @@ function LoginContent() {
           </div>
         </div>
 
-        <div style={{ padding: '60px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{ marginBottom: '32px' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '8px' }}>
+        {/* Right Form Side */}
+        <div className="p-8 sm:p-12 flex flex-col justify-center">
+          <div className="mb-8">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mb-2">
               Sign In
             </h2>
-            <p style={{ fontSize: '14px', color: '#6B7280' }}>
+            <p className="text-sm text-slate-500">
               Enter your credentials to access your account
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+              <label htmlFor="login-email" className="block text-xs font-semibold text-slate-700 mb-2">
                 Email Address
               </label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.email ? '#EF4444' : '#9CA3AF' }} />
+              <div className="relative">
+                <Mail size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.email ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={emailInputRef}
+                  id="login-email"
                   type="email"
                   value={formData.email}
                   onChange={(e) => {
@@ -166,32 +150,29 @@ function LoginContent() {
                     if (errors.email) setErrors({ ...errors, email: '' });
                   }}
                   placeholder="you@example.com"
-                  style={{
-                    width: '100%', padding: '14px 14px 14px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.email ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    transition: 'all 0.2s',
-                    backgroundColor: '#F8FAFC'
-                  }}
-                  onFocus={e => { if (!errors.email) e.currentTarget.style.borderColor = '#FF8A00'; }}
-                  onBlur={e => { if (!errors.email) e.currentTarget.style.borderColor = '#E5E7EB'; }}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? 'login-email-error' : undefined}
+                  className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.email ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
               </div>
               {errors.email && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
-                  <AlertCircle size={12} /> {errors.email}
+                <div id="login-email-error" role="alert" className="flex items-center gap-1 mt-1.5 text-xs text-red-600 font-medium">
+                  <AlertCircle size={13} /> {errors.email}
                 </div>
               )}
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700 mb-2">
                 Password
               </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.password ? '#EF4444' : '#9CA3AF' }} />
+              <div className="relative">
+                <Lock size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.password ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={passwordInputRef}
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
                   onChange={(e) => {
@@ -199,48 +180,39 @@ function LoginContent() {
                     if (errors.password) setErrors({ ...errors, password: '' });
                   }}
                   placeholder="Enter your password"
-                  style={{
-                    width: '100%', padding: '14px 44px 14px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.password ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    transition: 'all 0.2s',
-                    backgroundColor: '#F8FAFC'
-                  }}
-                  onFocus={e => { if (!errors.password) e.currentTarget.style.borderColor = '#FF8A00'; }}
-                  onBlur={e => { if (!errors.password) e.currentTarget.style.borderColor = '#E5E7EB'; }}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? 'login-password-error' : undefined}
+                  className={`w-full pl-10 pr-12 py-3 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.password ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  style={{
-                    position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: '#6B7280', display: 'flex', alignItems: 'center'
-                  }}
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               {errors.password && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
-                  <AlertCircle size={12} /> {errors.password}
+                <div id="login-password-error" role="alert" className="flex items-center gap-1 mt-1.5 text-xs text-red-600 font-medium">
+                  <AlertCircle size={13} /> {errors.password}
                 </div>
               )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#374151' }}>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
                 <input
                   type="checkbox"
                   checked={formData.rememberMe}
                   onChange={(e) => setFormData({ ...formData, rememberMe: e.target.checked })}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#FF8A00' }}
+                  className="w-4 h-4 rounded text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
                 />
-                Remember me
+                <span>Remember me</span>
               </label>
-              <Link href="/forgot-password" style={{ fontSize: '14px', color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>
+              <Link href="/forgot-password" className="text-xs font-semibold text-[#0b132b] hover:text-[#ff8a00]">
                 Forgot password?
               </Link>
             </div>
@@ -248,53 +220,32 @@ function LoginContent() {
             <button
               type="submit"
               disabled={loading}
-              style={{
-                width: '100%', padding: '14px',
-                backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
-                color: '#0B132B', border: 'none',
-                borderRadius: '10px', fontSize: '15px', fontWeight: '700',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                boxShadow: loading ? 'none' : '0 4px 12px rgba(255,138,0,0.3)',
-                transition: 'all 0.3s'
-              }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
-              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+              className="w-full py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? (
                 <>
-                  <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
-                  Signing In...
+                  <Loader size={18} className="animate-spin" />
+                  <span>Signing In...</span>
                 </>
               ) : (
                 <>
                   <Lock size={18} />
-                  Sign In Securely
+                  <span>Sign In Securely</span>
                 </>
               )}
             </button>
 
-            <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '14px', color: '#6B7280' }}>
+            <div className="text-center pt-2 text-xs text-slate-500">
               Don&apos;t have an account?{' '}
-              <Link href="/register" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
+              <Link href="/register" className="text-[#0b132b] font-bold hover:text-[#ff8a00]">
                 Create Account
               </Link>
             </div>
-
           </form>
         </div>
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @media (max-width: 768px) {
-          div[style*="grid-template-columns: 1fr 1fr"] {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -302,18 +253,10 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '60px',
-            height: '60px',
-            border: '5px solid #FF8A00',
-            borderTop: '5px solid transparent',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 20px'
-          }}></div>
-          <p style={{ color: '#6B7280' }}>Loading...</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-[#ff8a00] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-slate-500">Loading...</p>
         </div>
       </div>
     }>

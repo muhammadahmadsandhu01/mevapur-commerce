@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, User, Phone, CheckCircle, XCircle, Loader, AlertCircle, Shield } from 'lucide-react';
@@ -27,6 +27,13 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const fullNameRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const phoneRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const confirmPasswordRef = useRef<HTMLInputElement>(null);
+  const termsRef = useRef<HTMLInputElement>(null);
 
   // Password requirements check
   const passwordChecks = useMemo(() => ({
@@ -83,6 +90,14 @@ export default function RegisterPage() {
     }
 
     setErrors(newErrors);
+
+    if (newErrors.fullName) fullNameRef.current?.focus();
+    else if (newErrors.email) emailRef.current?.focus();
+    else if (newErrors.phone) phoneRef.current?.focus();
+    else if (newErrors.password) passwordRef.current?.focus();
+    else if (newErrors.confirmPassword) confirmPasswordRef.current?.focus();
+    else if (newErrors.acceptTerms) termsRef.current?.focus();
+
     return Object.keys(newErrors).length === 0;
   };
 
@@ -116,74 +131,44 @@ export default function RegisterPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 relative">
+      <div className="w-full max-w-5xl mb-4 flex justify-start">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-[#0b132b] hover:text-[#ff8a00] font-semibold text-sm px-4 py-2 bg-white rounded-xl shadow-xs border border-slate-200 transition"
+        >
+          <ArrowLeft size={16} /> Back to Home
+        </Link>
+      </div>
 
-      {/* Back Button */}
-      <Link href="/" style={{
-        position: 'fixed', top: '20px', left: '20px',
-        display: 'flex', alignItems: 'center', gap: '8px',
-        color: '#0B132B', textDecoration: 'none', fontWeight: '600',
-        fontSize: '14px', padding: '10px 16px',
-        backgroundColor: 'white', borderRadius: '10px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        transition: 'all 0.2s'
-      }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
-        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.transform = 'translateX(0)'; }}
-      >
-        <ArrowLeft size={16} /> Back to Home
-      </Link>
-
-      <div style={{
-        width: '100%', maxWidth: '1100px',
-        backgroundColor: 'white', borderRadius: '24px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
-        overflow: 'hidden',
-        display: 'grid', gridTemplateColumns: '1fr 1fr',
-        minHeight: '700px'
-      }}>
-
-        {/* Left Side - Branding */}
-        <div style={{
-          background: 'linear-gradient(135deg, #0B132B 0%, #1A2744 100%)',
-          padding: '60px 40px',
-          color: 'white',
-          display: 'flex', flexDirection: 'column', justifyContent: 'center',
-          position: 'relative', overflow: 'hidden'
-        }}>
-          <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)' }} />
-          <div style={{ position: 'absolute', bottom: '-80px', left: '-80px', width: '300px', height: '300px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.05)' }} />
-
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <div style={{ marginBottom: '24px' }}>
+      <div className="w-full max-w-5xl bg-white rounded-3xl shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-2 border border-slate-100">
+        {/* Left Branding Side */}
+        <div className="bg-gradient-to-br from-[#0b132b] to-[#1a2744] p-8 sm:p-12 text-white flex flex-col justify-between relative overflow-hidden">
+          <div className="relative z-10">
+            <div className="mb-6">
               <BrandLogo theme="light" height={38} />
             </div>
-            <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '16px', lineHeight: '1.2' }}>
+            <h1 className="text-2xl sm:text-3xl font-extrabold mb-3 leading-tight">
               Join {branding.siteName}
             </h1>
-            <p style={{ fontSize: '16px', opacity: '0.9', marginBottom: '40px', lineHeight: '1.6' }}>
+            <p className="text-sm sm:text-base text-slate-300 mb-8 leading-relaxed">
               Create your account to explore available products across our store.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="space-y-4 hidden sm:block">
               {[
                 { icon: '🎁', title: 'Welcome Bonus', desc: 'Get 15% off on your first order' },
                 { icon: '🚚', title: 'Free Shipping', desc: 'On orders over Rs. 1500' },
                 { icon: '💎', title: 'VIP Access', desc: 'Early access to sales & new products' },
                 { icon: '🎂', title: 'Birthday Rewards', desc: 'Special gifts on your birthday' }
               ].map((feature, idx) => (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{
-                    width: '48px', height: '48px', borderRadius: '12px',
-                    backgroundColor: 'rgba(255,255,255,0.15)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '24px', flexShrink: 0
-                  }}>
+                <div key={idx} className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center text-xl shrink-0">
                     {feature.icon}
                   </div>
                   <div>
-                    <div style={{ fontWeight: '700', fontSize: '15px', marginBottom: '2px' }}>{feature.title}</div>
-                    <div style={{ fontSize: '13px', opacity: '0.85' }}>{feature.desc}</div>
+                    <div className="font-bold text-sm text-white">{feature.title}</div>
+                    <div className="text-xs text-slate-300">{feature.desc}</div>
                   </div>
                 </div>
               ))}
@@ -191,27 +176,28 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* Right Side - Form */}
-        <div style={{ padding: '40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', overflowY: 'auto' }}>
-          <div style={{ marginBottom: '24px' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '8px' }}>
+        {/* Right Form Side */}
+        <div className="p-6 sm:p-10 lg:p-12 flex flex-col justify-center overflow-y-auto">
+          <div className="mb-6">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mb-2">
               Create Account
             </h2>
-            <p style={{ fontSize: '14px', color: '#6B7280' }}>
+            <p className="text-sm text-slate-500">
               Fill in your details to get started
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {/* Full Name */}
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                Full Name <span style={{ color: '#EF4444' }}>*</span>
+              <label htmlFor="reg-fullname" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Full Name <span className="text-red-500">*</span>
               </label>
-              <div style={{ position: 'relative' }}>
-                <User size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.fullName ? '#EF4444' : '#9CA3AF' }} />
+              <div className="relative">
+                <User size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.fullName ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={fullNameRef}
+                  id="reg-fullname"
                   type="text"
                   value={formData.fullName}
                   onChange={(e) => {
@@ -219,17 +205,15 @@ export default function RegisterPage() {
                     if (errors.fullName) setErrors({ ...errors, fullName: '' });
                   }}
                   placeholder="Ahmed Khan"
-                  style={{
-                    width: '100%', padding: '12px 14px 12px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.fullName ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    backgroundColor: '#F8FAFC'
-                  }}
+                  aria-invalid={!!errors.fullName}
+                  aria-describedby={errors.fullName ? 'reg-fullname-error' : undefined}
+                  className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.fullName ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
               </div>
               {errors.fullName && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div id="reg-fullname-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                   <AlertCircle size={12} /> {errors.fullName}
                 </div>
               )}
@@ -237,12 +221,14 @@ export default function RegisterPage() {
 
             {/* Email */}
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                Email Address <span style={{ color: '#EF4444' }}>*</span>
+              <label htmlFor="reg-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Email Address <span className="text-red-500">*</span>
               </label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.email ? '#EF4444' : '#9CA3AF' }} />
+              <div className="relative">
+                <Mail size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.email ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={emailRef}
+                  id="reg-email"
                   type="email"
                   value={formData.email}
                   onChange={(e) => {
@@ -250,17 +236,15 @@ export default function RegisterPage() {
                     if (errors.email) setErrors({ ...errors, email: '' });
                   }}
                   placeholder="you@example.com"
-                  style={{
-                    width: '100%', padding: '12px 14px 12px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.email ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    backgroundColor: '#F8FAFC'
-                  }}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? 'reg-email-error' : undefined}
+                  className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.email ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
               </div>
               {errors.email && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div id="reg-email-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                   <AlertCircle size={12} /> {errors.email}
                 </div>
               )}
@@ -268,12 +252,14 @@ export default function RegisterPage() {
 
             {/* Phone */}
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                Phone Number <span style={{ color: '#4B5563', fontWeight: '400' }}>(Optional)</span>
+              <label htmlFor="reg-phone" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Phone Number <span className="text-slate-600 font-normal">(Optional)</span>
               </label>
-              <div style={{ position: 'relative' }}>
-                <Phone size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.phone ? '#EF4444' : '#6B7280' }} />
+              <div className="relative">
+                <Phone size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.phone ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={phoneRef}
+                  id="reg-phone"
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => {
@@ -281,17 +267,15 @@ export default function RegisterPage() {
                     if (errors.phone) setErrors({ ...errors, phone: '' });
                   }}
                   placeholder="03XX XXXXXXX"
-                  style={{
-                    width: '100%', padding: '12px 14px 12px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.phone ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    backgroundColor: '#F8FAFC'
-                  }}
+                  aria-invalid={!!errors.phone}
+                  aria-describedby={errors.phone ? 'reg-phone-error' : undefined}
+                  className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.phone ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
               </div>
               {errors.phone && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#DC2626', fontWeight: '600' }}>
+                <div id="reg-phone-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                   <AlertCircle size={12} /> {errors.phone}
                 </div>
               )}
@@ -299,12 +283,14 @@ export default function RegisterPage() {
 
             {/* Password */}
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                Password <span style={{ color: '#EF4444' }}>*</span>
+              <label htmlFor="reg-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Password <span className="text-red-500">*</span>
               </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.password ? '#EF4444' : '#6B7280' }} />
+              <div className="relative">
+                <Lock size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.password ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={passwordRef}
+                  id="reg-password"
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
                   onChange={(e) => {
@@ -312,66 +298,64 @@ export default function RegisterPage() {
                     if (errors.password) setErrors({ ...errors, password: '' });
                   }}
                   placeholder="Create a strong password"
-                  style={{
-                    width: '100%', padding: '12px 44px 12px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.password ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    backgroundColor: '#F8FAFC'
-                  }}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? 'reg-password-error' : 'reg-password-policy'}
+                  className={`w-full pl-10 pr-12 py-2.5 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.password ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  style={{
-                    position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: '#4B5563', display: 'flex', alignItems: 'center'
-                  }}
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
 
-              {/* Password Strength Meter */}
+              {/* Password Strength & Checklist */}
               {formData.password && (
-                <div style={{ marginTop: '10px' }}>
-                  <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+                <div id="reg-password-policy" className="mt-2 space-y-2">
+                  <div className="flex gap-1">
                     {[...Array(4)].map((_, i) => (
-                      <div key={i} style={{
-                        flex: 1, height: '4px', borderRadius: '2px',
-                        backgroundColor: i < (['weak', 'medium', 'strong', 'very-strong'].indexOf(passwordStrength.level) + 1)
-                          ? passwordStrength.color : '#E5E7EB',
-                        transition: 'all 0.3s'
-                      }} />
+                      <div
+                        key={i}
+                        className={`flex-1 h-1 rounded-full transition-all duration-300 ${
+                          i < (['weak', 'medium', 'strong', 'very-strong'].indexOf(passwordStrength.level) + 1)
+                            ? passwordStrength.level === 'weak' ? 'bg-red-500' : passwordStrength.level === 'medium' ? 'bg-amber-500' : 'bg-emerald-600'
+                            : 'bg-slate-200'
+                        }`}
+                      />
                     ))}
                   </div>
                   {passwordStrength.label && (
-                    <div style={{ fontSize: '12px', fontWeight: '700', color: passwordStrength.level === 'weak' ? '#B91C1C' : passwordStrength.level === 'medium' ? '#B45309' : '#047857', marginBottom: '8px' }}>
+                    <div className={`text-xs font-bold ${
+                      passwordStrength.level === 'weak' ? 'text-red-600' : passwordStrength.level === 'medium' ? 'text-amber-600' : 'text-emerald-700'
+                    }`}>
                       {passwordStrength.label}
                     </div>
                   )}
 
-                  {/* Password Requirements */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px', backgroundColor: '#F8FAFC', borderRadius: '8px' }}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
                     {[
-                      { check: passwordChecks.length, text: 'At least 8 characters' },
-                      { check: passwordChecks.uppercase, text: 'One uppercase letter' },
-                      { check: passwordChecks.lowercase, text: 'One lowercase letter' },
+                      { check: passwordChecks.length, text: '8+ characters' },
+                      { check: passwordChecks.uppercase, text: 'Uppercase letter' },
+                      { check: passwordChecks.lowercase, text: 'Lowercase letter' },
                       { check: passwordChecks.number, text: 'One number' },
-                      { check: passwordChecks.special, text: 'One special character' }
+                      { check: passwordChecks.special, text: 'Special character' }
                     ].map((req, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: req.check ? '#047857' : '#4B5563' }}>
-                        {req.check ? <CheckCircle size={12} color="#047857" /> : <XCircle size={12} color="#4B5563" />}
-                        {req.text}
+                      <div key={idx} className={`flex items-center gap-1.5 ${req.check ? 'text-emerald-700' : 'text-slate-500'}`}>
+                        {req.check ? <CheckCircle size={12} className="text-emerald-600" /> : <XCircle size={12} className="text-slate-400" />}
+                        <span>{req.text}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
               {errors.password && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#DC2626', fontWeight: '600' }}>
+                <div id="reg-password-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                   <AlertCircle size={12} /> {errors.password}
                 </div>
               )}
@@ -379,12 +363,14 @@ export default function RegisterPage() {
 
             {/* Confirm Password */}
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                Confirm Password <span style={{ color: '#EF4444' }}>*</span>
+              <label htmlFor="reg-confirm-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Confirm Password <span className="text-red-500">*</span>
               </label>
-              <div style={{ position: 'relative' }}>
-                <Shield size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: errors.confirmPassword ? '#EF4444' : '#6B7280' }} />
+              <div className="relative">
+                <Shield size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.confirmPassword ? 'text-red-500' : 'text-slate-400'}`} />
                 <input
+                  ref={confirmPasswordRef}
+                  id="reg-confirm-password"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={formData.confirmPassword}
                   onChange={(e) => {
@@ -392,34 +378,28 @@ export default function RegisterPage() {
                     if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: '' });
                   }}
                   placeholder="Confirm your password"
-                  style={{
-                    width: '100%', padding: '12px 44px 12px 44px',
-                    borderRadius: '10px',
-                    border: `2px solid ${errors.confirmPassword ? '#EF4444' : '#E5E7EB'}`,
-                    fontSize: '14px', outline: 'none',
-                    backgroundColor: '#F8FAFC'
-                  }}
+                  aria-invalid={!!errors.confirmPassword}
+                  aria-describedby={errors.confirmPassword ? 'reg-confirm-password-error' : undefined}
+                  className={`w-full pl-10 pr-12 py-2.5 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                    errors.confirmPassword ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
-                  style={{
-                    position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: '#4B5563', display: 'flex', alignItems: 'center'
-                  }}
+                  className="min-h-[44px] min-w-[44px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                 >
                   {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               {formData.confirmPassword && formData.password === formData.confirmPassword && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#047857', fontWeight: '600' }}>
-                  <CheckCircle size={12} /> Passwords match
+                <div className="flex items-center gap-1 mt-1 text-xs text-emerald-700 font-medium">
+                  <CheckCircle size={12} className="text-emerald-600" /> Passwords match
                 </div>
               )}
               {errors.confirmPassword && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#DC2626', fontWeight: '600' }}>
+                <div id="reg-confirm-password-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                   <AlertCircle size={12} /> {errors.confirmPassword}
                 </div>
               )}
@@ -427,25 +407,29 @@ export default function RegisterPage() {
 
             {/* Terms & Conditions */}
             <div>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '13px', color: '#374151', lineHeight: '1.5' }}>
+              <label htmlFor="reg-terms" className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-700 leading-relaxed">
                 <input
+                  ref={termsRef}
+                  id="reg-terms"
                   type="checkbox"
                   checked={formData.acceptTerms}
                   onChange={(e) => {
                     setFormData({ ...formData, acceptTerms: e.target.checked });
                     if (errors.acceptTerms) setErrors({ ...errors, acceptTerms: '' });
                   }}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#FF8A00', marginTop: '2px' }}
+                  aria-invalid={!!errors.acceptTerms}
+                  aria-describedby={errors.acceptTerms ? 'reg-terms-error' : undefined}
+                  className="w-4 h-4 mt-0.5 rounded text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
                 />
                 <span>
                   I agree to the{' '}
-                  <a href="#" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>Terms & Conditions</a>
+                  <span className="text-[#0b132b] font-semibold">Terms & Conditions</span>
                   {' '}and{' '}
-                  <a href="#" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '600' }}>Privacy Policy</a>
+                  <span className="text-[#0b132b] font-semibold">Privacy Policy</span>
                 </span>
               </label>
               {errors.acceptTerms && (
-                <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                <div id="reg-terms-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                   <AlertCircle size={12} /> {errors.acceptTerms}
                 </div>
               )}
@@ -455,54 +439,33 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              style={{
-                width: '100%', padding: '14px',
-                backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
-                color: '#0B132B', border: 'none',
-                borderRadius: '10px', fontSize: '15px', fontWeight: '700',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                boxShadow: loading ? 'none' : '0 4px 12px rgba(255,138,0,0.3)',
-                transition: 'all 0.3s', marginTop: '8px'
-              }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#E67C00'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
-              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor = '#FF8A00'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+              className="w-full py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
             >
               {loading ? (
                 <>
-                  <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
-                  Creating Account...
+                  <Loader size={18} className="animate-spin" />
+                  <span>Creating Account...</span>
                 </>
               ) : (
                 <>
                   <User size={18} />
-                  Create Account
+                  <span>Create Account</span>
                 </>
               )}
             </button>
 
             {/* Login Link */}
-            <div style={{ textAlign: 'center', fontSize: '14px', color: '#6B7280' }}>
+            <div className="text-center pt-2 text-xs text-slate-500">
               Already have an account?{' '}
-              <Link href="/login" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
+              <Link href="/login" className="text-[#0b132b] font-bold hover:text-[#ff8a00]">
                 Sign In
               </Link>
             </div>
-
           </form>
         </div>
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @media (max-width: 768px) {
-          div[style*="grid-template-columns: 1fr 1fr"] {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

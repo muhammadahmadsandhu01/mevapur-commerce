@@ -2,14 +2,25 @@
 
 import { X, SlidersHorizontal, ChevronDown, ChevronUp, Star } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getCategories, getBrands } from '@/lib/api';
 import type { Category, Brand } from '@/types/product';
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap';
 
 export default function ProductFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const mobileDrawerRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useDialogFocusTrap({
+    isOpen: isMobileOpen,
+    onClose: () => setIsMobileOpen(false),
+    containerRef: mobileDrawerRef,
+    initialFocusRef: closeButtonRef,
+  });
+
   const [priceRange, setPriceRange] = useState({
     min: searchParams.get('minPrice') || '',
     max: searchParams.get('maxPrice') || '',
@@ -292,6 +303,7 @@ export default function ProductFilters() {
       {/* Mobile Drawer */}
       {isMobileOpen && (
         <div
+          ref={mobileDrawerRef}
           role="dialog"
           aria-modal="true"
           aria-label="Filter products"
@@ -300,14 +312,16 @@ export default function ProductFilters() {
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
             onClick={() => setIsMobileOpen(false)}
+            aria-hidden="true"
           />
           <div className="relative w-full max-w-xs bg-white h-full shadow-2xl p-5 overflow-y-auto flex flex-col">
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
               <h2 className="text-lg font-bold text-slate-900">Filters</h2>
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={() => setIsMobileOpen(false)}
-                className="p-1.5 hover:bg-slate-100 rounded-full transition"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 hover:bg-slate-100 rounded-full transition"
                 aria-label="Close filters"
               >
                 <X size={20} />

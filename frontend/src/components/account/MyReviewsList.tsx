@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Star, MessageSquare, Edit3, Trash2, CheckCircle2, AlertTriangle, Clock, Ban, Flag, Loader2, AlertCircle } from 'lucide-react';
@@ -11,6 +11,7 @@ import {
 } from '@/services/account.service';
 import { getSessionGeneration, isCurrentSessionGeneration } from '@/lib/authSession';
 import { branding } from '@/config/branding';
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap';
 
 const statusBadge = (status: AccountOwnReview['status']) => {
   switch (status) {
@@ -69,6 +70,30 @@ export default function MyReviewsList() {
   // Withdraw Modal State
   const [withdrawingReview, setWithdrawingReview] = useState<AccountOwnReview | null>(null);
   const [savingWithdraw, setSavingWithdraw] = useState(false);
+
+  const editModalRef = useRef<HTMLDivElement>(null);
+  const editCancelRef = useRef<HTMLButtonElement>(null);
+
+  useDialogFocusTrap({
+    isOpen: !!editingReview,
+    onClose: () => {
+      if (!savingEdit) setEditingReview(null);
+    },
+    containerRef: editModalRef,
+    initialFocusRef: editCancelRef,
+  });
+
+  const withdrawModalRef = useRef<HTMLDivElement>(null);
+  const withdrawCancelRef = useRef<HTMLButtonElement>(null);
+
+  useDialogFocusTrap({
+    isOpen: !!withdrawingReview,
+    onClose: () => {
+      if (!savingWithdraw) setWithdrawingReview(null);
+    },
+    containerRef: withdrawModalRef,
+    initialFocusRef: withdrawCancelRef,
+  });
 
   const loadReviews = useCallback(async (targetPage = page) => {
     const gen = getSessionGeneration();
@@ -178,9 +203,15 @@ export default function MyReviewsList() {
 
       {/* Edit Review Modal */}
       {editingReview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div
+          ref={editModalRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-review-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        >
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-[#0b132b]">
+            <h3 id="edit-review-modal-title" className="text-base font-bold text-[#0b132b]">
               Edit Review for {editingReview.product?.name || 'Product'}
             </h3>
 
@@ -193,14 +224,16 @@ export default function MyReviewsList() {
 
             <form onSubmit={handleSaveEdit} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Rating *</label>
-                <div className="mt-1 flex gap-2">
+                <label htmlFor="edit-rating-group" className="block text-xs font-semibold text-slate-700">Rating *</label>
+                <div id="edit-rating-group" className="mt-1 flex gap-2">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
                       type="button"
                       onClick={() => setEditRating(star)}
-                      className="p-1 text-slate-300 hover:text-amber-500 focus:outline-none"
+                      aria-label={`Rate ${star} out of 5 stars`}
+                      aria-pressed={star <= editRating}
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 text-slate-300 hover:text-amber-500 focus:outline-none focus:ring-2 focus:ring-[#ff8a00] rounded"
                     >
                       <Star
                         className={`h-6 w-6 ${
@@ -242,17 +275,18 @@ export default function MyReviewsList() {
 
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
+                  ref={editCancelRef}
                   type="button"
                   onClick={() => setEditingReview(null)}
                   disabled={savingEdit}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingEdit || editComment.trim().length < 5}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#0b132b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1c2a4f] disabled:opacity-50"
+                  className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg bg-[#0b132b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1c2a4f] disabled:opacity-50"
                 >
                   {savingEdit && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Save and Resubmit
@@ -265,11 +299,17 @@ export default function MyReviewsList() {
 
       {/* Withdraw Review Modal */}
       {withdrawingReview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div
+          ref={withdrawModalRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="withdraw-review-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        >
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl space-y-4">
             <div className="flex items-center gap-3 text-red-600">
               <AlertTriangle className="h-6 w-6 shrink-0" />
-              <h3 className="text-base font-bold text-slate-900">Withdraw Review?</h3>
+              <h3 id="withdraw-review-modal-title" className="text-base font-bold text-slate-900">Withdraw Review?</h3>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
@@ -282,10 +322,11 @@ export default function MyReviewsList() {
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
               <button
+                ref={withdrawCancelRef}
                 type="button"
                 onClick={() => setWithdrawingReview(null)}
                 disabled={savingWithdraw}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Keep Review
               </button>
@@ -293,7 +334,7 @@ export default function MyReviewsList() {
                 type="button"
                 onClick={handleConfirmWithdraw}
                 disabled={savingWithdraw}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {savingWithdraw && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Confirm Withdrawal

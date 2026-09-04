@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createRequire } from 'node:module';
@@ -546,7 +546,9 @@ test('Invoice vs Receipt Classification: Official receipts strictly require Paid
 
 // --- Security Scan of Frontend Source Code ---
 test('Security Scan: Scans frontend source files for prohibited raw payment fields and secrets', () => {
-  const frontendSrcDir = join(process.cwd(), 'src');
+  const frontendSrcDir = existsSync(join(process.cwd(), 'src'))
+    ? join(process.cwd(), 'src')
+    : join(process.cwd(), 'frontend', 'src');
 
   const prohibitedPatterns = [
     { pattern: /cvv/i, name: 'Raw CVV field' },

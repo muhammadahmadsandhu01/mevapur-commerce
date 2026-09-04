@@ -144,16 +144,16 @@ function AccountPageContent() {
 
   if (!isInitialized || loading) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-10 h-10 text-[#ff8a00] animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-700">Loading your account...</p>
-      </main>
+      </div>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <div className="w-16 h-16 rounded-full bg-orange-100 text-[#0b132b] flex items-center justify-center mb-4">
           <User size={32} className="text-[#ff8a00]" />
         </div>
@@ -167,12 +167,12 @@ function AccountPageContent() {
         >
           Sign In
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header Banner */}
         <div className="flex flex-col justify-between gap-4 rounded-2xl bg-white p-6 border border-slate-200 shadow-xs sm:flex-row sm:items-center">
@@ -420,7 +420,7 @@ function AccountPageContent() {
           onClose={() => setToast(null)}
         />
       )}
-    </main>
+    </div>
   );
 }
 

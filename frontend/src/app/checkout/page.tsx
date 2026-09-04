@@ -336,6 +336,10 @@ export default function CheckoutPage() {
 
     if (!validateAllFields()) {
       setToast({ message: 'Please fix the errors in the checkout form', type: 'error' });
+      setTimeout(() => {
+        const firstInvalid = document.querySelector('[aria-invalid="true"]') as HTMLElement;
+        firstInvalid?.focus();
+      }, 50);
       return;
     }
 
@@ -386,16 +390,16 @@ export default function CheckoutPage() {
 
   if (!isInitialized) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-700">Verifying customer session...</p>
-      </main>
+      </div>
     );
   }
 
   if (items.length === 0) {
     return (
-      <main className="mx-auto max-w-xl py-16 px-4 text-center">
+      <div className="mx-auto max-w-xl py-16 px-4 text-center">
         <AlertCircle size={40} className="mx-auto text-slate-400 mb-4" />
         <h1 className="text-2xl font-bold text-slate-900 mb-2">Cart is empty</h1>
         <p className="text-sm text-slate-600 mb-6">Add products to your cart before proceeding to checkout.</p>
@@ -405,12 +409,12 @@ export default function CheckoutPage() {
         >
           Browse Catalogue
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
       {/* Breadcrumb & Title */}
       <div className="mb-8">
         <Link href="/cart" className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-[#9a3412] mb-3 transition">
@@ -552,11 +556,19 @@ export default function CheckoutPage() {
                   value={formData.city}
                   onChange={handleFieldChange}
                   onBlur={() => handleBlur('city')}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] text-sm text-slate-900 outline-none bg-white"
+                  aria-invalid={Boolean(touched.city && errors.city)}
+                  aria-describedby={errors.city ? 'city-error' : undefined}
+                  className={`w-full px-3.5 py-2.5 rounded-lg border text-sm text-slate-900 outline-none transition ${
+                    touched.city && errors.city
+                      ? 'border-rose-500 ring-1 ring-rose-500 bg-rose-50/20'
+                      : 'border-slate-300 focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] bg-white'
+                  }`}
                   placeholder="e.g. Lahore, Karachi, Islamabad"
                 />
                 {touched.city && errors.city && (
-                  <p className="mt-1 text-xs text-rose-700 font-medium">{errors.city}</p>
+                  <p id="city-error" role="alert" className="mt-1 text-xs text-rose-700 font-medium flex items-center gap-1">
+                    <AlertCircle size={13} /> {errors.city}
+                  </p>
                 )}
               </div>
 
@@ -570,6 +582,8 @@ export default function CheckoutPage() {
                   name="province"
                   value={formData.province}
                   onChange={handleFieldChange}
+                  aria-invalid={Boolean(touched.province && errors.province)}
+                  aria-describedby={errors.province ? 'province-error' : undefined}
                   className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] text-sm text-slate-900 outline-none bg-white font-medium cursor-pointer"
                 >
                   <option value="Punjab">Punjab</option>
@@ -580,6 +594,11 @@ export default function CheckoutPage() {
                   <option value="Gilgit-Baltistan">Gilgit-Baltistan</option>
                   <option value="Azad Jammu and Kashmir">Azad Jammu and Kashmir</option>
                 </select>
+                {touched.province && errors.province && (
+                  <p id="province-error" role="alert" className="mt-1 text-xs text-rose-700 font-medium flex items-center gap-1">
+                    <AlertCircle size={13} /> {errors.province}
+                  </p>
+                )}
               </div>
 
               {/* Postal Code (Optional) */}
@@ -594,11 +613,19 @@ export default function CheckoutPage() {
                   value={formData.postalCode}
                   onChange={handleFieldChange}
                   onBlur={() => handleBlur('postalCode')}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] text-sm text-slate-900 outline-none bg-white"
+                  aria-invalid={Boolean(touched.postalCode && errors.postalCode)}
+                  aria-describedby={errors.postalCode ? 'postalCode-error' : undefined}
+                  className={`w-full px-3.5 py-2.5 rounded-lg border text-sm text-slate-900 outline-none transition ${
+                    touched.postalCode && errors.postalCode
+                      ? 'border-rose-500 ring-1 ring-rose-500 bg-rose-50/20'
+                      : 'border-slate-300 focus:border-[#ff8a00] focus:ring-1 focus:ring-[#ff8a00] bg-white'
+                  }`}
                   placeholder="e.g. 54000"
                 />
                 {touched.postalCode && errors.postalCode && (
-                  <p className="mt-1 text-xs text-rose-700 font-medium">{errors.postalCode}</p>
+                  <p id="postalCode-error" role="alert" className="mt-1 text-xs text-rose-700 font-medium flex items-center gap-1">
+                    <AlertCircle size={13} /> {errors.postalCode}
+                  </p>
                 )}
               </div>
 
@@ -643,7 +670,7 @@ export default function CheckoutPage() {
                 {/* Cash on Delivery */}
                 {availableMethods.includes('cod') && (
                   <label
-                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition focus-within:ring-2 focus-within:ring-[#ff8a00] ${
                       paymentMethod === 'cod'
                         ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
                         : 'border-slate-200 hover:border-slate-300 bg-white'
@@ -673,7 +700,7 @@ export default function CheckoutPage() {
                 {/* Direct Bank Transfer */}
                 {availableMethods.includes('bank_transfer') && (
                   <label
-                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition focus-within:ring-2 focus-within:ring-[#ff8a00] ${
                       paymentMethod === 'bank_transfer'
                         ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
                         : 'border-slate-200 hover:border-slate-300 bg-white'
@@ -702,7 +729,7 @@ export default function CheckoutPage() {
                 {/* Raast Instant Payment */}
                 {availableMethods.includes('raast') && (
                   <label
-                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition focus-within:ring-2 focus-within:ring-[#ff8a00] ${
                       paymentMethod === 'raast'
                         ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
                         : 'border-slate-200 hover:border-slate-300 bg-white'
@@ -731,7 +758,7 @@ export default function CheckoutPage() {
                 {/* Credit / Debit Card (Stripe) */}
                 {availableMethods.includes('stripe') && (
                   <label
-                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition ${
+                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition focus-within:ring-2 focus-within:ring-[#ff8a00] ${
                       paymentMethod === 'stripe'
                         ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
                         : 'border-slate-200 hover:border-slate-300 bg-white'
@@ -765,8 +792,11 @@ export default function CheckoutPage() {
             <label className="flex items-start gap-3 text-xs text-slate-700 cursor-pointer">
               <input
                 type="checkbox"
+                id="agreeTerms"
                 checked={agreeTerms}
                 onChange={(e) => setAgreeTerms(e.target.checked)}
+                aria-invalid={Boolean(errors.terms)}
+                aria-describedby={errors.terms ? 'terms-error' : undefined}
                 className="mt-0.5 w-4 h-4 text-[#ff8a00] border-slate-300 rounded focus:ring-[#ff8a00]"
               />
               <span>
@@ -775,7 +805,7 @@ export default function CheckoutPage() {
             </label>
 
             {errors.terms && (
-              <p className="text-xs text-rose-700 font-semibold">{errors.terms}</p>
+              <p id="terms-error" role="alert" className="text-xs text-rose-700 font-semibold">{errors.terms}</p>
             )}
 
             <button
@@ -924,6 +954,6 @@ export default function CheckoutPage() {
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-    </main>
+    </div>
   );
 }

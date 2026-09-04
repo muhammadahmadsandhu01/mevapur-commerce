@@ -60,7 +60,7 @@ export default function WishlistPage() {
   const display = isAuthenticated ? items : localItems;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <p className="text-sm font-semibold text-[#9a3412]">SAVED PRODUCTS</p>
       <h1 className="mt-1 text-3xl font-bold text-[#0b132b]">Your wishlist</h1>
       <p className="mt-2 text-sm text-slate-600">
@@ -165,6 +165,6 @@ export default function WishlistPage() {
           })}
         </section>
       )}
-    </main>
+    </div>
   );
 }

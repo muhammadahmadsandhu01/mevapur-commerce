@@ -6,19 +6,20 @@ import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   Package,
-  MapPin,
-  Loader2,
-  AlertCircle,
-  XCircle,
   Truck,
+  XCircle,
+  AlertCircle,
   FileText,
-  RotateCcw,
   Building2,
   PhoneCall,
+  Loader2,
+  ArrowLeft,
   ArrowRight,
+  RotateCcw,
+  MapPin,
 } from 'lucide-react';
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
 import Toast from '@/components/Toast';
@@ -97,6 +98,13 @@ export default function OrderDetailsPage() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const cancelLockRef = useRef(false);
+
+  const cancelDialogRef = useDialogFocusTrap<HTMLDivElement>({
+    isOpen: showCancelModal,
+    onClose: () => {
+      if (!cancelling) setShowCancelModal(false);
+    },
+  });
 
   useEffect(() => {
     void bootstrap();
@@ -206,16 +214,16 @@ export default function OrderDetailsPage() {
 
   if (!isInitialized || loading) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-700">Loading order details...</p>
-      </main>
+      </div>
     );
   }
 
   if (error || !order) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <AlertCircle size={40} className="text-rose-600 mb-4" />
         <h1 className="text-2xl font-extrabold text-slate-900 mb-2">Order Lookup</h1>
         <p className="text-sm text-slate-700 mb-6">{error || 'Unable to retrieve order details.'}</p>
@@ -225,14 +233,14 @@ export default function OrderDetailsPage() {
         >
           Back to Orders
         </Link>
-      </main>
+      </div>
     );
   }
 
   const timelineSteps = order.statusTimeline || order.timeline || [];
 
   return (
-    <main className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -487,6 +495,7 @@ export default function OrderDetailsPage() {
       {/* Cancellation Modal */}
       {showCancelModal && (
         <div
+          ref={cancelDialogRef}
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
@@ -545,6 +554,6 @@ export default function OrderDetailsPage() {
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-    </main>
+    </div>
   );
 }

@@ -80,42 +80,19 @@ function ResetPasswordForm() {
 
   if (!token && !success) {
     return (
-      <div style={{ textAlign: 'center', padding: '16px 0' }}>
-        <div
-          style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(220, 38, 38, 0.1)',
-            color: '#DC2626',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 16px',
-          }}
-        >
+      <div className="text-center py-4">
+        <div className="w-16 h-16 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4">
           <AlertCircle size={36} />
         </div>
-        <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0B132B', marginBottom: '8px' }}>
+        <h2 className="text-xl font-extrabold text-[#0b132b] mb-2">
           Invalid or Missing Token
         </h2>
-        <p style={{ fontSize: '14px', color: '#6B7280', lineHeight: '1.5', marginBottom: '24px' }}>
+        <p className="text-sm text-slate-500 leading-relaxed mb-6">
           No password reset token was provided in the link. Please request a fresh recovery link.
         </p>
         <Link
           href="/forgot-password"
-          style={{
-            display: 'block',
-            width: '100%',
-            padding: '14px',
-            backgroundColor: '#FF8A00',
-            color: '#0B132B',
-            borderRadius: '10px',
-            fontSize: '15px',
-            fontWeight: '700',
-            textDecoration: 'none',
-            textAlign: 'center',
-          }}
+          className="inline-flex w-full items-center justify-center py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs"
         >
           Request Recovery Link
         </Link>
@@ -125,42 +102,20 @@ function ResetPasswordForm() {
 
   if (success) {
     return (
-      <div style={{ textAlign: 'center', padding: '16px 0' }}>
-        <div
-          style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(22, 163, 74, 0.12)',
-            color: '#16A34A',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 16px',
-          }}
-        >
+      <div className="text-center py-4">
+        <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
           <CheckCircle size={36} />
         </div>
-        <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#0B132B', marginBottom: '8px' }}>
+        <h2 className="text-xl font-extrabold text-[#0b132b] mb-2">
           Password Reset Complete
         </h2>
-        <p style={{ fontSize: '14px', color: '#6B7280', lineHeight: '1.6', marginBottom: '28px' }}>
+        <p className="text-sm text-slate-500 leading-relaxed mb-6">
           Your password has been updated successfully. You can now log in using your new credentials.
         </p>
         <button
           type="button"
           onClick={() => router.replace('/login')}
-          style={{
-            width: '100%',
-            padding: '14px',
-            backgroundColor: '#FF8A00',
-            color: '#0B132B',
-            border: 'none',
-            borderRadius: '10px',
-            fontSize: '15px',
-            fontWeight: '700',
-            cursor: 'pointer',
-          }}
+          className="w-full py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs"
         >
           Proceed to Login
         </button>
@@ -170,26 +125,14 @@ function ResetPasswordForm() {
 
   return (
     <div>
-      <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-        <div
-          style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(255, 138, 0, 0.12)',
-            color: '#FF8A00',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 16px',
-          }}
-        >
+      <div className="text-center mb-6">
+        <div className="w-16 h-16 rounded-full bg-orange-50 text-[#ff8a00] flex items-center justify-center mx-auto mb-4">
           <KeyRound size={28} />
         </div>
-        <h1 style={{ fontSize: '22px', fontWeight: '800', color: '#0B132B', margin: '0 0 6px' }}>
+        <h1 className="text-2xl font-extrabold text-[#0b132b] mb-1.5">
           Reset Your Password
         </h1>
-        <p style={{ color: '#6B7280', fontSize: '13.5px', margin: 0 }}>
+        <p className="text-sm text-slate-500">
           Create a new strong password for your account.
         </p>
       </div>
@@ -197,34 +140,22 @@ function ResetPasswordForm() {
       {error && (
         <div
           role="alert"
-          style={{
-            backgroundColor: '#FEF2F2',
-            color: '#DC2626',
-            padding: '12px 14px',
-            borderRadius: '10px',
-            marginBottom: '20px',
-            fontSize: '13px',
-            fontWeight: '600',
-            border: '1px solid #FECACA',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
+          className="bg-red-50 text-red-600 p-3 rounded-xl mb-5 text-xs font-semibold border border-red-200 flex items-center gap-2"
         >
           <AlertCircle size={16} />
-          {error}
+          <span>{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <div>
           <label
             htmlFor="reset-new-password"
-            style={{ display: 'block', fontSize: '13.5px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}
+            className="block text-xs font-semibold text-slate-700 mb-1.5"
           >
             New Password
           </label>
-          <div style={{ position: 'relative' }}>
+          <div className="relative">
             <input
               ref={newPasswordRef}
               id="reset-new-password"
@@ -236,33 +167,13 @@ function ResetPasswordForm() {
               placeholder="Minimum 12 characters"
               aria-invalid={!hasLength && newPassword.length > 0}
               aria-describedby="password-policy-checklist"
-              style={{
-                width: '100%',
-                padding: '13px 44px 13px 14px',
-                border: '1.5px solid #E5E7EB',
-                borderRadius: '10px',
-                fontSize: '14px',
-                outline: 'none',
-                backgroundColor: '#FFFFFF',
-                color: '#111827',
-                boxSizing: 'border-box',
-              }}
+              className="w-full pl-3.5 pr-12 py-3 rounded-xl border border-slate-300 text-sm outline-none transition bg-slate-50 text-slate-900 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100"
             />
             <button
               type="button"
               onClick={() => setShowNew(!showNew)}
               aria-label={showNew ? 'Hide new password' : 'Show new password'}
-              style={{
-                position: 'absolute',
-                right: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#9CA3AF',
-                padding: '4px',
-              }}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >
               {showNew ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
@@ -272,11 +183,11 @@ function ResetPasswordForm() {
         <div>
           <label
             htmlFor="reset-confirm-password"
-            style={{ display: 'block', fontSize: '13.5px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}
+            className="block text-xs font-semibold text-slate-700 mb-1.5"
           >
             Confirm New Password
           </label>
-          <div style={{ position: 'relative' }}>
+          <div className="relative">
             <input
               ref={confirmPasswordRef}
               id="reset-confirm-password"
@@ -287,33 +198,13 @@ function ResetPasswordForm() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter new password"
               aria-invalid={confirmPassword.length > 0 && !isMatch}
-              style={{
-                width: '100%',
-                padding: '13px 44px 13px 14px',
-                border: '1.5px solid #E5E7EB',
-                borderRadius: '10px',
-                fontSize: '14px',
-                outline: 'none',
-                backgroundColor: '#FFFFFF',
-                color: '#111827',
-                boxSizing: 'border-box',
-              }}
+              className="w-full pl-3.5 pr-12 py-3 rounded-xl border border-slate-300 text-sm outline-none transition bg-slate-50 text-slate-900 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100"
             />
             <button
               type="button"
               onClick={() => setShowConfirm(!showConfirm)}
               aria-label={showConfirm ? 'Hide confirm password' : 'Show confirm password'}
-              style={{
-                position: 'absolute',
-                right: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#9CA3AF',
-                padding: '4px',
-              }}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >
               {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
@@ -323,40 +214,35 @@ function ResetPasswordForm() {
         {/* Requirements Checklist */}
         <div
           id="password-policy-checklist"
-          style={{
-            padding: '14px',
-            backgroundColor: '#F8FAFC',
-            borderRadius: '10px',
-            border: '1px solid #E2E8F0',
-          }}
+          className="p-3.5 bg-slate-50 rounded-xl border border-slate-200"
         >
-          <div style={{ fontSize: '11.5px', fontWeight: '700', color: '#0F172A', marginBottom: '8px', textTransform: 'uppercase' }}>
+          <div className="text-[11px] font-bold text-slate-800 mb-2 uppercase tracking-wide">
             Password Policy Requirements
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasLength ? '#047857' : '#4B5563' }}>
-              <ShieldCheck size={13} color={hasLength ? '#047857' : '#4B5563'} />
-              12+ characters
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
+            <div className={`flex items-center gap-1.5 ${hasLength ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <ShieldCheck size={13} className={hasLength ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>12+ characters</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasUpper ? '#047857' : '#4B5563' }}>
-              <ShieldCheck size={13} color={hasUpper ? '#047857' : '#4B5563'} />
-              Uppercase letter
+            <div className={`flex items-center gap-1.5 ${hasUpper ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <ShieldCheck size={13} className={hasUpper ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>Uppercase letter</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasLower ? '#047857' : '#4B5563' }}>
-              <ShieldCheck size={13} color={hasLower ? '#047857' : '#4B5563'} />
-              Lowercase letter
+            <div className={`flex items-center gap-1.5 ${hasLower ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <ShieldCheck size={13} className={hasLower ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>Lowercase letter</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasNumber ? '#047857' : '#4B5563' }}>
-              <ShieldCheck size={13} color={hasNumber ? '#047857' : '#4B5563'} />
-              Number
+            <div className={`flex items-center gap-1.5 ${hasNumber ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <ShieldCheck size={13} className={hasNumber ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>Number</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: hasSpecial ? '#047857' : '#4B5563' }}>
-              <ShieldCheck size={13} color={hasSpecial ? '#047857' : '#4B5563'} />
-              Special symbol
+            <div className={`flex items-center gap-1.5 ${hasSpecial ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <ShieldCheck size={13} className={hasSpecial ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>Special symbol</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: isMatch ? '#047857' : '#4B5563' }}>
-              <ShieldCheck size={13} color={isMatch ? '#047857' : '#4B5563'} />
-              Passwords match
+            <div className={`flex items-center gap-1.5 ${isMatch ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <ShieldCheck size={13} className={isMatch ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>Passwords match</span>
             </div>
           </div>
         </div>
@@ -364,31 +250,15 @@ function ResetPasswordForm() {
         <button
           type="submit"
           disabled={loading}
-          style={{
-            width: '100%',
-            padding: '14px',
-            backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
-            color: '#0B132B',
-            border: 'none',
-            borderRadius: '12px',
-            fontSize: '15px',
-            fontWeight: '700',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            boxShadow: loading ? 'none' : '0 4px 14px rgba(255, 138, 0, 0.35)',
-            transition: 'all 0.2s',
-          }}
+          className="w-full py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
         >
           {loading ? (
             <>
-              <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
-              Resetting Password...
+              <Loader size={18} className="animate-spin" />
+              <span>Resetting Password...</span>
             </>
           ) : (
-            'Set New Password'
+            <span>Set New Password</span>
           )}
         </button>
       </form>
@@ -398,85 +268,31 @@ function ResetPasswordForm() {
 
 export default function StorefrontResetPasswordPage() {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: '#F7F7F5',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px',
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      }}
-    >
-      {/* Background accent */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '240px',
-          background: 'linear-gradient(135deg, #0B132B 0%, #060A16 100%)',
-          zIndex: 0,
-        }}
-      />
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 relative">
+      <div className="w-full max-w-md mb-4 flex justify-start">
+        <Link
+          href="/login"
+          className="inline-flex items-center gap-2 text-[#0b132b] hover:text-[#ff8a00] font-semibold text-sm px-4 py-2 bg-white rounded-xl shadow-xs border border-slate-200 transition"
+        >
+          <ArrowLeft size={16} /> Back to Login
+        </Link>
+      </div>
 
-      <Link
-        href="/login"
-        style={{
-          position: 'fixed',
-          top: '20px',
-          left: '20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          color: '#FFFFFF',
-          textDecoration: 'none',
-          fontWeight: '600',
-          fontSize: '14px',
-          padding: '10px 16px',
-          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(10px)',
-          borderRadius: '10px',
-          zIndex: 10,
-          transition: 'all 0.2s',
-        }}
-      >
-        <ArrowLeft size={16} /> Back to Login
-      </Link>
-
-      <div
-        style={{
-          backgroundColor: 'white',
-          borderRadius: '20px',
-          padding: '48px 40px',
-          maxWidth: '460px',
-          width: '100%',
-          boxShadow: '0 24px 64px rgba(11, 19, 43, 0.15), 0 4px 16px rgba(0,0,0,0.06)',
-          position: 'relative',
-          zIndex: 1,
-          border: '1px solid #E5E7EB',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+      <div className="bg-white rounded-3xl p-6 sm:p-10 max-w-md w-full shadow-xl border border-slate-100 relative">
+        <div className="flex justify-center mb-6">
           <BrandLogo theme="dark" href="/" height={34} />
         </div>
 
         <Suspense
           fallback={
-            <div style={{ textAlign: 'center', padding: '32px 0' }}>
-              <Loader size={32} style={{ animation: 'spin 1s linear infinite', color: '#FF8A00' }} />
+            <div className="text-center py-8">
+              <Loader size={32} className="animate-spin text-[#ff8a00] mx-auto" />
             </div>
           }
         >
           <ResetPasswordForm />
         </Suspense>
       </div>
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   );
 }

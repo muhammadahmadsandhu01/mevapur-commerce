@@ -120,17 +120,17 @@ function OrderSuccessContent() {
 
   if (loading) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
         <h1 className="text-xl font-bold text-slate-900 mb-1">Verifying Order Confirmation</h1>
         <p className="text-sm text-slate-600">Retrieving authoritative receipt from server...</p>
-      </main>
+      </div>
     );
   }
 
   if (error || !order) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mb-4">
           <AlertCircle size={32} className="text-rose-600" />
         </div>
@@ -150,14 +150,14 @@ function OrderSuccessContent() {
             Browse Products
           </Link>
         </div>
-      </main>
+      </div>
     );
   }
 
   const isManualPayment = order.paymentMethod === 'bank_transfer' || order.paymentMethod === 'raast';
 
   return (
-    <main className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-8">
         {/* Success Banner */}
         <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs text-center">
@@ -349,7 +349,7 @@ function OrderSuccessContent() {
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 

@@ -77,11 +77,11 @@ export default async function CMSDynamicPage({ params }: PageProps) {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl">
           <CMSOutageRetry error={error} />
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -90,7 +90,7 @@ export default async function CMSDynamicPage({ params }: PageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#f7f7f5] text-[#0b132b] py-8 px-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
         {/* Breadcrumb Navigation */}
         <nav aria-label="Breadcrumb" className="mb-6">
@@ -140,6 +140,6 @@ export default async function CMSDynamicPage({ params }: PageProps) {
           <SafeContentRenderer content={page.content} />
         </article>
       </div>
-    </main>
+    </div>
   );
 }

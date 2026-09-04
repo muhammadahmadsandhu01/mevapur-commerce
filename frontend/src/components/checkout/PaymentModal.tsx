@@ -6,6 +6,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { CreditCard, Loader2, ShieldCheck, X } from "lucide-react";
 import { paymentService } from "@/services/payment.service";
 import StripePaymentForm from "./StripePaymentForm";
+import { useDialogFocusTrap } from "@/hooks/useDialogFocusTrap";
 
 export interface PaymentModalProps {
   isOpen: boolean;
@@ -32,6 +33,18 @@ export default function PaymentModal({
   const paymentAttemptRef = useRef<{ orderId: string; key: string } | null>(
     null
   );
+
+  const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useDialogFocusTrap({
+    isOpen,
+    onClose: () => {
+      if (!loading) onClose();
+    },
+    containerRef: modalRef,
+    initialFocusRef: closeButtonRef,
+  });
 
   const stripePromise = useMemo(() => {
     const configuredKey = publishableKey
@@ -104,11 +117,17 @@ export default function PaymentModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div
+      ref={modalRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="payment-modal-title"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
       <div className="relative w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b bg-gray-50 p-6">
           <div>
-            <h2 className="flex items-center gap-2 text-2xl font-bold text-gray-900">
+            <h2 id="payment-modal-title" className="flex items-center gap-2 text-2xl font-bold text-gray-900">
               <ShieldCheck className="text-[#ff8a00]" size={24} />
               Complete Payment
             </h2>
@@ -117,11 +136,12 @@ export default function PaymentModal({
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             disabled={loading}
             aria-label="Close payment dialog"
-            className="rounded-lg p-2 transition-colors hover:bg-gray-200 disabled:opacity-50"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg p-2 transition-colors hover:bg-gray-200 disabled:opacity-50"
           >
             <X size={20} />
           </button>

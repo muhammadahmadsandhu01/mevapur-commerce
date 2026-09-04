@@ -7,6 +7,7 @@ import CanonicalUrl from '@/components/CanonicalUrl';
 import { publicConfig } from '@/config/publicConfig';
 import HelpAssistant from '@/components/assistant/HelpAssistant';
 import Footer from '@/components/Footer';
+import SkipLink from '@/components/SkipLink';
 import { branding } from '@/config/branding';
 
 export const metadata: Metadata = {
@@ -46,14 +47,20 @@ export default async function RootLayout({
       <head>
         {nonce && <meta property="csp-nonce" content={nonce} />}
       </head>
-      <body style={{
-        fontFamily:
-          'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}>
+      <body
+        className="flex min-h-screen flex-col"
+        style={{
+          fontFamily:
+            'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        }}
+      >
+        <SkipLink />
         <CanonicalUrl />
         <AuthBootstrap>
           <Navbar />
-          <main>{children}</main>
+          <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+            {children}
+          </main>
           <Footer />
           <HelpAssistant />
         </AuthBootstrap>

@@ -115,16 +115,16 @@ function PaymentInstructionsContent() {
 
   if (loading) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-10 h-10 text-[#ff8a00] animate-spin mb-3" />
         <p className="text-xs font-semibold text-slate-700">Loading payment instructions...</p>
-      </main>
+      </div>
     );
   }
 
   if (errorMessage || !payment || !payment.customerAction) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <AlertCircle size={40} className="text-amber-600 mb-4" />
         <h1 className="text-xl font-extrabold text-slate-900 mb-2">Instructions Unavailable</h1>
         <p className="text-xs text-slate-600 mb-6">
@@ -136,7 +136,7 @@ function PaymentInstructionsContent() {
         >
           View Order Details
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -146,7 +146,7 @@ function PaymentInstructionsContent() {
   const isRejected = payment.status === 'Rejected';
 
   return (
-    <main className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Breadcrumb Navigation */}
         <Link
@@ -319,7 +319,7 @@ function PaymentInstructionsContent() {
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-    </main>
+    </div>
   );
 }
 

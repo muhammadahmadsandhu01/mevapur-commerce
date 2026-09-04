@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Printer, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
+import BrandLogo from '@/components/brand/BrandLogo';
 import { accountService } from '@/services/account.service';
 import { branding } from '@/config/branding';
 import { formatMoney } from '@/lib/money';
@@ -52,6 +53,12 @@ export default function InvoicePage() {
   const rawId = params.id as string;
   const decodedId = rawId ? decodeURIComponent(rawId) : '';
 
+  const handlePrint = () => {
+    if (typeof window !== 'undefined') {
+      window.print();
+    }
+  };
+
   const loadInvoice = useCallback(async () => {
     if (!decodedId) return;
     try {
@@ -75,16 +82,16 @@ export default function InvoicePage() {
 
   if (loading) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-700">Loading invoice document...</p>
-      </main>
+      </div>
     );
   }
 
   if (error || !invoice) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <AlertCircle size={40} className="text-rose-600 mb-4" />
         <h1 className="text-2xl font-extrabold text-slate-900 mb-2">Invoice Unavailable</h1>
         <p className="text-sm text-slate-700 mb-6">{error || 'Unable to retrieve invoice record.'}</p>
@@ -94,7 +101,7 @@ export default function InvoicePage() {
         >
           Back to Orders
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -108,7 +115,7 @@ export default function InvoicePage() {
   });
 
   return (
-    <main className="min-h-screen bg-slate-100 py-10 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-100 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Navigation / Print Bar */}
         <div className="print-hidden flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
@@ -118,25 +125,24 @@ export default function InvoicePage() {
           >
             <ArrowLeft size={14} /> Back to Order
           </Link>
-
           <button
             type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0b132b] text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition shadow-2xs"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
           >
-            <Printer size={14} /> Print Document
+            <Printer size={15} /> Print Document / Save PDF
           </button>
         </div>
 
-        {/* Invoice Printable Paper */}
-        <article className="bg-white p-8 sm:p-12 rounded-2xl border border-slate-200 shadow-sm space-y-8 print:border-none print:shadow-none print:p-0">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6 pb-6 border-b border-slate-200">
+        {/* Invoice Printable Sheet */}
+        <article className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-10 shadow-xs space-y-8">
+          {/* Header Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-6 border-b border-slate-200">
             <div>
-              <span className="text-xs font-black uppercase tracking-widest text-[#9a3412]">
-                {branding.siteName} Commerce
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-black text-[#0b132b] mt-1">
+              <div className="mb-3">
+                <BrandLogo theme="dark" href="/" height={32} />
+              </div>
+              <h1 className="text-xl sm:text-2xl font-black text-[#0b132b]">
                 {classification.title}
               </h1>
               <p className="text-xs text-slate-500 mt-1">Order Reference: {invoice.orderNumber}</p>
@@ -184,14 +190,14 @@ export default function InvoicePage() {
           </div>
 
           {/* Line Items Table */}
-          <div>
-            <table className="w-full text-left text-xs sm:text-sm">
+          <div tabIndex={0} role="region" aria-label="Invoice line items table" className="overflow-x-auto focus:ring-1 focus:ring-[#ff8a00] rounded-lg">
+            <table className="w-full text-left text-xs sm:text-sm min-w-[480px]">
               <thead>
                 <tr className="border-b-2 border-slate-200 text-slate-800 font-extrabold">
-                  <th className="py-3 pr-4">Description</th>
-                  <th className="py-3 px-3 text-center">Qty</th>
-                  <th className="py-3 px-3 text-right">Unit Price</th>
-                  <th className="py-3 pl-4 text-right">Line Total</th>
+                  <th scope="col" className="py-3 pr-4">Description</th>
+                  <th scope="col" className="py-3 px-3 text-center">Qty</th>
+                  <th scope="col" className="py-3 px-3 text-right">Unit Price</th>
+                  <th scope="col" className="py-3 pl-4 text-right">Line Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -259,12 +265,8 @@ export default function InvoicePage() {
           body {
             background: white !important;
           }
-          main {
-            padding: 0 !important;
-            background: white !important;
-          }
         }
       `}</style>
-    </main>
+    </div>
   );
 }

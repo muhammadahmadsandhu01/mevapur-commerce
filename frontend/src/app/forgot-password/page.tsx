@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { Mail, ArrowLeft, CheckCircle, Loader, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
@@ -17,17 +17,21 @@ export default function ForgotPasswordPage() {
   const [success, setSuccess] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
+  const emailInputRef = useRef<HTMLInputElement>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (!email.trim()) {
       setError('Email is required');
+      emailInputRef.current?.focus();
       return;
     }
 
     if (!/\S+@\S+\.\S+/.test(email)) {
       setError('Please enter a valid email');
+      emailInputRef.current?.focus();
       return;
     }
 
@@ -42,6 +46,7 @@ export default function ForgotPasswordPage() {
       } else {
         setError(result.message);
         setToast({ message: '❌ ' + result.message, type: 'error' });
+        emailInputRef.current?.focus();
       }
     } catch {
       setToast({ message: '❌ Something went wrong', type: 'error' });
@@ -51,61 +56,44 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 relative">
+      <div className="w-full max-w-md mb-4 flex justify-start">
+        <Link
+          href="/login"
+          className="inline-flex items-center gap-2 text-[#0b132b] hover:text-[#ff8a00] font-semibold text-sm px-4 py-2 bg-white rounded-xl shadow-xs border border-slate-200 transition"
+        >
+          <ArrowLeft size={16} /> Back to Login
+        </Link>
+      </div>
 
-      {/* Back Button */}
-      <Link href="/login" style={{
-        position: 'fixed', top: '20px', left: '20px',
-        display: 'flex', alignItems: 'center', gap: '8px',
-        color: '#0B132B', textDecoration: 'none', fontWeight: '600',
-        fontSize: '14px', padding: '10px 16px',
-        backgroundColor: 'white', borderRadius: '10px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        transition: 'all 0.2s'
-      }}
-        onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; e.currentTarget.style.transform = 'translateX(-4px)'; }}
-        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; e.currentTarget.style.transform = 'translateX(0)'; }}
-      >
-        <ArrowLeft size={16} /> Back to Login
-      </Link>
-
-      <div style={{
-        width: '100%', maxWidth: '480px',
-        backgroundColor: 'white', borderRadius: '24px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
-        padding: '48px 40px',
-        textAlign: 'center'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-6 sm:p-10 text-center border border-slate-100">
+        <div className="flex justify-center mb-6">
           <BrandLogo theme="dark" href="/" height={34} />
         </div>
 
         {!success ? (
           <>
-            {/* Icon */}
-            <div style={{
-              width: '80px', height: '80px', borderRadius: '50%',
-              backgroundColor: '#FEF3C7', margin: '0 auto 24px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              <Mail size={36} color="#F59E0B" />
+            <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-5">
+              <Mail size={32} />
             </div>
 
-            <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>
+            <h1 className="text-2xl font-extrabold text-slate-900 mb-2">
               Forgot Password?
             </h1>
-            <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '32px', lineHeight: '1.6' }}>
+            <p className="text-sm text-slate-500 mb-6 leading-relaxed">
               No worries! Enter your email address and we&apos;ll send you a link to reset your password.
             </p>
 
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px', textAlign: 'left' }}>
+                <label htmlFor="forgot-email" className="block text-xs font-semibold text-slate-700 mb-1.5 text-left">
                   Email Address
                 </label>
-                <div style={{ position: 'relative' }}>
-                  <Mail size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: error ? '#EF4444' : '#9CA3AF' }} />
+                <div className="relative">
+                  <Mail size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${error ? 'text-red-500' : 'text-slate-400'}`} />
                   <input
+                    ref={emailInputRef}
+                    id="forgot-email"
                     type="email"
                     value={email}
                     onChange={(e) => {
@@ -113,17 +101,15 @@ export default function ForgotPasswordPage() {
                       if (error) setError('');
                     }}
                     placeholder="you@example.com"
-                    style={{
-                      width: '100%', padding: '14px 14px 14px 44px',
-                      borderRadius: '10px',
-                      border: `2px solid ${error ? '#EF4444' : '#E5E7EB'}`,
-                      fontSize: '14px', outline: 'none',
-                      backgroundColor: '#F8FAFC'
-                    }}
+                    aria-invalid={!!error}
+                    aria-describedby={error ? 'forgot-email-error' : undefined}
+                    className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 ${
+                      error ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                    }`}
                   />
                 </div>
                 {error && (
-                  <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '12px', color: '#EF4444', fontWeight: '500' }}>
+                  <div id="forgot-email-error" role="alert" className="flex items-center gap-1 mt-1.5 text-xs text-red-600 font-medium text-left">
                     <AlertCircle size={12} /> {error}
                   </div>
                 )}
@@ -132,33 +118,24 @@ export default function ForgotPasswordPage() {
               <button
                 type="submit"
                 disabled={loading}
-                style={{
-                  width: '100%', padding: '14px',
-                  backgroundColor: loading ? '#9CA3AF' : '#FF8A00',
-                  color: '#0B132B', border: 'none',
-                  borderRadius: '10px', fontSize: '15px', fontWeight: '700',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                  boxShadow: loading ? 'none' : '0 4px 12px rgba(255,138,0,0.3)',
-                  transition: 'all 0.3s'
-                }}
+                className="w-full py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {loading ? (
                   <>
-                    <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
-                    Sending...
+                    <Loader size={18} className="animate-spin" />
+                    <span>Sending...</span>
                   </>
                 ) : (
                   <>
-                    Send Reset Link
+                    <span>Send Reset Link</span>
                     <ArrowRight size={18} />
                   </>
                 )}
               </button>
 
-              <div style={{ fontSize: '14px', color: '#6B7280' }}>
+              <div className="text-center pt-2 text-xs text-slate-500">
                 Remember your password?{' '}
-                <Link href="/login" style={{ color: '#0B132B', textDecoration: 'none', fontWeight: '700' }}>
+                <Link href="/login" className="text-[#0b132b] font-bold hover:text-[#ff8a00]">
                   Sign In
                 </Link>
               </div>
@@ -166,59 +143,35 @@ export default function ForgotPasswordPage() {
           </>
         ) : (
           <>
-            {/* Success State */}
-            <div style={{
-              width: '80px', height: '80px', borderRadius: '50%',
-              backgroundColor: '#DCFCE7', margin: '0 auto 24px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              <CheckCircle size={40} color="#16A34A" />
+            <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-5">
+              <CheckCircle size={36} />
             </div>
 
-            <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#111827', marginBottom: '12px' }}>
+            <h1 className="text-2xl font-extrabold text-slate-900 mb-2">
               Check Your Email
             </h1>
-            <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '32px', lineHeight: '1.6' }}>
+            <p className="text-sm text-slate-600 mb-6 leading-relaxed">
               We&apos;ve sent a password reset link to{' '}
-              <strong style={{ color: '#0B132B' }}>{email}</strong>.
+              <strong className="text-slate-900">{email}</strong>.
               <br /><br />
               Please check your inbox and follow the instructions.
             </p>
 
-            <div style={{
-              padding: '16px', backgroundColor: '#FEF3C7', borderRadius: '10px',
-              border: '1px solid #F59E0B', marginBottom: '24px',
-              fontSize: '13px', color: '#78350F', textAlign: 'left'
-            }}>
+            <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 mb-6 text-xs text-amber-800 text-left">
               <strong>💡 Tip:</strong> If you don&apos;t see the email, check your spam folder or click below to resend.
             </div>
 
             <button
+              type="button"
               onClick={() => { setSuccess(false); setEmail(''); }}
-              style={{
-                width: '100%', padding: '14px',
-                backgroundColor: 'white', color: '#0B132B',
-                border: '2px solid #FF8A00', borderRadius: '10px',
-                fontSize: '15px', fontWeight: '700', cursor: 'pointer',
-                marginBottom: '12px',
-                transition: 'all 0.3s'
-              }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F7F7F5'; }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'white'; }}
+              className="w-full py-3 px-4 bg-white border-2 border-[#ff8a00] text-[#0b132b] font-bold text-sm rounded-xl hover:bg-slate-50 transition mb-3"
             >
               Resend Email
             </button>
 
-            <Link href="/login" style={{
-              display: 'block', width: '100%', padding: '14px',
-              backgroundColor: '#FF8A00', color: '#0B132B',
-              borderRadius: '10px', fontSize: '15px', fontWeight: '700',
-              textDecoration: 'none', textAlign: 'center',
-              boxShadow: '0 4px 12px rgba(255,138,0,0.3)',
-              transition: 'all 0.3s'
-            }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#E67C00'; }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#FF8A00'; }}
+            <Link
+              href="/login"
+              className="inline-flex w-full items-center justify-center py-3.5 px-4 bg-[#ff8a00] hover:bg-[#e67c00] text-[#0b132b] font-bold text-sm rounded-xl transition shadow-xs"
             >
               Back to Login
             </Link>
@@ -226,12 +179,7 @@ export default function ForgotPasswordPage() {
         )}
       </div>
 
-      {/* Toast */}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   );
 }

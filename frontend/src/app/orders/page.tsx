@@ -176,16 +176,16 @@ export default function OrdersPage() {
 
   if (!isInitialized || (loading && orders.length === 0)) {
     return (
-      <main className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
         <p className="text-sm font-semibold text-slate-700">Loading your order history...</p>
-      </main>
+      </div>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <div className="w-16 h-16 rounded-full bg-orange-100 text-[#0b132b] flex items-center justify-center mb-4">
           <Package size={32} className="text-[#ff8a00]" />
         </div>
@@ -199,12 +199,12 @@ export default function OrdersPage() {
         >
           Sign In
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -465,6 +465,6 @@ export default function OrdersPage() {
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-    </main>
+    </div>
   );
 }

@@ -117,7 +117,7 @@ function PaymentResultContent() {
 
   if (!paymentId || !orderId) {
     return (
-      <main className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
+      <div className="min-h-[70vh] max-w-lg mx-auto flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <AlertCircle size={40} className="text-amber-600 mb-4" />
         <h1 className="text-xl font-extrabold text-slate-900 mb-2">Incomplete Payment Link</h1>
         <p className="text-xs text-slate-600 mb-6">
@@ -129,7 +129,7 @@ function PaymentResultContent() {
         >
           View Your Orders
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -141,7 +141,7 @@ function PaymentResultContent() {
   const isFailed = payment?.status === 'Failed' || payment?.status === 'Cancelled';
 
   return (
-    <main className="min-h-[80vh] bg-slate-50 px-4 py-16">
+    <div className="min-h-[80vh] bg-slate-50 px-4 py-16">
       <section className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xs">
         {!payment && !errorMessage && (
           <div className="space-y-3">
@@ -245,7 +245,7 @@ function PaymentResultContent() {
           <span>Authoritative Backend Reconciled Record</span>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 

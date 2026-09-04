@@ -42,7 +42,7 @@ export default function Home() {
   }, [load]);
 
   return (
-    <main className="min-h-screen bg-[#f7f7f5] text-[#0b132b]">
+    <div className="min-h-screen bg-[#f7f7f5] text-[#0b132b]">
       {/* Dynamic Announcement Banner */}
       <PromotionalBanner />
 
@@ -158,6 +158,6 @@ export default function Home() {
           })}
         </div>
       </section>
-    </main>
+    </div>
   );
 }

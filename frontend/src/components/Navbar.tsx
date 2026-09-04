@@ -24,6 +24,7 @@ export default function Navbar() {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [categories, setCategories] = useState<Category[]>([]);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -38,6 +39,18 @@ export default function Navbar() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [menuOpen]);
 
   const submitSearch = useCallback(
     (event?: FormEvent) => {
@@ -152,11 +165,12 @@ export default function Navbar() {
           </Link>
 
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
             aria-expanded={menuOpen}
             aria-controls="mobile-navigation"
-            className="rounded-md p-2 hover:bg-white/10 md:hidden"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md p-2 hover:bg-white/10 md:hidden"
           >
             <span className="sr-only">Toggle menu</span>
             {menuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -202,25 +216,25 @@ export default function Navbar() {
               placeholder="Search products"
               className="min-w-0 flex-1 rounded-l-md px-3 py-2 text-slate-900 outline-none bg-white text-sm"
             />
-            <button type="submit" className="rounded-r-md bg-[#ff8a00] px-3 text-[#0b132b]" aria-label="Search">
+            <button type="submit" className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-r-md bg-[#ff8a00] px-3 text-[#0b132b]" aria-label="Search">
               <Search size={18} />
             </button>
           </form>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <Link onClick={closeMenu} href="/products" className="rounded bg-white/10 p-3 font-semibold">
+            <Link onClick={closeMenu} href="/products" className="min-h-[44px] flex items-center rounded bg-white/10 p-3 font-semibold">
               Shop all
             </Link>
-            <Link onClick={closeMenu} href="/orders" className="rounded bg-white/10 p-3">
+            <Link onClick={closeMenu} href="/orders" className="min-h-[44px] flex items-center rounded bg-white/10 p-3">
               Orders
             </Link>
-            <Link onClick={closeMenu} href="/wishlist" className="rounded bg-white/10 p-3">
+            <Link onClick={closeMenu} href="/wishlist" className="min-h-[44px] flex items-center rounded bg-white/10 p-3">
               Wishlist
             </Link>
             <Link
               onClick={closeMenu}
               href={isAuthenticated ? '/account' : '/login'}
-              className="rounded bg-white/10 p-3"
+              className="min-h-[44px] flex items-center rounded bg-white/10 p-3"
             >
               {isAuthenticated ? user?.fullName?.split(' ')[0] || 'Account' : 'Sign in'}
             </Link>
@@ -232,7 +246,7 @@ export default function Navbar() {
                 key={category._id}
                 onClick={closeMenu}
                 href={`/products?category=${encodeURIComponent(category._id)}`}
-                className="py-2 text-sm text-slate-200"
+                className="py-2.5 text-sm text-slate-200"
               >
                 {category.name}
               </Link>
@@ -246,7 +260,7 @@ export default function Navbar() {
                 logout();
                 closeMenu();
               }}
-              className="mt-4 text-sm font-semibold text-[#ffb45a]"
+              className="mt-4 min-h-[44px] flex items-center text-sm font-semibold text-[#ffb45a]"
             >
               Sign out
             </button>

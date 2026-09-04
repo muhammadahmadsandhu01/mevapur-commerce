@@ -48,6 +48,7 @@ export default function HelpAssistant() {
   const [error, setError] = useState('');
   const nextId = useRef(1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -64,7 +65,21 @@ export default function HelpAssistant() {
   }, []);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) {
+      inputRef.current?.focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        launcherRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open]);
 
   if (HIDDEN_PATHS.some((path) => pathname.startsWith(path))) return null;
@@ -210,6 +225,7 @@ export default function HelpAssistant() {
       )}
 
       <button
+        ref={launcherRef}
         type="button"
         className={styles.launcher}
         onClick={() => setOpen((value) => !value)}

@@ -101,3 +101,62 @@
 - [x] Complete documentation package in `docs/client-handover/`
 - [x] `MASTER_OPERATIONS_MANUAL.md`, `STAFF_OFFBOARDING_RUNBOOK.md`, `COMMERCIAL_READINESS_AUDIT.md`
 - [x] Post-launch roadmap in root `ROADMAP.md`
+
+---
+
+## Storefront Remediation — Phase 7: Responsive UI & Accessibility Remediation
+
+**Phase 7 Status**: `STOREFRONT_PHASE7_ACCEPTED`  
+**Execution Branch**: `release/storefront-client-handover`  
+**Baseline Checkpoint**: `d7697ae658cf711c4a5450625b1bab14c91d147e`  
+**Standard Target**: WCAG 2.2 AA Conformance & Cross-Viewport Integrity (320px–1440px)
+
+### 1. Discovered Defects & Remediations
+1. **Landmark Architecture (Duplicate/Nested `<main>`)**:
+   - *Defect*: Route page components contained independent `<main>` elements while `layout.tsx` also introduced a `<main id="main-content">` landmark, creating WCAG landmark nesting violations.
+   - *Remediation*: Converted all route pages (`/`, `/products`, `/products/[id]`, `/cart`, `/checkout`, `/orders`, `/orders/[id]`, `/orders/[id]/invoice`, `/search`, `/wishlist`, `/account`, `/payment-result`, `/payment-instructions`, `/order-success`, `/not-found`, `/pages/[slug]`, `/pages/[slug]/not-found`) to use semantic `<div>` or `<article>` wrappers, establishing `layout.tsx`'s `<main id="main-content" tabIndex={-1}>` as the single canonical landmark.
+2. **Keyboard Skip Navigation**:
+   - *Defect*: Skip link was missing on the storefront.
+   - *Remediation*: Implemented dedicated `<SkipLink />` component in `frontend/src/components/SkipLink.tsx` and mounted in `layout.tsx`. On keyboard activation (Tab -> Enter/Click), focus moves programmatically to `#main-content`.
+3. **Modal & Drawer Focus Trapping & Scroll-Lock Containment**:
+   - *Defect*: Dialogs and mobile drawers permitted Tab focus escaping to the background document, did not trap focus in a loop, lacked Escape dismissal, and failed to restore keyboard focus to the triggering element upon closure.
+   - *Remediation*: Created reusable `useDialogFocusTrap` hook (`frontend/src/hooks/useDialogFocusTrap.ts`). Wired into:
+     - Stripe Payment Modal (`PaymentModal.tsx`)
+     - Cancel Order Confirmation Modal (`orders/[id]/page.tsx`)
+     - Review Report Dialog (`ProductReviews.tsx`)
+     - Review Edit & Withdraw Dialogs (`MyReviewsList.tsx`)
+     - Mobile Product Filters Drawer (`ProductFilters.tsx`)
+     - Mobile Navigation Menu & Help Assistant (`Navbar.tsx`, `HelpAssistant.tsx`)
+4. **Form Association, ARIA Validation & Error Focus**:
+   - *Defect*: Auth forms (`/login`, `/register`, `/forgot-password`, `/reset-password`) had hardcoded desktop grids causing horizontal reflow on 320px screens; inputs lacked linked `htmlFor`/`id`, `aria-invalid`, `aria-describedby` links, and did not autofocus the first invalid field on validation failure.
+   - *Remediation*: Refactored forms to responsive Tailwind layouts with `InputField.tsx` and custom form fields using `useId()`, linked `htmlFor`/`id`, `aria-invalid`, `aria-describedby`, error blocks with `role="alert"`, and autofocus on submit validation failure.
+5. **Color Contrast & Touch Targets**:
+   - *Defect*: Minor labels (e.g. `(Optional)` text) used `text-slate-400` with insufficient contrast (2.56:1); interactive mobile buttons in navbar, cart quantity controls, and review star ratings lacked min 44×44px touch targets.
+   - *Remediation*: Raised muted foregrounds to `text-slate-600` / `text-slate-700` (> 4.5:1 ratio). Sized interactive buttons to `min-h-[44px] min-w-[44px]` or padded touch zones.
+6. **Accessible Motion & Responsive Tables**:
+   - *Defect*: Missing reduced motion media query overrides; wide invoice tables lacked accessible scroll containers.
+   - *Remediation*: Added `@media (prefers-reduced-motion: reduce)` in `globals.css`. Wrapped invoice line item tables in accessible regions (`role="region"`, `tabIndex={0}`, `aria-label="Invoice line items table"`, `scope="col"` on headers).
+
+### 2. Verification Gate Results
+
+| Gate | Description | Command | Result |
+| :--- | :--- | :--- | :---: |
+| **Gate 1** | Frontend Linter | `npm run lint` | **PASSED** (0 errors, 0 warnings) |
+| **Gate 2** | TypeScript Typecheck | `npx tsc --noEmit` | **PASSED** (0 errors) |
+| **Gate 3** | Production Build | `npm run build` | **PASSED** (All 21 routes compiled) |
+| **Gate 4** | Phase 7 Browser Acceptance | `npx tsx --test tests/browserPhase7AccessibilityAcceptance.test.mts` | **PASSED** (6/6 Gates pass) |
+| **Gate 5** | Production CSP & Runtime Smoke | `npx tsx --test tests/productionCspServerSmoke.test.mts` | **PASSED** (0 violations) |
+| **Gate 6** | CMS Document HTTP Semantics | `npx tsx --test tests/cmsDocumentHttpSemantics.test.mts` | **PASSED** (14/14 tests pass) |
+| **Gate 7** | Full Browser UX Suite | `tests/browser*.test.mts` (Catalog, Cart, Auth, Payment, Account, CMS) | **PASSED** (All pass) |
+| **Gate 8** | Complete Unit & Contract Suite | `tests/*Contracts.test.mts`, `safeContentRenderer.test.mts` | **PASSED** (96/96 tests pass) |
+
+### 3. Automated Accessibility (Axe) Audit Summary
+- **Tested Routes**: `/`, `/products`, `/products/[id]`, `/cart`, `/checkout`, `/login`, `/register`, `/forgot-password`, `/orders`, `/orders/[id]`, `/orders/[id]/invoice`, `/account`, `/pages/[slug]`
+- **Tested Viewports**: `320x800`, `375x812`, `768x1024`, `1024x768`, `1440x900`
+- **Critical Violations**: **0**
+- **Serious Violations**: **0**
+- **Manual Assessment Limitations**: Screen reader auditory pacing and physical touch gestures on real mobile hardware require final QA staging validation.
+
+### 4. External Release Gates Carried Forward
+- `DEPENDENCY_AUDIT_NETWORK_BLOCKED`: Dependency audits remain network-isolated pending connected local or approved CI execution.
+- `MAX_SIZE_MULTIBYTE_CMS_STAGING`: Maximum payload and multibyte CMS content testing must be executed on staging infrastructure prior to production deployment.

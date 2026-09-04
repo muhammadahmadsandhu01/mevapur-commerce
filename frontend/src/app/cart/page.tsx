@@ -80,10 +80,10 @@ export default function CartPage() {
 
   if (!mounted) {
     return (
-      <main className="min-h-[60vh] flex flex-col items-center justify-center p-4">
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
         <Loader2 className="w-10 h-10 text-[#ff8a00] animate-spin mb-3" />
         <p className="text-xs text-slate-600 font-semibold">Loading your cart...</p>
-      </main>
+      </div>
     );
   }
 
@@ -93,7 +93,7 @@ export default function CartPage() {
 
   if (items.length === 0) {
     return (
-      <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 text-center">
+      <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 text-center">
         <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center mb-4">
           <ShoppingBag size={32} className="text-[#ff8a00]" />
         </div>
@@ -103,16 +103,16 @@ export default function CartPage() {
         </p>
         <Link
           href="/products"
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0b132b] px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 shadow-sm transition"
+          className="mt-6 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-[#0b132b] px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 shadow-sm transition"
         >
           Browse Catalogue <ArrowRight size={16} />
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
@@ -225,7 +225,7 @@ export default function CartPage() {
                         onClick={() => updateQuantity(pId, item.quantity - 1, item.variantId)}
                         disabled={item.quantity <= 1 || isUnavailable}
                         aria-label={`Decrease quantity of ${item.name}`}
-                        className="p-2 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
+                        className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
                       >
                         <Minus size={14} />
                       </button>
@@ -241,7 +241,7 @@ export default function CartPage() {
                           item.quantity >= 20
                         }
                         aria-label={`Increase quantity of ${item.name}`}
-                        className="p-2 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
+                        className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
                       >
                         <Plus size={14} />
                       </button>
@@ -250,7 +250,7 @@ export default function CartPage() {
                     <button
                       type="button"
                       onClick={() => removeFromCart(pId, item.variantId)}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-rose-700 transition"
+                      className="inline-flex min-h-[36px] items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-slate-600 hover:text-rose-700 transition rounded-lg hover:bg-rose-50"
                       aria-label={`Remove ${item.name} from cart`}
                     >
                       <Trash2 size={15} /> Remove
@@ -340,6 +340,6 @@ export default function CartPage() {
           </div>
         </aside>
       </div>
-    </main>
+    </div>
   );
 }

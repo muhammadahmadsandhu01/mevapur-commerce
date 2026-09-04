@@ -24,21 +24,45 @@ export default function Toast({ message, type, onClose }: ToastProps) {
   const color = colors[type];
 
   return (
-    <div style={{
-      position: 'fixed', top: '24px', right: '24px', zIndex: 10000,
-      backgroundColor: color.bg, border: `2px solid ${color.border}`,
-      borderRadius: '12px', padding: '16px 20px',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-      display: 'flex', alignItems: 'center', gap: '12px',
-      minWidth: '300px', animation: 'slideIn 0.3s ease'
-    }}>
-      <div style={{ color: color.text }}>{color.icon}</div>
+    <div
+      role={type === 'error' ? 'alert' : 'status'}
+      aria-live={type === 'error' ? 'assertive' : 'polite'}
+      style={{
+        position: 'fixed',
+        top: '24px',
+        right: '24px',
+        zIndex: 10000,
+        backgroundColor: color.bg,
+        border: `2px solid ${color.border}`,
+        borderRadius: '12px',
+        padding: '14px 18px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        maxWidth: 'calc(100vw - 32px)',
+        minWidth: '260px',
+        animation: 'slideIn 0.3s ease'
+      }}
+    >
+      <div style={{ color: color.text, flexShrink: 0 }}>{color.icon}</div>
       <p style={{ flex: 1, color: color.text, fontWeight: '600', fontSize: '14px', margin: 0 }}>{message}</p>
       <button
         type="button"
         onClick={onClose}
         aria-label="Dismiss notification"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: color.text, padding: '4px' }}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: color.text,
+          padding: '8px',
+          minWidth: '40px',
+          minHeight: '40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
       >
         <X size={16} />
       </button>
