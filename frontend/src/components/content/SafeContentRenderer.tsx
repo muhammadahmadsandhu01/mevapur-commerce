@@ -2,7 +2,26 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { getSafeNavigationUrl } from '@/lib/navigation';
+import { getSafeNavigationUrl } from '../../lib/navigation.ts';
+
+function getLinkComponent(): React.ElementType {
+  const l = Link as unknown;
+  if (typeof l === 'function') return l as React.ElementType;
+  if (l && typeof (l as Record<string, unknown>).default === 'function') {
+    return (l as Record<string, unknown>).default as React.ElementType;
+  }
+  if (
+    l &&
+    typeof (l as Record<string, unknown>).default === 'object' &&
+    (l as Record<string, unknown>).default !== null &&
+    typeof ((l as Record<string, unknown>).default as Record<string, unknown>).default === 'function'
+  ) {
+    return ((l as Record<string, unknown>).default as Record<string, unknown>).default as React.ElementType;
+  }
+  return 'a';
+}
+
+const NextLink = getLinkComponent();
 
 interface SafeContentRendererProps {
   content?: string | null;
@@ -45,13 +64,13 @@ function renderInlineContent(text: string): React.ReactNode[] {
           );
         } else {
           nodes.push(
-            <Link
+            <NextLink
               key={`link-${match.index}`}
               href={safeNav.url}
               className="font-medium text-[#b45309] underline hover:text-[#9a3412] focus:outline-none focus:ring-1 focus:ring-[#b45309]"
             >
               {linkText}
-            </Link>
+            </NextLink>
           );
         }
       } else {
