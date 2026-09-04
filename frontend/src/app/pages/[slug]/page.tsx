@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import type { Metadata } from 'next';
 import { cache } from 'react';
-import { getContentBySlug } from '@/services/content.service';
+import { headers } from 'next/headers';
+import { getContentBySlug, normalizeContentItem } from '@/services/content.service';
 import SafeContentRenderer from '@/components/content/SafeContentRenderer';
 import CMSOutageRetry from '@/components/content/CMSOutageRetry';
 import type { ContentItem } from '@/types/content';
@@ -14,6 +15,26 @@ export const dynamic = 'force-dynamic';
 const getCachedPage = cache(async (slug: string): Promise<{ page: ContentItem | null; error: string | null }> => {
   if (!slug) return { page: null, error: null };
   try {
+    const headersList = await headers();
+    const payloadBase64 = headersList.get('x-cms-page-payload');
+    if (payloadBase64) {
+      try {
+        const raw = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+        const item = normalizeContentItem(raw);
+        if (item && item.isActive) {
+          return { page: item, error: null };
+        }
+      } catch {
+        // Fallback to direct fetch
+      }
+    }
+    const fetchError = headersList.get('x-cms-fetch-error');
+    if (fetchError === 'outage') {
+      return {
+        page: null,
+        error: 'Unable to load page content at this time. Please check your connection or try again.',
+      };
+    }
     const page = await getContentBySlug(slug);
     return { page, error: null };
   } catch (err: unknown) {
