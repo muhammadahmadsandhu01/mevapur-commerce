@@ -34,6 +34,17 @@ interface RetryRequestConfig extends InternalAxiosRequestConfig {
 
 api.interceptors.request.use(
   (config) => {
+    if (typeof window === 'undefined') {
+      const runtimeUrl = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL;
+      if (runtimeUrl) {
+        try {
+          const parsed = new URL(runtimeUrl);
+          config.baseURL = `${parsed.origin}/api`;
+        } catch {
+          // Fallback to static baseURL
+        }
+      }
+    }
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;

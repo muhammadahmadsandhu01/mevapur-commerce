@@ -9,31 +9,35 @@ export default function robots(): MetadataRoute.Robots {
   }
 
   return {
-    rules: [{
-      userAgent: '*',
-      allow: '/',
-      disallow: [
-        '/account',
-        '/account/*',
-        '/admin',
-        '/admin/*',
-        '/cart',
-        '/checkout',
-        '/checkout/*',
-        '/forgot-password',
-        '/healthz',
-        '/login',
-        '/orders',
-        '/orders/*',
-        '/order-success',
-        '/payment-instructions',
-        '/payment-result',
-        '/register',
-        '/reset-password',
-        '/wishlist',
-      ],
-    }],
+    rules: [
+      {
+        userAgent: '*',
+        allow: '/',
+        disallow: [
+          '/account',
+          '/account/*',
+          '/admin',
+          '/admin/*',
+          '/api',
+          '/api/*',
+          '/cart',
+          '/checkout',
+          '/checkout/*',
+          '/forgot-password',
+          '/healthz',
+          '/login',
+          '/orders',
+          '/orders/*',
+          '/order-success',
+          '/payment-instructions',
+          '/payment-result',
+          '/register',
+          '/reset-password',
+          '/search',
+          '/wishlist',
+        ],
+      },
+    ],
     sitemap: `${publicConfig.siteOrigin}/sitemap.xml`,
   };
 }
-

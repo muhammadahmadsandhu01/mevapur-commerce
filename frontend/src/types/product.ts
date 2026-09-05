@@ -69,6 +69,8 @@ export interface Product {
   isActive?: boolean;
   status?: 'published' | 'draft' | 'inactive' | 'archived';
   views?: number;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   seo?: {
     metaTitle?: string;
     metaDescription?: string;

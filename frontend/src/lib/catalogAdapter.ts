@@ -237,6 +237,8 @@ export function normalizeProduct(raw: unknown): Product | null {
     isFeatured: Boolean(item.isFeatured),
     isActive: item.isActive !== undefined ? Boolean(item.isActive) : true,
     status: (item.status as 'published' | 'draft' | 'inactive' | 'archived') || 'published',
+    createdAt: item.createdAt ? String(item.createdAt) : undefined,
+    updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
   };
 }
 

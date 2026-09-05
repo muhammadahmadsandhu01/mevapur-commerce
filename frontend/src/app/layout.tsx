@@ -24,9 +24,6 @@ export const metadata: Metadata = {
   robots: publicConfig.searchIndexingEnabled
     ? { index: true, follow: true }
     : { index: false, follow: false, nocache: true },
-  alternates: {
-    canonical: '/',
-  },
   openGraph: {
     title: branding.siteName,
     description: branding.shortDescription,
