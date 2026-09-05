@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 import { buildContentSecurityPolicy } from './src/config/cspConfig';
 
 const isProd = process.env.NODE_ENV === 'production';
+const isVercel = process.env.VERCEL === '1';
 const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
 const cspHeader = buildContentSecurityPolicy({
@@ -10,7 +11,7 @@ const cspHeader = buildContentSecurityPolicy({
 });
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  ...(isVercel ? {} : { output: 'standalone' }),
   async headers() {
     return [
       {

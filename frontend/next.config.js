@@ -5,6 +5,7 @@ const { resolvePublicApiContract } = require('./src/config/publicApiContract');
 const { buildCspHeader } = require('./src/config/csp');
 
 const isProduction = process.env.NODE_ENV === 'production';
+const isVercel = process.env.VERCEL === '1';
 
 let apiOrigin = '';
 try {
@@ -17,7 +18,7 @@ try {
 }
 
 const nextConfig = {
-  output: 'standalone',
+  ...(isVercel ? {} : { output: 'standalone' }),
   async headers() {
     return [
       {
