@@ -3,7 +3,7 @@
 **Repository**: `C:\Projects\mevaPur-Commerce`
 **Target Release Branch**: `release/storefront-client-handover`
 **Baseline Commit**: `60102eac43fba115b9fd849abf208686b6e2a0a4`
-**Status**: **COMPLETED (ALL ADMIN & STOREFRONT WORKSTREAMS VERIFIED & PASSED)**
+**Status**: **CODE & AUTOMATED TEST GATES PASSED (CLIENT HANDOVER BLOCKED ON EXTERNAL GATES)**
 
 ---
 
@@ -27,7 +27,7 @@
 | **Storefront P7** | Responsive UI & Accessibility Remediation | **COMPLETED** | `STOREFRONT_PHASE7_ACCEPTED` — Skip links, focus traps, responsive forms, 0 Axe critical/serious violations |
 | **Storefront P8** | SEO, Sitemaps & Performance Durability | **COMPLETED** | `STOREFRONT_PHASE8_ACCEPTED` — Canonical tags, dynamic sitemap partitions, route noindex, truthful ratings, LCP optimization |
 | **Storefront P9** | White-Label Configuration & Client Packaging | **COMPLETED** | `STOREFRONT_PHASE9_ACCEPTED` — Single-merchant isolation, fail-fast production config, dynamic manifest, 2-brand build proof |
-| **Storefront P10** | Final Full-Stack E2E, Security & Client Handover | **COMPLETED** | `STOREFRONT_CLIENT_HANDOVER_ACCEPTED` — All Backend (581 tests), Admin (93 tests + build), and Storefront (187 tests + build) gates pass, 0-vuln audits, migrations & safety invariants verified |
+| **Storefront P10** | Final Full-Stack E2E, Security & Client Handover | **EXTERNAL GATES PENDING** | `STOREFRONT_CLIENT_HANDOVER_BLOCKED_EXTERNAL_GATES` (Code & Automated Tests: `CODE_AND_AUTOMATED_TEST_GATES_PASSED`) — Dedicated Phase 10 E2E suite (9/9), 6/6 zero-vuln audits, 872/872 tests passed |
 
 ---
 
@@ -202,31 +202,36 @@
 
 ## Storefront Remediation Workstream — Phase 10: Final Full-Stack E2E, Security and Client Handover
 
-**Phase 10 Status**: `STOREFRONT_CLIENT_HANDOVER_ACCEPTED`  
+**Phase 10 Primary Verdict**: `STOREFRONT_CLIENT_HANDOVER_BLOCKED_EXTERNAL_GATES`  
+**Phase 10 Code & Test Verdict**: `CODE_AND_AUTOMATED_TEST_GATES_PASSED`  
 **Execution Branch**: `release/storefront-client-handover`  
 **Starting Checkpoint**: `22a86ef`  
+**Release Candidate Commit**: `2739264da9d32462cfbfa4d897d973484c692c51`  
 **Deliverables & Documentation**: `docs/client-handover/STOREFRONT_PHASE10_HANDOVER_REPORT.md`, `docs/client-handover/DEPENDENCY_SECURITY_REPORT.md`  
 
 ### 1. Sequential Quality Gate Verification Matrix
 
 | Gate | Target / Tier | Execution Command | Result |
 | :--- | :--- | :--- | :---: |
-| **Gate 1** | Dependency Security Audits (All Tiers) | `npm audit --omit=dev` & `npm audit` (Backend, Admin, Storefront) | **PASSED** (0 vulnerabilities across all tiers) |
-| **Gate 2** | Backend Full Jest Suite | `npx jest --runInBand` | **PASSED** (581/581 tests, 63 suites pass) |
-| **Gate 3** | Admin Panel Lint | `npm run lint` in `admin-panel` | **PASSED** (0 errors, 66 warnings) |
-| **Gate 4** | Admin Panel TypeScript | `npx tsc --noEmit` in `admin-panel` | **PASSED** (0 errors) |
-| **Gate 5** | Admin Panel Test Suite | `npx tsx --test tests/*.test.mts` | **PASSED** (93/93 tests, 9 suites pass) |
-| **Gate 6** | Admin Panel Production Build | `npm run build` in `admin-panel` | **PASSED** (All 38 routes compiled) |
-| **Gate 7** | Storefront Lint | `npm run lint` in `frontend` | **PASSED** (0 errors, 0 warnings) |
-| **Gate 8** | Storefront TypeScript | `npx tsc --noEmit` in `frontend` | **PASSED** (0 errors) |
-| **Gate 9** | Storefront Production Build | `npm run build` in `frontend` | **PASSED** (All 22 routes compiled) |
-| **Gate 10** | Storefront Contract Suites | `tests/*Contracts.test.mts`, `safeContentRenderer.test.mts`, `whiteLabelBrandIsolation.test.mts` | **PASSED** (116/116 tests, 27 suites pass) |
-| **Gate 11** | CMS Document HTTP Semantics & CSP Smoke | `tests/cmsDocumentHttpSemantics.test.mts`, `tests/productionCspServerSmoke.test.mts` | **PASSED** (15/15 tests pass) |
-| **Gate 12** | Storefront Phase 8 SEO & Performance Suite | `tests/browserPhase8PerformanceSeoAcceptance.test.mts` | **PASSED** (14/14 tests pass) |
-| **Gate 13** | Storefront Full Browser UX & Accessibility Suites | `tests/browser*.test.mts` (Auth, Cart, Account, Catalog, CMS, Payment, Phase 7 A11y) | **PASSED** (44/44 tests pass) |
-| **Gate 14** | Migration & Index Provisioning Integration Suite | `tests/unit/index-migration.test.js`, `tests/integration/phase4-migrations-and-reconciliation.integration.test.js` | **PASSED** (22/22 tests pass) |
-| **Gate 15** | Safety Invariants & Repository Non-Destruction | `admin-colors-reference.patch` (SHA256 intact), safety branch, 2 stashes | **PASSED** (100% verified) |
+| **Gate 1** | Dependency Security Audits (All 6 Commands) | `npm audit --omit=dev` & `npm audit` (Backend, Admin, Storefront) | **PASSED** (0 vulnerabilities across all tiers) |
+| **Gate 2** | Dedicated Phase 10 Full-Stack E2E Suite | `npx jest tests/e2e/phase10-fullstack-handover.e2e.test.js` | **PASSED** (9/9 E2E journeys passed with DB assertions) |
+| **Gate 3** | Backend Full Jest Suite | `npx jest --runInBand` | **PASSED** (590/590 tests, 64 suites pass) |
+| **Gate 4** | Admin Panel Lint | `npm run lint` in `admin-panel` | **PASSED** (0 errors, 66 warnings) |
+| **Gate 5** | Admin Panel TypeScript | `npx tsc --noEmit` in `admin-panel` | **PASSED** (0 errors) |
+| **Gate 6** | Admin Panel Test Suite | `npx tsx --test tests/*.test.mts` | **PASSED** (93/93 tests, 9 suites pass) |
+| **Gate 7** | Admin Panel Production Build | `npm run build` in `admin-panel` | **PASSED** (All 38 routes compiled) |
+| **Gate 8** | Storefront Lint | `npm run lint` in `frontend` | **PASSED** (0 errors, 0 warnings) |
+| **Gate 9** | Storefront TypeScript | `npx tsc --noEmit` in `frontend` | **PASSED** (0 errors) |
+| **Gate 10** | Storefront Production Build | `npm run build` in `frontend` | **PASSED** (All 22 routes compiled) |
+| **Gate 11** | Storefront Contract Suites | `tests/*Contracts.test.mts`, `safeContentRenderer.test.mts`, `whiteLabelBrandIsolation.test.mts` | **PASSED** (116/116 tests, 27 suites pass) |
+| **Gate 12** | CMS Document HTTP Semantics & CSP Smoke | `tests/cmsDocumentHttpSemantics.test.mts`, `tests/productionCspServerSmoke.test.mts` | **PASSED** (15/15 tests pass) |
+| **Gate 13** | Storefront Phase 8 SEO & Performance Suite | `tests/browserPhase8PerformanceSeoAcceptance.test.mts` | **PASSED** (14/14 tests pass) |
+| **Gate 14** | Storefront Full Browser UX & Accessibility Suites | `tests/browser*.test.mts` (Auth, Cart, Account, Catalog, CMS, Payment, Phase 7 A11y) | **PASSED** (44/44 tests pass) |
+| **Gate 15** | Migration, Index & Worker Integration Suite | `tests/unit/index-migration.test.js`, `tests/integration/phase4-migrations-and-reconciliation.integration.test.js`, `tests/unit/legacy-provider-secret-cleanup.test.js`, `tests/unit/initial-admin-bootstrap.test.js` | **PASSED** (40/40 tests pass) |
+| **Gate 16** | Safety Invariants & Repository Non-Destruction | `admin-colors-reference.patch` (SHA256 intact), safety branch, 2 stashes | **PASSED** (100% verified) |
 
-### 2. Handover Verdict
-**STOREFRONT_CLIENT_HANDOVER_ACCEPTED**: The complete single-merchant commerce platform (Backend, Admin Panel, and Storefront) is fully verified, secured, audited, tested, documented, and ready for commercial client handover. Staging restore drill remains available for human operational execution via `BACKUP_AND_RESTORE_RUNBOOK.md`.
+### 2. Dual Handover Verdicts
+* **Code & Automated Test Verdict**: **`CODE_AND_AUTOMATED_TEST_GATES_PASSED`** (872/872 automated tests passed, 0 vulnerabilities, 0 build errors).
+* **Overall Commercial Handover Verdict**: **`STOREFRONT_CLIENT_HANDOVER_BLOCKED_EXTERNAL_GATES`** (Gated on human execution of physical staging restore drill `BACKUP_RESTORE_DRILL_NOT_EXECUTED` and production DNS/secrets setup).
+
 

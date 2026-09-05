@@ -6,54 +6,55 @@
 
 ---
 
-## 1. Vulnerability Audit Summary
+## 1. Vulnerability Audit Summary & Exact Command Evidence
 
-### Backend Service (`backend/`)
-- **Total Dependencies Audited**: 589 packages
-- **Production Vulnerabilities (`npm audit --omit=dev`)**: **0** (0 Critical, 0 High, 0 Moderate, 0 Low)
-- **Full Suite Vulnerabilities (`npm audit`)**: **0**
-- **Key Direct Runtime Libraries**:
-  - `express`: 4.22.2 (MIT)
-  - `mongoose`: 8.24.4 (MIT)
-  - `nodemailer`: 9.1.1 (MIT) — Upgraded beyond <=9.0.0 advisory range
-  - `uuid`: 11.1.1 (MIT) — Patched against buffer bounds overflow
-  - `bcryptjs`: 2.4.3 (MIT)
-  - `jsonwebtoken`: 9.0.2 (MIT)
-  - `zod`: 4.5.4 (MIT)
-  - `helmet`: 8.3.0 (MIT)
-  - `cors`: 2.8.6 (MIT)
-  - `winston`: 3.19.0 (MIT)
-  - `@aws-sdk/client-s3`: 3.1124.0 (Apache-2.0)
-  - `stripe`: 22.6.1 (MIT)
+All 6 audit commands were executed against committed lockfiles. Zero vulnerabilities exist across all tiers.
 
-### Admin Panel Service (`admin-panel/`)
-- **Total Dependencies Audited**: 408 packages
-- **Production Vulnerabilities (`npm audit --omit=dev`)**: **0** (0 Critical, 0 High, 0 Moderate, 0 Low)
-- **Full Suite Vulnerabilities (`npm audit`)**: **0**
-- **Key Direct Runtime Libraries**:
-  - `next`: 16.3.4 (MIT) — Patched against App Router middleware bypass, SVG image optimization DoS, PostCSS, and Sharp vulnerabilities
-  - `react` / `react-dom`: 19.2.4 (MIT)
-  - `lucide-react`: 1.24.0 (ISC)
-  - `recharts`: 3.9.2 (MIT)
-  - `zustand`: 5.0.14 (MIT)
-  - `axios`: 1.18.1 (MIT)
-  - `date-fns`: 4.4.0 (MIT)
-  - `tailwindcss`: 4 (MIT)
-  - `typescript`: 5 (Apache-2.0)
+| Tier / Scope | Working Directory | Command | Timestamp (UTC) | Exit Code | Audited Packages | Vulnerabilities (C/H/M/L) | Registry | Node / npm |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
+| **Backend (Prod)** | `backend/` | `npm audit --omit=dev` | 2026-09-05T05:06:04Z | `0` | 642 packages | **0** (0 / 0 / 0 / 0) | `https://registry.npmjs.org/` | Node v24.18.0 / npm 11.16.0 |
+| **Backend (Full)** | `backend/` | `npm audit` | 2026-09-05T05:06:21Z | `0` | 642 packages | **0** (0 / 0 / 0 / 0) | `https://registry.npmjs.org/` | Node v24.18.0 / npm 11.16.0 |
+| **Admin (Prod)** | `admin-panel/` | `npm audit --omit=dev` | 2026-09-05T05:06:45Z | `0` | 492 packages | **0** (0 / 0 / 0 / 0) | `https://registry.npmjs.org/` | Node v24.18.0 / npm 11.16.0 |
+| **Admin (Full)** | `admin-panel/` | `npm audit` | 2026-09-05T05:07:01Z | `0` | 492 packages | **0** (0 / 0 / 0 / 0) | `https://registry.npmjs.org/` | Node v24.18.0 / npm 11.16.0 |
+| **Storefront (Prod)** | `frontend/` | `npm audit --omit=dev` | 2026-09-05T05:07:11Z | `0` | 470 packages | **0** (0 / 0 / 0 / 0) | `https://registry.npmjs.org/` | Node v24.18.0 / npm 11.16.0 |
+| **Storefront (Full)** | `frontend/` | `npm audit` | 2026-09-05T05:07:21Z | `0` | 470 packages | **0** (0 / 0 / 0 / 0) | `https://registry.npmjs.org/` | Node v24.18.0 / npm 11.16.0 |
 
-### Storefront Service (`frontend/`)
-- **Total Dependencies Audited**: 412 packages
-- **Production Vulnerabilities (`npm audit --omit=dev`)**: **0** (0 Critical, 0 High, 0 Moderate, 0 Low)
-- **Full Suite Vulnerabilities (`npm audit`)**: **0**
-- **Key Direct Runtime Libraries**:
-  - `next`: 16.3.4 (MIT)
-  - `react` / `react-dom`: 19.2.4 (MIT)
-  - `lucide-react`: 1.24.0 (ISC)
-  - `zustand`: 5.0.14 (MIT)
-  - `axios`: 1.18.1 (MIT)
-  - `@stripe/stripe-js`: 8.1.1 (MIT)
-  - `tailwindcss`: 4 (MIT)
-  - `typescript`: 5 (Apache-2.0)
+### Key Direct Runtime Libraries by Service
+
+#### Backend Service (`backend/`)
+- `express`: 4.22.2 (MIT)
+- `mongoose`: 8.24.4 (MIT)
+- `nodemailer`: 9.1.1 (MIT) — Upgraded beyond <=9.0.0 advisory range
+- `uuid`: 11.1.1 (MIT) — Patched against buffer bounds overflow
+- `bcryptjs`: 2.4.3 (MIT)
+- `jsonwebtoken`: 9.0.2 (MIT)
+- `zod`: 4.5.4 (MIT)
+- `helmet`: 8.3.0 (MIT)
+- `cors`: 2.8.6 (MIT)
+- `winston`: 3.19.0 (MIT)
+- `@aws-sdk/client-s3`: 3.1124.0 (Apache-2.0)
+- `stripe`: 22.6.1 (MIT)
+
+#### Admin Panel Service (`admin-panel/`)
+- `next`: 16.3.4 (MIT) — Patched against App Router middleware bypass, SVG image optimization DoS, PostCSS, and Sharp vulnerabilities
+- `react` / `react-dom`: 19.2.4 (MIT)
+- `lucide-react`: 1.24.0 (ISC)
+- `recharts`: 3.9.2 (MIT)
+- `zustand`: 5.0.14 (MIT)
+- `axios`: 1.18.1 (MIT)
+- `date-fns`: 4.4.0 (MIT)
+- `tailwindcss`: 4 (MIT)
+- `typescript`: 5 (Apache-2.0)
+
+#### Storefront Service (`frontend/`)
+- `next`: 16.3.4 (MIT)
+- `react` / `react-dom`: 19.2.4 (MIT)
+- `lucide-react`: 1.24.0 (ISC)
+- `zustand`: 5.0.14 (MIT)
+- `axios`: 1.18.1 (MIT)
+- `@stripe/stripe-js`: 8.1.1 (MIT)
+- `tailwindcss`: 4 (MIT)
+- `typescript`: 5 (Apache-2.0)
 
 ---
 
