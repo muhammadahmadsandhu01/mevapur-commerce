@@ -20,6 +20,7 @@ export const metadata: Metadata = {
   applicationName: branding.siteName,
   icons: {
     icon: branding.faviconPath,
+    apple: branding.symbolPath,
   },
   robots: publicConfig.searchIndexingEnabled
     ? { index: true, follow: true }
@@ -31,11 +32,18 @@ export const metadata: Metadata = {
     type: 'website',
     url: publicConfig.siteOrigin,
     locale: branding.defaultLocale,
+    images: [
+      {
+        url: branding.socialPreviewPath,
+        alt: branding.siteName,
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: branding.siteName,
     description: branding.shortDescription,
+    images: [branding.socialPreviewPath],
   },
 };
 
@@ -47,17 +55,39 @@ export default async function RootLayout({
   const headersList = await headers();
   const nonce = headersList.get('x-nonce') || undefined;
 
+  const logoAbsoluteUrl = branding.logoPath.startsWith('http')
+    ? branding.logoPath
+    : `${publicConfig.siteOrigin}${branding.logoPath}`;
+
   const websiteJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: branding.siteName,
     url: publicConfig.siteOrigin,
     description: branding.shortDescription,
+    publisher: {
+      '@type': 'Organization',
+      name: branding.legalDisplayName || branding.siteName,
+      url: publicConfig.siteOrigin,
+      logo: logoAbsoluteUrl,
+      ...(branding.supportEmail ? { email: branding.supportEmail } : {}),
+      ...(branding.supportPhone ? { telephone: branding.supportPhone } : {}),
+    },
     potentialAction: {
       '@type': 'SearchAction',
       target: `${publicConfig.siteOrigin}/search?q={search_term_string}`,
       'query-input': 'required name=search_term_string',
     },
+  };
+
+  const organizationJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: branding.legalDisplayName || branding.siteName,
+    url: publicConfig.siteOrigin,
+    logo: logoAbsoluteUrl,
+    ...(branding.supportEmail ? { email: branding.supportEmail } : {}),
+    ...(branding.supportPhone ? { telephone: branding.supportPhone } : {}),
   };
 
   return (
@@ -67,6 +97,10 @@ export default async function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: safeJsonLdStringify(websiteJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: safeJsonLdStringify(organizationJsonLd) }}
         />
       </head>
       <body
@@ -89,4 +123,3 @@ export default async function RootLayout({
     </html>
   );
 }
-

@@ -183,7 +183,7 @@ export default function InvoicePage() {
 
             <div className="sm:text-right">
               <h2 className="font-bold text-slate-900 uppercase tracking-wider mb-2">Merchant Details</h2>
-              <p className="font-bold text-slate-900">{branding.siteName} Pakistan</p>
+              <p className="font-bold text-slate-900">{branding.legalDisplayName || branding.siteName}</p>
               <p className="text-slate-600">{branding.supportEmail}</p>
               <p className="text-slate-600">Enterprise Verified Commerce Platform</p>
             </div>

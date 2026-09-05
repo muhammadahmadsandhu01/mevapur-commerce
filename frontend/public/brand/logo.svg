@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 40" role="img" aria-labelledby="brand-logo-title">
+  <title id="brand-logo-title">Store Logo</title>
+  <rect x="2" y="4" width="8" height="32" rx="1.5" fill="#0B132B"/>
+  <rect x="2" y="17" width="20" height="6" rx="1" fill="#0B132B"/>
+  <rect x="22" y="4" width="8" height="32" rx="1.5" fill="#FF8A00"/>
+  <path d="M12 14 L18 20 L12 26 Z" fill="#F7F7F5"/>
+  <text x="38" y="28" fill="#0B132B" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="700" letter-spacing="0.04em">COMMERCE</text>
+</svg>

@@ -268,8 +268,39 @@ export const useCartStore = create<CartStore>()(
       return store;
     },
     {
-      name: 'mevapur-cart-storage',
+      name: 'storefront-cart-storage',
       version: 2,
+      storage: {
+        getItem: (name: string) => {
+          if (typeof window === 'undefined') return null;
+          const current = localStorage.getItem(name);
+          if (current) {
+            try { return JSON.parse(current); } catch { return null; }
+          }
+          const legacy = localStorage.getItem('mevapur-cart-storage');
+          if (legacy) {
+            try {
+              const parsed = JSON.parse(legacy);
+              localStorage.setItem(name, legacy);
+              return parsed;
+            } catch {
+              return null;
+            }
+          }
+          return null;
+        },
+        setItem: (name: string, value: unknown) => {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(name, JSON.stringify(value));
+          }
+        },
+        removeItem: (name: string) => {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem(name);
+            localStorage.removeItem('mevapur-cart-storage');
+          }
+        },
+      },
       migrate: (persistedState: unknown, version: number) => {
         if (version < 2 && persistedState && typeof persistedState === 'object') {
           const oldState = persistedState as { items?: CartItem[]; wishlist?: WishlistItem[] };

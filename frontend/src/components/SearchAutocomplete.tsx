@@ -30,7 +30,8 @@ interface SearchAutocompleteProps {
   selectedIndex?: number;
 }
 
-const RECENT_SEARCHES_KEY = 'mevapur-recent-searches';
+const RECENT_SEARCHES_KEY = 'storefront-recent-searches';
+const LEGACY_RECENT_SEARCHES_KEY = 'mevapur-recent-searches';
 const MAX_RECENT_SEARCHES = 5;
 
 export default function SearchAutocomplete({
@@ -54,12 +55,18 @@ export default function SearchAutocomplete({
     if (typeof window === 'undefined') return;
 
     const timer = window.setTimeout(() => {
-      const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
+      const stored = localStorage.getItem(RECENT_SEARCHES_KEY) || localStorage.getItem(LEGACY_RECENT_SEARCHES_KEY);
       if (stored) {
         try {
-          setRecentSearches(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setRecentSearches(parsed);
+            localStorage.setItem(RECENT_SEARCHES_KEY, stored);
+            localStorage.removeItem(LEGACY_RECENT_SEARCHES_KEY);
+          }
         } catch {
           localStorage.removeItem(RECENT_SEARCHES_KEY);
+          localStorage.removeItem(LEGACY_RECENT_SEARCHES_KEY);
         }
       }
     }, 0);
