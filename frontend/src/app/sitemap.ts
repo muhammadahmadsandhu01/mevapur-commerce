@@ -5,85 +5,140 @@ import { getProducts } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_PAGES = 50;
-const PAGE_LIMIT = 50;
+export const SITEMAP_PARTITION_SIZE = 25000;
+export const SITEMAP_PAGE_LIMIT = 100;
+export const SITEMAP_MAX_PROTOCOL_LIMIT = 50000;
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export interface SitemapDependencies {
+  fetchProducts?: typeof getProducts;
+  fetchPublicContent?: typeof getPublicContent;
+}
+
+export async function generateSitemaps(deps?: SitemapDependencies) {
+  if (!publicConfig.searchIndexingEnabled) return [{ id: 0 }];
+
+  const fetchProducts = deps?.fetchProducts || getProducts;
+  try {
+    const response = await fetchProducts({ page: 1, limit: 1 });
+    const total = Number(response?.pagination?.total) || 0;
+    const partitionCount = Math.max(1, Math.ceil(total / SITEMAP_PARTITION_SIZE));
+    return Array.from({ length: partitionCount }, (_, i) => ({ id: i }));
+  } catch {
+    // Gracefully provide default partition identifier for route initialization
+    return [{ id: 0 }];
+  }
+}
+
+interface SitemapProps {
+  id?: Promise<{ id: number | string }> | { id: number | string } | number | string;
+}
+
+export default async function sitemap(
+  props?: SitemapProps,
+  deps?: SitemapDependencies
+): Promise<MetadataRoute.Sitemap> {
   if (!publicConfig.searchIndexingEnabled) return [];
 
-  const generatedAt = new Date();
+  const fetchProducts = deps?.fetchProducts || getProducts;
+  const fetchPublicContent = deps?.fetchPublicContent || getPublicContent;
 
-  try {
-    const entries: MetadataRoute.Sitemap = [
-      {
-        url: publicConfig.siteOrigin,
-        lastModified: generatedAt,
-        changeFrequency: 'daily',
-        priority: 1.0,
-      },
-      {
-        url: `${publicConfig.siteOrigin}/products`,
-        lastModified: generatedAt,
-        changeFrequency: 'weekly',
-        priority: 0.8,
-      },
-    ];
-
-    // 1. Authoritative active, published products with bounded pagination
-    let currentPage = 1;
-    let hasMore = true;
-
-    while (hasMore && currentPage <= MAX_PAGES) {
-      const response = await getProducts({ page: currentPage, limit: PAGE_LIMIT });
-      if (!response || !response.success || !Array.isArray(response.data)) {
-        throw new Error(`Failed to retrieve product batch for sitemap (page ${currentPage})`);
-      }
-
-      for (const product of response.data) {
-        if (product.isActive && product.status === 'published') {
-          const identifier = product.slug || product._id;
-          if (identifier) {
-            entries.push({
-              url: `${publicConfig.siteOrigin}/products/${encodeURIComponent(identifier)}`,
-              lastModified: product.updatedAt ? new Date(product.updatedAt) : generatedAt,
-              changeFrequency: 'weekly',
-              priority: 0.8,
-            });
-          }
-        }
-      }
-
-      if (
-        !response.pagination?.hasNext ||
-        currentPage >= (response.pagination?.pages || 1) ||
-        response.data.length === 0
-      ) {
-        hasMore = false;
-      } else {
-        currentPage += 1;
-      }
+  // Resolve partition ID if provided
+  let partitionId = 0;
+  if (props) {
+    let resolvedProps = props;
+    if (typeof (props as Promise<unknown>).then === 'function') {
+      resolvedProps = await (props as Promise<SitemapProps>);
     }
-
-    // 2. Authoritative active, currently published CMS pages
-    const cmsPages = await getPublicContent('page');
-    if (Array.isArray(cmsPages)) {
-      for (const page of cmsPages) {
-        if (page.isActive && page.slug) {
-          entries.push({
-            url: `${publicConfig.siteOrigin}/pages/${encodeURIComponent(page.slug)}`,
-            lastModified: page.updatedAt ? new Date(page.updatedAt) : generatedAt,
-            changeFrequency: 'weekly',
-            priority: 0.7,
-          });
-        }
-      }
+    const rawId = typeof resolvedProps === 'object' && resolvedProps !== null && 'id' in resolvedProps
+      ? (resolvedProps as { id?: unknown }).id
+      : resolvedProps;
+    if (typeof rawId === 'object' && rawId !== null && typeof (rawId as Promise<unknown>).then === 'function') {
+      const awaited = await (rawId as Promise<{ id?: unknown } | number | string>);
+      partitionId = typeof awaited === 'object' && awaited !== null && 'id' in awaited ? Number(awaited.id) : Number(awaited);
+    } else if (rawId !== undefined && rawId !== null) {
+      partitionId = Number(rawId);
     }
-
-    return entries;
-  } catch (error: unknown) {
-    // A backend outage must not publish a misleading partial sitemap as a successful snapshot.
-    // Smallest safe failure behavior: return empty array [] rather than partial corrupted snapshot.
-    console.error('[Sitemap Generation Error] Backend outage or fetch failure, suppressing partial publication:', error);
-    return [];
   }
+  if (Number.isNaN(partitionId) || partitionId < 0) {
+    partitionId = 0;
+  }
+
+  const generatedAt = new Date();
+  const seenUrls = new Set<string>();
+  const entries: MetadataRoute.Sitemap = [];
+
+  const addEntry = (
+    url: string,
+    lastModified: Date,
+    changeFrequency: MetadataRoute.Sitemap[number]['changeFrequency'],
+    priority: number
+  ) => {
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    entries.push({
+      url,
+      lastModified,
+      changeFrequency,
+      priority,
+    });
+  };
+
+  // 1. Static discovery & CMS pages included in partition 0
+  if (partitionId === 0) {
+    addEntry(publicConfig.siteOrigin, generatedAt, 'daily', 1.0);
+    addEntry(`${publicConfig.siteOrigin}/products`, generatedAt, 'weekly', 0.8);
+
+    // Authoritative published CMS pages (fail closed if CMS service errors)
+    const cmsPages = await fetchPublicContent('page');
+    if (!Array.isArray(cmsPages)) {
+      throw new Error('Sitemap generation failed: unable to retrieve authoritative CMS pages');
+    }
+    for (const page of cmsPages) {
+      if (page && page.isActive && page.slug) {
+        const url = `${publicConfig.siteOrigin}/pages/${encodeURIComponent(String(page.slug).trim())}`;
+        const lastMod = page.updatedAt ? new Date(page.updatedAt) : generatedAt;
+        addEntry(url, isNaN(lastMod.getTime()) ? generatedAt : lastMod, 'weekly', 0.7);
+      }
+    }
+  }
+
+  // 2. Authoritative active, published products for this partition
+  const startProductIndex = partitionId * SITEMAP_PARTITION_SIZE;
+  const startPage = Math.floor(startProductIndex / SITEMAP_PAGE_LIMIT) + 1;
+  const maxPagesForPartition = Math.ceil(SITEMAP_PARTITION_SIZE / SITEMAP_PAGE_LIMIT);
+
+  let currentPage = startPage;
+  let pagesFetched = 0;
+  let hasMore = true;
+
+  while (hasMore && pagesFetched < maxPagesForPartition && entries.length < SITEMAP_MAX_PROTOCOL_LIMIT) {
+    const response = await fetchProducts({ page: currentPage, limit: SITEMAP_PAGE_LIMIT });
+    if (!response || !response.success || !Array.isArray(response.data)) {
+      throw new Error(`Sitemap generation failed: backend outage or error on product page ${currentPage}`);
+    }
+
+    for (const product of response.data) {
+      if (!product || typeof product !== 'object') continue;
+      if (product.isActive && product.status === 'published') {
+        const identifier = String(product.slug || product._id || '').trim();
+        if (identifier) {
+          const url = `${publicConfig.siteOrigin}/products/${encodeURIComponent(identifier)}`;
+          const lastMod = product.updatedAt ? new Date(product.updatedAt) : generatedAt;
+          addEntry(url, isNaN(lastMod.getTime()) ? generatedAt : lastMod, 'weekly', 0.8);
+        }
+      }
+    }
+
+    pagesFetched += 1;
+    const totalPages = Number(response.pagination?.pages) || 1;
+    const responseHasNext = Boolean(response.pagination?.hasNext);
+
+    if (!responseHasNext || currentPage >= totalPages || response.data.length === 0) {
+      hasMore = false;
+    } else {
+      currentPage += 1;
+    }
+  }
+
+  return entries;
 }

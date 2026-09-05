@@ -64,14 +64,25 @@ const readIndexingFlag = () => {
 };
 
 export const publicConfig = Object.freeze({
-  apiOrigin: apiContract.apiOrigin,
-  siteOrigin: readOrigin(
-    process.env.NEXT_PUBLIC_SITE_URL,
-    'NEXT_PUBLIC_SITE_URL',
-    'http://localhost:3000'
-  ),
-  siteName: readSiteName(),
-  searchIndexingEnabled: readIndexingFlag(),
+  get apiOrigin() {
+    return resolvePublicApiContract(
+      process.env.NEXT_PUBLIC_API_URL,
+      { environment: process.env.NODE_ENV }
+    ).apiOrigin;
+  },
+  get siteOrigin() {
+    return readOrigin(
+      process.env.NEXT_PUBLIC_SITE_URL,
+      'NEXT_PUBLIC_SITE_URL',
+      'http://localhost:3000'
+    );
+  },
+  get siteName() {
+    return readSiteName();
+  },
+  get searchIndexingEnabled() {
+    return readIndexingFlag();
+  },
 });
 
 export const publicApiBaseUrl = apiContract.apiBaseUrl;

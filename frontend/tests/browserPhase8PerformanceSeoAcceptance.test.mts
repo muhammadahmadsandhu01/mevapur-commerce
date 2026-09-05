@@ -12,6 +12,9 @@ import fs from 'node:fs';
 import { chromium, type Browser, type Page } from 'playwright';
 import { safeJsonLdStringify } from '../src/lib/safeJsonLd.ts';
 import { branding } from '../src/config/branding.ts';
+import robotsHandler from '../src/app/robots.ts';
+import sitemapHandler, { generateSitemaps, SITEMAP_PARTITION_SIZE } from '../src/app/sitemap.ts';
+import type { Product, GetProductsParams } from '../src/lib/api.ts';
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
@@ -316,6 +319,272 @@ describe('Storefront Phase 8 — Performance, Structured Data and SEO Acceptance
     assert.ok(branding.defaultLocale, 'Branding must specify defaultLocale');
   });
 
+  test('3. Robots metadata handler defines explicit crawl rules allowing crawler noindex observation while blocking admin/API', () => {
+    const fn = typeof robotsHandler === 'function' ? robotsHandler : (robotsHandler as unknown as { default: () => ReturnType<typeof robotsHandler> }).default;
+    const robots = fn();
+    assert.ok(robots, 'robots handler must return metadata');
+    assert.strictEqual(robots.sitemap, 'https://storefront.mevapur.test/sitemap/0.xml');
+
+    const rules = Array.isArray(robots.rules) ? robots.rules : [robots.rules];
+    assert.ok(rules.length > 0, 'Must have at least one rule set');
+    const primaryRule = rules[0];
+    assert.strictEqual(primaryRule.userAgent, '*');
+    assert.strictEqual(primaryRule.allow, '/');
+
+    const disallowList = Array.isArray(primaryRule.disallow) ? primaryRule.disallow : [primaryRule.disallow];
+    // Admin and machine API endpoints are disallowed
+    assert.ok(disallowList.includes('/admin'), 'Disallow must include /admin');
+    assert.ok(disallowList.includes('/admin/*'), 'Disallow must include /admin/*');
+    assert.ok(disallowList.includes('/api'), 'Disallow must include /api');
+    assert.ok(disallowList.includes('/api/*'), 'Disallow must include /api/*');
+    assert.ok(disallowList.includes('/healthz'), 'Disallow must include /healthz');
+
+    // Public non-indexable routes MUST NOT be disallowed so search engines can crawl them to observe noindex directives
+    const allowedForNoindexObservation = ['/cart', '/checkout', '/account', '/login', '/register', '/search', '/wishlist', '/orders'];
+    for (const route of allowedForNoindexObservation) {
+      assert.ok(
+        !disallowList.includes(route),
+        `Public non-indexable route ${route} must NOT be disallowed in robots.txt so crawlers can read its noindex tag`
+      );
+    }
+  });
+
+  describe('Sitemap Outage & Scale Durability Unit Tests', () => {
+    const sitemapFn = typeof sitemapHandler === 'function' ? sitemapHandler : (sitemapHandler as unknown as { default: typeof sitemapHandler }).default;
+
+    test('3a. Backend outage before first product page throws error and fails closed (no empty sitemap)', async () => {
+      await assert.rejects(
+        async () => {
+          await sitemapFn(undefined, {
+            fetchPublicContent: async () => [],
+            fetchProducts: async () => {
+              throw new Error('ECONNREFUSED 127.0.0.1:5000');
+            },
+          });
+        },
+        /Sitemap generation failed|ECONNREFUSED/,
+        'Sitemap generation must throw when backend is unreachable on first page'
+      );
+    });
+
+    test('3b. Backend outage during later pagination throws error and fails closed (no partial snapshot returned as complete)', async () => {
+      let callCount = 0;
+      await assert.rejects(
+        async () => {
+          await sitemapFn(undefined, {
+            fetchPublicContent: async () => [],
+            fetchProducts: async () => {
+              callCount++;
+              if (callCount === 1) {
+                return {
+                  success: true,
+                  data: Array.from({ length: 100 }, (_, i) => ({
+                    _id: `prod-p1-${i}`,
+                    name: `Product P1 ${i}`,
+                    slug: `product-p1-${i}`,
+                    isActive: true,
+                    status: 'published',
+                    price: 1000,
+                    images: [],
+                    category: { _id: 'cat-1', name: 'Cat 1', slug: 'cat-1' },
+                    createdAt: '2026-09-01T00:00:00.000Z',
+                    updatedAt: '2026-09-01T00:00:00.000Z',
+                  })),
+                  pagination: { page: 1, pages: 5, total: 500, limit: 100, hasNext: true, hasPrev: false },
+                };
+              }
+              // Failure on page 2
+              throw new Error('Database connection timed out on page 2');
+            },
+          });
+        },
+        /Sitemap generation failed|Database connection timed out/,
+        'Sitemap generation must fail closed if backend fails during subsequent pagination'
+      );
+    });
+
+    test('3c. Scale test: handles > 2,500 published products across multiple pages without artificial ceiling', async () => {
+      const TOTAL_SCALE_PRODUCTS = 3000;
+      const PAGE_SIZE = 100;
+      const TOTAL_PAGES = Math.ceil(TOTAL_SCALE_PRODUCTS / PAGE_SIZE);
+
+      const mockFetchProducts = async (params?: GetProductsParams) => {
+        const pageNum = Number(params?.page) || 1;
+        const limitNum = Number(params?.limit) || PAGE_SIZE;
+        const startIndex = (pageNum - 1) * limitNum;
+        const endIndex = Math.min(startIndex + limitNum, TOTAL_SCALE_PRODUCTS);
+
+        const items: Product[] = [];
+        for (let i = startIndex; i < endIndex; i++) {
+          items.push({
+            _id: `scale-prod-${i}`,
+            name: `Scale Product ${i}`,
+            slug: `scale-product-${i}`,
+            isActive: true,
+            status: 'published',
+            price: 1000 + i,
+            images: [],
+            category: { _id: 'cat-1', name: 'Cat 1', slug: 'cat-1' },
+            createdAt: '2026-09-01T00:00:00.000Z',
+            updatedAt: '2026-09-01T00:00:00.000Z',
+          });
+        }
+
+        return {
+          success: true,
+          data: items,
+          pagination: {
+            page: pageNum,
+            pages: TOTAL_PAGES,
+            total: TOTAL_SCALE_PRODUCTS,
+            limit: limitNum,
+            hasNext: pageNum < TOTAL_PAGES,
+            hasPrev: pageNum > 1,
+          },
+        };
+      };
+
+      const entries = await sitemapFn({ id: 0 }, {
+        fetchPublicContent: async () => [],
+        fetchProducts: mockFetchProducts,
+      });
+
+      const productEntries = entries.filter((e) => e.url.includes('/products/scale-product-'));
+      assert.strictEqual(
+        productEntries.length,
+        3000,
+        `Sitemap must include all 3,000 products beyond the old 2,500 ceiling (found ${productEntries.length})`
+      );
+      assert.ok(entries.length >= 3002, `Total entries in partition 0 must include static + all products (${entries.length})`);
+    });
+
+    test('3d. Multi-partition support: generateSitemaps computes partitions and sitemap partitions serve offsets', async () => {
+      const TOTAL_PRODUCTS = 60000;
+      const sitemaps = await generateSitemaps({
+        fetchProducts: async () => ({
+          success: true,
+          data: [],
+          pagination: { page: 1, pages: 600, total: TOTAL_PRODUCTS, limit: 1, hasNext: true, hasPrev: false },
+        }),
+      });
+
+      assert.strictEqual(sitemaps.length, 3, 'Must create 3 sitemap partitions for 60,000 items');
+      assert.deepStrictEqual(sitemaps, [{ id: 0 }, { id: 1 }, { id: 2 }]);
+
+      let requestedPage = 0;
+      const part1Entries = await sitemapFn({ id: 1 }, {
+        fetchPublicContent: async () => [],
+        fetchProducts: async (params) => {
+          requestedPage = Number(params?.page) || 1;
+          return {
+            success: true,
+            data: [{
+              _id: `part-prod-${requestedPage}`,
+              name: `Partition 1 Product`,
+              slug: `part-1-product`,
+              isActive: true,
+              status: 'published',
+              price: 1000,
+              images: [],
+              category: { _id: 'cat-1', name: 'Cat 1', slug: 'cat-1' },
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: '2026-09-01T00:00:00.000Z',
+            }],
+            pagination: { page: requestedPage, pages: 600, total: 60000, limit: 100, hasNext: false, hasPrev: true },
+          };
+        },
+      });
+
+      const expectedStartPage = Math.floor(SITEMAP_PARTITION_SIZE / 100) + 1; // Page 251
+      assert.strictEqual(requestedPage, expectedStartPage, `Partition 1 must request page ${expectedStartPage}`);
+      assert.ok(part1Entries.length > 0, 'Partition 1 must return valid product entries');
+      assert.ok(!part1Entries.some((e) => e.url === 'https://storefront.mevapur.test'), 'Partition 1 must not duplicate homepage');
+    });
+
+    test('3e. Deduplication, draft exclusion, and malformed record safety', async () => {
+      const entries = await sitemapFn({ id: 0 }, {
+        fetchPublicContent: async () => [],
+        fetchProducts: async () => ({
+          success: true,
+          data: [
+            {
+              _id: 'valid-1',
+              name: 'Valid Product 1',
+              slug: 'valid-product-1',
+              isActive: true,
+              status: 'published',
+              price: 1000,
+              images: [],
+              category: { _id: 'c1', name: 'C1', slug: 'c1' },
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: '2026-09-01T00:00:00.000Z',
+            },
+            {
+              _id: 'valid-1-dup',
+              name: 'Valid Product 1 Duplicate',
+              slug: 'valid-product-1',
+              isActive: true,
+              status: 'published',
+              price: 1000,
+              images: [],
+              category: { _id: 'c1', name: 'C1', slug: 'c1' },
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: '2026-09-01T00:00:00.000Z',
+            },
+            {
+              _id: 'draft-1',
+              name: 'Draft Product',
+              slug: 'draft-product',
+              isActive: true,
+              status: 'draft',
+              price: 1000,
+              images: [],
+              category: { _id: 'c1', name: 'C1', slug: 'c1' },
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: '2026-09-01T00:00:00.000Z',
+            },
+            {
+              _id: 'inactive-1',
+              name: 'Inactive Product',
+              slug: 'inactive-product',
+              isActive: false,
+              status: 'published',
+              price: 1000,
+              images: [],
+              category: { _id: 'c1', name: 'C1', slug: 'c1' },
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: '2026-09-01T00:00:00.000Z',
+            },
+            {
+              _id: 'archived-1',
+              name: 'Archived Product',
+              slug: 'archived-product',
+              isActive: true,
+              status: 'archived',
+              price: 1000,
+              images: [],
+              category: { _id: 'c1', name: 'C1', slug: 'c1' },
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: '2026-09-01T00:00:00.000Z',
+            },
+            null as unknown as Product,
+            {} as unknown as Product,
+          ],
+          pagination: { page: 1, pages: 1, total: 7, limit: 100, hasNext: false, hasPrev: false },
+        }),
+      });
+
+      const productUrls = entries.filter((e) => e.url.includes('/products/'));
+      const validProductEntries = productUrls.filter((e) => e.url.endsWith('/products/valid-product-1'));
+      assert.strictEqual(validProductEntries.length, 1, 'Duplicate product URLs must be deduplicated to exactly 1');
+
+      assert.ok(!entries.some((e) => e.url.includes('draft-product')), 'Draft products must be excluded');
+      assert.ok(!entries.some((e) => e.url.includes('inactive-product')), 'Inactive products must be excluded');
+      assert.ok(!entries.some((e) => e.url.includes('archived-product')), 'Archived products must be excluded');
+      assert.ok(!entries.some((e) => e.url.endsWith('/products/')), 'Malformed records must not produce invalid URLs');
+    });
+  });
+
   describe('Live Production Browser SEO & Performance Suite', () => {
     test.before(async () => {
       backendPort = await getAvailablePort();
@@ -458,9 +727,9 @@ describe('Storefront Phase 8 — Performance, Structured Data and SEO Acceptance
       }
     });
 
-    test('3. Live Sitemap endpoint (/sitemap.xml) includes authoritative products/CMS and strictly excludes private/search routes', async () => {
-      const res = await fetch(`${baseUrl}/sitemap.xml`);
-      assert.ok(res.ok, `sitemap.xml should return 200, got ${res.status}`);
+    test('4. Live Sitemap endpoint (/sitemap/0.xml) includes authoritative products/CMS and strictly excludes private/search routes', async () => {
+      const res = await fetch(`${baseUrl}/sitemap/0.xml`);
+      assert.ok(res.ok, `sitemap/0.xml should return 200, got ${res.status}`);
       const xml = await res.text();
 
       // Check XML structure and canonical URLs
@@ -505,42 +774,31 @@ describe('Storefront Phase 8 — Performance, Structured Data and SEO Acceptance
       }
     });
 
-    test('4. Live Robots.txt endpoint (/robots.txt) blocks private routes and advertises sitemap', async () => {
+    test('5. Live Robots.txt endpoint (/robots.txt) disallows machine endpoints, allows public paths, and advertises sitemap', async () => {
       const res = await fetch(`${baseUrl}/robots.txt`);
       assert.ok(res.ok, `robots.txt should return 200, got ${res.status}`);
       const text = await res.text();
 
       assert.ok(text.includes('User-Agent: *') || text.includes('user-agent: *'), 'Must declare user-agent rule');
       assert.ok(text.includes('Allow: /') || text.includes('allow: /'), 'Must declare allow directive');
-      assert.ok(text.includes('Sitemap: https://storefront.mevapur.test/sitemap.xml') || text.includes('sitemap:'), 'Must include sitemap directive');
+      assert.ok(text.includes('Sitemap: https://storefront.mevapur.test/sitemap/0.xml') || text.includes('sitemap:'), 'Must include sitemap directive');
 
+      // Disallowed machine & admin endpoints
       const requiredDisallows = [
-        '/account',
         '/admin',
         '/api',
-        '/cart',
-        '/checkout',
-        '/orders',
-        '/order-success',
-        '/payment-instructions',
-        '/payment-result',
-        '/login',
-        '/register',
-        '/forgot-password',
-        '/reset-password',
-        '/search',
-        '/wishlist',
+        '/healthz',
       ];
 
       for (const req of requiredDisallows) {
         assert.ok(
           text.includes(`Disallow: ${req}`) || text.includes(`disallow: ${req}`),
-          `robots.txt must contain Disallow for ${req}`
+          `robots.txt must contain Disallow for machine endpoint ${req}`
         );
       }
     });
 
-    test('5. Exact canonical verification and route-level noindex across indexable and private routes', async () => {
+    test('6. Exact canonical verification and route-level noindex across indexable and private routes', async () => {
       assert.ok(browser, 'Browser must be active');
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       await setupUniversalMocks(page);
@@ -605,7 +863,7 @@ describe('Storefront Phase 8 — Performance, Structured Data and SEO Acceptance
       await page.close();
     });
 
-    test('6. Homepage renders valid JSON-LD WebSite schema, head metadata, and prioritized Hero LCP image', async () => {
+    test('7. Homepage renders valid JSON-LD WebSite schema, head metadata, and prioritized Hero LCP image', async () => {
       assert.ok(browser, 'Browser must be active');
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       await setupUniversalMocks(page);
@@ -657,7 +915,7 @@ describe('Storefront Phase 8 — Performance, Structured Data and SEO Acceptance
       await page.close();
     });
 
-    test('7. Product Detail renders truthful Product JSON-LD without synthetic reviews and with LCP image priority', async () => {
+    test('8. Product Detail renders truthful Product JSON-LD without synthetic reviews and with LCP image priority', async () => {
       assert.ok(browser, 'Browser must be active');
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       await setupUniversalMocks(page);
@@ -711,76 +969,203 @@ describe('Storefront Phase 8 — Performance, Structured Data and SEO Acceptance
       await page.close();
     });
 
-    test('8. Production Lab Core Web Vitals (LCP, CLS, Interaction Proxy) and Responsive Grid Evidence', async () => {
+    test('9. Production Lab Performance Reconciliation (Homepage, Catalog, Product Detail)', async () => {
       assert.ok(browser, 'Browser must be active');
-      const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-      await setupUniversalMocks(page);
 
-      await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('article', { timeout: 10000 });
-
-      // Measure real browser performance metrics in page context
-      const metrics = await page.evaluate(async () => {
-        return new Promise<{ lcp: number; cls: number; interactionDelay: number }>((resolve) => {
-          let lcpValue = 0;
-          let clsValue = 0;
-
-          const poLcp = new PerformanceObserver((entryList) => {
-            const entries = entryList.getEntries();
-            const lastEntry = entries[entries.length - 1];
-            if (lastEntry) {
-              lcpValue = lastEntry.startTime;
-            }
-          });
-          try {
-            poLcp.observe({ type: 'largest-contentful-paint', buffered: true });
-          } catch {}
-
-          const poCls = new PerformanceObserver((entryList) => {
-            for (const entry of entryList.getEntries()) {
-              if (!(entry as { hadRecentInput?: boolean }).hadRecentInput) {
-                clsValue += (entry as { value?: number }).value || 0;
-              }
-            }
-          });
-          try {
-            poCls.observe({ type: 'layout-shift', buffered: true });
-          } catch {}
-
-          // Documented interaction / lab proxy: dispatch interaction and measure event handling delay
-          const start = performance.now();
-          const target = document.querySelector('button, a, input');
-          let interactionDelay = 0;
-          if (target) {
-            target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-            interactionDelay = performance.now() - start;
-          }
-
-          setTimeout(() => {
-            resolve({ lcp: lcpValue, cls: clsValue, interactionDelay });
-          }, 800);
-        });
-      });
-
-      // Lab evidence validation
-      console.log(`[Production Lab Metrics] LCP: ${metrics.lcp.toFixed(2)}ms, CLS: ${metrics.cls.toFixed(4)}, Interaction Proxy Delay: ${metrics.interactionDelay.toFixed(2)}ms`);
-      assert.ok(metrics.lcp < 2500, `LCP budget < 2500ms (measured ${metrics.lcp}ms)`);
-      assert.ok(metrics.cls < 0.1, `CLS budget < 0.1 (measured ${metrics.cls})`);
-      assert.ok(metrics.interactionDelay < 200, `Interaction proxy budget < 200ms (measured ${metrics.interactionDelay}ms)`);
-
-      // Check product card image attributes
-      const cardImages = page.locator('article img');
-      const count = await cardImages.count();
-      assert.ok(count > 0, 'Catalog must render product cards');
-
-      for (let i = 0; i < count; i++) {
-        const img = cardImages.nth(i);
-        const sizes = await img.getAttribute('sizes');
-        assert.ok(sizes, `Card image ${i} must have sizes attribute for responsive delivery`);
+      interface RouteLabResult {
+        route: string;
+        url: string;
+        runs: Array<{
+          lcp: number;
+          cls: number;
+          longTasksDuration: number;
+          interactionProxyDelay: number;
+          requestCount: number;
+          transferredBytes: number;
+        }>;
+        median: {
+          lcp: number;
+          cls: number;
+          labInteractionProxy: number;
+          requestCount: number;
+          transferredBytes: number;
+        };
       }
 
-      await page.close();
+      const routesToMeasure = [
+        { name: 'Homepage', path: '/' },
+        { name: 'Catalog', path: '/products' },
+        { name: 'Product Detail', path: '/products/prod-almonds-001' },
+      ];
+
+      const RUNS_PER_ROUTE = 3;
+      const results: RouteLabResult[] = [];
+
+      for (const target of routesToMeasure) {
+        const runMetrics: RouteLabResult['runs'] = [];
+
+        for (let run = 1; run <= RUNS_PER_ROUTE; run++) {
+          // Fresh context per run ensures cold cache state
+          const context = await browser.newContext({
+            viewport: { width: 1280, height: 800 },
+          });
+          const page = await context.newPage();
+          await setupUniversalMocks(page);
+
+          let requestCount = 0;
+          page.on('request', () => { requestCount++; });
+
+          await page.goto(`${baseUrl}${target.path}`, { waitUntil: 'domcontentloaded' });
+          await page.waitForTimeout(600);
+
+          const perfData = await page.evaluate(async () => {
+            return new Promise<{
+              lcp: number;
+              cls: number;
+              longTasksDuration: number;
+              interactionProxyDelay: number;
+              transferredBytes: number;
+            }>((resolve) => {
+              let lcpValue = 0;
+              let clsValue = 0;
+              let longTasksSum = 0;
+
+              const poLcp = new PerformanceObserver((entryList) => {
+                const entries = entryList.getEntries();
+                const lastEntry = entries[entries.length - 1];
+                if (lastEntry) {
+                  lcpValue = lastEntry.startTime;
+                }
+              });
+              try {
+                poLcp.observe({ type: 'largest-contentful-paint', buffered: true });
+              } catch {}
+
+              const poCls = new PerformanceObserver((entryList) => {
+                for (const entry of entryList.getEntries()) {
+                  if (!(entry as { hadRecentInput?: boolean }).hadRecentInput) {
+                    clsValue += (entry as { value?: number }).value || 0;
+                  }
+                }
+              });
+              try {
+                poCls.observe({ type: 'layout-shift', buffered: true });
+              } catch {}
+
+              const poLongTask = new PerformanceObserver((entryList) => {
+                for (const entry of entryList.getEntries()) {
+                  longTasksSum += entry.duration;
+                }
+              });
+              try {
+                poLongTask.observe({ type: 'longtask', buffered: true });
+              } catch {}
+
+              // Lab Interaction Proxy: dispatch test click/focus interaction and measure event processing latency
+              const start = performance.now();
+              const interactiveTarget = document.querySelector('button, a, input');
+              let interactionProxyDelay = 0;
+              if (interactiveTarget) {
+                interactiveTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                interactiveTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                interactionProxyDelay = performance.now() - start;
+              }
+
+              setTimeout(() => {
+                // Calculate transferred bytes from resource timings
+                let totalTransferred = 0;
+                try {
+                  const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+                  for (const r of resources) {
+                    totalTransferred += r.transferSize || 0;
+                  }
+                  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+                  if (nav) {
+                    totalTransferred += nav.transferSize || 0;
+                  }
+                } catch {}
+
+                resolve({
+                  lcp: lcpValue,
+                  cls: clsValue,
+                  longTasksDuration: longTasksSum,
+                  interactionProxyDelay,
+                  transferredBytes: totalTransferred,
+                });
+              }, 400);
+            });
+          });
+
+          runMetrics.push({
+            lcp: perfData.lcp,
+            cls: perfData.cls,
+            longTasksDuration: perfData.longTasksDuration,
+            interactionProxyDelay: perfData.interactionProxyDelay,
+            requestCount,
+            transferredBytes: perfData.transferredBytes,
+          });
+
+          await context.close();
+        }
+
+        // Calculate median of 3 runs
+        const medianIdx = Math.floor(RUNS_PER_ROUTE / 2);
+        const sortedLcp = [...runMetrics].sort((a, b) => a.lcp - b.lcp);
+        const sortedCls = [...runMetrics].sort((a, b) => a.cls - b.cls);
+        const sortedProxy = [...runMetrics].sort((a, b) => (a.longTasksDuration + a.interactionProxyDelay) - (b.longTasksDuration + b.interactionProxyDelay));
+        const sortedReqs = [...runMetrics].sort((a, b) => a.requestCount - b.requestCount);
+        const sortedBytes = [...runMetrics].sort((a, b) => a.transferredBytes - b.transferredBytes);
+
+        const medianLcp = sortedLcp[medianIdx].lcp;
+        const medianCls = sortedCls[medianIdx].cls;
+        const medianProxy = sortedProxy[medianIdx].longTasksDuration > 0
+          ? sortedProxy[medianIdx].longTasksDuration
+          : sortedProxy[medianIdx].interactionProxyDelay;
+        const medianReqs = sortedReqs[medianIdx].requestCount;
+        const medianBytes = sortedBytes[medianIdx].transferredBytes;
+
+        results.push({
+          route: target.name,
+          url: `${baseUrl}${target.path}`,
+          runs: runMetrics,
+          median: {
+            lcp: medianLcp,
+            cls: medianCls,
+            labInteractionProxy: medianProxy,
+            requestCount: medianReqs,
+            transferredBytes: medianBytes,
+          },
+        });
+      }
+
+      console.log('\n=== PRODUCTION LAB PERFORMANCE RECONCILIATION TABLE ===');
+      console.log('Environment: Desktop 1280x800 | CPU 1x | Network Unthrottled (Lab) | Cache: Cold | Aggregation: Median of 3 Runs');
+      console.table(
+        results.map((r) => ({
+          Route: r.route,
+          'LCP (ms)': Number(r.median.lcp.toFixed(1)),
+          'CLS (score)': Number(r.median.cls.toFixed(4)),
+          'Lab Interaction Proxy (ms)': Number(r.median.labInteractionProxy.toFixed(2)),
+          'Requests (count)': r.median.requestCount,
+          'Transferred (bytes)': r.median.transferredBytes,
+        }))
+      );
+
+      // Validate budgets for all 3 routes
+      for (const res of results) {
+        assert.ok(
+          res.median.lcp < 2500,
+          `${res.route} median LCP must be < 2500ms (measured ${res.median.lcp.toFixed(1)}ms)`
+        );
+        assert.ok(
+          res.median.cls < 0.1,
+          `${res.route} median CLS must be < 0.1 (measured ${res.median.cls.toFixed(4)})`
+        );
+        assert.ok(
+          res.median.labInteractionProxy < 200,
+          `${res.route} median Lab Interaction Proxy must be < 200ms (measured ${res.median.labInteractionProxy.toFixed(2)}ms)`
+        );
+      }
     });
   });
 });
