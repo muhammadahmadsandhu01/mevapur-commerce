@@ -2,8 +2,8 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { publicConfig, readOrigin, readSiteName, readLegalName, readSafeAssetPath, readSafeColor } from '../src/config/publicConfig';
-import { branding, visibleSocialLinks, copyrightLine } from '../src/config/branding';
+import { publicConfig, readOrigin, readSiteName, readLegalName, readSafeAssetPath, readSafeColor } from '../src/config/publicConfig.ts';
+import { branding, visibleSocialLinks, copyrightLine } from '../src/config/branding.ts';
 import manifest from '../src/app/manifest.ts';
 
 const generateManifest = typeof manifest === 'function' ? manifest : (manifest as unknown as { default: typeof manifest }).default;

@@ -1,5 +1,8 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 
 import {
   normalizeProduct,
@@ -233,5 +236,75 @@ describe('Storefront Catalog Normalization & Integrity Suite', () => {
     assert.equal(emptyMeta.pages, 1);
     assert.equal(emptyMeta.hasNext, false);
     assert.equal(emptyMeta.hasPrev, false);
+  });
+});
+
+describe('ProductCard Navigation & Cloudflare R2 RemotePattern Contracts', () => {
+  test('next.config.js allows exact Cloudflare R2 hostname and /products/** pathname', () => {
+    const configPath = path.resolve(process.cwd(), 'next.config.js');
+    const require = createRequire(import.meta.url);
+    const nextConfig = require(configPath);
+
+    assert.ok(nextConfig.images?.remotePatterns, 'remotePatterns must be defined');
+    const r2Pattern = nextConfig.images.remotePatterns.find(
+      (p: { hostname: string; pathname?: string; protocol?: string }) =>
+        p.hostname === 'pub-98eada4c5a224f8bbb2552f65a93134e.r2.dev'
+    );
+
+    assert.ok(r2Pattern, 'Must allow exact R2 hostname pub-98eada4c5a224f8bbb2552f65a93134e.r2.dev');
+    assert.equal(r2Pattern.protocol, 'https');
+    assert.equal(r2Pattern.pathname, '/products/**');
+
+    // Reject broad wildcard or open hostnames
+    const hasUnrestrictedWildcard = nextConfig.images.remotePatterns.some(
+      (p: { hostname: string }) => p.hostname === '*' || p.hostname === '**'
+    );
+    assert.equal(hasUnrestrictedWildcard, false, 'Must not allow unrestricted wildcard image hostnames');
+  });
+
+  test('ProductCard navigates using product._id and wraps visible content in semantic Link', () => {
+    const cardPath = path.resolve(process.cwd(), 'src/components/products/ProductCard.tsx');
+    const source = fs.readFileSync(cardPath, 'utf-8');
+
+    // 1. Navigation target must use product._id with encodeURIComponent
+    assert.ok(
+      source.includes('const targetHref = `/products/${encodeURIComponent(product._id)}`;'),
+      'ProductCard must construct targetHref using product._id'
+    );
+    assert.equal(
+      source.includes('product.slug || product._id'),
+      false,
+      'ProductCard must not use slug for product detail route'
+    );
+
+    // 2. Visible content must be inside the semantic Link, not an invisible absolute overlay
+    assert.equal(
+      source.includes('className="absolute inset-0 z-0"'),
+      false,
+      'Fragile invisible z-0 overlay link must be eliminated'
+    );
+    assert.ok(
+      source.includes('<Link\n        href={targetHref}') || source.includes('<Link href={targetHref}'),
+      'Semantic Link must wrap card content'
+    );
+
+    // 3. Wishlist button must remain outside the Link as an absolute sibling with high z-index
+    const linkIndex = source.indexOf('<Link');
+    const linkCloseIndex = source.indexOf('</Link>');
+    const wishlistButtonIndex = source.indexOf('onClick={toggleWishlist}');
+
+    assert.ok(linkIndex !== -1, 'Link must exist');
+    assert.ok(linkCloseIndex !== -1, '</Link> must exist');
+    assert.ok(wishlistButtonIndex !== -1, 'Wishlist button must exist');
+    assert.ok(
+      wishlistButtonIndex > linkCloseIndex,
+      'Wishlist button must be outside <Link>...</Link> to prevent triggering product detail navigation'
+    );
+
+    // 4. Wishlist click must call preventDefault and stopPropagation
+    assert.ok(
+      source.includes('event.preventDefault();') && source.includes('event.stopPropagation();'),
+      'Wishlist button click handler must stop event propagation'
+    );
   });
 });

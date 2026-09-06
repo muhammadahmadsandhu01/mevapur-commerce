@@ -53,6 +53,11 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
+        hostname: 'pub-98eada4c5a224f8bbb2552f65a93134e.r2.dev',
+        pathname: '/products/**',
+      },
+      {
+        protocol: 'https',
         hostname: 'via.placeholder.com',
       },
       {

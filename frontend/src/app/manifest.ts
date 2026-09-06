@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { branding } from '@/config/branding';
+import { branding } from '../config/branding.ts';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {

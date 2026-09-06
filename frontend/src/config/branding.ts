@@ -1,4 +1,4 @@
-import { publicConfig } from './publicConfig';
+import { publicConfig } from './publicConfig.ts';
 import type { BrandingConfig, SocialLinks } from './brandingTypes';
 
 const emptyContact = '';
