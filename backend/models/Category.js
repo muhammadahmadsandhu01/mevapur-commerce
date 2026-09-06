@@ -12,7 +12,12 @@ if (mongoose.models.Category) {
     description: { type: String, default: '' },
     image: { type: String, default: '' },
     icon: { type: String, default: '' },
-    parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },
+    parentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+      default: null,
+      set: (v) => (typeof v === 'string' && v.trim() === '' ? null : v)
+    },
     isActive: { type: Boolean, default: true },
     isFeatured: { type: Boolean, default: false },
     displayOrder: { type: Number, default: 0 },

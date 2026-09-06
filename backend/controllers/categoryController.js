@@ -1,6 +1,45 @@
+const mongoose = require('mongoose');
 const Category = require('../models/Category');
 const Product = require('../models/Product');
 const slugify = require('slugify');
+
+async function normalizeAndValidateParentId(parentId, currentCategoryId = null) {
+  if (parentId === undefined) {
+    return { hasValue: false, value: undefined };
+  }
+
+  if (parentId === null || (typeof parentId === 'string' && parentId.trim() === '')) {
+    return { hasValue: true, value: null };
+  }
+
+  const rawId = typeof parentId === 'string' ? parentId.trim() : parentId.toString();
+
+  if (!mongoose.Types.ObjectId.isValid(rawId)) {
+    return { error: 'Invalid parent category ID' };
+  }
+
+  if (currentCategoryId && currentCategoryId.toString() === rawId) {
+    return { error: 'Category cannot be its own parent' };
+  }
+
+  const parentCategory = await Category.findById(rawId);
+  if (!parentCategory) {
+    return { error: 'Parent category not found' };
+  }
+
+  // Prevent cyclic hierarchies: ensure currentCategory is not an ancestor of the proposed parent
+  if (currentCategoryId) {
+    let ancestor = parentCategory;
+    while (ancestor && ancestor.parentId) {
+      if (ancestor.parentId.toString() === currentCategoryId.toString()) {
+        return { error: 'Cyclic category hierarchy is not allowed' };
+      }
+      ancestor = await Category.findById(ancestor.parentId);
+    }
+  }
+
+  return { hasValue: true, value: parentCategory._id };
+}
 
 // @desc    Get all categories (Flat list for easy Admin management)
 // @route   GET /api/categories
@@ -43,12 +82,24 @@ exports.getCategoryById = async (req, res) => {
 // @access  Private/Admin
 exports.createCategory = async (req, res) => {
   try {
+    const payload = { ...req.body };
+
     // Auto-generate slug if not provided
-    if (!req.body.slug && req.body.name) {
-      req.body.slug = slugify(req.body.name, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
+    if (!payload.slug && payload.name) {
+      payload.slug = slugify(payload.name, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
     }
 
-    const category = await Category.create(req.body);
+    if ('parentId' in payload) {
+      const parentCheck = await normalizeAndValidateParentId(payload.parentId);
+      if (parentCheck.error) {
+        return res.status(400).json({ success: false, message: parentCheck.error });
+      }
+      if (parentCheck.hasValue) {
+        payload.parentId = parentCheck.value;
+      }
+    }
+
+    const category = await Category.create(payload);
     res.status(201).json({ success: true, data: category });
   } catch (error) {
     if (error.code === 11000) {
@@ -63,14 +114,26 @@ exports.createCategory = async (req, res) => {
 // @access  Private/Admin
 exports.updateCategory = async (req, res) => {
   try {
+    const payload = { ...req.body };
+
     // Auto-generate slug if name is modified and slug is not explicitly provided
-    if (req.body.name && !req.body.slug) {
-      req.body.slug = slugify(req.body.name, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
+    if (payload.name && !payload.slug) {
+      payload.slug = slugify(payload.name, { lower: true, strict: true }) + '-' + Date.now().toString().slice(-4);
+    }
+
+    if ('parentId' in payload) {
+      const parentCheck = await normalizeAndValidateParentId(payload.parentId, req.params.id);
+      if (parentCheck.error) {
+        return res.status(400).json({ success: false, message: parentCheck.error });
+      }
+      if (parentCheck.hasValue) {
+        payload.parentId = parentCheck.value;
+      }
     }
 
     const category = await Category.findByIdAndUpdate(
-      req.params.id, 
-      req.body, 
+      req.params.id,
+      payload,
       { new: true, runValidators: true }
     );
     
