@@ -136,6 +136,14 @@ const validateProtectedFields = (data, ctx) => {
   }
 };
 
+const publishDateSchema = z.union([
+  z.string().trim().refine((val) => val === '' || !isNaN(Date.parse(val)), {
+    message: 'publishDate must be a valid date string or empty'
+  }),
+  z.date(),
+  z.null()
+]).optional();
+
 // 1. DRAFT CREATE SCHEMA
 const draftCreateSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required').max(200),
@@ -186,7 +194,7 @@ const draftCreateSchema = z.object({
     keywords: z.string().trim().max(200).optional(),
     canonicalUrl: z.string().url().max(500).optional().or(z.literal(''))
   }).strict().optional(),
-  publishDate: z.string().optional().or(z.date()).optional(),
+  publishDate: publishDateSchema,
   enableReviews: z.boolean().optional().default(true),
   allowWishlist: z.boolean().optional().default(true),
   allowCompare: z.boolean().optional().default(true),
@@ -251,7 +259,7 @@ const publishedCreateSchema = z.object({
     keywords: z.string().trim().max(200).optional(),
     canonicalUrl: z.string().url().max(500).optional().or(z.literal(''))
   }).strict().optional(),
-  publishDate: z.string().optional().or(z.date()).optional(),
+  publishDate: publishDateSchema,
   enableReviews: z.boolean().optional().default(true),
   allowWishlist: z.boolean().optional().default(true),
   allowCompare: z.boolean().optional().default(true),
@@ -346,7 +354,7 @@ const productUpdateSchema = z.object({
     keywords: z.string().trim().max(200).optional(),
     canonicalUrl: z.string().url().max(500).optional().or(z.literal(''))
   }).strict().optional(),
-  publishDate: z.string().optional().or(z.date()).optional(),
+  publishDate: publishDateSchema,
   enableReviews: z.boolean().optional(),
   allowWishlist: z.boolean().optional(),
   allowCompare: z.boolean().optional(),

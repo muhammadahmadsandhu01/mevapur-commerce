@@ -35,7 +35,7 @@ export interface ProductFormFieldValues {
   shippingClass?: string;
   freeShipping?: boolean;
   taxClass?: string;
-  publishDate?: string;
+  publishDate?: string | Date | null;
   enableReviews?: boolean;
   allowWishlist?: boolean;
   allowCompare?: boolean;
@@ -172,13 +172,15 @@ export function validateProductForm(
 
 /**
  * Prepares an honest product payload for the backend API.
- * Never includes client-supplied `isActive`, `discount`, or direct `stock` on published mutations.
+ * Never includes client-supplied `isActive`, `discount`, or direct `stock` on mutations.
+ * In 'update' mode, initialStock and variant stock are strictly omitted to maintain inventory transaction authority.
  */
 export function prepareProductPayload(
   formData: ProductFormFieldValues,
   status: 'draft' | 'published',
   mediaAssetIds: string[] = [],
-  expectedVersion?: number
+  expectedVersion?: number,
+  mode: 'create' | 'update' = expectedVersion !== undefined ? 'update' : 'create'
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     name: formData.name.trim(),
@@ -231,8 +233,11 @@ export function prepareProductPayload(
     payload.originalPrice = formData.originalPrice ? Number(formData.originalPrice) : 0;
   }
 
-  if (formData.stock !== undefined || formData.initialStock !== undefined) {
-    payload.initialStock = Number(formData.stock ?? formData.initialStock ?? 0);
+  // initialStock is only valid during product creation
+  if (mode === 'create') {
+    if (formData.stock !== undefined || formData.initialStock !== undefined) {
+      payload.initialStock = Number(formData.stock ?? formData.initialStock ?? 0);
+    }
   }
 
   if (formData.lowStockAlert !== undefined) {
@@ -308,7 +313,19 @@ export function prepareProductPayload(
   }
 
   if (formData.publishDate !== undefined) {
-    payload.publishDate = formData.publishDate || null;
+    if (typeof formData.publishDate === 'string') {
+      const trimmed = formData.publishDate.trim();
+      if (trimmed === '') {
+        payload.publishDate = null;
+      } else {
+        const parsed = new Date(trimmed);
+        payload.publishDate = !isNaN(parsed.getTime()) ? parsed.toISOString() : null;
+      }
+    } else if (formData.publishDate instanceof Date) {
+      payload.publishDate = !isNaN(formData.publishDate.getTime()) ? formData.publishDate.toISOString() : null;
+    } else if (formData.publishDate === null) {
+      payload.publishDate = null;
+    }
   }
 
   if (formData.enableReviews !== undefined) {
@@ -336,19 +353,24 @@ export function prepareProductPayload(
   }
 
   if (Array.isArray(formData.variants)) {
-    payload.variants = formData.variants.map((v) => ({
-      _id: v._id || undefined,
-      sku: v.sku.trim().toUpperCase(),
-      barcode: v.barcode ? v.barcode.trim() : '',
-      weight: v.weight !== undefined ? (v.weight === null ? undefined : Number(v.weight)) : undefined,
-      attributes: v.attributes,
-      price: Number(v.price),
-      salePrice: v.salePrice ? Number(v.salePrice) : 0,
-      stock: Number(v.stock || 0),
-      mediaAssetIds: v.mediaAssetIds || [],
-      images: v.images || [],
-      isDefault: Boolean(v.isDefault)
-    }));
+    payload.variants = formData.variants.map((v) => {
+      const variantObj: Record<string, unknown> = {
+        _id: v._id || undefined,
+        sku: v.sku.trim().toUpperCase(),
+        barcode: v.barcode ? v.barcode.trim() : '',
+        weight: v.weight !== undefined ? (v.weight === null ? undefined : Number(v.weight)) : undefined,
+        attributes: v.attributes,
+        price: Number(v.price),
+        salePrice: v.salePrice ? Number(v.salePrice) : 0,
+        mediaAssetIds: v.mediaAssetIds || [],
+        images: v.images || [],
+        isDefault: Boolean(v.isDefault)
+      };
+      if (mode === 'create') {
+        variantObj.stock = Number(v.stock || 0);
+      }
+      return variantObj;
+    });
   }
 
   payload.mediaAssetIds = mediaAssetIds;
@@ -370,17 +392,49 @@ export function prepareProductPayload(
 }
 
 /**
- * Maps error status to user-friendly error copy.
- * Specifically maps HTTP 409 concurrency conflict to a reload and review prompt.
+ * Maps error status to user-friendly, actionable error copy.
+ * Handles structured backend responses (response.data.error.details, response.data.error.message)
+ * while preserving HTTP 409 concurrency conflict messaging.
  */
 export function mapProductSaveError(err: unknown): string {
   if (axios.isAxiosError(err)) {
     if (err.response?.status === 409) {
       return 'This product was modified by another administrator. Please reload and review the latest changes.';
     }
-    const msg = err.response?.data?.message;
-    if (typeof msg === 'string') return msg;
+
+    const resData = err.response?.data;
+    if (resData && typeof resData === 'object') {
+      const details = (resData as { error?: { details?: Array<{ field?: string; message?: string }> } }).error?.details
+        || (resData as { details?: Array<{ field?: string; message?: string }> }).details;
+
+      if (Array.isArray(details) && details.length > 0) {
+        const detailMsgs = details
+          .map((d) => {
+            if (d.field && d.message) return `${d.field}: ${d.message}`;
+            return d.message || '';
+          })
+          .filter(Boolean);
+        if (detailMsgs.length > 0) {
+          return `Validation error: ${detailMsgs.join('; ')}`;
+        }
+      }
+
+      const errorMsg = (resData as { error?: { message?: string } }).error?.message;
+      if (typeof errorMsg === 'string' && errorMsg.trim() !== '') {
+        return errorMsg;
+      }
+
+      const flatMsg = (resData as { message?: string }).message;
+      if (typeof flatMsg === 'string' && flatMsg.trim() !== '') {
+        return flatMsg;
+      }
+    }
+
+    if (err.response?.statusText) {
+      return `Request failed with status ${err.response.status}: ${err.response.statusText}`;
+    }
   }
+
   if (err instanceof Error && err.message) {
     return err.message;
   }

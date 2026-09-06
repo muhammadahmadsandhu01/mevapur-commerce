@@ -251,6 +251,164 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
         canonicalUrl: 'https://mevapur.com/products/pistachios'
       });
     });
+
+    test('strictly differentiates create mode (includes initialStock/variant stock) vs update mode (omits all stock)', () => {
+      const formWithStock: ProductFormFieldValues = {
+        name: 'Cashews With Stock',
+        price: 800,
+        stock: 50,
+        initialStock: 50,
+        variants: [{
+          sku: 'CASHEW-1KG',
+          attributes: [{ name: 'Size', value: '1kg' }],
+          price: 800,
+          stock: 25,
+          isDefault: true
+        }]
+      };
+
+      // In create mode: initialStock and variant stock are included
+      const createPayload = prepareProductPayload(formWithStock, 'draft', [], undefined, 'create');
+      assert.strictEqual(createPayload.initialStock, 50);
+      assert.strictEqual((createPayload.variants as Array<{ stock?: number }>)[0].stock, 25);
+
+      // In update mode: initialStock and variant stock are strictly omitted
+      const updatePayload = prepareProductPayload(formWithStock, 'draft', [], 2, 'update');
+      assert.strictEqual('initialStock' in updatePayload, false, 'update payload must omit initialStock');
+      assert.strictEqual('stock' in updatePayload, false, 'update payload must omit stock');
+      assert.strictEqual('stock' in (updatePayload.variants as Array<Record<string, unknown>>)[0], false, 'update payload variant must omit stock');
+    });
+
+    test('normalizes publishDate across string, whitespace, null, and valid ISO formats', () => {
+      const baseForm: ProductFormFieldValues = { name: 'Date Item', price: 100 };
+
+      // Empty string -> null
+      const emptyPayload = prepareProductPayload({ ...baseForm, publishDate: '' }, 'draft');
+      assert.strictEqual(emptyPayload.publishDate, null);
+
+      // Whitespace -> null
+      const whitespacePayload = prepareProductPayload({ ...baseForm, publishDate: '   ' }, 'draft');
+      assert.strictEqual(whitespacePayload.publishDate, null);
+
+      // Null -> null
+      const nullPayload = prepareProductPayload({ ...baseForm, publishDate: null }, 'draft');
+      assert.strictEqual(nullPayload.publishDate, null);
+
+      // Undefined -> undefined (omitted)
+      const undefPayload = prepareProductPayload(baseForm, 'draft');
+      assert.strictEqual('publishDate' in undefPayload, false);
+
+      // Valid ISO string
+      const isoPayload = prepareProductPayload({ ...baseForm, publishDate: '2026-10-15T09:30:00.000Z' }, 'draft');
+      assert.strictEqual(isoPayload.publishDate, '2026-10-15T09:30:00.000Z');
+
+      // Valid Date instance
+      const dateObj = new Date('2026-10-15T09:30:00.000Z');
+      const datePayload = prepareProductPayload({ ...baseForm, publishDate: dateObj }, 'draft');
+      assert.strictEqual(datePayload.publishDate, '2026-10-15T09:30:00.000Z');
+    });
+
+    test('verifies a fully hydrated Edit Product form payload contains zero unallowed keys', () => {
+      const fullyHydratedEditForm: ProductFormFieldValues = {
+        name: 'Complete Edit Walnuts',
+        slug: 'complete-edit-walnuts',
+        shortName: 'Walnuts',
+        sku: 'WALNUT-2026',
+        barcode: '987654321012',
+        brand: '67c9c0000000000000000002',
+        category: '67c9c0000000000000000001',
+        subcategory: '67c9c0000000000000000003',
+        productType: 'simple',
+        tags: ['walnuts', 'organic', 'raw'],
+        isFeatured: true,
+        isNewArrival: false,
+        isBestSeller: true,
+        isTrending: false,
+        costPrice: 950,
+        price: 1500,
+        originalPrice: 1800,
+        salePrice: undefined,
+        taxClass: 'standard',
+        stock: 100,
+        initialStock: 100,
+        lowStockAlert: 15,
+        allowBackorders: true,
+        trackInventory: true,
+        images: ['https://example.com/walnut.webp'],
+        primaryImage: 'https://example.com/walnut.webp',
+        videoUrl: 'https://youtube.com/watch?v=walnuts',
+        shortDescription: 'Organic raw walnut kernels.',
+        description: 'Carefully selected premium mountain walnuts.',
+        ingredients: '100% Pure Walnut Kernels',
+        nutritionalFacts: 'Energy: 654 kcal, Protein: 15g',
+        storageInstructions: 'Keep in airtight container away from moisture',
+        shelfLife: '12 months',
+        countryOfOrigin: 'Pakistan',
+        weight: 500,
+        dimensions: { length: 15, width: 10, height: 5, unit: 'cm' },
+        shippingClass: 'standard',
+        freeShipping: false,
+        publishDate: '',
+        enableReviews: true,
+        allowWishlist: true,
+        allowCompare: true,
+        allowCOD: true,
+        attributes: [{ name: 'Type', value: 'Shelled' }],
+        variants: [{
+          _id: '67c9c0000000000000000004',
+          sku: 'WALNUT-500G',
+          barcode: '987654321013',
+          weight: 500,
+          attributes: [{ name: 'Weight', value: '500g' }],
+          price: 1500,
+          salePrice: 1400,
+          stock: 50,
+          isDefault: true
+        }],
+        relatedProducts: ['67c9c0000000000000000005'],
+        seoTitle: 'Buy Organic Walnuts Online',
+        metaDescription: 'Fresh organic walnuts available.',
+        keywords: 'walnut, dryfruit',
+        canonicalUrl: 'https://mevapur.com/products/walnuts'
+      };
+
+      const payload = prepareProductPayload(fullyHydratedEditForm, 'draft', ['67c9c0000000000000000006'], 3, 'update');
+
+      // Forbidden keys MUST NOT exist
+      assert.strictEqual('initialStock' in payload, false);
+      assert.strictEqual('stock' in payload, false);
+      assert.strictEqual('isActive' in payload, false);
+      assert.strictEqual('discount' in payload, false);
+      assert.strictEqual('shortName' in payload, false);
+      assert.strictEqual('productType' in payload, false);
+      assert.strictEqual('lowStockAlert' in payload, false);
+      assert.strictEqual('images' in payload, false);
+      assert.strictEqual('primaryImage' in payload, false);
+
+      // Transformed and valid keys MUST exist
+      assert.strictEqual(payload.name, 'Complete Edit Walnuts');
+      assert.strictEqual(payload.slug, 'complete-edit-walnuts');
+      assert.strictEqual(payload.costPrice, 950);
+      assert.strictEqual(payload.price, 1500);
+      assert.strictEqual(payload.originalPrice, 1800);
+      assert.strictEqual(payload.lowStockThreshold, 15);
+      assert.strictEqual(payload.publishDate, null);
+      assert.strictEqual(payload.expectedVersion, 3);
+      assert.strictEqual(payload.ingredients, '100% Pure Walnut Kernels');
+      assert.strictEqual(payload.storageInstructions, 'Keep in airtight container away from moisture');
+      assert.strictEqual(payload.shelfLife, '12 months');
+      assert.strictEqual(payload.countryOfOrigin, 'Pakistan');
+      assert.strictEqual(payload.allowBackorders, true);
+      assert.strictEqual(payload.trackInventory, true);
+
+      // Variant integrity
+      const variants = payload.variants as Array<Record<string, unknown>>;
+      assert.strictEqual(variants.length, 1);
+      assert.strictEqual(variants[0].sku, 'WALNUT-500G');
+      assert.strictEqual('stock' in variants[0], false);
+      assert.strictEqual(variants[0].price, 1500);
+      assert.strictEqual(variants[0].salePrice, 1400);
+    });
   });
 
   describe('Error Mapping and Concurrency Handling (mapProductSaveError)', () => {
@@ -268,6 +426,68 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
         userMessage,
         'This product was modified by another administrator. Please reload and review the latest changes.'
       );
+    });
+
+    test('maps structured backend validation errors from response.data.error.details', () => {
+      const structuredError = {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Request validation failed',
+              details: [
+                { field: 'publishDate', message: 'Invalid input' },
+                { field: '', message: 'Unrecognized key: "initialStock"' }
+              ]
+            }
+          }
+        }
+      };
+
+      const userMessage = mapProductSaveError(structuredError);
+      assert.strictEqual(
+        userMessage,
+        'Validation error: publishDate: Invalid input; Unrecognized key: "initialStock"'
+      );
+    });
+
+    test('maps error message from response.data.error.message when details are absent', () => {
+      const structuredError = {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Scheduled date must be in the future'
+            }
+          }
+        }
+      };
+
+      const userMessage = mapProductSaveError(structuredError);
+      assert.strictEqual(userMessage, 'Scheduled date must be in the future');
+    });
+
+    test('maps flat details array from response.data.details if returned directly', () => {
+      const flatDetailsError = {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            details: [
+              { field: 'name', message: 'Product name is required' }
+            ]
+          }
+        }
+      };
+
+      const userMessage = mapProductSaveError(flatDetailsError);
+      assert.strictEqual(userMessage, 'Validation error: name: Product name is required');
     });
 
     test('maps standard Axios error message safely', () => {

@@ -404,7 +404,7 @@ export default function AddProductPage() {
 
     setLoading(true);
     try {
-      const payload = prepareProductPayload(formData, status, mediaAssetIds);
+      const payload = prepareProductPayload(formData, status, mediaAssetIds, undefined, 'create');
       const response = await createProduct(payload);
       if (response.success) {
         alert(status === 'published' ? 'Product published successfully!' : 'Draft saved successfully!');

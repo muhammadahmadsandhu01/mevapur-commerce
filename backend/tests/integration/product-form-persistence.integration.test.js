@@ -440,4 +440,169 @@ describe('Product Form Persistence & Public Allowlist Protection Integration Tes
       expect(txCount).toBe(1);
     });
   });
+
+  describe('7. Hotfix Regressions: Payload Normalization & Strict Update Validation', () => {
+    it('accepts blank publishDate ("" or null) on draft update without validation error', async () => {
+      const createRes = await request(app)
+        .post('/api/admin/products/draft')
+        .set('Authorization', adminToken)
+        .send({
+          name: 'Draft Blank Publish Date',
+          price: 200,
+          publishDate: ''
+        });
+      expect(createRes.status).toBe(201);
+      const productId = createRes.body.data.product._id;
+
+      // Update with empty string publishDate
+      const updateRes1 = await request(app)
+        .put(`/api/admin/products/${productId}`)
+        .set('Authorization', adminToken)
+        .send({
+          name: 'Draft Blank Publish Date Updated',
+          publishDate: ''
+        });
+      expect(updateRes1.status).toBe(200);
+
+      // Update with null publishDate
+      const updateRes2 = await request(app)
+        .put(`/api/admin/products/${productId}`)
+        .set('Authorization', adminToken)
+        .send({
+          publishDate: null
+        });
+      expect(updateRes2.status).toBe(200);
+    });
+
+    it('accepts valid ISO publishDate on update', async () => {
+      const createRes = await request(app)
+        .post('/api/admin/products/draft')
+        .set('Authorization', adminToken)
+        .send({ name: 'Scheduled Date Test', price: 300 });
+      expect(createRes.status).toBe(201);
+      const productId = createRes.body.data.product._id;
+
+      const futureDate = '2026-12-01T10:00:00.000Z';
+      const updateRes = await request(app)
+        .put(`/api/admin/products/${productId}`)
+        .set('Authorization', adminToken)
+        .send({
+          publishDate: futureDate
+        });
+      expect(updateRes.status).toBe(200);
+      expect(new Date(updateRes.body.data.product.publishDate).toISOString()).toBe(futureDate);
+    });
+
+    it('strictly rejects initialStock and direct stock on update with HTTP 400', async () => {
+      const createRes = await request(app)
+        .post('/api/admin/products/draft')
+        .set('Authorization', adminToken)
+        .send({
+          name: 'Stock Update Rejection Test',
+          price: 400,
+          initialStock: 25
+        });
+      expect(createRes.status).toBe(201);
+      const productId = createRes.body.data.product._id;
+
+      // Attempting to send initialStock on PUT
+      const updateRes1 = await request(app)
+        .put(`/api/admin/products/${productId}`)
+        .set('Authorization', adminToken)
+        .send({
+          name: 'Attempt Initial Stock Overwrite',
+          initialStock: 50
+        });
+      expect(updateRes1.status).toBe(400);
+      expect(updateRes1.body.error.code).toBe('VALIDATION_ERROR');
+
+      // Attempting to send direct stock on PUT
+      const updateRes2 = await request(app)
+        .put(`/api/admin/products/${productId}`)
+        .set('Authorization', adminToken)
+        .send({
+          stock: 99
+        });
+      expect(updateRes2.status).toBe(400);
+      expect(updateRes2.body.error.code).toBe('VALIDATION_ERROR');
+
+      // Verify stock and inventory transactions remain untouched
+      const freshProduct = await Product.findById(productId);
+      expect(freshProduct.stock).toBe(25);
+      const txCount = await InventoryTransaction.countDocuments({ product: productId });
+      expect(txCount).toBe(1);
+    });
+
+    it('accepts complete realistically hydrated edit form payload on update', async () => {
+      const createRes = await request(app)
+        .post('/api/admin/products/draft')
+        .set('Authorization', adminToken)
+        .send({
+          name: 'Hydrated Edit Base',
+          price: 700,
+          initialStock: 30
+        });
+      expect(createRes.status).toBe(201);
+      const productId = createRes.body.data.product._id;
+
+      // Realistic full payload serialized by prepareProductPayload in 'update' mode
+      const fullUpdatePayload = {
+        name: 'Hydrated Edit Updated',
+        status: 'draft',
+        slug: `hydrated-edit-updated-${Date.now()}`,
+        shortDescription: 'Short desc',
+        description: 'Detailed description',
+        category: testCategory._id.toString(),
+        subcategory: null,
+        brand: null,
+        sku: `HYDR-${Date.now()}`,
+        barcode: '123456789012',
+        costPrice: 500,
+        price: 750,
+        originalPrice: 900,
+        lowStockThreshold: 5,
+        isFeatured: true,
+        isNewArrival: false,
+        isBestSeller: true,
+        isTrending: false,
+        allowBackorders: true,
+        trackInventory: true,
+        tags: ['walnuts', 'dryfruit'],
+        ingredients: '100% Organic',
+        nutritionalFacts: 'Calories: 200',
+        storageInstructions: 'Dry place',
+        shelfLife: '6 months',
+        countryOfOrigin: 'Pakistan',
+        weight: 250,
+        dimensions: { length: 10, width: 5, height: 2, unit: 'cm' },
+        shippingClass: 'standard',
+        freeShipping: false,
+        taxClass: 'standard',
+        publishDate: null,
+        enableReviews: true,
+        allowWishlist: true,
+        allowCompare: true,
+        allowCOD: true,
+        relatedProducts: [],
+        mediaAssetIds: [testMediaAsset._id.toString()],
+        videoUrl: '',
+        seo: {
+          metaTitle: 'SEO Title',
+          metaDescription: 'SEO Desc',
+          keywords: 'keywords',
+          canonicalUrl: ''
+        }
+      };
+
+      const updateRes = await request(app)
+        .put(`/api/admin/products/${productId}`)
+        .set('Authorization', adminToken)
+        .send(fullUpdatePayload);
+
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.data.product.name).toBe('Hydrated Edit Updated');
+      expect(updateRes.body.data.product.costPrice).toBe(500);
+      expect(updateRes.body.data.product.stock).toBe(30);
+    });
+  });
 });

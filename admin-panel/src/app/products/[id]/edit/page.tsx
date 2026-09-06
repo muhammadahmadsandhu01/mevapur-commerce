@@ -480,7 +480,7 @@ export default function EditProductPage() {
 
     setLoading(true);
     try {
-      const payload = prepareProductPayload(formData, status, mediaAssetIds, expectedVersion);
+      const payload = prepareProductPayload(formData, status, mediaAssetIds, expectedVersion, 'update');
       const response = await updateProduct(productId, payload);
       if (response.success) {
         alert(status === 'published' ? 'Product updated successfully!' : 'Draft saved successfully!');
