@@ -33,6 +33,7 @@ exports.getAdminProducts = async (req, res, next) => {
 exports.getAdminProduct = async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id)
+      .select('+costPrice')
       .populate('category', 'name slug')
       .populate('subcategory', 'name slug')
       .populate('brand', 'name')

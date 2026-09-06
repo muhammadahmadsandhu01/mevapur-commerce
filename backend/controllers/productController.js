@@ -1,6 +1,91 @@
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
 
+/**
+ * Explicit Public Product Serializer
+ * Strict allowlist projection for public storefront responses.
+ * Guarantees internal/confidential fields (costPrice, lowStockThreshold,
+ * trackInventory, barcode, internal concurrency/transactions, __v) are never exposed.
+ */
+function serializePublicVariant(variant) {
+  if (!variant) return null;
+  const v = variant.toObject ? variant.toObject() : variant;
+  return {
+    _id: v._id,
+    sku: v.sku,
+    attributes: v.attributes || [],
+    price: v.price,
+    salePrice: v.salePrice,
+    stock: v.stock,
+    weight: v.weight,
+    images: v.images || [],
+    mediaAssetIds: v.mediaAssetIds || [],
+    isDefault: Boolean(v.isDefault)
+  };
+}
+
+function serializePublicProduct(product) {
+  if (!product) return null;
+  const p = product.toObject ? product.toObject() : product;
+
+  return {
+    _id: p._id,
+    name: p.name,
+    slug: p.slug,
+    shortDescription: p.shortDescription || '',
+    description: p.description || '',
+    category: p.category || null,
+    subcategory: p.subcategory || null,
+    brand: p.brand || null,
+    sku: p.sku || '',
+    price: p.price,
+    originalPrice: p.originalPrice,
+    stock: p.stock,
+    rating: p.rating,
+    reviewCount: p.reviewCount,
+    soldCount: p.soldCount,
+    status: p.status,
+    isActive: p.isActive,
+    isFeatured: Boolean(p.isFeatured),
+    isNewArrival: Boolean(p.isNewArrival),
+    isBestSeller: Boolean(p.isBestSeller),
+    isTrending: Boolean(p.isTrending),
+    allowBackorders: Boolean(p.allowBackorders),
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    ingredients: p.ingredients || '',
+    nutritionalFacts: p.nutritionalFacts || '',
+    storageInstructions: p.storageInstructions || '',
+    shelfLife: p.shelfLife || '',
+    countryOfOrigin: p.countryOfOrigin || '',
+    weight: p.weight,
+    dimensions: p.dimensions,
+    shippingClass: p.shippingClass,
+    freeShipping: Boolean(p.freeShipping),
+    taxClass: p.taxClass,
+    publishDate: p.publishDate,
+    enableReviews: p.enableReviews !== false,
+    allowWishlist: p.allowWishlist !== false,
+    allowCompare: p.allowCompare !== false,
+    allowCOD: p.allowCOD !== false,
+    relatedProducts: p.relatedProducts || [],
+    attributes: p.attributes || [],
+    variants: Array.isArray(p.variants) ? p.variants.map(serializePublicVariant) : [],
+    mediaAssetIds: p.mediaAssetIds || [],
+    primaryMediaAssetId: p.primaryMediaAssetId || null,
+    images: p.images || [],
+    primaryImage: p.primaryImage || '',
+    image: p.image || '',
+    gallery: p.gallery || [],
+    videoUrl: p.videoUrl || '',
+    seo: p.seo || {},
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt
+  };
+}
+
+exports.serializePublicProduct = serializePublicProduct;
+exports.serializePublicVariant = serializePublicVariant;
+
 // @desc    Get all products for public storefront
 // @route   GET /api/products
 // @access  Public
@@ -100,14 +185,15 @@ exports.getProducts = async (req, res) => {
         .skip(skip)
         .populate('category', 'name slug')
         .populate('brand', 'name')
-        .select('-__v')
         .lean(),
       Product.countDocuments(query)
     ]);
 
+    const serializedProducts = products.map(serializePublicProduct);
+
     res.json({
       success: true,
-      data: products,
+      data: serializedProducts,
       pagination: {
         page,
         pages: Math.ceil(total / limit) || 1,
@@ -151,7 +237,7 @@ exports.getProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    res.json({ success: true, data: product });
+    res.json({ success: true, data: serializePublicProduct(product) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch product details' });
   }
@@ -170,7 +256,7 @@ exports.getTopProducts = async (req, res) => {
       .populate('brand', 'name')
       .lean();
 
-    res.json({ success: true, data: products });
+    res.json({ success: true, data: products.map(serializePublicProduct) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -189,7 +275,7 @@ exports.getRecommendedProducts = async (req, res) => {
       .populate('brand', 'name')
       .lean();
 
-    res.json({ success: true, data: products });
+    res.json({ success: true, data: products.map(serializePublicProduct) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -214,7 +300,7 @@ exports.getRecentlyViewed = async (req, res) => {
       .populate('brand', 'name')
       .lean();
 
-    res.json({ success: true, data: products });
+    res.json({ success: true, data: products.map(serializePublicProduct) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

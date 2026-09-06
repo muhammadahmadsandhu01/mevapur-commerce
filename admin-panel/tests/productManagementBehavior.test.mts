@@ -100,8 +100,9 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
       assert.strictEqual(result.errors.description, 'Description is required for published products');
       assert.strictEqual(result.errors.category, 'Category is required for published products');
       assert.strictEqual(result.errors.price, 'Price must be greater than 0');
-      assert.strictEqual(result.errors.images, 'At least one product image is required');
+      assert.strictEqual(result.errors.images, 'At least one product image is required for publication');
       assert.strictEqual(result.firstErrorField, 'description');
+      assert.strictEqual(result.firstErrorMessage, 'Description is required for published products');
     });
 
     test('accepts complete publication form data with valid media asset IDs', () => {
@@ -137,6 +138,26 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
       assert.strictEqual(result.isValid, true);
       assert.strictEqual(Object.keys(result.errors).length, 0);
     });
+
+    test('rejects variable product if any variant has zero or negative price', () => {
+      const invalidVariableForm: ProductFormFieldValues = {
+        name: 'Variable Honey',
+        description: 'Pure organic wild honey',
+        category: 'cat-honey-123',
+        price: 0,
+        variants: [{
+          sku: 'HONEY-500G',
+          attributes: [{ name: 'Size', value: '500g' }],
+          price: 0,
+          isDefault: true
+        }],
+        images: ['https://example.com/honey.webp']
+      };
+
+      const result = validateProductForm(invalidVariableForm, 'published', []);
+      assert.strictEqual(result.isValid, false);
+      assert.strictEqual(result.errors.variants, "Variant 'HONEY-500G' price must be greater than 0");
+    });
   });
 
   describe('Payload Preparation and Protected Field Exclusion (prepareProductPayload)', () => {
@@ -145,7 +166,15 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
         name: 'Draft Cashews',
         stock: 50,
         price: 500,
-        originalPrice: 600
+        originalPrice: 600,
+        costPrice: 350,
+        ingredients: 'Raw cashews',
+        storageInstructions: 'Keep dry',
+        shelfLife: '12 months',
+        countryOfOrigin: 'Vietnam',
+        allowBackorders: true,
+        trackInventory: true,
+        tags: ['cashew', 'nuts']
       };
 
       const payload = prepareProductPayload(rawFormData, 'draft');
@@ -155,6 +184,14 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
       assert.strictEqual('discount' in payload, false, 'Client must never supply discount');
       assert.strictEqual(payload.initialStock, 50);
       assert.strictEqual('stock' in payload, false, 'Client must never supply stock directly');
+      assert.strictEqual(payload.costPrice, 350);
+      assert.strictEqual(payload.ingredients, 'Raw cashews');
+      assert.strictEqual(payload.storageInstructions, 'Keep dry');
+      assert.strictEqual(payload.shelfLife, '12 months');
+      assert.strictEqual(payload.countryOfOrigin, 'Vietnam');
+      assert.strictEqual(payload.allowBackorders, true);
+      assert.strictEqual(payload.trackInventory, true);
+      assert.deepStrictEqual(payload.tags, ['cashew', 'nuts']);
     });
 
     test('generates honest Published payload with expectedVersion for optimistic concurrency', () => {
@@ -164,14 +201,31 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
         description: 'Roasted salted pistachios',
         category: 'cat-nuts-1',
         price: 2000,
+        costPrice: 1400,
+        isNewArrival: true,
+        isBestSeller: true,
+        isTrending: true,
+        weight: 250,
+        dimensions: { length: 10, width: 8, height: 4, unit: 'cm' },
+        shippingClass: 'standard',
+        freeShipping: true,
+        taxClass: 'standard',
+        enableReviews: true,
+        allowWishlist: true,
+        allowCompare: true,
+        allowCOD: true,
         variants: [{
           sku: 'PIST-250G',
           barcode: '123456789',
+          weight: 250,
           attributes: [{ name: 'Weight', value: '250g' }],
           price: 550,
           isDefault: true
         }],
-        seoTitle: 'Buy Pistachios Online'
+        seoTitle: 'Buy Pistachios Online',
+        metaDescription: 'Shop salted pistachios.',
+        keywords: 'pistachios, nuts',
+        canonicalUrl: 'https://mevapur.com/products/pistachios'
       };
 
       const payload = prepareProductPayload(rawFormData, 'published', ['asset-1'], 3);
@@ -179,8 +233,23 @@ describe('Admin Product Management UI Behavior and Contracts', () => {
       assert.strictEqual(payload.status, 'published');
       assert.strictEqual(payload.slug, 'pistachios-2026');
       assert.strictEqual(payload.expectedVersion, 3);
+      assert.strictEqual(payload.costPrice, 1400);
+      assert.strictEqual(payload.isNewArrival, true);
+      assert.strictEqual(payload.isBestSeller, true);
+      assert.strictEqual(payload.isTrending, true);
+      assert.strictEqual(payload.weight, 250);
+      assert.strictEqual(payload.freeShipping, true);
+      assert.strictEqual(payload.enableReviews, true);
+      assert.strictEqual(payload.allowCOD, true);
       assert.strictEqual('isActive' in payload, false);
-      assert.strictEqual((payload.variants as Array<{ sku: string }>)[0].sku, 'PIST-250G');
+      assert.strictEqual((payload.variants as Array<{ sku: string; weight: number }>)[0].sku, 'PIST-250G');
+      assert.strictEqual((payload.variants as Array<{ sku: string; weight: number }>)[0].weight, 250);
+      assert.deepStrictEqual(payload.seo, {
+        metaTitle: 'Buy Pistachios Online',
+        metaDescription: 'Shop salted pistachios.',
+        keywords: 'pistachios, nuts',
+        canonicalUrl: 'https://mevapur.com/products/pistachios'
+      });
     });
   });
 

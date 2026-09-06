@@ -51,6 +51,18 @@ if (mongoose.models.Product) {
       uppercase: true,
       maxlength: 100
     },
+    barcode: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 100
+    },
+    costPrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+      select: false
+    },
     price: {
       type: Number,
       min: 0,
@@ -84,7 +96,7 @@ if (mongoose.models.Product) {
     },
     status: {
       type: String,
-      enum: ['draft', 'published', 'inactive', 'archived'],
+      enum: ['draft', 'published', 'inactive', 'archived', 'scheduled'],
       default: 'draft',
       required: true
     },
@@ -97,6 +109,111 @@ if (mongoose.models.Product) {
       type: Boolean,
       default: false
     },
+    isNewArrival: {
+      type: Boolean,
+      default: false
+    },
+    isBestSeller: {
+      type: Boolean,
+      default: false
+    },
+    isTrending: {
+      type: Boolean,
+      default: false
+    },
+    allowBackorders: {
+      type: Boolean,
+      default: false
+    },
+    trackInventory: {
+      type: Boolean,
+      default: true
+    },
+    tags: [{
+      type: String,
+      trim: true,
+      maxlength: 100
+    }],
+    ingredients: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 5000
+    },
+    nutritionalFacts: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 5000
+    },
+    storageInstructions: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 5000
+    },
+    shelfLife: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500
+    },
+    countryOfOrigin: {
+      type: String,
+      default: 'Pakistan',
+      trim: true,
+      maxlength: 200
+    },
+    weight: {
+      type: Number,
+      min: 0
+    },
+    dimensions: {
+      length: { type: Number, min: 0 },
+      width: { type: Number, min: 0 },
+      height: { type: Number, min: 0 },
+      unit: { type: String, trim: true, default: 'cm' }
+    },
+    shippingClass: {
+      type: String,
+      default: 'standard',
+      trim: true,
+      maxlength: 100
+    },
+    freeShipping: {
+      type: Boolean,
+      default: false
+    },
+    taxClass: {
+      type: String,
+      default: 'standard',
+      trim: true,
+      maxlength: 100
+    },
+    publishDate: {
+      type: Date,
+      default: null
+    },
+    enableReviews: {
+      type: Boolean,
+      default: true
+    },
+    allowWishlist: {
+      type: Boolean,
+      default: true
+    },
+    allowCompare: {
+      type: Boolean,
+      default: true
+    },
+    allowCOD: {
+      type: Boolean,
+      default: true
+    },
+    relatedProducts: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product'
+    }],
     attributes: [{
       name: { type: String, required: true, trim: true, maxlength: 50 },
       value: { type: String, required: true, trim: true, maxlength: 100 },
@@ -153,6 +270,10 @@ if (mongoose.models.Product) {
       isDefault: {
         type: Boolean,
         default: false
+      },
+      weight: {
+        type: Number,
+        min: 0
       }
     }],
     mediaAssetIds: [{
@@ -211,7 +332,8 @@ if (mongoose.models.Product) {
     seo: {
       metaTitle: { type: String, trim: true, maxlength: 100 },
       metaDescription: { type: String, trim: true, maxlength: 300 },
-      keywords: { type: String, trim: true, maxlength: 200 }
+      keywords: { type: String, trim: true, maxlength: 200 },
+      canonicalUrl: { type: String, trim: true, maxlength: 500 }
     }
   }, {
     timestamps: true,

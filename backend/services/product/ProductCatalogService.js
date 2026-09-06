@@ -113,9 +113,17 @@ class ProductCatalogService {
       }
 
       // 4. Reserve SKUs in SkuRegistry
+      let rootSku = data.sku && typeof data.sku === 'string' && data.sku.trim() !== ''
+        ? data.sku.trim().toUpperCase()
+        : null;
+      if (!rootSku) {
+        const base = data.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'PRD';
+        rootSku = `${base}-${Date.now().toString().slice(-4)}`;
+      }
+
       await SkuRegistryService.reserveSkus({
         productId,
-        rootSku: data.sku || null,
+        rootSku,
         variants,
         session
       });
@@ -140,7 +148,9 @@ class ProductCatalogService {
         category: data.category || null,
         subcategory: data.subcategory || null,
         brand: data.brand || null,
-        sku: data.sku ? data.sku.trim().toUpperCase() : null,
+        sku: rootSku,
+        barcode: data.barcode ? data.barcode.trim() : '',
+        costPrice: data.costPrice !== undefined ? Number(data.costPrice) : 0,
         price: data.price !== undefined ? Number(data.price) : 0,
         originalPrice: data.originalPrice !== undefined ? Number(data.originalPrice) : 0,
         stock: calculatedStock,
@@ -148,6 +158,28 @@ class ProductCatalogService {
         status,
         isActive,
         isFeatured: Boolean(data.isFeatured),
+        isNewArrival: Boolean(data.isNewArrival),
+        isBestSeller: Boolean(data.isBestSeller),
+        isTrending: Boolean(data.isTrending),
+        allowBackorders: Boolean(data.allowBackorders),
+        trackInventory: data.trackInventory !== false,
+        tags: Array.isArray(data.tags) ? data.tags : [],
+        ingredients: data.ingredients || '',
+        nutritionalFacts: data.nutritionalFacts || '',
+        storageInstructions: data.storageInstructions || '',
+        shelfLife: data.shelfLife || '',
+        countryOfOrigin: data.countryOfOrigin || 'Pakistan',
+        weight: data.weight !== undefined ? Number(data.weight) : undefined,
+        dimensions: data.dimensions || undefined,
+        shippingClass: data.shippingClass || 'standard',
+        freeShipping: Boolean(data.freeShipping),
+        taxClass: data.taxClass || 'standard',
+        publishDate: data.publishDate || null,
+        enableReviews: data.enableReviews !== false,
+        allowWishlist: data.allowWishlist !== false,
+        allowCompare: data.allowCompare !== false,
+        allowCOD: data.allowCOD !== false,
+        relatedProducts: Array.isArray(data.relatedProducts) ? data.relatedProducts : [],
         attributes: data.attributes || [],
         variants,
         mediaAssetIds: media.mediaAssetIds,
@@ -214,7 +246,7 @@ class ProductCatalogService {
 
   async updateProduct({ id, data, userId }) {
     return this.runInTransaction(async (session) => {
-      const product = await Product.findById(id).session(session);
+      const product = await Product.findById(id).select('+costPrice').session(session);
       if (!product) {
         throw new AppError('Product not found', 404, 'PRODUCT_NOT_FOUND');
       }
@@ -229,8 +261,8 @@ class ProductCatalogService {
       }
 
       // 2. Check removed variants against historical references
+      const oldVariantIds = (product.variants || []).map(v => String(v._id));
       if (Array.isArray(data.variants)) {
-        const oldVariantIds = product.variants.map(v => String(v._id));
         const incomingVariantIds = data.variants
           .filter(v => v._id)
           .map(v => String(v._id));
@@ -288,6 +320,7 @@ class ProductCatalogService {
             _id: variantId,
             sku: v.sku ? v.sku.trim().toUpperCase() : (oldVar?.sku || ''),
             barcode: v.barcode !== undefined ? v.barcode.trim() : (oldVar?.barcode || ''),
+            weight: v.weight !== undefined ? (v.weight === null ? undefined : Number(v.weight)) : oldVar?.weight,
             attributes: v.attributes || oldVar?.attributes || [],
             price: v.price !== undefined ? Number(v.price) : (oldVar?.price || 0),
             salePrice: v.salePrice !== undefined ? Number(v.salePrice) : (oldVar?.salePrice || 0),
@@ -301,7 +334,7 @@ class ProductCatalogService {
         product.variants = updatedVariants;
       }
 
-      // 6. SkuRegistry Update
+      // 7. SkuRegistry Update
       const rootSku = data.sku !== undefined ? (data.sku ? data.sku.trim().toUpperCase() : null) : product.sku;
       await SkuRegistryService.reserveSkus({
         productId: id,
@@ -310,7 +343,7 @@ class ProductCatalogService {
         session
       });
 
-      // 7. Media Asset Synchronization
+      // 8. Media Asset Synchronization
       if (Array.isArray(data.mediaAssetIds)) {
         const oldMediaIds = (product.mediaAssetIds || []).map(m => String(m));
         const newMediaIds = data.mediaAssetIds.map(m => String(m));
@@ -333,18 +366,42 @@ class ProductCatalogService {
         product.gallery = media.gallery;
       }
 
-      // 8. Assign Other Editable Fields
+      // 9. Assign All Editable Fields (preserving untouched fields on partial update)
       if (data.name !== undefined) product.name = data.name.trim();
       if (data.shortDescription !== undefined) product.shortDescription = data.shortDescription;
       if (data.description !== undefined) product.description = data.description;
-      if (data.category !== undefined) product.category = data.category;
-      if (data.subcategory !== undefined) product.subcategory = data.subcategory;
-      if (data.brand !== undefined) product.brand = data.brand;
+      if (data.category !== undefined) product.category = data.category || null;
+      if (data.subcategory !== undefined) product.subcategory = data.subcategory || null;
+      if (data.brand !== undefined) product.brand = data.brand || null;
       if (data.sku !== undefined) product.sku = data.sku ? data.sku.trim().toUpperCase() : null;
+      if (data.barcode !== undefined) product.barcode = data.barcode ? data.barcode.trim() : '';
+      if (data.costPrice !== undefined) product.costPrice = Number(data.costPrice);
       if (data.price !== undefined) product.price = Number(data.price);
       if (data.originalPrice !== undefined) product.originalPrice = Number(data.originalPrice);
       if (data.lowStockThreshold !== undefined) product.lowStockThreshold = Number(data.lowStockThreshold);
       if (data.isFeatured !== undefined) product.isFeatured = Boolean(data.isFeatured);
+      if (data.isNewArrival !== undefined) product.isNewArrival = Boolean(data.isNewArrival);
+      if (data.isBestSeller !== undefined) product.isBestSeller = Boolean(data.isBestSeller);
+      if (data.isTrending !== undefined) product.isTrending = Boolean(data.isTrending);
+      if (data.allowBackorders !== undefined) product.allowBackorders = Boolean(data.allowBackorders);
+      if (data.trackInventory !== undefined) product.trackInventory = Boolean(data.trackInventory);
+      if (data.tags !== undefined) product.tags = Array.isArray(data.tags) ? data.tags : [];
+      if (data.ingredients !== undefined) product.ingredients = data.ingredients;
+      if (data.nutritionalFacts !== undefined) product.nutritionalFacts = data.nutritionalFacts;
+      if (data.storageInstructions !== undefined) product.storageInstructions = data.storageInstructions;
+      if (data.shelfLife !== undefined) product.shelfLife = data.shelfLife;
+      if (data.countryOfOrigin !== undefined) product.countryOfOrigin = data.countryOfOrigin;
+      if (data.weight !== undefined) product.weight = (data.weight !== null && data.weight !== '') ? Number(data.weight) : undefined;
+      if (data.dimensions !== undefined) product.dimensions = data.dimensions;
+      if (data.shippingClass !== undefined) product.shippingClass = data.shippingClass;
+      if (data.freeShipping !== undefined) product.freeShipping = Boolean(data.freeShipping);
+      if (data.taxClass !== undefined) product.taxClass = data.taxClass;
+      if (data.publishDate !== undefined) product.publishDate = data.publishDate || null;
+      if (data.enableReviews !== undefined) product.enableReviews = Boolean(data.enableReviews);
+      if (data.allowWishlist !== undefined) product.allowWishlist = Boolean(data.allowWishlist);
+      if (data.allowCompare !== undefined) product.allowCompare = Boolean(data.allowCompare);
+      if (data.allowCOD !== undefined) product.allowCOD = Boolean(data.allowCOD);
+      if (data.relatedProducts !== undefined) product.relatedProducts = Array.isArray(data.relatedProducts) ? data.relatedProducts : [];
       if (data.attributes !== undefined) product.attributes = data.attributes;
       if (data.videoUrl !== undefined) product.videoUrl = data.videoUrl;
       if (data.seo !== undefined) product.seo = data.seo;
@@ -471,6 +528,7 @@ class ProductCatalogService {
 
     const [products, totalFiltered, globalSummary] = await Promise.all([
       Product.find(filter)
+        .select('+costPrice')
         .populate('category', 'name slug')
         .populate('brand', 'name')
         .sort(sort)

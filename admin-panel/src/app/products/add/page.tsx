@@ -383,16 +383,22 @@ export default function AddProductPage() {
   const validateForm = (status: 'draft' | 'published'): boolean => {
     const result = validateProductForm(formData, status, mediaAssetIds);
     setErrors(result.errors);
-    if (!result.isValid && result.firstErrorField) {
-      const el = document.getElementById(`field-${result.firstErrorField}`);
-      if (el) el.focus();
+    if (!result.isValid) {
+      if (result.firstErrorField) {
+        const el = document.getElementById(`field-${result.firstErrorField}`);
+        if (el) el.focus();
+      }
+      if (result.firstErrorMessage) {
+        alert(`Cannot publish product: ${result.firstErrorMessage}`);
+      } else {
+        alert('Please fill all required fields correctly');
+      }
     }
     return result.isValid;
   };
 
   const handleSubmit = async (status: 'draft' | 'published') => {
     if (status === 'published' && !validateForm('published')) {
-      alert('Please fill all required fields correctly');
       return;
     }
 
