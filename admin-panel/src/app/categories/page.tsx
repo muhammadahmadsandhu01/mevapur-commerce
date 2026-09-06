@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
+import { 
   FolderTree, Plus, Edit, Trash2, Search, ChevronRight,
   Eye, X, Save, Star, AlertCircle, CheckCircle, Loader,
   ArrowUpDown, Filter
@@ -87,7 +87,7 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete "${name}"? This will also delete all subcategories.`)) return;
-
+    
     try {
       await api.delete(`/categories/${id}`);
       await fetchCategories();
@@ -138,7 +138,7 @@ export default function CategoriesPage() {
   };
 
   const toggleExpand = (id: string) => {
-    setExpandedCategories(prev =>
+    setExpandedCategories(prev => 
       prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
     );
   };
@@ -163,8 +163,8 @@ export default function CategoriesPage() {
 
     return (
       <div key={category._id}>
-        <tr
-          style={{
+        <tr 
+          style={{ 
             backgroundColor: level > 0 ? 'var(--bg-primary)' : 'transparent',
             borderBottom: '1px solid var(--border-color)',
             transition: 'background-color 0.2s'
@@ -173,9 +173,9 @@ export default function CategoriesPage() {
           onMouseLeave={e => e.currentTarget.style.backgroundColor = level > 0 ? 'var(--bg-primary)' : 'transparent'}
         >
           <td style={{ padding: '16px 20px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
               gap: '12px',
               paddingLeft: `${level * 32}px`
             }}>
@@ -193,14 +193,14 @@ export default function CategoriesPage() {
                     justifyContent: 'center'
                   }}
                 >
-                  <ChevronRight
-                    size={16}
+                  <ChevronRight 
+                    size={16} 
                     style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
                   />
                 </button>
               )}
               {!hasChildren && <div style={{ width: '24px' }} />}
-
+              
               {category.icon && (
                 <span style={{ fontSize: '20px' }}>{category.icon}</span>
               )}
@@ -430,7 +430,7 @@ export default function CategoriesPage() {
 
       {/* Modal */}
       {showModal && (
-        <div
+        <div 
           style={{
             position: 'fixed',
             inset: 0,
@@ -443,7 +443,7 @@ export default function CategoriesPage() {
           }}
           onClick={closeModal}
         >
-          <div
+          <div 
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',
