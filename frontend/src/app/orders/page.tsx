@@ -10,6 +10,7 @@ import api from '@/lib/api';
 import Toast from '@/components/Toast';
 import { formatMoney } from '@/lib/money';
 import { getSafeMediaUrl } from '@/lib/catalogAdapter';
+import { buildInvoiceRoute, buildOrderDetailsRoute } from '@/lib/orderRouting';
 
 interface OrderItem {
   product?: string | {
@@ -420,14 +421,26 @@ export default function OrdersPage() {
                     </div>
 
                     <div className="flex items-center gap-2 self-end sm:self-auto">
+                      {buildInvoiceRoute(order._id) ? (
+                        <Link
+                          href={buildInvoiceRoute(order._id)!}
+                          className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 transition"
+                        >
+                          View Invoice
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          aria-disabled="true"
+                          title="Invoice unavailable: missing order identifier"
+                          className="px-3.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-400 bg-slate-100 cursor-not-allowed"
+                        >
+                          Invoice Unavailable
+                        </button>
+                      )}
                       <Link
-                        href={`/orders/${encodeURIComponent(order.orderId || order._id)}/invoice`}
-                        className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 transition"
-                      >
-                        View Invoice
-                      </Link>
-                      <Link
-                        href={`/orders/${encodeURIComponent(order.orderId || order._id)}`}
+                        href={buildOrderDetailsRoute(order) || `/orders/${encodeURIComponent(order.orderId || order._id || '')}`}
                         className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#0b132b] text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition"
                       >
                         <Eye size={13} /> Order Details

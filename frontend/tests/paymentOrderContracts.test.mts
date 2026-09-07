@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyInvoiceDocument } from '../src/lib/invoiceClassification.ts';
+import { buildInvoiceRoute, buildOrderDetailsRoute } from '../src/lib/orderRouting.ts';
 
 describe('Phase 5 Contract: Status Normalization & Invoice Classification', () => {
   it('correctly classifies an authoritative paid receipt for Order.paymentStatus === "Paid"', () => {
@@ -188,5 +189,72 @@ describe('Phase 5 Contract: Safe URLSearchParams Return Link Construction', () =
       link,
       '/account?tab=returns&order=ORD+%23123%26456&product=prod%2Fwith%3Fspecial%3Dchars&variant=var%3A1#returns'
     );
+  });
+});
+
+describe('Storefront Order & Invoice Identifier Routing Contracts', () => {
+  const mockOrder = {
+    _id: '66d0c1e87900123456789012',
+    orderId: 'ORD-20260904-TEST01',
+    orderStatus: 'Pending',
+    totalAmount: 5000,
+  };
+
+  it('builds invoice route exclusively with canonical database _id, never public orderId', () => {
+    const invoiceRoute = buildInvoiceRoute(mockOrder._id);
+    assert.equal(invoiceRoute, '/orders/66d0c1e87900123456789012/invoice');
+    assert.doesNotMatch(invoiceRoute!, /ORD-20260904-TEST01/);
+  });
+
+  it('order-list invoice link generation uses _id and never falls back to public orderId', () => {
+    // Simulating order card / list routing logic
+    const linkFromList = buildInvoiceRoute(mockOrder._id);
+    assert.equal(linkFromList, `/orders/${encodeURIComponent(mockOrder._id)}/invoice`);
+    assert.notEqual(linkFromList, `/orders/${encodeURIComponent(mockOrder.orderId)}/invoice`);
+  });
+
+  it('order-detail invoice link generation uses _id and never falls back to public orderId', () => {
+    // Simulating order details action bar routing logic
+    const linkFromDetail = buildInvoiceRoute(mockOrder._id);
+    assert.equal(linkFromDetail, `/orders/${encodeURIComponent(mockOrder._id)}/invoice`);
+    assert.notEqual(linkFromDetail, `/orders/${encodeURIComponent(mockOrder.orderId)}/invoice`);
+  });
+
+  it('preserves public customer-friendly ORD reference for UI and display', () => {
+    const displayId = mockOrder.orderId || mockOrder._id;
+    assert.equal(displayId, 'ORD-20260904-TEST01');
+    assert.match(displayId, /^ORD-/);
+  });
+
+  it('missing _id yields null and cannot produce a clickable broken invoice URL', () => {
+    const malformedOrderWithoutId = {
+      orderId: 'ORD-20260904-NOID99',
+      _id: undefined,
+    };
+
+    const routeFromUndefined = buildInvoiceRoute(malformedOrderWithoutId._id);
+    assert.equal(routeFromUndefined, null);
+
+    const routeFromNull = buildInvoiceRoute(null);
+    assert.equal(routeFromNull, null);
+
+    const routeFromEmpty = buildInvoiceRoute('');
+    assert.equal(routeFromEmpty, null);
+
+    const routeFromWhitespace = buildInvoiceRoute('   ');
+    assert.equal(routeFromWhitespace, null);
+  });
+
+  it('order details route preserves public reference if present, or falls back to _id', () => {
+    const detailsRouteWithPublic = buildOrderDetailsRoute(mockOrder);
+    assert.equal(detailsRouteWithPublic, '/orders/ORD-20260904-TEST01');
+
+    const orderWithoutPublic = { _id: '66d0c1e87900123456789012' };
+    const detailsRouteWithoutPublic = buildOrderDetailsRoute(orderWithoutPublic);
+    assert.equal(detailsRouteWithoutPublic, '/orders/66d0c1e87900123456789012');
+
+    const emptyOrder = {};
+    assert.equal(buildOrderDetailsRoute(emptyOrder), null);
+    assert.equal(buildOrderDetailsRoute(null), null);
   });
 });

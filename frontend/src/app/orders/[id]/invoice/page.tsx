@@ -60,7 +60,11 @@ export default function InvoicePage() {
   };
 
   const loadInvoice = useCallback(async () => {
-    if (!decodedId) return;
+    if (!decodedId) {
+      setLoading(false);
+      setError('The requested invoice is unavailable or you do not have permission to view it.');
+      return;
+    }
     try {
       setLoading(true);
       setError('');

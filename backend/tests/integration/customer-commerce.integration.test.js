@@ -116,8 +116,10 @@ describe('P6B customer commerce ownership contracts', () => {
     await Notification.create({ recipient: first.user._id, type: 'order', title: 'Order update', message: 'Your order is placed.' });
     const refundResponse = await request(app).get('/api/account/refunds').set('Authorization', first.authorization); expect(refundResponse.body.data.refunds[0]).not.toHaveProperty('providerRefundId');
     expect((await request(app).get('/api/account/refunds').set('Authorization', second.authorization)).body.data.refunds).toHaveLength(0);
-    const invoice = await request(app).get(`/api/account/orders/${placed._id}/invoice`).set('Authorization', first.authorization); expect(invoice.status).toBe(200); expect(invoice.body.data.invoice.total).toBe(100);
+    const invoice = await request(app).get(`/api/account/orders/${placed._id}/invoice`).set('Authorization', first.authorization); expect(invoice.status).toBe(200); expect(invoice.body.data.invoice.total).toBe(100); expect(invoice.body.data.invoice.orderNumber).toBe(placed.orderId);
     expect((await request(app).get(`/api/account/orders/${placed._id}/invoice`).set('Authorization', second.authorization)).status).toBe(404);
+    expect((await request(app).get(`/api/account/orders/${placed.orderId}/invoice`).set('Authorization', first.authorization)).status).toBe(400);
+    expect((await request(app).get(`/api/account/orders/invalid-id-format/invoice`).set('Authorization', first.authorization)).status).toBe(400);
     expect((await request(app).get(`/api/account/orders/${placed._id}/tracking`).set('Authorization', first.authorization)).body.data.tracking.timeline).toHaveLength(1);
     const notifications = await request(app).get('/api/account/notifications').set('Authorization', first.authorization); const id = notifications.body.data.notifications[0]._id; expect((await request(app).put(`/api/account/notifications/${id}/read`).set('Authorization', first.authorization)).status).toBe(200); expect((await request(app).put(`/api/account/notifications/${id}/read`).set('Authorization', second.authorization)).status).toBe(404);
   });

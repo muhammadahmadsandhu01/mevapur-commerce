@@ -25,6 +25,7 @@ import api from '@/lib/api';
 import Toast from '@/components/Toast';
 import { formatMoney } from '@/lib/money';
 import { getSafeMediaUrl } from '@/lib/catalogAdapter';
+import { buildInvoiceRoute } from '@/lib/orderRouting';
 
 interface OrderItem {
   product?: string | {
@@ -266,12 +267,24 @@ export default function OrderDetailsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href={`/orders/${encodeURIComponent(order.orderId || order._id)}/invoice`}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 transition shadow-2xs"
-            >
-              <FileText size={14} /> View Invoice
-            </Link>
+            {buildInvoiceRoute(order._id) ? (
+              <Link
+                href={buildInvoiceRoute(order._id)!}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 transition shadow-2xs"
+              >
+                <FileText size={14} /> View Invoice
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Invoice unavailable: missing order identifier"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 cursor-not-allowed shadow-2xs"
+              >
+                <FileText size={14} /> Invoice Unavailable
+              </button>
+            )}
 
             {isCancellable && (
               <button
