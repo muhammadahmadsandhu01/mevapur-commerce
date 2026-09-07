@@ -119,10 +119,10 @@ export default function InvoicePage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto space-y-6">
+    <div className="invoice-page-shell min-h-screen bg-slate-100 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="invoice-container-wrapper max-w-3xl mx-auto space-y-6">
         {/* Navigation / Print Bar */}
-        <div className="print-hidden flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="no-print print-hidden flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
           <Link
             href={`/orders/${encodeURIComponent(decodedId)}`}
             className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-[#9a3412] transition"
@@ -132,6 +132,7 @@ export default function InvoicePage() {
           <button
             type="button"
             onClick={handlePrint}
+            aria-label="Print invoice document or save as PDF"
             className="inline-flex items-center gap-2 px-4 py-2 bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
           >
             <Printer size={15} /> Print Document / Save PDF
@@ -139,7 +140,10 @@ export default function InvoicePage() {
         </div>
 
         {/* Invoice Printable Sheet */}
-        <article className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-10 shadow-xs space-y-8">
+        <article
+          data-testid="invoice-print-root"
+          className="invoice-print-root bg-white rounded-2xl border border-slate-200 p-6 sm:p-10 shadow-xs space-y-8"
+        >
           {/* Header Banner */}
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-6 border-b border-slate-200">
             <div>
@@ -194,7 +198,7 @@ export default function InvoicePage() {
           </div>
 
           {/* Line Items Table */}
-          <div tabIndex={0} role="region" aria-label="Invoice line items table" className="overflow-x-auto focus:ring-1 focus:ring-[#ff8a00] rounded-lg">
+          <div tabIndex={0} role="region" aria-label="Invoice line items table" className="invoice-table-container overflow-x-auto focus:ring-1 focus:ring-[#ff8a00] rounded-lg">
             <table className="w-full text-left text-xs sm:text-sm min-w-[480px]">
               <thead>
                 <tr className="border-b-2 border-slate-200 text-slate-800 font-extrabold">
@@ -260,17 +264,6 @@ export default function InvoicePage() {
           </div>
         </article>
       </div>
-
-      <style jsx global>{`
-        @media print {
-          .print-hidden {
-            display: none !important;
-          }
-          body {
-            background: white !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

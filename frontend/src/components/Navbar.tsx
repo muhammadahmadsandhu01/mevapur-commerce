@@ -93,7 +93,7 @@ export default function Navbar() {
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-700 bg-[#0b132b] text-white shadow-sm">
+    <header className="no-print print-hidden sticky top-0 z-50 border-b border-slate-700 bg-[#0b132b] text-white shadow-sm">
       <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <BrandLogo theme="light" height={30} priority={true} />
 

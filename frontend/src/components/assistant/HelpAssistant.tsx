@@ -123,7 +123,7 @@ export default function HelpAssistant() {
     <>
       {open && (
         <section
-          className={styles.panel}
+          className={`${styles.panel} no-print print-hidden`}
           role="dialog"
           aria-modal="false"
           aria-labelledby="help-assistant-title"
@@ -227,7 +227,7 @@ export default function HelpAssistant() {
       <button
         ref={launcherRef}
         type="button"
-        className={styles.launcher}
+        className={`${styles.launcher} no-print print-hidden`}
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-controls={open ? 'help-assistant-title' : undefined}

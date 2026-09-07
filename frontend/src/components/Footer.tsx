@@ -31,7 +31,7 @@ export default function Footer() {
   const phoneNav = contactPhone ? getSafeNavigationUrl(`tel:${contactPhone}`) : null;
 
   return (
-    <footer className="mt-auto border-t border-slate-700 bg-[#0b132b] text-slate-200">
+    <footer className="no-print print-hidden mt-auto border-t border-slate-700 bg-[#0b132b] text-slate-200">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
         {/* Brand Column */}
         <div>

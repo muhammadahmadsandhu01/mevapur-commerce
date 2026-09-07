@@ -418,7 +418,7 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
     await context.close();
   });
 
-  test('Invoice Page (/orders/:id/invoice) renders document with classification', async () => {
+  test('Invoice Page (/orders/:id/invoice) renders document with classification and generates nonblank PDF in print media', async () => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     await setupOrderRoutes(page);
@@ -432,6 +432,30 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
     const bodyText = await page.textContent('body');
     assert.match(bodyText!, /ORD-20260904-TEST01/);
     assert.match(bodyText!, /Print Document/);
+
+    // Verify print root exists and is marked
+    const printRoot = page.locator('[data-testid="invoice-print-root"]');
+    assert.equal(await printRoot.count(), 1);
+
+    // Emulate print media
+    await page.emulateMedia({ media: 'print' });
+
+    // In print media, invoice root must remain visible
+    assert.equal(await printRoot.isVisible(), true);
+
+    // In print media, all no-print elements (navigation bar, header, footer, launcher) must be hidden
+    const noPrintElements = await page.locator('.no-print').all();
+    assert.ok(noPrintElements.length >= 4, `Expected at least 4 no-print elements, found ${noPrintElements.length}`);
+    for (const el of noPrintElements) {
+      assert.equal(await el.isHidden(), true);
+    }
+
+    // Generate PDF and verify non-empty buffer with non-trivial size (> 10KB)
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+    assert.ok(pdfBuffer.length > 10000, `Expected PDF buffer > 10000 bytes, got ${pdfBuffer.length}`);
+
+    // Reset media
+    await page.emulateMedia({ media: 'screen' });
 
     // Axe audit
     const results = await new AxeBuilder({ page })
