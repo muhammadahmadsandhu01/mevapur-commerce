@@ -24,20 +24,20 @@ describe('Storefront Invoice PDF Print Stylesheet & DOM Contract', () => {
     assert.match(css, /-webkit-print-color-adjust:\s*exact\s*!important/i);
   });
 
-  it('globals.css hides non-printable shell elements (.no-print, .print-hidden, header, nav, footer, aside, launcher)', () => {
+  it('globals.css exclusively hides explicit screen-only markers (.no-print, .print-hidden) and omits unsafe broad element selectors', () => {
     const css = fs.readFileSync(globalsCssPath, 'utf8');
-    assert.match(css, /\.no-print/);
-    assert.match(css, /\.print-hidden/);
-    assert.match(css, /header/);
-    assert.match(css, /footer/);
-    assert.match(css, /button\[class\*="launcher"\]/);
+    assert.match(css, /\.no-print,\s*\n?\s*\.print-hidden\s*\{/);
+    assert.match(css, /display:\s*none\s*!important/);
+    assert.doesNotMatch(css, /button\[class\*="launcher"\]/);
+    assert.doesNotMatch(css, /div\[class\*="panel"\]/);
   });
 
-  it('globals.css ensures invoice printable root and descendants remain visible and unclipped', () => {
+  it('globals.css allows invoice document to paginate (break-inside: auto) and protects atomic subsections', () => {
     const css = fs.readFileSync(globalsCssPath, 'utf8');
-    assert.match(css, /\.invoice-print-root,\s*\[data-testid="invoice-print-root"\]/);
-    assert.match(css, /page-break-inside:\s*avoid/);
-    assert.match(css, /\.invoice-table-container/);
+    assert.match(css, /\.invoice-print-root,\s*\[data-testid="invoice-print-root"\]\s*\{[^}]*break-inside:\s*auto\s*!important/s);
+    assert.match(css, /\.invoice-print-root,\s*\[data-testid="invoice-print-root"\]\s*\{[^}]*page-break-inside:\s*auto\s*!important/s);
+    assert.match(css, /\.invoice-header-banner,\s*\n?\s*\.invoice-details-grid,\s*\n?\s*\.invoice-totals-block,\s*\n?\s*\.invoice-notes-block,\s*\n?\s*\.invoice-table-container tbody tr\s*\{[^}]*break-inside:\s*avoid\s*!important/s);
+    assert.match(css, /\.invoice-table-container\s*\{[^}]*overflow:\s*visible\s*!important/s);
   });
 
   it('invoice page component renders data-testid="invoice-print-root" on the printable article', () => {

@@ -145,7 +145,7 @@ export default function InvoicePage() {
           className="invoice-print-root bg-white rounded-2xl border border-slate-200 p-6 sm:p-10 shadow-xs space-y-8"
         >
           {/* Header Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-6 border-b border-slate-200">
+          <div className="invoice-header-banner flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-6 border-b border-slate-200">
             <div>
               <div className="mb-3">
                 <BrandLogo theme="dark" href="/" height={32} />
@@ -174,7 +174,7 @@ export default function InvoicePage() {
           </div>
 
           {/* Customer & Address Details */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs sm:text-sm">
+          <div className="invoice-details-grid grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs sm:text-sm">
             <div>
               <h2 className="font-bold text-slate-900 uppercase tracking-wider mb-2">Billed / Delivered To</h2>
               <p className="font-extrabold text-slate-900">{invoice.customer?.fullName || invoice.shippingAddress?.fullName}</p>
@@ -225,7 +225,7 @@ export default function InvoicePage() {
           </div>
 
           {/* Breakdown & Totals */}
-          <div className="pt-4 border-t border-slate-200 flex justify-end">
+          <div className="invoice-totals-block pt-4 border-t border-slate-200 flex justify-end">
             <div className="w-full sm:w-72 space-y-2 text-xs sm:text-sm">
               <div className="flex justify-between text-slate-700">
                 <span>Subtotal</span>
@@ -255,7 +255,7 @@ export default function InvoicePage() {
           </div>
 
           {/* Document Note & Assurance */}
-          <div className="pt-6 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
+          <div className="invoice-notes-block pt-6 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
             <p className="font-medium">{classification.notes}</p>
             <div className="flex items-center gap-1.5 text-slate-600 font-semibold pt-1">
               <ShieldCheck size={14} className="text-emerald-700" />

@@ -86,24 +86,8 @@ html, body { max-width: 100%; overflow-x: clip; }
 
   /* 2. Exclude Surrounding Screen Navigation & Floating Widgets */
   .no-print,
-  .print-hidden,
-  header,
-  nav,
-  footer,
-  aside,
-  [data-testid="skip-link"],
-  #skip-link,
-  .skip-link,
-  [role="dialog"],
-  [aria-modal="true"],
-  button[class*="launcher"],
-  div[class*="panel"],
-  div[class*="HelpAssistant"] {
+  .print-hidden {
     display: none !important;
-    visibility: hidden !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
   }
 
   /* 3. Main Shell Unlocks */
@@ -141,7 +125,7 @@ html, body { max-width: 100%; overflow-x: clip; }
     overflow: visible !important;
   }
 
-  /* 5. Invoice Printable Root Document */
+  /* 5. Invoice Printable Root Document (Explicitly Allowed to Paginate) */
   .invoice-print-root,
   [data-testid="invoice-print-root"] {
     display: block !important;
@@ -157,8 +141,8 @@ html, body { max-width: 100%; overflow-x: clip; }
     background: #ffffff !important;
     color: #0f172a !important;
     overflow: visible !important;
-    page-break-inside: avoid;
-    break-inside: avoid;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   /* Descendant Overflow & Color Fidelity */
@@ -169,19 +153,37 @@ html, body { max-width: 100%; overflow-x: clip; }
     print-color-adjust: exact !important;
   }
 
-  /* Prevent horizontal clipping on tables */
+  /* Atomic Break Protection for Self-Contained Document Blocks */
+  .invoice-header-banner,
+  .invoice-details-grid,
+  .invoice-totals-block,
+  .invoice-notes-block,
+  .invoice-table-container tbody tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Prevent horizontal clipping on tables and support multi-page tables */
   .invoice-table-container {
     overflow: visible !important;
     width: 100% !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   .invoice-table-container table {
     width: 100% !important;
     min-width: 0 !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   thead {
     display: table-header-group;
+  }
+
+  tbody {
+    display: table-row-group;
   }
 
   tr {

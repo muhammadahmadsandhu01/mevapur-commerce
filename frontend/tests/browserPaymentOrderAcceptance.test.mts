@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import { chromium, type Browser, type Page, type Route } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
+import { extractTextFromPdfBuffer } from './helpers/pdfExtractor.ts';
+
 const PORT = 3472;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -174,28 +176,45 @@ async function setupOrderRoutes(page: Page) {
 
     // Invoice endpoint (Specific)
     if (url.includes('/invoice')) {
+      const isMultiPage = url.includes('multi') || url.includes('MULTI');
+      const orderNumber = isMultiPage ? 'ORD-MULTI-PAGE-TEST' : dynamicOrder.orderId;
+      const items = isMultiPage
+        ? Array.from({ length: 25 }, (_, i) => ({
+            name: `Premium Organic Product Batch #${i + 1}`,
+            sku: `PROD-${1000 + i}`,
+            quantity: 1,
+            unitPrice: 1000,
+            lineTotal: 1000,
+          }))
+        : [
+            {
+              name: 'California Almonds 500g',
+              sku: 'ALM-500',
+              quantity: 2,
+              unitPrice: 1500,
+              lineTotal: 3000,
+            },
+          ];
+      const subtotal = isMultiPage ? 25000 : dynamicOrder.subtotal;
+      const shipping = isMultiPage ? 200 : dynamicOrder.shippingCost;
+      const discount = isMultiPage ? 0 : dynamicOrder.discount;
+      const tax = isMultiPage ? 0 : dynamicOrder.taxAmount;
+      const total = isMultiPage ? 25200 : dynamicOrder.totalAmount;
+
       return fulfillJson(route, {
         success: true,
         data: {
           invoice: {
-            orderNumber: dynamicOrder.orderId,
+            orderNumber,
             date: dynamicOrder.createdAt,
             customer: { fullName: dynamicOrder.shippingAddress.fullName },
             shippingAddress: dynamicOrder.shippingAddress,
-            items: [
-              {
-                name: 'California Almonds 500g',
-                sku: 'ALM-500',
-                quantity: 2,
-                unitPrice: 1500,
-                lineTotal: 3000,
-              },
-            ],
-            subtotal: dynamicOrder.subtotal,
-            discount: dynamicOrder.discount,
-            shipping: dynamicOrder.shippingCost,
-            tax: dynamicOrder.taxAmount,
-            total: dynamicOrder.totalAmount,
+            items,
+            subtotal,
+            discount,
+            shipping,
+            tax,
+            total,
             currency: 'PKR',
             paymentMethod: dynamicOrder.paymentMethod,
             paymentStatus: dynamicOrder.paymentStatus,
@@ -418,7 +437,7 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
     await context.close();
   });
 
-  test('Invoice Page (/orders/:id/invoice) renders document with classification and generates nonblank PDF in print media', async () => {
+  test('Invoice Page (/orders/:id/invoice) renders document with classification and generates nonblank PDF with verified text in print media', async () => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     await setupOrderRoutes(page);
@@ -450,9 +469,53 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
       assert.equal(await el.isHidden(), true);
     }
 
-    // Generate PDF and verify non-empty buffer with non-trivial size (> 10KB)
-    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+    // DOM ancestor audit in print media: ensure no ancestor receives display: none, visibility: hidden, overflow: hidden, etc.
+    const ancestorsAudit = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="invoice-print-root"]');
+      if (!root) return { ok: false, issues: ['invoice-print-root not found'] };
+      const issues: string[] = [];
+      let current = root.parentElement;
+      while (current && current !== document.documentElement) {
+        const computed = window.getComputedStyle(current);
+        if (computed.display === 'none') issues.push(`${current.tagName} has display: none`);
+        if (computed.visibility === 'hidden') issues.push(`${current.tagName} has visibility: hidden`);
+        if (computed.position === 'fixed') issues.push(`${current.tagName} has position: fixed`);
+        if (computed.overflow === 'hidden' || computed.overflow === 'clip') {
+          issues.push(`${current.tagName} has overflow: ${computed.overflow}`);
+        }
+        current = current.parentElement;
+      }
+      return { ok: issues.length === 0, issues };
+    });
+    assert.equal(ancestorsAudit.ok, true, `Ancestor audit failed: ${ancestorsAudit.issues.join(', ')}`);
+
+    // Generate PDF and verify non-empty buffer and extracted text
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '12mm', bottom: '12mm', left: '15mm', right: '15mm' },
+    });
     assert.ok(pdfBuffer.length > 10000, `Expected PDF buffer > 10000 bytes, got ${pdfBuffer.length}`);
+
+    // Verify PDF header format
+    assert.equal(pdfBuffer.subarray(0, 5).toString('ascii'), '%PDF-');
+
+    // Extract text from PDF streams and assert presence of authoritative content
+    const pdfText = extractTextFromPdfBuffer(pdfBuffer);
+    assert.match(pdfText, /Order Reference/i);
+    assert.match(pdfText, /ORD-20260904-TEST01/i);
+    assert.match(pdfText, /Billed \/ Delivered To/i);
+    assert.match(pdfText, /Muhammad Ahmad/i);
+    assert.match(pdfText, /California Almonds 500g/i);
+    assert.match(pdfText, /ALM-500/i);
+    assert.match(pdfText, /Subtotal/i);
+    assert.match(pdfText, /Shipping/i);
+    assert.match(pdfText, /Total/i);
+
+    // Assert screen-only navigation controls are absent from PDF
+    assert.doesNotMatch(pdfText, /Search products/i);
+    assert.doesNotMatch(pdfText, /Print Document \/ Save PDF/i);
+    assert.doesNotMatch(pdfText, /Back to Order/i);
 
     // Reset media
     await page.emulateMedia({ media: 'screen' });
@@ -466,6 +529,52 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
     );
     assert.equal(criticalViolations.length, 0, `Axe violations on /orders/:id/invoice: ${JSON.stringify(criticalViolations)}`);
 
+    await context.close();
+  });
+
+  test('Invoice Page (/orders/:id/invoice) paginates multi-item invoice across multiple A4 pages without blank pages or clipping', async () => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await setupOrderRoutes(page);
+
+    await page.goto(`${BASE_URL}/orders/ORD-MULTI-PAGE-TEST/invoice`);
+    await page.waitForSelector('h1', { timeout: 10000 });
+
+    const printRoot = page.locator('[data-testid="invoice-print-root"]');
+    assert.equal(await printRoot.count(), 1);
+
+    // Emulate print media
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await printRoot.isVisible(), true);
+
+    // Generate multi-page PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '12mm', bottom: '12mm', left: '15mm', right: '15mm' },
+    });
+    assert.ok(pdfBuffer.length > 15000, `Expected multi-page PDF buffer > 15000 bytes, got ${pdfBuffer.length}`);
+    assert.equal(pdfBuffer.subarray(0, 5).toString('ascii'), '%PDF-');
+
+    // Extract text from multi-page PDF and verify items spanning from first to last
+    const pdfText = extractTextFromPdfBuffer(pdfBuffer);
+    assert.match(pdfText, /Order Reference/i);
+    assert.match(pdfText, /ORD-MULTI-PAGE-TEST/i);
+    assert.match(pdfText, /Billed \/ Delivered To/i);
+    assert.match(pdfText, /Premium Organic Product Batch #1/i);
+    assert.match(pdfText, /Premium Organic Product Batch #12/i);
+    assert.match(pdfText, /Premium Organic Product Batch #25/i);
+    assert.match(pdfText, /PROD-1000/i);
+    assert.match(pdfText, /PROD-1024/i);
+    assert.match(pdfText, /Subtotal/i);
+    assert.match(pdfText, /Shipping/i);
+    assert.match(pdfText, /Total/i);
+
+    // Ensure screen elements remain absent
+    assert.doesNotMatch(pdfText, /Search products/i);
+    assert.doesNotMatch(pdfText, /Print Document \/ Save PDF/i);
+
+    await page.emulateMedia({ media: 'screen' });
     await context.close();
   });
 
