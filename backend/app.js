@@ -46,9 +46,18 @@ const runtimeConfig = getRuntimeConfig();
 // --- Security & Middleware Setup ---
 app.set('trust proxy', runtimeConfig.proxy.trust);
 app.use(securityHeaders(runtimeConfig));
-app.use('/api', limiter);
 
-// CORS Configuration
+// Request Tracking & Robots
+app.use(requestId);
+app.use((req, res, next) => {
+  res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  next();
+});
+
+// Request Logging (Mounted before rate limiters and route handlers so all responses, including 429s, are logged)
+app.use(morgan('combined', { stream: morganStream }));
+
+// CORS Configuration & Preflight Handling (Mounted before rate limiters so CORS headers are always attached)
 const corsOptions = {
   origin(origin, callback) {
     if (!origin || runtimeConfig.cors.isAllowedOrigin(origin)) {
@@ -71,13 +80,21 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// Request Logging
-app.use(requestId);
-app.use((req, res, next) => {
-  res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
-  next();
+// Health Check (Works even if DB is down) - Unmetered, mounted before rate limiters
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'HARZAAR API is running',
+    dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'
+  });
 });
-app.use(morgan('combined', { stream: morganStream }));
+
+// Readiness is intentionally separate from liveness. It checks only internal
+// runtime, lifecycle, and database state and never calls providers - Unmetered, mounted before rate limiters
+app.get('/api/ready', createReadinessHandler());
+
+// Global API Rate Limiting (Applied to all /api routes below this point)
+app.use('/api', limiter);
 
 // Payment gateways sign the exact request bytes. Mount this before any
 // JSON parsing or sanitization so signature verification remains valid.
@@ -126,19 +143,6 @@ app.use('/api/account', accountRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/admin/products', adminProductRoutes);
 app.use('/api/uploads', uploadRoutes);
-
-// Health Check (Works even if DB is down)
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
-    message: 'HARZAAR API is running',
-    dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'
-  });
-});
-
-// Readiness is intentionally separate from liveness. It checks only internal
-// runtime, lifecycle, and database state and never calls providers.
-app.get('/api/ready', createReadinessHandler());
 
 // 404 Handler
 app.use((req, res, next) => {

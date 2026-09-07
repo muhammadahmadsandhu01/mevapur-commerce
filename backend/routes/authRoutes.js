@@ -18,7 +18,6 @@ const {
 const { protect } = require('../middleware/auth');
 const { csrfProtection } = require('../middleware/csrf');
 const validate = require('../middleware/validate');
-const { limiter } = require('../middleware/security');
 const ERROR_CODES = require('../constants/errorCodes');
 const {
   registerSchema,
@@ -32,10 +31,14 @@ const {
 const { revokeSessionSchema } = require('../validators/sessionValidator');
 
 const {
+  loginLimiter,
+  registerLimiter,
   forgotPasswordLimiter,
   resetPasswordLimiter,
   resendVerificationLimiter,
-  verifyEmailLimiter
+  verifyEmailLimiter,
+  mfaVerifyLimiter,
+  invitationAcceptLimiter
 } = require('../middleware/rateLimiter');
 
 const router = express.Router();
@@ -48,7 +51,7 @@ router.get('/csrf-token', getCsrfToken);
 
 router.post(
   '/register',
-  limiter,
+  registerLimiter,
   authValidation(registerSchema),
   register
 );
@@ -69,7 +72,7 @@ router.post(
 
 router.post(
   '/login',
-  limiter,
+  loginLimiter,
   authValidation(loginSchema),
   login
 );
@@ -139,7 +142,7 @@ router.post(
 // Multi-Factor Authentication (MFA)
 router.post(
   '/mfa/verify',
-  limiter,
+  mfaVerifyLimiter,
   require('../controllers/authController').verifyMfa
 );
 
@@ -174,7 +177,7 @@ router.post(
 // Staff Invitation Acceptance
 router.post(
   '/accept-invitation',
-  limiter,
+  invitationAcceptLimiter,
   require('../controllers/authController').acceptInvitation
 );
 

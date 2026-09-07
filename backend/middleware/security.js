@@ -4,19 +4,52 @@ const helmet = require('helmet');
 const xss = require('xss-clean');
 const hpp = require('hpp');
 
+const ERROR_CODES = require('../constants/errorCodes');
+
+const parseRateLimitMax = (raw, defaultVal = 100, minVal = 1, maxVal = 10000) => {
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || isNaN(parsed) || parsed < minVal) {
+    return defaultVal;
+  }
+  return Math.min(parsed, maxVal);
+};
+
+const parseRateLimitWindowMs = (raw, defaultVal = 15 * 60 * 1000, minVal = 1000, maxVal = 24 * 60 * 60 * 1000) => {
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || isNaN(parsed) || parsed < minVal) {
+    return defaultVal;
+  }
+  return Math.min(parsed, maxVal);
+};
+
 // 1. Rate Limiting - Prevents DDoS and Brute Force
 const limiter = rateLimit({
-  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: process.env.RATE_LIMIT_MAX || 100,
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes.'
-  },
+  windowMs: parseRateLimitWindowMs(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+  limit: (req, res) => parseRateLimitMax(process.env.RATE_LIMIT_MAX, 100),
   standardHeaders: true,
   legacyHeaders: false,
-
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
+  skip: (req) => {
+    if (req.method === 'OPTIONS') return true;
+    const path = req.path || '';
+    if (path === '/health' || path === '/ready' || path === '/api/health' || path === '/api/ready') {
+      return true;
+    }
+    return false;
+  },
+  handler: (req, res, next, options) => {
+    return res.status(429).json({
+      success: false,
+      error: {
+        code: ERROR_CODES.RATE_LIMIT_EXCEEDED,
+        message: 'Too many requests from this IP, please try again after 15 minutes.'
+      },
+      meta: {
+        requestId: req.requestId || 'unknown'
+      }
+    });
+  }
 });
 
 // 2. Data Sanitization against NoSQL Injection
@@ -72,5 +105,7 @@ module.exports = {
   dataSanitizer,
   xssCleaner,
   hppCleaner,
-  securityHeaders
+  securityHeaders,
+  parseRateLimitMax,
+  parseRateLimitWindowMs
 };
