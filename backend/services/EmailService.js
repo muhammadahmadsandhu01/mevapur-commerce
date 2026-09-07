@@ -304,28 +304,141 @@ This is an automated security notification from ${config.brandName}.`;
   }
 
   /**
-   * Generic Send Method
+   * Send via Brevo HTTPS REST API
    */
-  async send(emailData) {
-    const mode = config.mode;
-    if (mode === 'disabled') {
-      logger.info('Email sending disabled', {
-        subject: emailData.subject
+  async sendViaBrevo(emailData) {
+    const brevoConfig = config.brevo;
+    if (!brevoConfig || !brevoConfig.apiKey) {
+      logger.error('Brevo configuration missing or invalid', {
+        provider: 'brevo',
+        reason: 'EMAIL_BREVO_CONFIGURATION_FAILED'
       });
-      return { success: true, reason: 'EMAIL_SMTP_DISABLED' };
+      throw new Error('EMAIL_BREVO_CONFIGURATION_FAILED');
     }
 
-    if (mode === 'mock') {
-      logger.info('Email queued (mock)', {
-        subject: emailData.subject
+    const rawSenderName = brevoConfig.fromName || config.brandName || config.displayName;
+    const senderName = String(rawSenderName || '').replace(/[\r\n]/g, '').trim();
+    const senderEmail = brevoConfig.fromAddress;
+
+    const rawSubject = emailData.subject;
+    const subject = String(rawSubject || '').replace(/[\r\n]/g, '').trim();
+
+    const recipientEmail = String(emailData.to || '').trim();
+    const recipient = { email: recipientEmail };
+    if (emailData.toName) {
+      const sanitizedToName = String(emailData.toName).replace(/[\r\n]/g, '').trim();
+      if (sanitizedToName) {
+        recipient.name = sanitizedToName;
+      }
+    }
+
+    const payload = {
+      sender: {
+        name: senderName,
+        email: senderEmail
+      },
+      to: [recipient],
+      subject,
+      htmlContent: emailData.html,
+      textContent: emailData.text
+    };
+
+    const endpoint = brevoConfig.endpoint || 'https://api.brevo.com/v3/smtp/email';
+    const controller = new AbortController();
+    const timeoutMs = 10000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'api-key': brevoConfig.apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
-      return { success: true, reason: 'EMAIL_SMTP_MOCKED' };
+    } catch (networkError) {
+      clearTimeout(timeoutId);
+      const isTimeout = networkError.name === 'AbortError'
+        || networkError.code === 'ETIMEOUT'
+        || (networkError.message && networkError.message.toLowerCase().includes('timeout'));
+      const reasonCode = isTimeout ? 'EMAIL_BREVO_TIMEOUT' : 'EMAIL_BREVO_CONNECTION_FAILED';
+
+      logger.error('Brevo delivery failed', {
+        provider: 'brevo',
+        reason: reasonCode
+      });
+      throw new Error(reasonCode);
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    if (mode !== 'smtp') {
-      throw new Error('EMAIL_SMTP_CONFIGURATION_FAILED');
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
     }
 
+    if (response.ok) {
+      const messageId = typeof data?.messageId === 'string' && data.messageId.trim().length > 0
+        ? data.messageId.trim()
+        : (Array.isArray(data?.messageIds) && typeof data.messageIds[0] === 'string' && data.messageIds[0].trim().length > 0
+          ? data.messageIds[0].trim()
+          : null);
+
+      if (messageId) {
+        logger.info('Email successfully accepted by Brevo provider', {
+          provider: 'brevo',
+          messageId
+        });
+        return {
+          success: true,
+          reason: 'EMAIL_BREVO_ACCEPTED',
+          messageId,
+          provider: 'brevo',
+          providerAccepted: true,
+          deliveredToInbox: false
+        };
+      }
+
+      logger.error('Brevo response missing valid messageId', {
+        provider: 'brevo',
+        reason: 'EMAIL_BREVO_REJECTED',
+        statusCode: response.status
+      });
+      throw new Error('EMAIL_BREVO_REJECTED');
+    }
+
+    const status = response.status;
+    let reasonCode = 'EMAIL_BREVO_REJECTED';
+
+    if (status === 401 || status === 403) {
+      reasonCode = 'EMAIL_BREVO_AUTH_FAILED';
+    } else if (status === 429) {
+      reasonCode = 'EMAIL_BREVO_RATE_LIMITED';
+    } else if (status >= 500) {
+      reasonCode = 'EMAIL_BREVO_UNAVAILABLE';
+    } else if (status === 400 || status === 422) {
+      reasonCode = 'EMAIL_BREVO_REJECTED';
+    }
+
+    logger.error('Brevo delivery failed', {
+      provider: 'brevo',
+      reason: reasonCode,
+      statusCode: status
+    });
+
+    throw new Error(reasonCode);
+  }
+
+  /**
+   * Send via SMTP transporter
+   */
+  async sendViaSmtp(emailData) {
     const transporter = this.getTransporter();
     const fromName = config.smtp.fromName || config.displayName;
     const fromAddress = config.smtp.from;
@@ -379,6 +492,36 @@ This is an automated security notification from ${config.brandName}.`;
 
       throw new Error(reasonCode);
     }
+  }
+
+  /**
+   * Generic Send Method
+   */
+  async send(emailData) {
+    const mode = config.mode;
+    if (mode === 'disabled') {
+      logger.info('Email sending disabled', {
+        subject: emailData.subject
+      });
+      return { success: true, reason: 'EMAIL_SMTP_DISABLED' };
+    }
+
+    if (mode === 'mock') {
+      logger.info('Email queued (mock)', {
+        subject: emailData.subject
+      });
+      return { success: true, reason: 'EMAIL_SMTP_MOCKED' };
+    }
+
+    if (mode === 'brevo') {
+      return await this.sendViaBrevo(emailData);
+    }
+
+    if (mode === 'smtp') {
+      return await this.sendViaSmtp(emailData);
+    }
+
+    throw new Error('EMAIL_SMTP_CONFIGURATION_FAILED');
   }
 }
 

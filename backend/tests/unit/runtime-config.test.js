@@ -42,11 +42,11 @@ describe('runtime.config.js Email and SMTP validation', () => {
 
     expect(() => {
       createRuntimeConfig({ ...prodEnv, EMAIL_MODE: 'mock' });
-    }).toThrow('EMAIL_MODE must be smtp in staging and production');
+    }).toThrow('EMAIL_MODE must be smtp or brevo in staging and production');
 
     expect(() => {
       createRuntimeConfig({ ...prodEnv, EMAIL_MODE: 'disabled' });
-    }).toThrow('EMAIL_MODE must be smtp in staging and production');
+    }).toThrow('EMAIL_MODE must be smtp or brevo in staging and production');
   });
 
   it('strictly validates required SMTP configuration fields when mode is smtp', () => {
@@ -217,5 +217,101 @@ describe('runtime.config.js Email and SMTP validation', () => {
       EMAIL_BRAND_NAME: 'My Brand\r\nName\nWith\rNewlines'
     });
     expect(config.email.brandName).toBe('My BrandNameWithNewlines');
+  });
+
+  describe('Brevo configuration', () => {
+    const validBrevoEnv = {
+      ...baseEnv,
+      EMAIL_MODE: 'brevo',
+      BREVO_API_KEY: 'xkeysib-1234567890abcdef',
+      EMAIL_FROM_ADDRESS: 'verified@harzaar.com',
+      EMAIL_FROM_NAME: 'HARZAAR Team'
+    };
+
+    it('successfully configures Brevo in development', () => {
+      const config = createRuntimeConfig(validBrevoEnv);
+      expect(config.email.mode).toBe('brevo');
+      expect(config.email.brevo).toEqual({
+        apiKey: 'xkeysib-1234567890abcdef',
+        fromAddress: 'verified@harzaar.com',
+        fromName: 'HARZAAR Team',
+        endpoint: 'https://api.brevo.com/v3/smtp/email'
+      });
+    });
+
+    it('requires BREVO_API_KEY when EMAIL_MODE=brevo', () => {
+      const env = { ...validBrevoEnv };
+      delete env.BREVO_API_KEY;
+      expect(() => createRuntimeConfig(env)).toThrow('BREVO_API_KEY is required');
+    });
+
+    it('requires EMAIL_FROM_ADDRESS to be a valid email address when EMAIL_MODE=brevo', () => {
+      expect(() => {
+        createRuntimeConfig({ ...validBrevoEnv, EMAIL_FROM_ADDRESS: 'invalid-email' });
+      }).toThrow('EMAIL_FROM_ADDRESS must be a valid email address');
+    });
+
+    it('requires EMAIL_FROM_NAME and strips CR/LF from EMAIL_FROM_NAME', () => {
+      expect(() => {
+        createRuntimeConfig({ ...validBrevoEnv, EMAIL_FROM_NAME: ' ' });
+      }).toThrow('EMAIL_FROM_NAME is required');
+
+      const config = createRuntimeConfig({
+        ...validBrevoEnv,
+        EMAIL_FROM_NAME: 'HARZAAR\r\nNotifications\n'
+      });
+      expect(config.email.brevo.fromName).toBe('HARZAARNotifications');
+    });
+
+    it('validates Brevo in production with required EMAIL_BRAND_NAME and non-placeholder API key', () => {
+      const prodBrevoEnv = {
+        ...validBrevoEnv,
+        NODE_ENV: 'production',
+        FRONTEND_URL: 'https://harzaar.com',
+        ADMIN_URL: 'https://admin.harzaar.com',
+        BACKEND_PUBLIC_URL: 'https://api.harzaar.com',
+        AUTH_COOKIE_SAME_SITE: 'strict',
+        AUTH_COOKIE_SECURE: 'true',
+        TRUST_PROXY: '1',
+        EMAIL_BRAND_NAME: 'HARZAAR'
+      };
+
+      const config = createRuntimeConfig(prodBrevoEnv);
+      expect(config.email.mode).toBe('brevo');
+      expect(config.email.brevo.apiKey).toBe('xkeysib-1234567890abcdef');
+
+      expect(() => {
+        createRuntimeConfig({ ...prodBrevoEnv, EMAIL_BRAND_NAME: '' });
+      }).toThrow('EMAIL_BRAND_NAME is required in staging and production when EMAIL_MODE=brevo');
+
+      expect(() => {
+        createRuntimeConfig({ ...prodBrevoEnv, BREVO_API_KEY: 'your-api-key' });
+      }).toThrow('BREVO_API_KEY must not use placeholder or default patterns in production');
+
+      expect(() => {
+        createRuntimeConfig({ ...prodBrevoEnv, BREVO_API_KEY: 'placeholder_secret' });
+      }).toThrow('BREVO_API_KEY must not use placeholder or default patterns in production');
+    });
+
+    it('rejects mock or disabled email modes in production', () => {
+      const prodEnv = {
+        ...baseEnv,
+        NODE_ENV: 'production',
+        FRONTEND_URL: 'https://harzaar.com',
+        ADMIN_URL: 'https://admin.harzaar.com',
+        BACKEND_PUBLIC_URL: 'https://api.harzaar.com',
+        AUTH_COOKIE_SAME_SITE: 'strict',
+        AUTH_COOKIE_SECURE: 'true',
+        TRUST_PROXY: '1'
+      };
+
+      expect(() => {
+        createRuntimeConfig({ ...prodEnv, EMAIL_MODE: 'mock' });
+      }).toThrow('EMAIL_MODE must be smtp or brevo in staging and production');
+
+      expect(() => {
+        createRuntimeConfig({ ...prodEnv, EMAIL_MODE: 'disabled' });
+      }).toThrow('EMAIL_MODE must be smtp or brevo in staging and production');
+    });
   });
 });

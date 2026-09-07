@@ -8,6 +8,9 @@ module.exports = Object.freeze({
   get smtp() {
     return getRuntimeConfig().email.smtp;
   },
+  get brevo() {
+    return getRuntimeConfig().email.brevo;
+  },
   get brandName() {
     return getRuntimeConfig().email.brandName;
   },

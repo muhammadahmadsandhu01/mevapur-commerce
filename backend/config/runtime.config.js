@@ -6,7 +6,7 @@ const SUPPORTED_ENVIRONMENTS = new Set([
   'production'
 ]);
 const SUPPORTED_SAME_SITE = new Set(['strict', 'lax', 'none']);
-const SUPPORTED_EMAIL_MODES = new Set(['disabled', 'mock', 'smtp']);
+const SUPPORTED_EMAIL_MODES = new Set(['disabled', 'mock', 'smtp', 'brevo']);
 const SUPPORTED_UPLOAD_MODES = new Set(['disabled', 'read-only']);
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -254,13 +254,13 @@ const createRuntimeConfig = (environment = process.env) => {
     isDeployed
   );
 
-  if (isDeployed && emailMode !== 'smtp') {
-    throw new RuntimeConfigurationError('EMAIL_MODE must be smtp in staging and production');
+  if (isDeployed && emailMode !== 'smtp' && emailMode !== 'brevo') {
+    throw new RuntimeConfigurationError('EMAIL_MODE must be smtp or brevo in staging and production');
   }
 
   const rawBrand = optionalValue(environment, 'EMAIL_BRAND_NAME');
-  if (isDeployed && emailMode === 'smtp' && (!rawBrand || rawBrand.trim() === '')) {
-    throw new RuntimeConfigurationError('EMAIL_BRAND_NAME is required in staging and production when EMAIL_MODE=smtp');
+  if (isDeployed && (emailMode === 'smtp' || emailMode === 'brevo') && (!rawBrand || rawBrand.trim() === '')) {
+    throw new RuntimeConfigurationError(`EMAIL_BRAND_NAME is required in staging and production when EMAIL_MODE=${emailMode}`);
   }
   // Prevent CR/LF/header injection by stripping any newlines/carriage returns
   const emailBrandName = (rawBrand || 'HARZAAR TEST BRAND').replace(/[\r\n]/g, '').trim();
@@ -303,6 +303,9 @@ const createRuntimeConfig = (environment = process.env) => {
       throw new RuntimeConfigurationError('SMTP_FROM must be a valid email address');
     }
     smtpFromName = optionalValue(environment, 'SMTP_FROM_NAME');
+    if (smtpFromName) {
+      smtpFromName = smtpFromName.replace(/[\r\n]/g, '').trim();
+    }
 
     // In production, reject localhost/loopback hosts or generic placeholder credentials
     if (isDeployed) {
@@ -313,6 +316,30 @@ const createRuntimeConfig = (environment = process.env) => {
       const placeholderPattern = /default|placeholder|secret|password|username|example/i;
       if (placeholderPattern.test(smtpUser) || placeholderPattern.test(smtpPassword)) {
         throw new RuntimeConfigurationError('SMTP credentials must not use placeholder or default patterns in production');
+      }
+    }
+  }
+
+  let brevoApiKey = null;
+  let brevoFromAddress = null;
+  let brevoFromName = null;
+
+  if (emailMode === 'brevo') {
+    brevoApiKey = requiredValue(environment, 'BREVO_API_KEY');
+    brevoFromAddress = requiredValue(environment, 'EMAIL_FROM_ADDRESS');
+    if (!/^\S+@\S+\.\S+$/.test(brevoFromAddress)) {
+      throw new RuntimeConfigurationError('EMAIL_FROM_ADDRESS must be a valid email address');
+    }
+    const rawFromName = requiredValue(environment, 'EMAIL_FROM_NAME');
+    brevoFromName = rawFromName.replace(/[\r\n]/g, '').trim();
+    if (!brevoFromName) {
+      throw new RuntimeConfigurationError('EMAIL_FROM_NAME is required');
+    }
+
+    if (isDeployed) {
+      const placeholderPattern = /default|placeholder|secret|password|username|example|your-api-key|your_api_key/i;
+      if (placeholderPattern.test(brevoApiKey)) {
+        throw new RuntimeConfigurationError('BREVO_API_KEY must not use placeholder or default patterns in production');
       }
     }
   }
@@ -462,6 +489,12 @@ const createRuntimeConfig = (environment = process.env) => {
         }),
         from: smtpFrom,
         fromName: smtpFromName
+      }) : null,
+      brevo: emailMode === 'brevo' ? Object.freeze({
+        apiKey: brevoApiKey,
+        fromAddress: brevoFromAddress,
+        fromName: brevoFromName,
+        endpoint: 'https://api.brevo.com/v3/smtp/email'
       }) : null
     }),
     storage: Object.freeze({
@@ -492,9 +525,14 @@ const getRuntimeConfig = () => {
   return cachedConfig;
 };
 
+const resetRuntimeConfig = () => {
+  cachedConfig = undefined;
+};
+
 module.exports = {
   RuntimeConfigurationError,
   createRuntimeConfig,
   getRuntimeConfig,
+  resetRuntimeConfig,
   normalizeOrigin
 };
