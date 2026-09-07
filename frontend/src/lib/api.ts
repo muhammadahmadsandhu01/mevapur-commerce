@@ -60,6 +60,8 @@ api.interceptors.response.use(
     const nonRetryable = [
       "/auth/login",
       "/auth/register",
+      "/auth/verify-email",
+      "/auth/resend-verification",
       "/auth/refresh",
       "/auth/csrf-token",
       "/auth/forgot-password",

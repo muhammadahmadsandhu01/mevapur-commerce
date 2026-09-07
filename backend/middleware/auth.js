@@ -47,6 +47,14 @@ exports.protect = async (req, res, next) => {
       );
     }
 
+    if (!user.isVerified) {
+      throw new AppError(
+        'Email address has not been verified',
+        403,
+        ERROR_CODES.AUTH_EMAIL_NOT_VERIFIED
+      );
+    }
+
     if (Number(user.tokenVersion) !== decoded.tokenVersion) {
       throw new AppError(
         'Authentication token has been invalidated',

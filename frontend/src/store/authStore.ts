@@ -23,6 +23,9 @@ export interface User {
 interface AuthResult {
   success: boolean;
   message: string;
+  code?: string;
+  requiresEmailVerification?: boolean;
+  emailDeliveryFailed?: boolean;
 }
 
 interface AuthState {
@@ -41,7 +44,10 @@ interface AuthState {
     email: string;
     phone?: string;
     password: string;
+    redirect?: string;
   }) => Promise<AuthResult>;
+  verifyEmail: (token: string) => Promise<AuthResult>;
+  resendVerification: (email: string, redirect?: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<AuthResult>;
   resetPassword: (token: string, newPassword: string) => Promise<AuthResult>;
@@ -49,8 +55,9 @@ interface AuthState {
 }
 
 interface ErrorResponse {
-  error?: { message?: string };
+  error?: { message?: string; code?: string };
   message?: string;
+  code?: string;
 }
 
 const errorMessage = (error: unknown, fallback: string) => {
@@ -113,8 +120,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { success: true, message: 'Login successful!' };
     } catch (error) {
       clearAuthentication();
+      const code = axios.isAxiosError<ErrorResponse>(error)
+        ? (error.response?.data?.error?.code || error.response?.data?.code)
+        : undefined;
       return {
         success: false,
+        code,
         message: errorMessage(error, 'Invalid email or password'),
       };
     }
@@ -123,8 +134,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (data) => {
     try {
       const response = await authHttp.post('/auth/register', data);
+      const resData = response.data?.data;
+      if (resData?.requiresEmailVerification) {
+        clearAuthentication();
+        set({
+          user: null,
+          token: null,
+          isAuthenticated: false,
+          isInitialized: true,
+        });
+        return {
+          success: true,
+          requiresEmailVerification: true,
+          emailDeliveryFailed: Boolean(resData.emailDeliveryFailed),
+          message: response.data?.message || 'Registration successful! Please check your email to verify your account.',
+        };
+      }
       const payload = acceptAuthentication(
-        response.data.data as AuthPayload<User>
+        resData as AuthPayload<User>
       );
       set({
         user: payload.user,
@@ -132,12 +159,51 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: true,
         isInitialized: true,
       });
-      return { success: true, message: 'Registration successful!' };
+      return { success: true, requiresEmailVerification: false, message: 'Registration successful!' };
     } catch (error) {
       clearAuthentication();
+      const code = axios.isAxiosError<ErrorResponse>(error)
+        ? (error.response?.data?.error?.code || error.response?.data?.code)
+        : undefined;
       return {
         success: false,
+        code,
+        requiresEmailVerification: false,
         message: errorMessage(error, 'Registration failed'),
+      };
+    }
+  },
+
+  verifyEmail: async (token: string) => {
+    try {
+      const response = await authHttp.post('/auth/verify-email', { token });
+      return {
+        success: true,
+        message: response.data?.message || 'Email verified successfully!',
+      };
+    } catch (error) {
+      const code = axios.isAxiosError<ErrorResponse>(error)
+        ? (error.response?.data?.error?.code || error.response?.data?.code)
+        : undefined;
+      return {
+        success: false,
+        code,
+        message: errorMessage(error, 'Verification failed or token has expired'),
+      };
+    }
+  },
+
+  resendVerification: async (email: string, redirect?: string) => {
+    try {
+      const response = await authHttp.post('/auth/resend-verification', { email, redirect });
+      return {
+        success: true,
+        message: response.data?.message || 'If an unverified account exists with this email, a verification link has been sent.',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: errorMessage(error, 'Failed to resend verification email'),
       };
     }
   },

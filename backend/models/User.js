@@ -73,6 +73,25 @@ const userSchema = new mongoose.Schema(
       default: false // Security: Pehle verify hoga, phir login allowed
     },
 
+    emailVerificationTokenHash: {
+      type: String,
+      select: false,
+      default: null,
+      index: true
+    },
+
+    emailVerificationExpiresAt: {
+      type: Date,
+      select: false,
+      default: null
+    },
+
+    emailVerificationSentAt: {
+      type: Date,
+      select: false,
+      default: null
+    },
+
     // Account Status
     isBlocked: {
       type: Boolean,
@@ -249,6 +268,9 @@ userSchema.methods.toJSON = function() {
   delete obj.tokenVersion;
   delete obj.resetPasswordTokenHash;
   delete obj.resetPasswordExpiresAt;
+  delete obj.emailVerificationTokenHash;
+  delete obj.emailVerificationExpiresAt;
+  delete obj.emailVerificationSentAt;
   delete obj.__v;
   delete obj.isDeleted; // Client ko soft delete flag dikhane ki zarurat nahi
   

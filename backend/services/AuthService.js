@@ -98,13 +98,15 @@ class AuthService {
     email,
     password,
     phone,
+    redirect,
     deviceInfo,
     ipAddress,
     userAgent,
     requestId
   }) {
     const audit = this.auditContext({ requestId, ipAddress, userAgent });
-    const existingUser = await UserRepository.findByEmail(email);
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    const existingUser = await UserRepository.findByEmail(normalizedEmail);
     if (existingUser) {
       await AuditService.log({
         ...audit,
@@ -120,15 +122,17 @@ class AuthService {
       );
     }
 
+    const autoVerify = Boolean(config.email.autoVerify);
+
     let user;
     try {
       user = await UserRepository.create({
-        fullName,
-        email,
+        fullName: (fullName || '').trim(),
+        email: normalizedEmail,
         password,
-        phone,
+        phone: (phone || '').trim(),
         role: 'customer',
-        isVerified: config.email.autoVerify
+        isVerified: autoVerify
       });
     } catch (error) {
       if (error.code === 11000) {
@@ -139,6 +143,57 @@ class AuthService {
         );
       }
       throw error;
+    }
+
+    if (!autoVerify) {
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const verificationTokenHash = SessionService.hashToken(verificationToken);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      await UserRepository.setEmailVerificationToken(
+        user._id,
+        verificationTokenHash,
+        expiresAt
+      );
+
+      let emailDeliveryFailed = false;
+      try {
+        await EmailService.sendVerificationEmail(
+          user.email,
+          user.fullName,
+          verificationToken,
+          { redirect }
+        );
+      } catch (emailError) {
+        emailDeliveryFailed = true;
+        logger.warn('Failed to dispatch verification email during registration', {
+          userId: String(user._id)
+        });
+        await AuditService.log({
+          ...audit,
+          userId: user._id,
+          eventName: 'AUTH.REGISTER',
+          status: 'WARNING',
+          errorCode: ERROR_CODES.EMAIL_SEND_FAILED,
+          metadata: { emailDeliveryFailed: true }
+        });
+      }
+
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.REGISTER',
+        status: emailDeliveryFailed ? 'WARNING' : 'SUCCESS',
+        metadata: { requiresEmailVerification: true, emailDeliveryFailed }
+      });
+
+      logger.info('Pending user registered', { userId: String(user._id), emailDeliveryFailed });
+
+      return {
+        user: this.publicUser(user),
+        requiresEmailVerification: true,
+        emailDeliveryFailed
+      };
     }
 
     const authSession = await this.createAuthenticatedSession({
@@ -159,9 +214,167 @@ class AuthService {
     logger.info('User registered', { userId: String(user._id) });
     return {
       user: this.publicUser(user),
+      requiresEmailVerification: false,
       ...authSession,
       expiresIn: TokenService.getAccessTokenExpiry()
     };
+  }
+
+  async verifyEmail({ token, ipAddress, userAgent, requestId }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    if (!token || typeof token !== 'string') {
+      throw new AppError(
+        'Verification token is required',
+        400,
+        ERROR_CODES.AUTH_INVALID_TOKEN
+      );
+    }
+
+    const tokenHash = SessionService.hashToken(token.trim());
+    const user = await UserRepository.findByValidEmailVerificationToken(tokenHash);
+
+    if (!user) {
+      await AuditService.log({
+        ...audit,
+        eventName: 'AUTH.EMAIL.VERIFIED',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.AUTH_INVALID_TOKEN
+      });
+      throw new AppError(
+        'Verification token is invalid, expired, or has already been used',
+        400,
+        ERROR_CODES.AUTH_INVALID_TOKEN
+      );
+    }
+
+    const verifiedUser = await UserRepository.verifyEmailAndClearToken(
+      user._id,
+      tokenHash
+    );
+
+    if (!verifiedUser) {
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.EMAIL.VERIFIED',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.AUTH_INVALID_TOKEN
+      });
+      throw new AppError(
+        'Verification token is invalid, expired, or has already been used',
+        400,
+        ERROR_CODES.AUTH_INVALID_TOKEN
+      );
+    }
+
+    // Revoke all pre-verification sessions and require fresh login
+    await SessionService.revokeAllSessions(user._id, 'EMAIL_VERIFIED');
+
+    try {
+      await EmailService.sendWelcomeEmail(verifiedUser.email, verifiedUser.fullName);
+    } catch (emailError) {
+      logger.warn('Failed to send welcome email upon email verification', {
+        userId: String(user._id)
+      });
+    }
+
+    await AuditService.log({
+      ...audit,
+      userId: user._id,
+      eventName: 'AUTH.EMAIL.VERIFIED',
+      status: 'SUCCESS',
+      metadata: { sessionsRevoked: true }
+    });
+
+    logger.info('User email verified successfully', { userId: String(user._id) });
+
+    return {
+      success: true,
+      message: 'Email verified successfully. You may now log in.',
+      user: this.publicUser(verifiedUser)
+    };
+  }
+
+  async resendVerification({ email, redirect, ipAddress, userAgent, requestId }) {
+    const audit = this.auditContext({ requestId, ipAddress, userAgent });
+    const neutralMessage = 'If an unverified account exists with this email, a verification link has been sent.';
+    const neutralResponse = {
+      success: true,
+      message: neutralMessage
+    };
+
+    if (!email || typeof email !== 'string') {
+      return neutralResponse;
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await UserRepository.findByEmail(normalizedEmail);
+
+    if (!user || user.isDeleted || user.isBlocked) {
+      await AuditService.log({
+        ...audit,
+        eventName: 'AUTH.EMAIL.VERIFICATION.REQUEST',
+        status: 'WARNING',
+        metadata: { accountMatched: false }
+      });
+      return neutralResponse;
+    }
+
+    if (user.isVerified) {
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.EMAIL.VERIFICATION.REQUEST',
+        status: 'SUCCESS',
+        metadata: { alreadyVerified: true }
+      });
+      return neutralResponse;
+    }
+
+    // Revoke any existing pre-verification sessions and increment tokenVersion
+    await UserRepository.incrementTokenVersion(user._id);
+    await SessionService.revokeAllSessions(user._id, 'EMAIL_VERIFICATION_RESENT');
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenHash = SessionService.hashToken(verificationToken);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await UserRepository.setEmailVerificationToken(
+      user._id,
+      verificationTokenHash,
+      expiresAt
+    );
+
+    try {
+      await EmailService.sendVerificationEmail(
+        user.email,
+        user.fullName,
+        verificationToken,
+        { redirect }
+      );
+
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.EMAIL.VERIFICATION.REQUEST',
+        status: 'SUCCESS',
+        metadata: { emailSent: true }
+      });
+    } catch (emailError) {
+      logger.warn('Failed to send verification email during resend', {
+        userId: String(user._id)
+      });
+      await AuditService.log({
+        ...audit,
+        userId: user._id,
+        eventName: 'AUTH.EMAIL.VERIFICATION.REQUEST',
+        status: 'FAILURE',
+        errorCode: ERROR_CODES.EMAIL_SEND_FAILED,
+        metadata: { emailMatched: true }
+      });
+    }
+
+    return neutralResponse;
   }
 
   async login({

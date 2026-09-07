@@ -2,7 +2,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 
 import {
   normalizeProduct,
@@ -241,9 +241,11 @@ describe('Storefront Catalog Normalization & Integrity Suite', () => {
 
 describe('ProductCard Navigation & Cloudflare R2 RemotePattern Contracts', () => {
   test('next.config.js allows exact Cloudflare R2 hostname and /products/** pathname', () => {
-    const configPath = path.resolve(process.cwd(), 'next.config.js');
-    const require = createRequire(import.meta.url);
-    const nextConfig = require(configPath);
+    const child = spawnSync(process.execPath, ['-e', 'console.log(JSON.stringify(require("./next.config.js")))'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+    const nextConfig = JSON.parse(child.stdout.trim());
 
     assert.ok(nextConfig.images?.remotePatterns, 'remotePatterns must be defined');
     const r2Pattern = nextConfig.images.remotePatterns.find(

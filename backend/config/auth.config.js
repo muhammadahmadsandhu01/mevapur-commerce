@@ -80,9 +80,11 @@ module.exports = {
     csrfSecret: process.env.CSRF_SECRET || jwtSecret
   },
   email: {
-    autoVerify: process.env.AUTH_AUTO_VERIFY_EMAIL !== 'false',
+    get autoVerify() {
+      return process.env.AUTH_AUTO_VERIFY_EMAIL === 'true';
+    },
     from: process.env.EMAIL_FROM || 'MevaPur <noreply@mevapur.com>',
-    verificationSubject: 'Verify Your MevaPur Account',
+    verificationSubject: 'Verify Your Email',
     resetSubject: 'Password Reset Request'
   }
 };

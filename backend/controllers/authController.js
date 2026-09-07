@@ -65,15 +65,60 @@ exports.register = async (req, res, next) => {
       ...getClientInfo(req),
       deviceInfo: getDeviceInfo(req)
     });
+
+    if (result.requiresEmailVerification) {
+      const message = result.emailDeliveryFailed
+        ? 'Account registered, but the verification email could not be sent. Please use resend verification.'
+        : 'Registration successful. Please check your email to verify your account.';
+
+      return success(req, res, 201, message, {
+        user: result.user,
+        requiresEmailVerification: true,
+        emailDeliveryFailed: Boolean(result.emailDeliveryFailed)
+      });
+    }
+
     const csrfToken = issueCsrfToken(res);
     setRefreshCookie(res, result.refreshToken);
 
     return success(req, res, 201, 'Registration successful', {
       user: result.user,
+      requiresEmailVerification: false,
       accessToken: result.accessToken,
       expiresIn: result.expiresIn,
       csrfToken
     });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.verifyEmail = async (req, res, next) => {
+  try {
+    const result = await AuthService.verifyEmail({
+      token: req.body.token,
+      ...getClientInfo(req)
+    });
+    return success(req, res, 200, 'Email verified successfully', result);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.resendVerification = async (req, res, next) => {
+  try {
+    const result = await AuthService.resendVerification({
+      email: req.body.email,
+      redirect: req.body.redirect,
+      ...getClientInfo(req)
+    });
+    return success(
+      req,
+      res,
+      200,
+      'If an account exists with this email, a verification link has been sent',
+      result
+    );
   } catch (error) {
     return next(error);
   }

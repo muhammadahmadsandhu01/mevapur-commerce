@@ -121,6 +121,67 @@ class UserRepository {
       { new: true }
     );
   }
+
+  async setEmailVerificationToken(id, tokenHash, expiresAt, sentAt = new Date()) {
+    return User.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          emailVerificationTokenHash: tokenHash,
+          emailVerificationExpiresAt: expiresAt,
+          emailVerificationSentAt: sentAt
+        }
+      },
+      { new: true }
+    );
+  }
+
+  async findByValidEmailVerificationToken(tokenHash) {
+    return User.findOne({
+      emailVerificationTokenHash: tokenHash,
+      emailVerificationExpiresAt: { $gt: new Date() }
+    }).select('+emailVerificationTokenHash +emailVerificationExpiresAt');
+  }
+
+  async verifyEmailAndClearToken(id, expectedTokenHash) {
+    return User.findOneAndUpdate(
+      {
+        _id: id,
+        emailVerificationTokenHash: expectedTokenHash
+      },
+      {
+        $set: {
+          isVerified: true
+        },
+        $inc: {
+          tokenVersion: 1
+        },
+        $unset: {
+          emailVerificationTokenHash: "",
+          emailVerificationExpiresAt: "",
+          emailVerificationSentAt: ""
+        }
+      },
+      { new: true }
+    );
+  }
+
+  async clearEmailVerificationTokenConditionally(id, expectedTokenHash) {
+    return User.findOneAndUpdate(
+      {
+        _id: id,
+        emailVerificationTokenHash: expectedTokenHash
+      },
+      {
+        $unset: {
+          emailVerificationTokenHash: "",
+          emailVerificationExpiresAt: "",
+          emailVerificationSentAt: ""
+        }
+      },
+      { new: true }
+    );
+  }
 }
 
 module.exports = new UserRepository();

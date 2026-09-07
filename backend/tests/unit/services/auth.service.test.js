@@ -12,6 +12,10 @@ jest.mock('../../../repositories/UserRepository', () => ({
   save: jest.fn(),
   setPasswordResetToken: jest.fn(),
   clearPasswordResetTokenConditionally: jest.fn(),
+  setEmailVerificationToken: jest.fn(),
+  findByValidEmailVerificationToken: jest.fn(),
+  verifyEmailAndClearToken: jest.fn(),
+  clearEmailVerificationTokenConditionally: jest.fn(),
 }));
 jest.mock('../../../services/TokenService', () => ({
   generateAccessToken: jest.fn(),
@@ -34,9 +38,16 @@ jest.mock('../../../services/AuditService', () => ({
 }));
 jest.mock('../../../services/EmailService', () => ({
   sendPasswordResetEmail: jest.fn(),
+  sendVerificationEmail: jest.fn(),
+  sendWelcomeEmail: jest.fn(),
 }));
+let mockAutoVerify = true;
 jest.mock('../../../config/auth.config', () => ({
-  email: { autoVerify: true },
+  email: {
+    get autoVerify() {
+      return mockAutoVerify;
+    }
+  },
   security: {
     maxLoginAttempts: 5,
     lockoutDurationMs: 3600000,
@@ -334,6 +345,171 @@ describe('AuthService', () => {
         user._id,
         'mock-hash'
       );
+    });
+  });
+
+  describe('email verification lifecycle', () => {
+    const EmailService = require('../../../services/EmailService');
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      SessionService.hashToken.mockImplementation(token => `hashed-${token}`);
+      mockAutoVerify = false;
+    });
+
+    afterEach(() => {
+      mockAutoVerify = true;
+    });
+
+    it('creates unverified user and dispatches verification email without issuing session tokens', async () => {
+      const user = makeUser({ isVerified: false });
+      UserRepository.findByEmail.mockResolvedValue(null);
+      UserRepository.create.mockResolvedValue(user);
+      UserRepository.setEmailVerificationToken.mockResolvedValue(user);
+      EmailService.sendVerificationEmail.mockResolvedValue({ success: true });
+
+      const result = await AuthService.register({
+        fullName: 'Pending User',
+        email: 'pending@example.com',
+        password: 'Violet!9Mountain',
+        redirect: '/checkout',
+        requestId: 'request-pending-reg'
+      });
+
+      expect(UserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'pending@example.com',
+          isVerified: false,
+        })
+      );
+      expect(UserRepository.setEmailVerificationToken).toHaveBeenCalledWith(
+        user._id,
+        expect.any(String),
+        expect.any(Date)
+      );
+      expect(EmailService.sendVerificationEmail).toHaveBeenCalledWith(
+        user.email,
+        user.fullName,
+        expect.any(String),
+        { redirect: '/checkout' }
+      );
+      expect(result).toEqual({
+        user: expect.objectContaining({ email: user.email }),
+        requiresEmailVerification: true,
+        emailDeliveryFailed: false
+      });
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
+      expect(SessionService.createSession).not.toHaveBeenCalled();
+    });
+
+    it('handles SMTP failure gracefully during pending registration keeping account recoverable', async () => {
+      const user = makeUser({ isVerified: false });
+      UserRepository.findByEmail.mockResolvedValue(null);
+      UserRepository.create.mockResolvedValue(user);
+      UserRepository.setEmailVerificationToken.mockResolvedValue(user);
+      EmailService.sendVerificationEmail.mockRejectedValue(new Error('SMTP down'));
+
+      const result = await AuthService.register({
+        fullName: 'Pending User',
+        email: 'pending@example.com',
+        password: 'Violet!9Mountain',
+        requestId: 'request-smtp-fail'
+      });
+
+      expect(result).toEqual({
+        user: expect.objectContaining({ email: user.email }),
+        requiresEmailVerification: true,
+        emailDeliveryFailed: true
+      });
+      expect(result).not.toHaveProperty('accessToken');
+      expect(SessionService.createSession).not.toHaveBeenCalled();
+    });
+
+    it('successfully verifies email, revokes pre-verification sessions, increments tokenVersion, and sends welcome email', async () => {
+      const user = makeUser({ isVerified: false });
+      const verifiedUser = makeUser({ isVerified: true, tokenVersion: 1 });
+      UserRepository.findByValidEmailVerificationToken.mockResolvedValue(user);
+      UserRepository.verifyEmailAndClearToken.mockResolvedValue(verifiedUser);
+      SessionService.revokeAllSessions.mockResolvedValue(2);
+      EmailService.sendWelcomeEmail.mockResolvedValue({ success: true });
+
+      const result = await AuthService.verifyEmail({
+        token: 'plain-token-12345',
+        requestId: 'request-verify'
+      });
+
+      expect(SessionService.hashToken).toHaveBeenCalledWith('plain-token-12345');
+      expect(UserRepository.findByValidEmailVerificationToken).toHaveBeenCalledWith('hashed-plain-token-12345');
+      expect(UserRepository.verifyEmailAndClearToken).toHaveBeenCalledWith(user._id, 'hashed-plain-token-12345');
+      expect(SessionService.revokeAllSessions).toHaveBeenCalledWith(user._id, 'EMAIL_VERIFIED');
+      expect(EmailService.sendWelcomeEmail).toHaveBeenCalledWith(verifiedUser.email, verifiedUser.fullName);
+      expect(result.success).toBe(true);
+      expect(result.user.isVerified).toBe(true);
+    });
+
+    it('rejects verification if token is invalid, expired or already consumed', async () => {
+      UserRepository.findByValidEmailVerificationToken.mockResolvedValue(null);
+
+      await expect(AuthService.verifyEmail({
+        token: 'invalid-or-expired-token',
+        requestId: 'request-verify-fail'
+      })).rejects.toMatchObject({
+        code: ERROR_CODES.AUTH_INVALID_TOKEN,
+        statusCode: 400
+      });
+    });
+
+    it('resends verification email, revokes sessions, and returns enumeration-neutral message for unverified user', async () => {
+      const user = makeUser({ isVerified: false });
+      UserRepository.findByEmail.mockResolvedValue(user);
+      UserRepository.incrementTokenVersion.mockResolvedValue({ tokenVersion: 1 });
+      SessionService.revokeAllSessions.mockResolvedValue(1);
+      UserRepository.setEmailVerificationToken.mockResolvedValue(user);
+      EmailService.sendVerificationEmail.mockResolvedValue({ success: true });
+
+      const result = await AuthService.resendVerification({
+        email: 'pending@example.com',
+        redirect: '/checkout',
+        requestId: 'request-resend'
+      });
+
+      expect(result).toEqual({
+        success: true,
+        message: 'If an unverified account exists with this email, a verification link has been sent.'
+      });
+      expect(UserRepository.incrementTokenVersion).toHaveBeenCalledWith(user._id);
+      expect(SessionService.revokeAllSessions).toHaveBeenCalledWith(user._id, 'EMAIL_VERIFICATION_RESENT');
+      expect(UserRepository.setEmailVerificationToken).toHaveBeenCalled();
+      expect(EmailService.sendVerificationEmail).toHaveBeenCalledWith(
+        user.email,
+        user.fullName,
+        expect.any(String),
+        { redirect: '/checkout' }
+      );
+    });
+
+    it('returns enumeration-neutral message for non-existent or already verified email without resending', async () => {
+      UserRepository.findByEmail.mockResolvedValue(null);
+
+      const nonExistentResult = await AuthService.resendVerification({
+        email: 'nobody@example.com',
+        requestId: 'request-resend-nobody'
+      });
+
+      expect(nonExistentResult.success).toBe(true);
+      expect(EmailService.sendVerificationEmail).not.toHaveBeenCalled();
+
+      const verifiedUser = makeUser({ isVerified: true });
+      UserRepository.findByEmail.mockResolvedValue(verifiedUser);
+
+      const verifiedResult = await AuthService.resendVerification({
+        email: 'verified@example.com',
+        requestId: 'request-resend-verified'
+      });
+
+      expect(verifiedResult.success).toBe(true);
+      expect(EmailService.sendVerificationEmail).not.toHaveBeenCalled();
     });
   });
 });

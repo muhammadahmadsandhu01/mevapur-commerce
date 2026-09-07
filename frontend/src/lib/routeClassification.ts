@@ -6,6 +6,7 @@ const PUBLIC_EXACT_ROUTES = new Set([
   '/',
   '/login',
   '/register',
+  '/verify-email',
   '/forgot-password',
   '/reset-password',
   '/products',
@@ -69,7 +70,8 @@ export const isProtectedRoute = (rawPathname: string): boolean => {
 
 /**
  * Validates a target redirect URL to prevent open redirect vulnerabilities.
- * Rejects external domains, protocol-relative URLs (//evil.com), and backslash payloads (/\evil.com).
+ * Rejects external domains, protocol-relative URLs (//evil.com), backslash payloads (/\evil.com),
+ * and URL-encoded variations (/%2f%2fevil.com).
  */
 export const isSafeLocalRedirect = (
   target: string | null | undefined,
@@ -78,12 +80,24 @@ export const isSafeLocalRedirect = (
   if (!target || typeof target !== 'string') return fallback;
   const trimmed = target.trim();
 
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed);
+  } catch {
+    return fallback;
+  }
+
   if (
     trimmed.startsWith('/') &&
     !trimmed.startsWith('//') &&
     !trimmed.startsWith('/\\') &&
     !trimmed.includes('://') &&
-    !trimmed.includes('\\')
+    !trimmed.includes('\\') &&
+    decoded.startsWith('/') &&
+    !decoded.startsWith('//') &&
+    !decoded.startsWith('/\\') &&
+    !decoded.includes('://') &&
+    !decoded.includes('\\')
   ) {
     return trimmed;
   }

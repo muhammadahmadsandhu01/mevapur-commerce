@@ -61,19 +61,82 @@ class EmailService {
   /**
    * Send Verification Email
    */
-  async sendVerificationEmail(email, fullName, token) {
-    const verificationLink = `${config.frontendUrl}/verify-email?token=${token}`;
+  async sendVerificationEmail(email, fullName, token, options = {}) {
+    const { getRuntimeConfig } = require('../config/runtime.config');
+    const runtimeConfig = getRuntimeConfig();
+    const storefrontOrigin = runtimeConfig.origins.storefront;
+    const verifyUrl = new URL('/verify-email', storefrontOrigin);
+    verifyUrl.searchParams.set('token', token);
+    if (options.redirect) {
+      const redirectStr = String(options.redirect).trim();
+      if (
+        redirectStr.startsWith('/')
+        && !redirectStr.startsWith('//')
+        && !redirectStr.startsWith('/\\')
+        && !redirectStr.includes('://')
+        && !redirectStr.includes('\\')
+      ) {
+        verifyUrl.searchParams.set('redirect', redirectStr);
+      }
+    }
+    const verificationLink = verifyUrl.toString();
+
+    const safeBrandName = this.escapeHtml(config.brandName);
     const safeLink = this.escapeHtml(verificationLink);
     const safeName = this.escapeHtml(fullName);
 
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Verify Your Email - ${safeBrandName}</title>
+  <style>
+    body { font-family: sans-serif; background-color: #f9f9f9; color: #333; margin: 0; padding: 20px; }
+    .container { max-width: 600px; background-color: #fff; border: 1px solid #ddd; padding: 40px; border-radius: 4px; margin: 0 auto; }
+    .header { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #111; text-align: center; }
+    .cta { display: block; width: 200px; margin: 30px auto; padding: 12px 24px; background-color: #000; color: #fff; text-decoration: none; text-align: center; font-weight: bold; border-radius: 4px; }
+    .fallback { font-size: 12px; color: #666; word-break: break-all; margin-top: 30px; text-align: center; }
+    .footer { font-size: 12px; color: #999; margin-top: 40px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">${safeBrandName}</div>
+    <p>Hello ${safeName},</p>
+    <p>Thank you for registering with ${safeBrandName}. Please verify your email address by clicking the button below:</p>
+    <a href="${safeLink}" class="cta">Verify Email</a>
+    <p>This link is valid for 24 hours. If you did not create an account, please ignore this email.</p>
+    <div class="fallback">
+      If you are having trouble with the button above, copy and paste this URL into your web browser:<br>
+      ${safeLink}
+    </div>
+    <div class="footer">
+      This is an automated security notification from ${safeBrandName}.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const text = `${config.brandName} Email Verification
+
+Hello ${fullName},
+
+Thank you for registering with ${config.brandName}. Please verify your email address by opening the link below:
+
+${verificationLink}
+
+This link is valid for 24 hours. If you did not create an account, please ignore this email.
+
+This is an automated security notification from ${config.brandName}.`;
+
     const emailData = {
       to: email,
-      subject: 'Verify Your Email - MevaPur',
-      html: `<p>Hello ${safeName},</p><p>Please verify your email by clicking <a href="${safeLink}">here</a>.</p>`,
-      text: `Hello ${fullName},\n\nPlease verify your email by opening this link: ${verificationLink}`
+      subject: `Verify Your Email - ${config.brandName}`,
+      html,
+      text
     };
 
-    await this.send(emailData);
+    return await this.send(emailData);
   }
 
   /**
@@ -228,15 +291,16 @@ This is an automated security notification from ${config.brandName}.`;
    * Send Welcome Email
    */
   async sendWelcomeEmail(email, fullName) {
+    const safeBrandName = this.escapeHtml(config.brandName);
     const safeName = this.escapeHtml(fullName);
     const emailData = {
       to: email,
-      subject: 'Welcome to MevaPur!',
-      html: `<p>Welcome, ${safeName}!</p>`,
-      text: `Welcome, ${fullName}!`
+      subject: `Welcome to ${config.brandName}!`,
+      html: `<p>Welcome to ${safeBrandName}, ${safeName}!</p>`,
+      text: `Welcome to ${config.brandName}, ${fullName}!`
     };
 
-    await this.send(emailData);
+    return await this.send(emailData);
   }
 
   /**

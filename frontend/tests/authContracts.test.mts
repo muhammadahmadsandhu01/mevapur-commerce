@@ -146,3 +146,111 @@ describe('Password Policy Enterprise Verification', () => {
     assert.equal(validatePolicy('Valid#Passabc123'), false); // 'abc' sequential
   });
 });
+
+describe('Storefront Safe Redirect Contract (register -> verify -> login -> checkout)', () => {
+  test('validates safe internal relative redirect path throughout auth lifecycle', () => {
+    const rawRedirect = '/checkout';
+    const safeTarget = isSafeLocalRedirect(rawRedirect, '/');
+    assert.equal(safeTarget, '/checkout');
+
+    // Registration preserves safe redirect into login URL
+    const loginUrl = safeTarget !== '/'
+      ? `/login?redirect=${encodeURIComponent(safeTarget)}`
+      : '/login';
+    assert.equal(loginUrl, '/login?redirect=%2Fcheckout');
+
+    // Verification page forwards safe redirect into login URL
+    const verifyPageLoginUrl = `/login?redirect=${encodeURIComponent(isSafeLocalRedirect(rawRedirect, '/'))}`;
+    assert.equal(verifyPageLoginUrl, '/login?redirect=%2Fcheckout');
+  });
+
+  test('neutralizes open redirect attacks at each stage of the lifecycle', () => {
+    const attackPayloads = [
+      'https://evil.com/phish',
+      'http://attacker.org',
+      '//evil.com',
+      '/\\evil.com',
+      '\\evil.com',
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'vbscript:msgbox(1)',
+      '   //evil.com   ',
+      '/%2f%2fevil.com'
+    ];
+
+    for (const payload of attackPayloads) {
+      const sanitized = isSafeLocalRedirect(payload, '/');
+      assert.equal(
+        sanitized,
+        '/',
+        `Malicious payload "${payload}" must resolve to safe fallback "/"`
+      );
+    }
+  });
+});
+
+describe('Email Verification & Auth UI Component Behavioral Contracts', () => {
+  test('RegisterPage implements Check Your Email screen, email failure recovery alert, and resend action', () => {
+    const registerSource = fs.readFileSync(path.resolve('src/app/register/page.tsx'), 'utf8');
+
+    // Password policy integration
+    assert.ok(registerSource.includes('validatePasswordPolicy'), 'Must import and use enterprise validatePasswordPolicy');
+    assert.ok(registerSource.includes('12+ characters'), 'Must display 12+ characters policy checklist item');
+
+    // Check your email screen
+    assert.ok(registerSource.includes('Check Your Email'), 'Must render "Check Your Email" heading upon pending registration');
+    assert.ok(registerSource.includes('pendingVerificationEmail'), 'Must track pending verification email state');
+
+    // Email delivery failure notice
+    assert.ok(registerSource.includes('emailDeliveryIssue'), 'Must track email delivery issue state');
+    assert.ok(registerSource.includes('initial verification email could not be sent immediately'), 'Must render actionable non-secret delivery issue notice');
+
+    // Resend verification action & states
+    assert.ok(registerSource.includes('resendVerification'), 'Must bind to resendVerification store action');
+    assert.ok(registerSource.includes('Resending Link...'), 'Must render active loading state for resend button');
+    assert.ok(registerSource.includes('Resend Verification Email'), 'Must render resend verification action');
+
+    // Proceed to login link
+    assert.ok(registerSource.includes('Proceed to Login'), 'Must provide navigation to login');
+  });
+
+  test('LoginPage implements AUTH_EMAIL_NOT_VERIFIED callout, unverified email display, and inline resend', () => {
+    const loginSource = fs.readFileSync(path.resolve('src/app/login/page.tsx'), 'utf8');
+
+    // Unverified account callout
+    assert.ok(loginSource.includes('AUTH_EMAIL_NOT_VERIFIED'), 'Must handle AUTH_EMAIL_NOT_VERIFIED code specifically');
+    assert.ok(loginSource.includes('Email Not Verified'), 'Must render "Email Not Verified" alert banner');
+    assert.ok(loginSource.includes('unverifiedEmail'), 'Must store and display unverified email');
+
+    // Inline resend button and loading feedback
+    assert.ok(loginSource.includes('Sending Verification Email...'), 'Must show loading indicator during resend');
+    assert.ok(loginSource.includes('Resend Verification Email'), 'Must render inline resend verification button');
+
+    // Safe redirect preservation
+    assert.ok(loginSource.includes('isSafeLocalRedirect'), 'Must sanitize redirect target before pushing route');
+  });
+
+  test('VerifyEmailPage implements verifying, success, error/expired, and no-token states', () => {
+    const verifySource = fs.readFileSync(path.resolve('src/app/verify-email/page.tsx'), 'utf8');
+    const layoutSource = fs.readFileSync(path.resolve('src/app/verify-email/layout.tsx'), 'utf8');
+
+    // Layout security metadata
+    assert.ok(layoutSource.includes('index: false') || layoutSource.includes('noindex'), 'Verify email page must not be indexed by search engines');
+    assert.ok(layoutSource.includes('follow: false') || layoutSource.includes('nofollow'), 'Verify email page links must not be followed');
+
+    // State: Verifying
+    assert.ok(verifySource.includes('Verifying Your Email'), 'Must display verifying state banner');
+    assert.ok(verifySource.includes('verifyEmail(token)'), 'Must automatically call verifyEmail with URL token');
+
+    // State: Success
+    assert.ok(verifySource.includes('Email Verified Successfully!'), 'Must display success confirmation');
+    assert.ok(verifySource.includes('Log In to Continue'), 'Must provide login CTA upon successful verification');
+
+    // State: Error / Expired
+    assert.ok(verifySource.includes('Verification Link Invalid or Expired'), 'Must display invalid/expired error state');
+
+    // State: No token / Resend form
+    assert.ok(verifySource.includes('Resend Verification Email'), 'Must provide standalone resend form when no token present');
+    assert.ok(verifySource.includes('Sending New Link...'), 'Must provide active sending feedback during resend');
+  });
+});

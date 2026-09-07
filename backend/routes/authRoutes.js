@@ -2,6 +2,8 @@ const express = require('express');
 const {
   register,
   login,
+  verifyEmail,
+  resendVerification,
   refresh,
   getCsrfToken,
   getMe,
@@ -21,13 +23,20 @@ const ERROR_CODES = require('../constants/errorCodes');
 const {
   registerSchema,
   loginSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema
 } = require('../validators/authValidator');
 const { revokeSessionSchema } = require('../validators/sessionValidator');
 
-const { forgotPasswordLimiter, resetPasswordLimiter } = require('../middleware/rateLimiter');
+const {
+  forgotPasswordLimiter,
+  resetPasswordLimiter,
+  resendVerificationLimiter,
+  verifyEmailLimiter
+} = require('../middleware/rateLimiter');
 
 const router = express.Router();
 const authValidation = (schema, source = 'body') => validate(schema, {
@@ -42,6 +51,20 @@ router.post(
   limiter,
   authValidation(registerSchema),
   register
+);
+
+router.post(
+  '/verify-email',
+  verifyEmailLimiter,
+  authValidation(verifyEmailSchema),
+  verifyEmail
+);
+
+router.post(
+  '/resend-verification',
+  resendVerificationLimiter,
+  authValidation(resendVerificationSchema),
+  resendVerification
 );
 
 router.post(

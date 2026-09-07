@@ -55,7 +55,7 @@ describe('CMS Storefront Document-Level HTTP Semantics & Isolation (Unmocked E2E
       email: `cms-doc-admin-${Date.now()}@example.test`,
       password: 'Password123!',
       role: 'admin',
-      isEmailVerified: true
+      isVerified: true
     });
     const adminSession = await Session.create({
       user: adminUser._id,

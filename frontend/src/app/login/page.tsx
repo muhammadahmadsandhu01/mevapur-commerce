@@ -4,17 +4,28 @@ export const dynamic = 'force-dynamic';
 import { useState, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Mail, Lock, Eye, EyeOff, ArrowLeft, Loader, AlertCircle } from 'lucide-react';
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  Loader,
+  AlertCircle,
+  SendHorizontal
+} from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import Toast from '@/components/Toast';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { branding } from '@/config/branding';
+import { isSafeLocalRedirect } from '@/lib/routeClassification';
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || '/';
-  const { login } = useAuthStore();
+  const rawRedirect = searchParams.get('redirect');
+  const safeRedirect = isSafeLocalRedirect(rawRedirect, '/');
+  const { login, resendVerification } = useAuthStore();
 
   const [formData, setFormData] = useState({
     email: '',
@@ -23,6 +34,9 @@ function LoginContent() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -60,14 +74,19 @@ function LoginContent() {
 
     setLoading(true);
     setErrors({});
+    setUnverifiedEmail(null);
+    setResendStatus(null);
 
     try {
       const result = await login(formData.email, formData.password, formData.rememberMe);
 
       if (result.success) {
         setToast({ message: '✅ ' + result.message, type: 'success' });
-        setTimeout(() => router.push(redirectTo), 1500);
+        setTimeout(() => router.push(safeRedirect), 1000);
       } else {
+        if (result.code === 'AUTH_EMAIL_NOT_VERIFIED' || result.message.toLowerCase().includes('not been verified')) {
+          setUnverifiedEmail(formData.email);
+        }
         setToast({ message: '❌ ' + result.message, type: 'error' });
       }
     } catch {
@@ -76,6 +95,30 @@ function LoginContent() {
       setLoading(false);
     }
   };
+
+  const handleResend = async () => {
+    const targetEmail = unverifiedEmail || formData.email;
+    if (!targetEmail) return;
+
+    setResending(true);
+    setResendStatus(null);
+    try {
+      const result = await resendVerification(
+        targetEmail,
+        safeRedirect !== '/' ? safeRedirect : undefined
+      );
+      setResendStatus(result.message);
+      setToast({ message: result.message, type: 'info' });
+    } catch {
+      setResendStatus('Failed to resend verification email. Please try again later.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const registerUrl = safeRedirect !== '/'
+    ? `/register?redirect=${encodeURIComponent(safeRedirect)}`
+    : '/register';
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 relative">
@@ -124,7 +167,7 @@ function LoginContent() {
 
         {/* Right Form Side */}
         <div className="p-8 sm:p-12 flex flex-col justify-center">
-          <div className="mb-8">
+          <div className="mb-6">
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mb-2">
               Sign In
             </h2>
@@ -133,9 +176,46 @@ function LoginContent() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+          {unverifiedEmail && (
+            <div role="alert" className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 text-xs text-amber-900">
+              <div className="flex items-start gap-2.5 mb-3">
+                <AlertCircle size={18} className="shrink-0 text-amber-600 mt-0.5" />
+                <div>
+                  <div className="font-bold text-amber-900 mb-0.5">Email Not Verified</div>
+                  <div>Your email address ({unverifiedEmail}) must be verified before you can log in.</div>
+                </div>
+              </div>
+
+              {resendStatus && (
+                <div role="status" className="bg-white/80 p-2.5 rounded-xl mb-3 text-xs text-slate-700 border border-amber-200">
+                  {resendStatus}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending}
+                className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {resending ? (
+                  <>
+                    <Loader size={14} className="animate-spin" />
+                    <span>Sending Verification Email...</span>
+                  </>
+                ) : (
+                  <>
+                    <SendHorizontal size={14} />
+                    <span>Resend Verification Email</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
-              <label htmlFor="login-email" className="block text-xs font-semibold text-slate-700 mb-2">
+              <label htmlFor="login-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Email Address
               </label>
               <div className="relative">
@@ -165,7 +245,7 @@ function LoginContent() {
             </div>
 
             <div>
-              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700 mb-2">
+              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -237,7 +317,7 @@ function LoginContent() {
 
             <div className="text-center pt-2 text-xs text-slate-500">
               Don&apos;t have an account?{' '}
-              <Link href="/register" className="text-[#0b132b] font-bold hover:text-[#ff8a00]">
+              <Link href={registerUrl} className="text-[#0b132b] font-bold hover:text-[#ff8a00]">
                 Create Account
               </Link>
             </div>
