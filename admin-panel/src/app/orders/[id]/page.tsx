@@ -55,6 +55,11 @@ interface Order {
   shippingCost: number;
   discount: number;
   totalAmount: number;
+  payment?: {
+    provider?: string;
+    paidAt?: string;
+    transactionId?: string;
+  };
   statusTimeline?: TimelineEntry[];
   notes?: string;
   adminNotes?: string;
@@ -78,6 +83,16 @@ export default function OrderDetailPage() {
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [courierCompany, setCourierCompany] = useState('');
+  const [showCodModal, setShowCodModal] = useState(false);
+  const [codAdminNote, setCodAdminNote] = useState('');
+  const [markingCod, setMarkingCod] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     fetchOrder();
@@ -110,6 +125,13 @@ export default function OrderDetailPage() {
     }
   }
 
+  const isCodEligible = (order: Order | null) => Boolean(
+    order
+    && String(order.paymentMethod).toLowerCase() === 'cod'
+    && order.orderStatus === 'Delivered'
+    && order.paymentStatus === 'Pending'
+  );
+
   const handleStatusUpdate = async () => {
     if (!newStatus) return;
 
@@ -122,12 +144,41 @@ export default function OrderDetailPage() {
       await fetchOrder();
       setShowStatusModal(false);
       setAdminNotes('');
-      alert('Order status updated successfully!');
+      setToast({ type: 'success', message: 'Order status updated successfully.' });
     } catch (error) {
       console.error('Error updating status:', error);
-      alert('Failed to update order status');
+      setToast({ type: 'error', message: 'Failed to update order status.' });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleConfirmCodPayment = async () => {
+    if (!order || markingCod) return;
+    setMarkingCod(true);
+    try {
+      const response = await api.patch(`/orders/${order._id}/payment-status`, {
+        paymentStatus: 'Paid',
+        adminNote: codAdminNote.trim()
+      });
+      if (response.data.success) {
+        const updated = response.data.data.order;
+        setOrder(updated);
+        setShowCodModal(false);
+        setCodAdminNote('');
+        setToast({
+          type: 'success',
+          message: `COD payment marked as Paid for order ${updated.orderId || updated._id}.`
+        });
+      }
+    } catch (err: unknown) {
+      console.error('Error marking COD payment:', err);
+      const errorMsg = (err as { response?: { data?: { message?: string; error?: { message?: string } } } })?.response?.data?.message
+        || (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+        || 'Failed to record COD payment';
+      setToast({ type: 'error', message: errorMsg });
+    } finally {
+      setMarkingCod(false);
     }
   };
 
@@ -136,10 +187,10 @@ export default function OrderDetailPage() {
       await api.put(`/orders/${orderId}/tracking`, { trackingNumber, courierCompany });
       await fetchOrder();
       setShowTrackingModal(false);
-      alert('Tracking number updated!');
+      setToast({ type: 'success', message: 'Tracking information updated successfully.' });
     } catch (error) {
       console.error('Error updating tracking:', error);
-      alert('Failed to update tracking number');
+      setToast({ type: 'error', message: 'Failed to update tracking information.' });
     }
   };
 
@@ -235,6 +286,36 @@ export default function OrderDetailPage() {
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', paddingBottom: '40px' }}>
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            marginBottom: '20px',
+            padding: '12px 18px',
+            borderRadius: '10px',
+            backgroundColor: toast.type === 'success' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+            color: toast.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)',
+            border: `1px solid ${toast.type === 'success' ? 'rgba(22, 163, 74, 0.3)' : 'rgba(220, 38, 38, 0.3)'}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: '14px',
+            fontWeight: '600'
+          }}
+        >
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
+            aria-label="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{
         display: 'flex',
@@ -704,7 +785,7 @@ export default function OrderDetailPage() {
               <div>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Method</div>
                 <div style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '14px' }}>
-                  {order.paymentMethod === 'COD' ? '💵 Cash on Delivery' : order.paymentMethod}
+                  {order.paymentMethod?.toUpperCase() === 'COD' ? '💵 Cash on Delivery' : order.paymentMethod}
                 </div>
               </div>
               <div>
@@ -721,6 +802,39 @@ export default function OrderDetailPage() {
                   {order.paymentStatus}
                 </div>
               </div>
+              {order.payment?.paidAt && (
+                <div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Paid At</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '600' }}>
+                    {new Date(order.payment.paidAt).toLocaleString()}
+                  </div>
+                </div>
+              )}
+              {isCodEligible(order) && (
+                <button
+                  type="button"
+                  onClick={() => setShowCodModal(true)}
+                  style={{
+                    marginTop: '8px',
+                    padding: '10px 14px',
+                    backgroundColor: '#16A34A',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    boxShadow: '0 4px 10px rgba(22, 163, 74, 0.25)',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <CheckCircle size={15} /> Mark COD as Paid
+                </button>
+              )}
             </div>
           </div>
 
@@ -1091,6 +1205,121 @@ export default function OrderDetailPage() {
                 }}
               >
                 <Save size={18} /> Save Tracking
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* COD Payment Capture Modal */}
+      {showCodModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={() => !markingCod && setShowCodModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--card-bg)',
+              borderRadius: '16px',
+              padding: '32px',
+              maxWidth: '500px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'rgba(22, 163, 74, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--success-text)' }}>
+                  <CheckCircle size={20} />
+                </div>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                  Confirm COD Payment
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => !markingCod && setShowCodModal(false)}
+                disabled={markingCod}
+                style={{ padding: '8px', background: 'none', border: 'none', cursor: markingCod ? 'not-allowed' : 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
+              Record received cash collection for delivered order <strong style={{ color: 'var(--text-primary)' }}>{order.orderId || order._id}</strong>. This will transition payment status to <strong>Paid</strong> and recognize <strong>Rs. {order.totalAmount?.toLocaleString()}</strong> in realized revenue.
+            </p>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
+                Admin Audit Note (Optional)
+              </label>
+              <textarea
+                value={codAdminNote}
+                onChange={e => setCodAdminNote(e.target.value)}
+                placeholder="e.g. Cash collected by courier and deposited..."
+                rows={3}
+                disabled={markingCod}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                  outline: 'none',
+                  resize: 'vertical'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowCodModal(false)}
+                disabled={markingCod}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: 'var(--card-bg)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '10px',
+                  fontWeight: '700',
+                  cursor: markingCod ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCodPayment}
+                disabled={markingCod}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: markingCod ? 'var(--text-secondary)' : '#16A34A',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: '700',
+                  cursor: markingCod ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {markingCod ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={18} />}
+                {markingCod ? 'Recording...' : 'Confirm Paid'}
               </button>
             </div>
           </div>

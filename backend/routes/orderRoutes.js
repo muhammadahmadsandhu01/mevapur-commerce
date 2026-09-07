@@ -6,6 +6,7 @@ const {
   getOrderById, 
   getMyOrders, 
   updateOrderStatus,
+  updateOrderPaymentStatus,
   cancelOrder,
   getRecentOrders,    // 🌟 ADDED
   getOrderStats       // 🌟 ADDED
@@ -21,6 +22,7 @@ const {
   paginationSchema,
   adminOrderQuerySchema,
   updateOrderStatusSchema,
+  updatePaymentStatusSchema,
   updateTrackingSchema,
   cancelOrderSchema
 } = require('../validators/orderValidator');
@@ -87,6 +89,16 @@ router.put(
   orderValidation(orderReferenceSchema, 'params'),
   orderValidation(updateOrderStatusSchema),
   updateOrderStatus
+);
+
+// Admin: update order payment status (e.g. manual COD collection)
+router.patch(
+  '/:id/payment-status',
+  protect,
+  admin,
+  orderValidation(orderReferenceSchema, 'params'),
+  orderValidation(updatePaymentStatusSchema),
+  updateOrderPaymentStatus
 );
 
 router.put(

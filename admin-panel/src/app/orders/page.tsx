@@ -6,7 +6,7 @@ import {
   ShoppingCart, Search, Download, Eye,
   Truck, CheckCircle, Clock, XCircle,
   Calendar, DollarSign, Package,
-  ChevronLeft, ChevronRight, X, Save, Loader, User
+  ChevronLeft, ChevronRight, X, Save, Loader, User, AlertCircle
 } from 'lucide-react';
 import api from '@/lib/api';
 import { exportCsvFile } from '@/lib/csvExport';
@@ -41,6 +41,16 @@ interface Order {
   shippingCost: number;
   discount: number;
   totalAmount: number;
+  payment?: {
+    provider?: string;
+    paidAt?: string;
+    transactionId?: string;
+  };
+  adminNotes?: {
+    note: string;
+    addedBy?: string;
+    addedAt?: string;
+  }[];
   statusTimeline?: {
     status: string;
     timestamp: string;
@@ -51,12 +61,23 @@ interface Order {
   updatedAt: string;
 }
 
+interface OrderStats {
+  totalOrders: number;
+  pendingOrders: number;
+  processingOrders: number;
+  shippedOrders: number;
+  deliveredOrders: number;
+  cancelledOrders: number;
+  totalRevenue: number;
+}
+
 function OrdersListContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const customerFilter = searchParams.get('customer') || '';
 
   const [orders, setOrders] = useState<Order[]>([]);
+  const [serverStats, setServerStats] = useState<OrderStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Pending' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'>('all');
@@ -71,10 +92,32 @@ function OrdersListContent() {
   const [newStatus, setNewStatus] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [codOrderToMark, setCodOrderToMark] = useState<Order | null>(null);
+  const [codAdminNote, setCodAdminNote] = useState('');
+  const [markingCod, setMarkingCod] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     fetchOrders();
+    fetchStats();
   }, [page, statusFilter, dateFilter, sortBy, customerFilter]);
+
+  async function fetchStats() {
+    try {
+      const response = await api.get('/orders/stats');
+      if (response.data?.success && response.data?.data?.stats) {
+        setServerStats(response.data.data.stats);
+      }
+    } catch (error) {
+      console.error('Error fetching order stats:', error);
+    }
+  }
 
   async function fetchOrders() {
     setLoading(true);
@@ -124,17 +167,57 @@ function OrdersListContent() {
         orderStatus: newStatus,
         adminNote: adminNotes
       });
-      await fetchOrders();
+      await Promise.all([fetchOrders(), fetchStats()]);
       setShowStatusModal(false);
       setUpdatingOrder(null);
       setNewStatus('');
       setAdminNotes('');
-      alert('Order status updated successfully!');
+      setToast({ type: 'success', message: 'Order status updated successfully.' });
     } catch (error) {
       console.error('Error updating order status:', error);
-      alert('Failed to update order status');
+      setToast({ type: 'error', message: 'Failed to update order status.' });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const isCodEligible = (order: Order | null) => Boolean(
+    order
+    && String(order.paymentMethod).toLowerCase() === 'cod'
+    && order.orderStatus === 'Delivered'
+    && order.paymentStatus === 'Pending'
+  );
+
+  const handleConfirmCodPayment = async () => {
+    if (!codOrderToMark || markingCod) return;
+    setMarkingCod(true);
+    try {
+      const response = await api.patch(`/orders/${codOrderToMark._id}/payment-status`, {
+        paymentStatus: 'Paid',
+        adminNote: codAdminNote.trim()
+      });
+      if (response.data.success) {
+        const updatedOrder = response.data.data.order;
+        setOrders((prev) => prev.map((o) => (o._id === updatedOrder._id ? { ...o, ...updatedOrder } : o)));
+        if (selectedOrder && selectedOrder._id === updatedOrder._id) {
+          setSelectedOrder({ ...selectedOrder, ...updatedOrder });
+        }
+        await Promise.all([fetchOrders(), fetchStats()]);
+        setCodOrderToMark(null);
+        setCodAdminNote('');
+        setToast({
+          type: 'success',
+          message: `COD payment marked as Paid for order ${updatedOrder.orderId || updatedOrder._id}.`
+        });
+      }
+    } catch (err: unknown) {
+      console.error('Error marking COD payment:', err);
+      const errorMsg = (err as { response?: { data?: { message?: string; error?: { message?: string } } } })?.response?.data?.message
+        || (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+        || 'Failed to record COD payment';
+      setToast({ type: 'error', message: errorMsg });
+    } finally {
+      setMarkingCod(false);
     }
   };
 
@@ -168,13 +251,15 @@ function OrdersListContent() {
   });
 
   const stats = {
-    total: orders.length,
-    pending: orders.filter(o => o.orderStatus === 'Pending').length,
-    processing: orders.filter(o => o.orderStatus === 'Processing').length,
-    shipped: orders.filter(o => o.orderStatus === 'Shipped').length,
-    delivered: orders.filter(o => o.orderStatus === 'Delivered').length,
-    totalRevenue: orders.reduce((acc, o) => acc + o.totalAmount, 0),
-    averageOrderValue: orders.length > 0 ? orders.reduce((acc, o) => acc + o.totalAmount, 0) / orders.length : 0
+    total: serverStats ? serverStats.totalOrders : orders.length,
+    pending: serverStats ? serverStats.pendingOrders : orders.filter(o => o.orderStatus === 'Pending').length,
+    processing: serverStats ? serverStats.processingOrders : orders.filter(o => o.orderStatus === 'Processing').length,
+    shipped: serverStats ? serverStats.shippedOrders : orders.filter(o => o.orderStatus === 'Shipped').length,
+    delivered: serverStats ? serverStats.deliveredOrders : orders.filter(o => o.orderStatus === 'Delivered').length,
+    totalRevenue: serverStats ? serverStats.totalRevenue : 0,
+    averageOrderValue: (serverStats && serverStats.totalOrders > 0)
+      ? serverStats.totalRevenue / serverStats.totalOrders
+      : (orders.length > 0 ? (serverStats ? serverStats.totalRevenue : 0) / orders.length : 0)
   };
 
   const exportToCSV = () => {
@@ -194,6 +279,44 @@ function OrdersListContent() {
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+      {/* Toast Notification Banner */}
+      {toast && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 18px',
+            backgroundColor: toast.type === 'success' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.12)',
+            color: toast.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)',
+            border: `1px solid ${toast.type === 'success' ? 'rgba(22, 163, 74, 0.3)' : 'rgba(220, 38, 38, 0.3)'}`,
+            borderRadius: '12px',
+            marginBottom: '24px',
+            fontSize: '14px',
+            fontWeight: '600'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {toast.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <span>{toast.message}</span>
+          </div>
+          <button
+            onClick={() => setToast(null)}
+            aria-label="Dismiss message"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'inherit',
+              padding: '4px'
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
@@ -307,7 +430,9 @@ function OrdersListContent() {
           </div>
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Revenue</div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>Rs. {(stats.totalRevenue / 1000).toFixed(1)}k</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
+              Rs. {stats.totalRevenue >= 1000 ? `${(stats.totalRevenue / 1000).toFixed(1)}k` : stats.totalRevenue.toLocaleString()}
+            </div>
           </div>
         </div>
       </div>
@@ -748,6 +873,14 @@ function OrdersListContent() {
                       {selectedOrder.paymentStatus}
                     </span>
                   </div>
+                  {selectedOrder.payment?.paidAt && (
+                    <div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Paid Date</div>
+                      <div style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '13px' }}>
+                        {new Date(selectedOrder.payment.paidAt).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -834,6 +967,28 @@ function OrdersListContent() {
               >
                 Close
               </button>
+              {isCodEligible(selectedOrder) && (
+                <button
+                  onClick={() => {
+                    setCodOrderToMark(selectedOrder);
+                    setCodAdminNote('');
+                  }}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: 'var(--success-text)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <CheckCircle size={18} /> Mark COD as Paid
+                </button>
+              )}
               <button
                 onClick={() => {
                   setShowDetails(false);
@@ -988,6 +1143,144 @@ function OrdersListContent() {
               >
                 {updating ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
                 {updating ? 'Updating...' : 'Update Status'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mark COD as Paid Confirmation Modal */}
+      {codOrderToMark && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: '20px'
+          }}
+          onClick={() => { if (!markingCod) setCodOrderToMark(null); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cod-modal-title"
+            style={{
+              backgroundColor: 'var(--card-bg)',
+              borderRadius: '16px',
+              padding: '28px',
+              maxWidth: '520px',
+              width: '100%',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 id="cod-modal-title" style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <CheckCircle size={22} color="var(--success-text)" /> Confirm COD Payment
+              </h2>
+              <button
+                onClick={() => { if (!markingCod) setCodOrderToMark(null); }}
+                disabled={markingCod}
+                aria-label="Close modal"
+                style={{ padding: '6px', background: 'none', border: 'none', cursor: markingCod ? 'not-allowed' : 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ backgroundColor: 'var(--bg-primary)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Order Reference</span>
+                <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{codOrderToMark.orderId || codOrderToMark._id}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Customer</span>
+                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{codOrderToMark.shippingAddress?.fullName || 'Customer'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
+                <span style={{ color: 'var(--text-primary)', fontWeight: '700' }}>Amount to Collect</span>
+                <span style={{ fontWeight: '800', color: 'var(--success-text)' }}>Rs. {codOrderToMark.totalAmount.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label
+                htmlFor="cod-admin-note"
+                style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}
+              >
+                Admin Note (Optional)
+              </label>
+              <textarea
+                id="cod-admin-note"
+                value={codAdminNote}
+                onChange={(e) => setCodAdminNote(e.target.value)}
+                maxLength={500}
+                rows={3}
+                placeholder="e.g. COD collected on delivery"
+                disabled={markingCod}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  backgroundColor: 'var(--input-bg)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                  resize: 'vertical',
+                  outline: 'none'
+                }}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'right', marginTop: '4px' }}>
+                {codAdminNote.length}/500
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setCodOrderToMark(null)}
+                disabled={markingCod}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: 'var(--card-bg)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: markingCod ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCodPayment}
+                disabled={markingCod}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: 'var(--success-text)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '700',
+                  cursor: markingCod ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {markingCod ? (
+                  <>
+                    <Loader size={16} className="animate-spin" /> Confirming...
+                  </>
+                ) : (
+                  'Confirm COD Payment'
+                )}
               </button>
             </div>
           </div>

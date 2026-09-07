@@ -1,4 +1,5 @@
 const OrderService = require('../services/order/OrderService');
+const FinancialMetricsService = require('../services/order/FinancialMetricsService');
 const Order = require('../models/Order');
 const logger = require('../utils/logger');
 const { ORDER_STATUSES } = require('../constants/orderConstants');
@@ -180,6 +181,30 @@ exports.getRecentOrders = async (req, res, next) => {
   }
 };
 
+// @desc    Update order payment status (e.g. manual COD collection)
+// @route   PATCH /api/orders/:id/payment-status
+// @access  Private/Admin
+exports.updateOrderPaymentStatus = async (req, res, next) => {
+  try {
+    const result = await OrderService.markCodPaid({
+      reference: req.params.id,
+      actor: req.user,
+      adminNote: req.body.adminNote || ''
+    });
+    return success(
+      res,
+      200,
+      {
+        order: result.order,
+        idempotentReplay: result.idempotentReplay
+      },
+      req.requestId
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 // @desc    Get order statistics
 // @route   GET /api/orders/stats
 // @access  Private/Admin
@@ -202,29 +227,20 @@ exports.getOrderStats = async (req, res, next) => {
       orderStatus: ORDER_STATUSES.CANCELLED
     });
 
-    const totalRevenue = await Order.aggregate([
-      {
-        $match: {
-          orderStatus: {
-            $nin: [ORDER_STATUSES.CANCELLED, ORDER_STATUSES.PENDING]
-          }
-        }
-      },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+    const revenueMetrics = await FinancialMetricsService.aggregateRealizedRevenue(null);
 
     return success(
       res,
       200,
       {
         stats: {
-        totalOrders, 
-        pendingOrders, 
-        processingOrders, 
-        shippedOrders, 
-        deliveredOrders, 
-        cancelledOrders, 
-        totalRevenue: totalRevenue[0]?.total || 0 
+          totalOrders,
+          pendingOrders,
+          processingOrders,
+          shippedOrders,
+          deliveredOrders,
+          cancelledOrders,
+          totalRevenue: revenueMetrics?.realizedRevenue || 0
         }
       },
       req.requestId

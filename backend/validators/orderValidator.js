@@ -135,6 +135,11 @@ const updateOrderStatusSchema = z.object({
   adminNote: optionalTrimmed(z.string().trim().max(500))
 }).strict();
 
+const updatePaymentStatusSchema = z.object({
+  paymentStatus: z.enum(['Paid']),
+  adminNote: optionalTrimmed(z.string().trim().max(500))
+}).strict();
+
 const updateTrackingSchema = z.object({
   courierCompany: optionalTrimmed(z.string().trim().max(100)),
   trackingNumber: optionalTrimmed(z.string().trim().max(100))
@@ -154,6 +159,7 @@ module.exports = {
   paginationSchema,
   adminOrderQuerySchema,
   updateOrderStatusSchema,
+  updatePaymentStatusSchema,
   updateTrackingSchema,
   cancelOrderSchema
 };

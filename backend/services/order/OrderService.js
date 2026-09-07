@@ -2,11 +2,14 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
+const Payment = require('../../models/Payment');
 const CouponService = require('./CouponService');
 const ShippingService = require('./ShippingService');
 const TaxService = require('./TaxService');
 const InventoryService = require('./InventoryService');
 const MarketService = require('../MarketService');
+const AuditService = require('../AuditService');
+const logger = require('../../utils/logger');
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
 const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
@@ -16,6 +19,7 @@ const {
   CUSTOMER_CANCELLABLE_STATUSES,
   ORDER_LIMITS
 } = require('../../constants/orderConstants');
+const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
 
 class OrderService {
   roundMoney(value) {
@@ -665,6 +669,123 @@ class OrderService {
         await order.save({ session });
       }
       return { order, isReplay };
+    });
+  }
+
+  async markCodPaid({ reference, actor, adminNote = '' }) {
+    return this.runTransaction(async (session) => {
+      const order = await Order.findOne(this.referenceQuery(reference)).session(session);
+      if (!order) {
+        throw new AppError(
+          'Order not found',
+          404,
+          ERROR_CODES.ORDER_NOT_FOUND
+        );
+      }
+
+      if (String(order.paymentMethod).toLowerCase() !== 'cod') {
+        throw new AppError(
+          'Only COD orders can have payment status updated manually',
+          409,
+          ERROR_CODES.ORDER_MANUAL_PAYMENT_FORBIDDEN
+        );
+      }
+
+      if (order.orderStatus !== ORDER_STATUSES.DELIVERED) {
+        throw new AppError(
+          'Only delivered orders can have COD payment marked as paid',
+          409,
+          ERROR_CODES.ORDER_NOT_DELIVERED
+        );
+      }
+
+      if (order.paymentStatus === 'Paid') {
+        return { order, idempotentReplay: true };
+      }
+
+      if (order.paymentStatus !== 'Pending') {
+        throw new AppError(
+          `Order payment status cannot transition from ${order.paymentStatus} to Paid`,
+          409,
+          ERROR_CODES.PAYMENT_STATUS_TRANSITION_INVALID
+        );
+      }
+
+      const previousPaymentStatus = order.paymentStatus;
+      const sanitizedNote = typeof adminNote === 'string'
+        ? adminNote.replace(/[\r\n\x00-\x1F\x7F]+/g, ' ').trim().slice(0, 500)
+        : '';
+
+      order.paymentStatus = 'Paid';
+      if (!order.payment.paidAt) {
+        order.payment.paidAt = new Date();
+      }
+
+      if (sanitizedNote) {
+        order.adminNotes.push({
+          note: sanitizedNote,
+          addedBy: actor.id,
+          addedAt: new Date()
+        });
+      }
+
+      const existingPayment = await Payment.findOne({ order: order._id }).session(session);
+      if (existingPayment && existingPayment.status !== PAYMENT_STATUSES.COMPLETED) {
+        const prevPaymentStatus = existingPayment.status;
+        existingPayment.status = PAYMENT_STATUSES.COMPLETED;
+        existingPayment.paidAmount = existingPayment.amount;
+        existingPayment.collectedBy = actor.id;
+        existingPayment.collectedAt = order.payment.paidAt;
+        existingPayment.completedAt = order.payment.paidAt;
+        if (sanitizedNote) {
+          existingPayment.verificationNote = sanitizedNote.slice(0, 300);
+        }
+        if (Array.isArray(existingPayment.history)) {
+          existingPayment.history.push({
+            previousStatus: prevPaymentStatus,
+            newStatus: PAYMENT_STATUSES.COMPLETED,
+            source: 'admin',
+            timestamp: new Date()
+          });
+        }
+        await existingPayment.save({ session });
+      }
+
+      await order.save({ session });
+
+      logger.orderEvent(
+        'ORDER_PAYMENT_STATUS_CHANGED',
+        order._id,
+        actor.id,
+        'COD payment marked as Paid',
+        {
+          orderId: order._id,
+          publicOrderId: order.orderId,
+          previousPaymentStatus,
+          newPaymentStatus: 'Paid',
+          adminId: actor.id,
+          timestamp: order.payment.paidAt,
+          adminNote: sanitizedNote
+        }
+      );
+
+      await AuditService.log({
+        userId: actor.id,
+        eventName: 'PAYMENT.COMPLETED',
+        action: 'COD_PAYMENT_COLLECTED',
+        status: 'SUCCESS',
+        metadata: {
+          orderId: String(order._id),
+          publicOrderId: order.orderId,
+          previousPaymentStatus,
+          newPaymentStatus: 'Paid',
+          adminId: String(actor.id),
+          timestamp: order.payment.paidAt.toISOString(),
+          adminNote: sanitizedNote
+        }
+      }, session);
+
+      return { order, idempotentReplay: false };
     });
   }
 }
