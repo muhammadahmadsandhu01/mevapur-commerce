@@ -1,35 +1,69 @@
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const path = require('path');
-
-dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const MediaAsset = require('../models/MediaAsset');
 const { createStorageProvider } = require('../services/media/StorageProvider');
 const { getRuntimeConfig } = require('../config/runtime.config');
 const MediaService = require('../services/media/MediaService');
+const { parseMigrationCli, validateTargetAndDbConfig } = require('./lib/migrationRuntimeGuard');
 
-const isApply = process.argv.includes('--apply');
+async function reconcileMediaAssets({
+  argv = process.argv.slice(2),
+  customConfig = null,
+  customDbConnected = false,
+  env = process.env
+} = {}) {
+  // 1. Strict CLI Argument Parsing
+  const cli = parseMigrationCli(argv, {
+    allowedModes: ['--dry-run', '--apply'],
+    allowedFlags: ['--confirm-media-reconciliation', '--confirm-production-media-reconciliation'],
+    requiredConfirmationMap: {
+      apply: {
+        staging: ['--confirm-media-reconciliation'],
+        production: ['--confirm-media-reconciliation', '--confirm-production-media-reconciliation'],
+        local: ['--confirm-media-reconciliation']
+      }
+    }
+  });
 
-async function reconcileMediaAssets({ customConfig = null, customDbConnected = false } = {}) {
+  const isApply = cli.isApply;
+
   console.log('--- Durable Media Asset Reconciliation ---');
   console.log(`Mode: ${isApply ? 'APPLY (Executing deletions)' : 'DRY-RUN (Reporting only, default)'}`);
+  console.log(`Target: ${cli.target}`);
 
-  const runtimeConfig = customConfig || getRuntimeConfig();
+  // 2. Validate DB Target and Identity Fingerprint
+  const dbConfig = validateTargetAndDbConfig({
+    target: cli.target,
+    hasAllowLocal: cli.hasAllowLocal,
+    env
+  });
+
+  console.log(`Database Fingerprint: ${dbConfig.sanitizedFingerprint}`);
+
+  let runtimeConfig = customConfig;
+  if (!runtimeConfig) {
+    try {
+      runtimeConfig = getRuntimeConfig(env);
+    } catch {
+      runtimeConfig = { storage: { provider: 'mock', s3: { keyPrefix: 'products/' } } };
+    }
+  }
   const storageProvider = createStorageProvider(runtimeConfig);
 
-  const rawPrefix = runtimeConfig.storage?.s3?.keyPrefix || 'products/';
+  const rawPrefix = runtimeConfig?.storage?.s3?.keyPrefix || 'products/';
   const canonicalPrefix = MediaService.validateStoragePrefix(rawPrefix);
   console.log(`Canonical Storage Prefix: '${canonicalPrefix}'`);
 
+  let shouldDisconnect = false;
   if (!customDbConnected && mongoose.connection.readyState === 0) {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/mevapur-commerce';
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(dbConfig.mongoUri);
     console.log('Connected to MongoDB.');
+    shouldDisconnect = true;
   }
 
   const report = {
     mode: isApply ? 'APPLY' : 'DRY-RUN',
+    target: cli.target,
     canonicalPrefix,
     attempted: 0,
     deleted: 0,
@@ -63,7 +97,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
         if (!report.sanitizedReasonCodes.includes('RETRY_EXHAUSTED')) {
           report.sanitizedReasonCodes.push('RETRY_EXHAUSTED');
         }
-        console.warn(`[RETRY-EXHAUSTED] Asset ${assetIdStr} has failed 5 times (Key: ${asset.key}). Retained for operator inspection.`);
+        console.warn(`[RETRY-EXHAUSTED] Asset ${assetIdStr} has failed 5 times. Retained for operator inspection.`);
         continue;
       }
 
@@ -82,7 +116,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
         if (!report.sanitizedReasonCodes.includes('OUT_OF_PREFIX_REJECTED')) {
           report.sanitizedReasonCodes.push('OUT_OF_PREFIX_REJECTED');
         }
-        console.error(`[PREFIX-VIOLATION] Asset ${assetIdStr} key '${asset.key}' is outside configured prefix '${canonicalPrefix}'. Refusing deletion.`);
+        console.error(`[PREFIX-VIOLATION] Asset ${assetIdStr} key is outside configured prefix '${canonicalPrefix}'. Refusing deletion.`);
         if (isApply) {
           asset.status = 'deletion_failed';
           asset.lastError = 'OUT_OF_PREFIX_REJECTED';
@@ -113,7 +147,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
           }
         }
       } else {
-        console.log(`[DRY-RUN] Would delete asset ${assetIdStr} (Key: ${asset.key}, Retries: ${asset.retryCount})`);
+        console.log(`[DRY-RUN] Would delete asset ${assetIdStr} (Retries: ${asset.retryCount})`);
         report.deleted += 1;
         report.affectedAssetIds.push(assetIdStr);
       }
@@ -135,7 +169,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
 
       if (!orphan.key.startsWith(canonicalPrefix)) {
         report.outOfPrefixCount += 1;
-        console.error(`[PREFIX-VIOLATION] Orphan asset ${orphanIdStr} key '${orphan.key}' outside prefix '${canonicalPrefix}'.`);
+        console.error(`[PREFIX-VIOLATION] Orphan asset ${orphanIdStr} outside prefix '${canonicalPrefix}'.`);
         continue;
       }
 
@@ -149,7 +183,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
           await orphan.save();
         }
       } else {
-        console.log(`[DRY-RUN] Would clean up orphan asset ${orphanIdStr} (Key: ${orphan.key}, Status: ${orphan.status})`);
+        console.log(`[DRY-RUN] Would clean up orphan asset ${orphanIdStr} (Status: ${orphan.status})`);
       }
     }
 
@@ -164,7 +198,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
 
     return report;
   } finally {
-    if (!customDbConnected && mongoose.connection.readyState !== 0 && require.main === module) {
+    if (shouldDisconnect && mongoose.connection.readyState !== 0 && require.main === module) {
       await mongoose.disconnect();
       console.log('Disconnected from MongoDB.');
     }
@@ -173,7 +207,7 @@ async function reconcileMediaAssets({ customConfig = null, customDbConnected = f
 
 if (require.main === module) {
   reconcileMediaAssets().catch(err => {
-    console.error('Reconciliation failed:', err);
+    console.error('Reconciliation failed:', err.message);
     process.exit(1);
   });
 }

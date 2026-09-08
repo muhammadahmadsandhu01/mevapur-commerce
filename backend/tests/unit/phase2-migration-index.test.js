@@ -6,6 +6,7 @@ const Brand = require('../../models/Brand');
 const MediaAsset = require('../../models/MediaAsset');
 const MigrationState = require('../../models/MigrationState');
 const { runMigration, MIGRATION_ID } = require('../../scripts/migrations/phase2-product-reconciliation');
+const { manageIndexes, TARGET_INDEXES } = require('../../scripts/migrations/phase2-create-indexes');
 const { reconcileMediaAssets } = require('../../scripts/reconcile-media-assets');
 const MediaService = require('../../services/media/MediaService');
 
@@ -24,7 +25,7 @@ describe('Phase 2 Migration Checkpointing, Reference Auditing, & Prefix Safety',
     });
   });
 
-  describe('phase2-create-indexes script contract', () => {
+  describe('phase2-create-indexes script contract and ownership safety', () => {
     it('defines named unique indexes without calling syncIndexes', async () => {
       const skuIndexes = SkuRegistry.schema.indexes();
       const productIndexes = Product.schema.indexes();
@@ -42,14 +43,102 @@ describe('Phase 2 Migration Checkpointing, Reference Auditing, & Prefix Safety',
       const mediaStatusIndex = mediaIndexes.find(idx => idx[0].status === 1 && idx[0].nextRetryAt === 1);
       expect(mediaStatusIndex).toBeDefined();
     });
+
+    it('dry-run performs inspection only and modifies zero indexes or MigrationState', async () => {
+      const stateBefore = await MigrationState.countDocuments({ migrationId: 'phase2-create-indexes' });
+      expect(stateBefore).toBe(0);
+
+      const res = await manageIndexes({
+        argv: ['--dry-run', '--target=local', '--allow-local'],
+        customDbConnected: true
+      });
+
+      expect(res.status).toBe('dry_run_complete');
+      expect(res.indexInspectionResults).toBeDefined();
+
+      const stateAfter = await MigrationState.countDocuments({ migrationId: 'phase2-create-indexes' });
+      expect(stateAfter).toBe(0);
+    });
+
+    it('apply creates indexes and records created index names in MigrationState for audited ownership', async () => {
+      const res = await manageIndexes({
+        argv: ['--apply', '--target=local', '--allow-local', '--confirm-phase2-indexes'],
+        customDbConnected: true
+      });
+
+      expect(res.status).toBe('completed');
+      expect(Array.isArray(res.createdIndexes)).toBe(true);
+
+      const state = await MigrationState.findOne({ migrationId: 'phase2-create-indexes' });
+      expect(state).not.toBeNull();
+      expect(state.status).toBe('completed');
+      expect(state.createdIndexes).toEqual(res.createdIndexes);
+    });
+
+    it('rollback drops ONLY recorded rollout-created indexes and preserves unowned indexes', async () => {
+      // First ensure an apply record exists with specific tracked index
+      await MigrationState.findOneAndUpdate(
+        { migrationId: 'phase2-create-indexes' },
+        {
+          $set: {
+            status: 'completed',
+            createdIndexes: ['skuregistries.unique_global_sku']
+          }
+        },
+        { upsert: true }
+      );
+
+      const res = await manageIndexes({
+        argv: ['--rollback', '--target=local', '--allow-local', '--confirm-phase2-index-rollback'],
+        customDbConnected: true
+      });
+
+      expect(res.status).toBe('rolled_back');
+      expect(res.droppedIndexes).toContain('skuregistries.unique_global_sku');
+
+      const state = await MigrationState.findOne({ migrationId: 'phase2-create-indexes' });
+      expect(state.status).toBe('rolled_back');
+    });
+
+    it('rollback refuses when rollout ownership cannot be proven', async () => {
+      // Clear MigrationState
+      await MigrationState.deleteOne({ migrationId: 'phase2-create-indexes' });
+
+      await expect(manageIndexes({
+        argv: ['--rollback', '--target=local', '--allow-local', '--confirm-phase2-index-rollback'],
+        customDbConnected: true
+      })).rejects.toThrow('Rollout ownership cannot be proven');
+    });
+
+    it('duplicate SKU/slug data blocks index apply', async () => {
+      try {
+        await mongoose.connection.collection('products').dropIndex('unique_product_slug');
+      } catch {}
+
+      const dupSlug = `dup-slug-${Date.now()}`;
+      await Product.create({ name: 'Product A', slug: dupSlug, price: 100 });
+      await Product.create({ name: 'Product B', slug: dupSlug, price: 100 });
+
+      await expect(manageIndexes({
+        argv: ['--apply', '--target=local', '--allow-local', '--confirm-phase2-indexes'],
+        customDbConnected: true
+      })).rejects.toThrow('duplicate data conflicts detected');
+
+      // Cleanup
+      await Product.deleteMany({ slug: dupSlug });
+    });
   });
 
   describe('MigrationState and Checkpoint Persistence Behavior', () => {
     it('dry-run creates zero MigrationState records', async () => {
+      await MigrationState.deleteMany({ migrationId: MIGRATION_ID });
       const stateBefore = await MigrationState.countDocuments({ migrationId: MIGRATION_ID });
       expect(stateBefore).toBe(0);
 
-      const result = await runMigration({ customDbConnected: true });
+      const result = await runMigration({
+        argv: ['--dry-run', '--target=local', '--allow-local'],
+        customDbConnected: true
+      });
       expect(result.status).toBe('dry_run_complete');
 
       const stateAfter = await MigrationState.countDocuments({ migrationId: MIGRATION_ID });
@@ -148,14 +237,24 @@ describe('Phase 2 Migration Checkpointing, Reference Auditing, & Prefix Safety',
     });
 
     it('concurrent apply is rejected when another migration is running', async () => {
-      await MigrationState.create({
-        migrationId: MIGRATION_ID,
-        status: 'running',
-        startedAt: new Date()
-      });
+      await MigrationState.findOneAndUpdate(
+        { migrationId: MIGRATION_ID },
+        {
+          $set: {
+            status: 'running',
+            startedAt: new Date()
+          }
+        },
+        { upsert: true }
+      );
 
-      const existing = await MigrationState.findOne({ migrationId: MIGRATION_ID });
-      expect(existing.status).toBe('running');
+      await expect(runMigration({
+        argv: ['--apply', '--target=local', '--allow-local', '--confirm-phase2-migration'],
+        customDbConnected: true
+      })).rejects.toThrow('Another migration run is currently active');
+
+      // Cleanup
+      await MigrationState.deleteOne({ migrationId: MIGRATION_ID });
     });
 
     it('final batch marks completed with final counts and clears reason codes', async () => {
@@ -197,7 +296,10 @@ describe('Phase 2 Migration Checkpointing, Reference Auditing, & Prefix Safety',
         uploader: new mongoose.Types.ObjectId()
       });
 
-      const report = await reconcileMediaAssets({ customDbConnected: true });
+      const report = await reconcileMediaAssets({
+        argv: ['--dry-run', '--target=local', '--allow-local'],
+        customDbConnected: true
+      });
       expect(report.retryExhausted).toBeGreaterThanOrEqual(1);
       expect(report.sanitizedReasonCodes).toContain('RETRY_EXHAUSTED');
 
@@ -223,7 +325,10 @@ describe('Phase 2 Migration Checkpointing, Reference Auditing, & Prefix Safety',
         uploader: new mongoose.Types.ObjectId()
       });
 
-      const report = await reconcileMediaAssets({ customDbConnected: true });
+      const report = await reconcileMediaAssets({
+        argv: ['--dry-run', '--target=local', '--allow-local'],
+        customDbConnected: true
+      });
       expect(report.outOfPrefixCount).toBeGreaterThanOrEqual(1);
       expect(report.sanitizedReasonCodes).toContain('OUT_OF_PREFIX_REJECTED');
     });

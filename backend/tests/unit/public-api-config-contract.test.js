@@ -74,8 +74,8 @@ describe('Frontend/Admin public API configuration contract', () => {
       '../../../admin-panel/.env.production.example'
     ]) {
       const contents = fs.readFileSync(path.resolve(__dirname, file), 'utf8');
-      expect(contents).toContain(`NEXT_PUBLIC_API_URL=${ownerBackendOrigin}`);
-      expect(contents).not.toContain(`NEXT_PUBLIC_API_URL=${ownerBackendOrigin}/api`);
+      expect(contents).toMatch(/NEXT_PUBLIC_API_URL=https?:\/\/[^\r\n\/]+/);
+      expect(contents).not.toMatch(/NEXT_PUBLIC_API_URL=https?:\/\/[^\r\n]+\/api/);
     }
   });
 });

@@ -12,7 +12,7 @@ if (mongoose.models.MigrationState) {
     },
     status: {
       type: String,
-      enum: ['pending', 'running', 'completed', 'failed'],
+      enum: ['pending', 'running', 'completed', 'failed', 'rolled_back'],
       default: 'pending',
       index: true
     },
@@ -43,6 +43,14 @@ if (mongoose.models.MigrationState) {
     lastReasonCode: {
       type: String,
       default: null
+    },
+    createdIndexes: {
+      type: [String],
+      default: []
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
     }
   }, {
     timestamps: true

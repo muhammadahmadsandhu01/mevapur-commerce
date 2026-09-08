@@ -1,8 +1,4 @@
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const path = require('path');
-
-dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 const Product = require('../../models/Product');
 const SkuRegistry = require('../../models/SkuRegistry');
@@ -10,30 +6,51 @@ const Category = require('../../models/Category');
 const Brand = require('../../models/Brand');
 const MediaAsset = require('../../models/MediaAsset');
 const MigrationState = require('../../models/MigrationState');
+const { parseMigrationCli, validateTargetAndDbConfig } = require('../lib/migrationRuntimeGuard');
 
 const MIGRATION_ID = 'phase2-product-reconciliation';
 const BATCH_SIZE = 100;
 
-const isApply = process.argv.includes('--apply');
-const isConfirmed = process.argv.includes('--confirm-phase2-migration');
-const isRerun = process.argv.includes('--rerun');
+async function runMigration({
+  argv = process.argv.slice(2),
+  customSession = null,
+  customDbConnected = false,
+  env = process.env
+} = {}) {
+  // 1. Strict CLI Argument Validation
+  const cli = parseMigrationCli(argv, {
+    allowedModes: ['--dry-run', '--apply'],
+    allowedFlags: ['--confirm-phase2-migration', '--confirm-production-migration', '--rerun'],
+    requiredConfirmationMap: {
+      apply: {
+        staging: ['--confirm-phase2-migration'],
+        production: ['--confirm-phase2-migration', '--confirm-production-migration'],
+        local: ['--confirm-phase2-migration']
+      }
+    }
+  });
 
-async function runMigration({ customSession = null, customDbConnected = false } = {}) {
+  const isApply = cli.isApply;
+  const isRerun = cli.hasFlag('--rerun');
+
   console.log('--- Phase 2 Product Reconciliation Migration ---');
-  console.log(`Mode: ${isApply ? (isConfirmed ? 'APPLY (LIVE)' : 'APPLY (BLOCKED: missing --confirm-phase2-migration)') : 'DRY-RUN (Default)'}`);
+  console.log(`Mode: ${isApply ? 'APPLY (LIVE)' : 'DRY-RUN (Default)'}`);
+  console.log(`Target: ${cli.target}`);
 
-  if (isApply && !isConfirmed) {
-    const err = new Error('--apply requires --confirm-phase2-migration to execute changes.');
-    err.code = 'CONFIRMATION_REQUIRED';
-    console.error(`Error: ${err.message}`);
-    if (require.main === module) process.exit(1);
-    throw err;
-  }
+  // 2. Database Target and Identity Fingerprint Validation
+  const dbConfig = validateTargetAndDbConfig({
+    target: cli.target,
+    hasAllowLocal: cli.hasAllowLocal,
+    env
+  });
 
+  console.log(`Database Fingerprint: ${dbConfig.sanitizedFingerprint}`);
+
+  let shouldDisconnect = false;
   if (!customDbConnected && mongoose.connection.readyState === 0) {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/mevapur-commerce';
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(dbConfig.mongoUri);
     console.log('Connected to MongoDB.');
+    shouldDisconnect = true;
   }
 
   try {
@@ -214,7 +231,7 @@ async function runMigration({ customSession = null, customDbConnected = false } 
     }
 
     // 3. Checkpoint-Driven Batch Application
-    if (isApply && isConfirmed) {
+    if (isApply) {
       console.log('\n--- 3. Checkpoint Execution ---');
       let migrationState = await MigrationState.findOne({ migrationId: MIGRATION_ID });
 
@@ -322,10 +339,17 @@ async function runMigration({ customSession = null, customDbConnected = false } 
       return { status: 'completed', state: migrationState };
     } else {
       console.log('\n[DRY-RUN] Preflight and inventory complete. No changes were written to the database.');
-      return { status: 'dry_run_complete' };
+      return {
+        status: 'dry_run_complete',
+        auditedCount: products.length,
+        referenceIssuesCount: referenceIssues.length,
+        legacyMediaCount: productsWithLegacyMedia,
+        duplicateSkuCount: duplicateSkus.size,
+        duplicateSlugCount: slugCollisions.length
+      };
     }
   } finally {
-    if (!customDbConnected && mongoose.connection.readyState !== 0 && require.main === module) {
+    if (shouldDisconnect && mongoose.connection.readyState !== 0 && require.main === module) {
       await mongoose.disconnect();
       console.log('Disconnected from MongoDB.');
     }
@@ -334,7 +358,7 @@ async function runMigration({ customSession = null, customDbConnected = false } 
 
 if (require.main === module) {
   runMigration().catch(err => {
-    console.error('Migration failed:', err);
+    console.error('Migration failed:', err.message);
     process.exit(1);
   });
 }
