@@ -32,6 +32,9 @@ export const branding: BrandingConfig = Object.freeze({
   get shortDescription(): string {
     return publicConfig.shortDescription;
   },
+  get logoMode(): 'wordmark' | 'image' {
+    return publicConfig.logoMode;
+  },
   get logoPath(): string {
     return publicConfig.logoPath;
   },

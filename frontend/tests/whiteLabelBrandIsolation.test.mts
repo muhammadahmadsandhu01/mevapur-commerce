@@ -2,7 +2,7 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { publicConfig, readOrigin, readSiteName, readLegalName, readSafeAssetPath, readSafeColor } from '../src/config/publicConfig.ts';
+import { publicConfig, readOrigin, readSiteName, readLegalName, readSafeAssetPath, readSafeColor, readLogoMode } from '../src/config/publicConfig.ts';
 import { branding, visibleSocialLinks, copyrightLine } from '../src/config/branding.ts';
 import manifest from '../src/app/manifest.ts';
 
@@ -138,8 +138,8 @@ describe('White-Label Brand Configuration & Dynamic Isolation', () => {
       /NEXT_PUBLIC_SITE_NAME is required for production builds/
     );
 
-    // Non-production uses safe neutral fallback
-    assert.equal(readSiteName(false), 'Local Store');
+    // Non-production uses safe neutral HARZAAR demo fallback
+    assert.equal(readSiteName(false), 'HARZAAR');
 
     // Missing origin in production
     delete process.env.NEXT_PUBLIC_SITE_URL;
@@ -165,6 +165,20 @@ describe('White-Label Brand Configuration & Dynamic Isolation', () => {
       () => readOrigin('https://secure-store.com/subpath', 'NEXT_PUBLIC_SITE_URL', 'http://localhost:3000', true),
       /NEXT_PUBLIC_SITE_URL must not contain a path, query, or fragment/
     );
+  });
+
+  test('Logo mode configuration accepts wordmark and image modes safely', () => {
+    process.env.NEXT_PUBLIC_LOGO_MODE = 'image';
+    assert.equal(readLogoMode(), 'image');
+    assert.equal(publicConfig.logoMode, 'image');
+    assert.equal(branding.logoMode, 'image');
+
+    process.env.NEXT_PUBLIC_LOGO_MODE = 'wordmark';
+    assert.equal(readLogoMode(), 'wordmark');
+    assert.equal(publicConfig.logoMode, 'wordmark');
+
+    delete process.env.NEXT_PUBLIC_LOGO_MODE;
+    assert.equal(readLogoMode(), 'wordmark');
   });
 
   test('Asset paths and theme colors reject dangerous injection attacks', () => {
@@ -261,6 +275,103 @@ describe('White-Label Brand Configuration & Dynamic Isolation', () => {
         /HARZAAR/i.test(content),
         false,
         `${relPath} must not contain hardcoded HARZAAR brand string`
+      );
+
+      // Check for unsupported certification and cryptographic ledger claims
+      assert.equal(
+        /Enterprise Verified Commerce Platform/i.test(content),
+        false,
+        `${relPath} must not contain unsupported Enterprise Verified claim`
+      );
+      assert.equal(
+        /Cryptographically verified/i.test(content),
+        false,
+        `${relPath} must not contain unsupported Cryptographically verified claim`
+      );
+    }
+  });
+
+  test('Audits public SVG brand assets to ensure zero legacy COMMERCE text embedded', () => {
+    const brandSvgFiles = [
+      'public/brand/logo.svg',
+      'public/brand/logo-light.svg',
+      'public/brand/logo-dark.svg',
+      'public/brand/symbol.svg',
+      'public/brand/favicon.svg',
+    ];
+
+    for (const relPath of brandSvgFiles) {
+      const fullPath = path.resolve(relPath);
+      assert.ok(fs.existsSync(fullPath), `SVG file must exist: ${relPath}`);
+      const svg = fs.readFileSync(fullPath, 'utf8');
+
+      assert.equal(
+        /COMMERCE/i.test(svg),
+        false,
+        `${relPath} must not contain legacy COMMERCE text`
+      );
+    }
+  });
+
+  test('Environment example documents exact public variables without undocumented aliases', () => {
+    const envExamplePath = path.resolve('.env.example');
+    assert.ok(fs.existsSync(envExamplePath), '.env.example must exist');
+    const envExampleContent = fs.readFileSync(envExamplePath, 'utf8');
+
+    const expectedVariables = [
+      'NEXT_PUBLIC_API_URL',
+      'NEXT_PUBLIC_SITE_URL',
+      'NEXT_PUBLIC_SITE_NAME',
+      'NEXT_PUBLIC_LEGAL_NAME',
+      'NEXT_PUBLIC_TAGLINE',
+      'NEXT_PUBLIC_SHORT_DESCRIPTION',
+      'NEXT_PUBLIC_DEFAULT_LOCALE',
+      'NEXT_PUBLIC_LOGO_MODE',
+      'NEXT_PUBLIC_LOGO_PATH',
+      'NEXT_PUBLIC_LOGO_LIGHT_PATH',
+      'NEXT_PUBLIC_LOGO_DARK_PATH',
+      'NEXT_PUBLIC_SYMBOL_PATH',
+      'NEXT_PUBLIC_FAVICON_PATH',
+      'NEXT_PUBLIC_SOCIAL_IMAGE_PATH',
+      'NEXT_PUBLIC_THEME_PRIMARY_COLOR',
+      'NEXT_PUBLIC_THEME_ACCENT_COLOR',
+      'NEXT_PUBLIC_THEME_SURFACE_COLOR',
+      'NEXT_PUBLIC_THEME_MUTED_COLOR',
+      'NEXT_PUBLIC_SUPPORT_EMAIL',
+      'NEXT_PUBLIC_SALES_EMAIL',
+      'NEXT_PUBLIC_SUPPORT_PHONE',
+      'NEXT_PUBLIC_WHATSAPP',
+      'NEXT_PUBLIC_STORE_ADDRESS',
+      'NEXT_PUBLIC_BUSINESS_HOURS',
+      'NEXT_PUBLIC_SEARCH_INDEXING_ENABLED',
+      'NEXT_PUBLIC_SOCIAL_FACEBOOK',
+      'NEXT_PUBLIC_SOCIAL_INSTAGRAM',
+      'NEXT_PUBLIC_SOCIAL_X',
+      'NEXT_PUBLIC_SOCIAL_YOUTUBE',
+      'NEXT_PUBLIC_SOCIAL_LINKEDIN',
+      'NEXT_PUBLIC_SOCIAL_TIKTOK',
+    ];
+
+    // Extract all defined keys from .env.example
+    const documentedKeys = envExampleContent
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#') && line.includes('='))
+      .map((line) => line.split('=')[0].trim());
+
+    // Verify all expected variables are documented
+    for (const varName of expectedVariables) {
+      assert.ok(
+        documentedKeys.includes(varName),
+        `.env.example must document ${varName}`
+      );
+    }
+
+    // Verify no undocumented aliases exist in .env.example
+    for (const documentedKey of documentedKeys) {
+      assert.ok(
+        expectedVariables.includes(documentedKey),
+        `.env.example contains undocumented variable: ${documentedKey}`
       );
     }
   });

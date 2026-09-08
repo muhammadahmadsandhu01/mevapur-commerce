@@ -19,6 +19,7 @@ export interface BrandingConfig {
   readonly legalDisplayName: string;
   readonly tagline: string;
   readonly shortDescription: string;
+  readonly logoMode?: 'wordmark' | 'image';
   readonly logoPath: string;
   readonly logoLightPath: string;
   readonly logoDarkPath: string;

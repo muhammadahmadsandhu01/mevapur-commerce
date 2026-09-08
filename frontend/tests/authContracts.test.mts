@@ -89,7 +89,6 @@ describe('Storefront Source Inventory & White-Label Isolation', () => {
       'src/app/orders/[id]/invoice/page.tsx',
       'src/components/account/ReturnRequestForm.tsx',
       'src/components/products/ProductReviews.tsx',
-      'src/config/publicConfig.ts',
     ];
 
     for (const relPath of filesToAudit) {

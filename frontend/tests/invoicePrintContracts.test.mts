@@ -73,4 +73,28 @@ describe('Storefront Invoice PDF Print Stylesheet & DOM Contract', () => {
     assert.match(source, /invoice\.subtotal/);
     assert.match(source, /invoice\.total/);
   });
+
+  it('invoice DOM renders truthful, legally neutral order record copy and excludes unsupported claims', () => {
+    const source = fs.readFileSync(invoicePagePath, 'utf8');
+
+    // Required neutral record assurance
+    assert.match(source, /Order and payment status shown from the merchant’s order record\./);
+
+    // Forbidden claims
+    assert.doesNotMatch(source, /Enterprise Verified Commerce Platform/i);
+    assert.doesNotMatch(source, /Cryptographically verified/i);
+    assert.doesNotMatch(source, /tax invoice/i);
+    assert.doesNotMatch(source, /tamper-proof/i);
+    assert.doesNotMatch(source, /legally verified/i);
+    assert.doesNotMatch(source, /enterprise verified/i);
+  });
+
+  it('invoice DOM conditionally renders optional merchant details only when non-empty', () => {
+    const source = fs.readFileSync(invoicePagePath, 'utf8');
+
+    // Verify conditional checks on optional merchant fields
+    assert.match(source, /branding\.supportEmail\?\.trim\(\)/);
+    assert.match(source, /branding\.supportPhone\?\.trim\(\)/);
+    assert.match(source, /branding\.address\?\.trim\(\)/);
+  });
 });

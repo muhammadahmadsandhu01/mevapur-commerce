@@ -49,7 +49,7 @@ export const readOrigin = (
 export const readSiteName = (isProduction = process.env.NODE_ENV === 'production'): string => {
   const raw = process.env.NEXT_PUBLIC_SITE_NAME?.replace(/[\r\n\t\x00-\x1F\x7F]/g, '').trim();
   if (raw) return raw.slice(0, 80);
-  if (!isProduction) return 'Local Store';
+  if (!isProduction) return 'HARZAAR';
   throw new Error('NEXT_PUBLIC_SITE_NAME is required for production builds');
 };
 
@@ -71,6 +71,11 @@ export const readTagline = (): string => {
 export const readShortDescription = (): string => {
   const raw = process.env.NEXT_PUBLIC_SHORT_DESCRIPTION?.replace(/[\r\n\t\x00-\x1F\x7F]/g, '').trim();
   return raw ? raw.slice(0, 240) : 'A modern, configurable commerce platform.';
+};
+
+export const readLogoMode = (): 'wordmark' | 'image' => {
+  const mode = process.env.NEXT_PUBLIC_LOGO_MODE?.trim().toLowerCase();
+  return mode === 'image' ? 'image' : 'wordmark';
 };
 
 export const readSafeAssetPath = (
@@ -156,6 +161,9 @@ export const publicConfig = Object.freeze({
   },
   get shortDescription(): string {
     return readShortDescription();
+  },
+  get logoMode(): 'wordmark' | 'image' {
+    return readLogoMode();
   },
   get logoPath(): string {
     return readSafeAssetPath(process.env.NEXT_PUBLIC_LOGO_PATH, '/brand/logo.svg', 'NEXT_PUBLIC_LOGO_PATH');

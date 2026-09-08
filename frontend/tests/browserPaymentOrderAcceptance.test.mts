@@ -343,7 +343,11 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
         NODE_ENV: 'production',
         NEXT_PUBLIC_SITE_URL: `http://127.0.0.1:${PORT}`,
         NEXT_PUBLIC_API_URL: `http://127.0.0.1:${PORT}`,
-        NEXT_PUBLIC_SITE_NAME: 'MevaPur Commerce',
+        NEXT_PUBLIC_SITE_NAME: 'HARZAAR',
+        NEXT_PUBLIC_LEGAL_NAME: 'HARZAAR Organic Provisions',
+        NEXT_PUBLIC_SUPPORT_EMAIL: 'care@harzaar.test',
+        NEXT_PUBLIC_SUPPORT_PHONE: '+92 300 1234567',
+        NEXT_PUBLIC_STORE_ADDRESS: '42 Market Street, Lahore, Pakistan',
       },
       stdio: 'ignore',
     });
@@ -451,6 +455,14 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
     const bodyText = await page.textContent('body');
     assert.match(bodyText!, /ORD-20260904-TEST01/);
     assert.match(bodyText!, /Print Document/);
+    assert.match(bodyText!, /HARZAAR/i);
+    assert.match(bodyText!, /Order and payment status shown from the merchant’s order record\./);
+    assert.doesNotMatch(bodyText!, /Enterprise Verified/i);
+    assert.doesNotMatch(bodyText!, /Cryptographically verified/i);
+    assert.doesNotMatch(bodyText!, /tax invoice/i);
+    assert.doesNotMatch(bodyText!, /tamper-proof/i);
+    assert.doesNotMatch(bodyText!, /legally verified/i);
+    assert.doesNotMatch(bodyText!, /enterprise verified/i);
 
     // Verify print root exists and is marked
     const printRoot = page.locator('[data-testid="invoice-print-root"]');
@@ -511,6 +523,19 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
     assert.match(pdfText, /Subtotal/i);
     assert.match(pdfText, /Shipping/i);
     assert.match(pdfText, /Total/i);
+
+    // Assert presence of configured site name and truthful neutral record wording
+    assert.match(pdfText, /HARZAAR/i);
+    assert.match(pdfText, /Order and payment status shown from the merchant’s order record\./i);
+
+    // Assert absence of legacy COMMERCE and unsupported claims
+    assert.doesNotMatch(pdfText, /COMMERCE/i);
+    assert.doesNotMatch(pdfText, /Enterprise Verified/i);
+    assert.doesNotMatch(pdfText, /Cryptographically verified/i);
+    assert.doesNotMatch(pdfText, /tax invoice/i);
+    assert.doesNotMatch(pdfText, /tamper-proof/i);
+    assert.doesNotMatch(pdfText, /legally verified/i);
+    assert.doesNotMatch(pdfText, /enterprise verified/i);
 
     // Assert screen-only navigation controls are absent from PDF
     assert.doesNotMatch(pdfText, /Search products/i);

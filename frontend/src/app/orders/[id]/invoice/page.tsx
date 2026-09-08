@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Printer, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Printer, AlertCircle, Loader2, FileText } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { accountService } from '@/services/account.service';
 import { branding } from '@/config/branding';
@@ -192,8 +192,15 @@ export default function InvoicePage() {
             <div className="sm:text-right">
               <h2 className="font-bold text-slate-900 uppercase tracking-wider mb-2">Merchant Details</h2>
               <p className="font-bold text-slate-900">{branding.legalDisplayName || branding.siteName}</p>
-              <p className="text-slate-600">{branding.supportEmail}</p>
-              <p className="text-slate-600">Enterprise Verified Commerce Platform</p>
+              {Boolean(branding.supportEmail?.trim()) && (
+                <p className="text-slate-600">{branding.supportEmail?.trim()}</p>
+              )}
+              {Boolean(branding.supportPhone?.trim()) && (
+                <p className="text-slate-600">{branding.supportPhone?.trim()}</p>
+              )}
+              {Boolean(branding.address?.trim()) && (
+                <p className="text-slate-600">{branding.address?.trim()}</p>
+              )}
             </div>
           </div>
 
@@ -258,8 +265,8 @@ export default function InvoicePage() {
           <div className="invoice-notes-block pt-6 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
             <p className="font-medium">{classification.notes}</p>
             <div className="flex items-center gap-1.5 text-slate-600 font-semibold pt-1">
-              <ShieldCheck size={14} className="text-emerald-700" />
-              <span>Cryptographically verified order ledger record</span>
+              <FileText size={14} className="text-slate-500 shrink-0" />
+              <span>Order and payment status shown from the merchant’s order record.</span>
             </div>
           </div>
         </article>
