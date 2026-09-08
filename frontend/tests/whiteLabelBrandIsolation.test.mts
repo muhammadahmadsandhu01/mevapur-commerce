@@ -291,7 +291,7 @@ describe('White-Label Brand Configuration & Dynamic Isolation', () => {
     }
   });
 
-  test('Audits public SVG brand assets to ensure zero legacy COMMERCE text embedded', () => {
+  test('Audits public SVG brand assets to ensure complete HARZAAR artwork and zero legacy COMMERCE text', () => {
     const brandSvgFiles = [
       'public/brand/logo.svg',
       'public/brand/logo-light.svg',
@@ -305,12 +305,54 @@ describe('White-Label Brand Configuration & Dynamic Isolation', () => {
       assert.ok(fs.existsSync(fullPath), `SVG file must exist: ${relPath}`);
       const svg = fs.readFileSync(fullPath, 'utf8');
 
+      // Zero legacy COMMERCE text
       assert.equal(
         /COMMERCE/i.test(svg),
         false,
         `${relPath} must not contain legacy COMMERCE text`
       );
     }
+
+    // Default horizontal logo assets must contain complete HARZAAR artwork and correct viewBox
+    const horizontalLogos = [
+      'public/brand/logo.svg',
+      'public/brand/logo-light.svg',
+      'public/brand/logo-dark.svg',
+    ];
+
+    for (const relPath of horizontalLogos) {
+      const fullPath = path.resolve(relPath);
+      const svg = fs.readFileSync(fullPath, 'utf8');
+      assert.match(svg, /viewBox="0 0 220 40"/, `${relPath} must maintain 220x40 viewBox`);
+      assert.match(svg, /<text[^>]*>HARZAAR<\/text>/, `${relPath} must include complete HARZAAR wordmark text`);
+      assert.match(svg, /<title id="[^"]*">HARZAAR<\/title>/, `${relPath} must include HARZAAR title element`);
+    }
+  });
+
+  test('BrandLogo component implements asset-based rendering and omits composite HTML wordmarks', () => {
+    const brandLogoPath = path.resolve('src/components/brand/BrandLogo.tsx');
+    assert.ok(fs.existsSync(brandLogoPath), 'BrandLogo.tsx must exist');
+    const source = fs.readFileSync(brandLogoPath, 'utf8');
+
+    // Asserts complete image asset resolution from branding configuration
+    assert.match(source, /branding\.symbolPath/, 'BrandLogo must consume branding.symbolPath');
+    assert.match(source, /branding\.logoLightPath/, 'BrandLogo must consume branding.logoLightPath');
+    assert.match(source, /branding\.logoDarkPath/, 'BrandLogo must consume branding.logoDarkPath');
+    assert.match(source, /branding\.logoPath/, 'BrandLogo must consume branding.logoPath');
+    assert.match(source, /alt=\{branding\.siteName\}/, 'BrandLogo must use branding.siteName for image alt');
+
+    // Asserts no composite HTML wordmark construction
+    assert.doesNotMatch(source, /<span[^>]*>\s*\{branding\.siteName\}\s*<\/span>/, 'BrandLogo must not construct composite HTML text wordmark');
+    assert.doesNotMatch(source, /fontSizePx/, 'BrandLogo must not compute ad-hoc font sizes');
+
+    // Asserts aspect ratio protection against distortion or cropping
+    assert.match(source, /objectFit:\s*'contain'/, 'BrandLogo must enforce contain object-fit');
+    assert.match(source, /width:\s*'auto'/, 'BrandLogo must use auto width to preserve SVG aspect ratio');
+    assert.match(source, /maxWidth:\s*'100%'/, 'BrandLogo must bound max width for mobile responsiveness');
+
+    // Zero hardcoded brand names in BrandLogo presentation component
+    assert.doesNotMatch(source, /HARZAAR/i, 'BrandLogo.tsx must not contain hardcoded HARZAAR');
+    assert.doesNotMatch(source, /COMMERCE/i, 'BrandLogo.tsx must not contain hardcoded COMMERCE');
   });
 
   test('Environment example documents exact public variables without undocumented aliases', () => {

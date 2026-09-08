@@ -116,7 +116,7 @@ export default function ProductFilters() {
               </label>
             ))}
             {categories.length === 0 && (
-              <p className="text-xs text-slate-400">No categories found</p>
+              <p className="text-xs text-slate-600">No categories found</p>
             )}
           </div>
         )}
@@ -147,7 +147,7 @@ export default function ProductFilters() {
               </label>
             ))}
             {brands.length === 0 && (
-              <p className="text-xs text-slate-400">No brands found</p>
+              <p className="text-xs text-slate-600">No brands found</p>
             )}
           </div>
         )}
