@@ -1,4 +1,4 @@
-const records = require('./index.json');
+const { defaultKnowledgeLoader } = require('./knowledgeIndexLoader');
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'can', 'do', 'for', 'from', 'how', 'i', 'in',
@@ -19,35 +19,69 @@ const allowedAudiences = (audience) => {
   return new Set(['anonymous']);
 };
 
-const retrieve = (query, audience, limit = 5) => {
-  const queryTokens = [...new Set(tokenize(query))];
-  if (queryTokens.length === 0) return [];
+class RetrievalService {
+  constructor(options = {}) {
+    this.loader = options.loader || defaultKnowledgeLoader;
+  }
 
-  const allowed = allowedAudiences(audience);
-  return records
-    .filter((record) => record.audience.some((entry) => allowed.has(entry)))
-    .map((record) => {
-      const titleTokens = new Set(tokenize(record.title));
-      const categoryTokens = new Set(tokenize(record.category));
-      const contentTokens = new Set(tokenize(record.content));
-      const score = queryTokens.reduce((total, token) => (
-        total
-        + (titleTokens.has(token) ? 5 : 0)
-        + (categoryTokens.has(token) ? 4 : 0)
-        + (contentTokens.has(token) ? 1 : 0)
-      ), 0);
-      return { record, score };
-    })
-    .filter(({ score }) => score > 0)
-    .sort((left, right) => (
-      right.score - left.score
-      || left.record.id.localeCompare(right.record.id)
-    ))
-    .slice(0, limit)
-    .map(({ record, score }) => ({ ...record, score }));
-};
+  isAvailable() {
+    return this.loader.isReady();
+  }
+
+  getStatus() {
+    const snapshot = this.loader.getSnapshot();
+    return {
+      status: snapshot.status,
+      reason: snapshot.reason,
+      recordCount: snapshot.recordCount
+    };
+  }
+
+  retrieve(query, audience, limit = 5) {
+    if (!this.isAvailable()) {
+      return [];
+    }
+
+    const queryTokens = [...new Set(tokenize(query))];
+    if (queryTokens.length === 0) return [];
+
+    const allowed = allowedAudiences(audience);
+    const records = this.loader.getRecords();
+
+    return records
+      .filter((record) => record.audience.some((entry) => allowed.has(entry)))
+      .map((record) => {
+        const titleTokens = new Set(tokenize(record.title));
+        const categoryTokens = new Set(tokenize(record.category));
+        const contentTokens = new Set(tokenize(record.content));
+        const score = queryTokens.reduce((total, token) => (
+          total
+          + (titleTokens.has(token) ? 5 : 0)
+          + (categoryTokens.has(token) ? 4 : 0)
+          + (contentTokens.has(token) ? 1 : 0)
+        ), 0);
+        return { record, score };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((left, right) => (
+        right.score - left.score
+        || left.record.id.localeCompare(right.record.id)
+      ))
+      .slice(0, limit)
+      .map(({ record, score }) => ({ ...record, score }));
+  }
+}
+
+const defaultRetrievalService = new RetrievalService();
+
+const createRetrievalService = (options = {}) => new RetrievalService(options);
 
 module.exports = {
-  retrieve,
-  tokenize
+  RetrievalService,
+  createRetrievalService,
+  defaultRetrievalService,
+  retrieve: (query, audience, limit) => defaultRetrievalService.retrieve(query, audience, limit),
+  tokenize,
+  isAvailable: () => defaultRetrievalService.isAvailable(),
+  getStatus: () => defaultRetrievalService.getStatus()
 };

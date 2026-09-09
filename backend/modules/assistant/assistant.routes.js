@@ -12,9 +12,12 @@ const {
   createAssistantController
 } = require('./assistant.controller');
 
-const createAssistantRouter = (config = createAssistantConfig(process.env)) => {
+const createAssistantRouter = (
+  config = createAssistantConfig(process.env),
+  options = {}
+) => {
   const router = express.Router();
-  const controller = createAssistantController(config);
+  const controller = createAssistantController(config, options);
   const chatLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 20,

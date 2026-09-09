@@ -1,6 +1,9 @@
 const logger = require('../../common/utils/logger');
 const { AppError } = require('../../common/errors/AppError');
-const { retrieve } = require('./knowledge/retrieval.service');
+const {
+  defaultRetrievalService,
+  createRetrievalService
+} = require('./knowledge/retrieval.service');
 const policy = require('./policy/assistantPolicy');
 const tools = require('./tools/assistantReadTools');
 
@@ -119,13 +122,18 @@ const selectAdminTool = (message) => {
 };
 
 class AssistantService {
-  constructor(config) {
+  constructor(config, options = {}) {
     this.config = config;
+    this.retrievalService = options.retrievalService
+      || (options.knowledgeLoader
+        ? createRetrievalService({ loader: options.knowledgeLoader })
+        : defaultRetrievalService);
   }
 
   capabilities(audience = 'anonymous') {
     const providerActive = this.config.mode === 'provider'
       && this.config.provider.active;
+    const knowledgeAvailable = this.retrievalService.isAvailable();
     return {
       enabled: this.config.enabled,
       mode: this.config.mode,
@@ -138,6 +146,7 @@ class AssistantService {
       readOnly: true,
       audience,
       historyPersisted: false,
+      knowledgeAvailable,
       tools: Object.entries(tools.TOOL_DEFINITIONS)
         .filter(([, definition]) => definition.audience.includes(audience))
         .map(([name]) => name)
@@ -203,7 +212,15 @@ class AssistantService {
         };
       }
 
-      const matches = retrieve(
+      if (!this.retrievalService.isAvailable()) {
+        throw new AppError(
+          'Assistant knowledge is temporarily unavailable. Please try again later or contact support.',
+          503,
+          'ASSISTANT_KNOWLEDGE_UNAVAILABLE'
+        );
+      }
+
+      const matches = this.retrievalService.retrieve(
         message,
         audience,
         this.config.maxContextItems

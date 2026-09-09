@@ -1,7 +1,7 @@
 const AssistantService = require('./assistant.service');
 
-const createAssistantController = (config) => {
-  const service = new AssistantService(config);
+const createAssistantController = (config, options = {}) => {
+  const service = options.service || new AssistantService(config, options);
 
   return {
     capabilities(req, res) {

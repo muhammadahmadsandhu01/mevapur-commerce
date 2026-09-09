@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const express = require('express');
@@ -9,6 +12,9 @@ const {
 const {
   createAssistantRouter
 } = require('../../modules/assistant/assistant.routes');
+const {
+  createKnowledgeLoader
+} = require('../../modules/assistant/knowledge/knowledgeIndexLoader');
 const errorHandler = require('../../middleware/errorHandler');
 const tools = require('../../modules/assistant/tools/assistantReadTools');
 const TokenService = require('../../services/TokenService');
@@ -23,14 +29,15 @@ const retrievalConfig = createAssistantConfig({
   AI_MAX_INPUT_CHARS: '200'
 });
 
-const createTestApp = () => {
+const createTestApp = (options = {}) => {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
   app.use((req, res, next) => {
     req.requestId = 'assistant-integration-test';
     next();
   });
-  app.use('/api/assistant', createAssistantRouter(retrievalConfig));
+  app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK' }));
+  app.use('/api/assistant', createAssistantRouter(retrievalConfig, options));
   app.use(errorHandler);
   return app;
 };
@@ -88,7 +95,8 @@ describe('P5C assistant API and role-scoped tools', () => {
       label: 'Help Search',
       readOnly: true,
       audience: 'anonymous',
-      historyPersisted: false
+      historyPersisted: false,
+      knowledgeAvailable: true
     });
     expect(response.body.data.tools).not.toContain('getCurrentCustomerOrders');
   });
@@ -420,5 +428,112 @@ describe('P5C assistant API and role-scoped tools', () => {
       .post('/api/assistant/chat')
       .send({ message: 'shipping' })
       .expect(429);
+  });
+
+  describe('Safe degradation on missing or corrupt knowledge index', () => {
+    let tempDir;
+    let tempCounter = 0;
+
+    beforeEach(() => {
+      tempCounter += 1;
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `test-assistant-http-degrade-${tempCounter}-`));
+    });
+
+    afterEach(() => {
+      if (tempDir && fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    test('missing index degrades capabilities and returns 503 for customer chat', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+
+      const capRes = await request(degradedApp)
+        .get('/api/assistant/capabilities')
+        .expect(200);
+      expect(capRes.body.data.knowledgeAvailable).toBe(false);
+
+      const chatRes = await request(degradedApp)
+        .post('/api/assistant/chat')
+        .send({ message: 'Explain returns and refunds', history: [] })
+        .expect(503);
+
+      expect(chatRes.body).toEqual({
+        success: false,
+        error: {
+          code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE',
+          message: 'Assistant knowledge is temporarily unavailable. Please try again later or contact support.'
+        },
+        meta: {
+          requestId: 'assistant-integration-test'
+        }
+      });
+      expect(JSON.stringify(chatRes.body)).not.toContain('missing-index.json');
+      expect(JSON.stringify(chatRes.body)).not.toContain('stack');
+    });
+
+    test('malformed index returns 503 for admin non-tool chat without leaking parser error', async () => {
+      const malformedPath = path.join(tempDir, 'malformed-index.json');
+      fs.writeFileSync(malformedPath, '{ broken json syntax', 'utf8');
+
+      const malformedLoader = createKnowledgeLoader({ indexPath: malformedPath });
+      const degradedApp = createTestApp({ knowledgeLoader: malformedLoader });
+
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
+
+      const response = await request(degradedApp)
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Explain deployment architecture', history: [] })
+        .expect(503);
+
+      expect(response.body).toEqual({
+        success: false,
+        error: {
+          code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE',
+          message: 'Assistant knowledge is temporarily unavailable. Please try again later or contact support.'
+        },
+        meta: {
+          requestId: 'assistant-integration-test'
+        }
+      });
+      expect(JSON.stringify(response.body)).not.toContain('broken json syntax');
+      expect(JSON.stringify(response.body)).not.toContain('SyntaxError');
+    });
+
+    test('unrelated routes remain operational when knowledge is unavailable', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+
+      const response = await request(degradedApp)
+        .get('/api/health')
+        .expect(200);
+
+      expect(response.body).toEqual({ status: 'OK' });
+    });
+
+    test('authentication ordering is preserved on admin chat when knowledge is unavailable', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+
+      const response = await request(degradedApp)
+        .post('/api/assistant/admin/chat')
+        .send({ message: 'Explain deployment architecture', history: [] })
+        .expect(401);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_TOKEN_REQUIRED
+        }
+      });
+    });
   });
 });
