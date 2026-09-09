@@ -11,7 +11,9 @@
     "lint": "eslint . --max-warnings=0",
     "seed": "node database/seeders/index.js",
     "bootstrap:initial-admin": "node scripts/create-admin.js",
-    "recover:initial-admin-password": "node scripts/recover-initial-admin-password.js"
+    "recover:initial-admin-password": "node scripts/recover-initial-admin-password.js",
+    "assistant:knowledge:check": "node scripts/build-assistant-knowledge-index.js --check",
+    "assistant:knowledge:build": "node scripts/build-assistant-knowledge-index.js --write"
   },
   "keywords": [
     "ecommerce",
