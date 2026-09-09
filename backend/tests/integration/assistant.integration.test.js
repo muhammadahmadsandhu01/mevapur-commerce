@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const express = require('express');
 const request = require('supertest');
 const mongoose = require('mongoose');
@@ -9,6 +11,11 @@ const {
 } = require('../../modules/assistant/assistant.routes');
 const errorHandler = require('../../middleware/errorHandler');
 const tools = require('../../modules/assistant/tools/assistantReadTools');
+const TokenService = require('../../services/TokenService');
+const Session = require('../../models/Session');
+const authConfig = require('../../config/auth.config');
+const ERROR_CODES = require('../../constants/errorCodes');
+const { CANONICAL_ROLES } = require('../../constants/roleConstants');
 
 const retrievalConfig = createAssistantConfig({
   AI_ASSISTANT_ENABLED: 'true',
@@ -27,6 +34,48 @@ const createTestApp = () => {
   app.use(errorHandler);
   return app;
 };
+
+let userSequence = 0;
+
+const createAuthenticatedUser = async (role, sessionOverrides = {}) => {
+  userSequence += 1;
+  const user = await global.createTestUser({
+    email: `assistant-auth-${role}-${userSequence}@example.test`,
+    role
+  });
+  const session = await Session.create({
+    user: user._id,
+    refreshTokenHash: crypto.randomBytes(32).toString('hex'),
+    tokenFamilyId: crypto.randomUUID(),
+    isActive: true,
+    isRevoked: false,
+    expiresAt: new Date(Date.now() + 3600000),
+    ...sessionOverrides
+  });
+  const token = TokenService.generateAccessToken({
+    userId: user._id,
+    sessionId: session._id,
+    tokenVersion: user.tokenVersion
+  });
+  return { user, session, token, authorization: `Bearer ${token}` };
+};
+
+const createExpiredToken = (user, session) => jwt.sign(
+  {
+    sub: String(user._id),
+    sid: String(session._id),
+    jti: crypto.randomUUID(),
+    tokenVersion: Number(user.tokenVersion || 0),
+    type: 'access'
+  },
+  authConfig.jwt.secret,
+  {
+    algorithm: 'HS256',
+    expiresIn: -1,
+    issuer: authConfig.jwt.issuer,
+    audience: authConfig.jwt.audience
+  }
+);
 
 describe('P5C assistant API and role-scoped tools', () => {
   test('publishes anonymous retrieval capabilities', async () => {
@@ -72,13 +121,213 @@ describe('P5C assistant API and role-scoped tools', () => {
       .expect(400);
   });
 
-  test('requires authentication and admin authorization for admin chat', async () => {
-    const response = await request(createTestApp())
-      .post('/api/assistant/admin/chat')
-      .send({ message: 'Inventory overview' })
-      .expect(401);
+  describe('POST /api/assistant/admin/chat authentication and RBAC matrix', () => {
+    test('1. denies anonymous request with 401 AUTH_TOKEN_REQUIRED', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(401);
 
-    expect(response.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_TOKEN_REQUIRED
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('2. denies malformed bearer token with 401 AUTH_TOKEN_INVALID', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', 'Bearer invalid-malformed-token-string')
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(401);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_TOKEN_INVALID
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('3. denies expired token with 401 AUTH_TOKEN_EXPIRED', async () => {
+      const { user, session } = await createAuthenticatedUser(
+        CANONICAL_ROLES.ADMIN
+      );
+      const expiredToken = createExpiredToken(user, session);
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', `Bearer ${expiredToken}`)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(401);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_TOKEN_EXPIRED
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('4. denies revoked session token with 401 AUTH_SESSION_REVOKED', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.ADMIN,
+        { isRevoked: true }
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(401);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_SESSION_REVOKED
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('5. denies customer role with 403 AUTH_FORBIDDEN', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.CUSTOMER
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(403);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_FORBIDDEN
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('6. denies support role with 403 AUTH_FORBIDDEN', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.SUPPORT
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(403);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_FORBIDDEN
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('7. denies inventory role with 403 AUTH_FORBIDDEN', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.INVENTORY
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(403);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_FORBIDDEN
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('8. denies manager role with 403 AUTH_FORBIDDEN', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.MANAGER
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(403);
+
+      expect(response.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_FORBIDDEN
+        }
+      });
+      expect(response.body.data).toBeUndefined();
+    });
+
+    test('9. authorizes admin role with 200 and operational intelligence', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.ADMIN
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        success: true,
+        data: {
+          mode: 'retrieval',
+          label: 'Help Search',
+          answer: expect.stringContaining('getInventorySummary'),
+          sources: expect.any(Array),
+          tools: ['getInventorySummary'],
+          criticalNotice: expect.any(String)
+        },
+        meta: {
+          requestId: 'assistant-integration-test'
+        }
+      });
+    });
+
+    test('10. authorizes super_admin role with 200 and operational intelligence', async () => {
+      const { authorization } = await createAuthenticatedUser(
+        CANONICAL_ROLES.SUPER_ADMIN
+      );
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'Inventory overview', history: [] })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        success: true,
+        data: {
+          mode: 'retrieval',
+          label: 'Help Search',
+          answer: expect.stringContaining('getInventorySummary'),
+          sources: expect.any(Array),
+          tools: ['getInventorySummary'],
+          criticalNotice: expect.any(String)
+        },
+        meta: {
+          requestId: 'assistant-integration-test'
+        }
+      });
+    });
   });
 
   test('customer tools bind queries to the authenticated user ID', async () => {
