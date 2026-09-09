@@ -364,9 +364,13 @@ if (mongoose.models.Product) {
       }
       // Sum variant stocks for root stock
       this.stock = this.variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
-      // Set root price to default variant's price
-      this.price = defaultVar.price;
-      this.originalPrice = defaultVar.salePrice > 0 ? defaultVar.salePrice : defaultVar.price;
+      // Derive root pricing from default variant
+      const regularPrice = Number(defaultVar.price) || 0;
+      const salePrice = Number(defaultVar.salePrice) || 0;
+      const hasSalePrice = salePrice > 0 && salePrice < regularPrice;
+
+      this.price = hasSalePrice ? salePrice : regularPrice;
+      this.originalPrice = regularPrice;
     }
 
     // 5. Dynamic discount calculation
