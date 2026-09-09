@@ -10,6 +10,7 @@ const {
   DEFAULT_INDEX_PATH
 } = require('../../../modules/assistant/knowledge/knowledgeIndexLoader');
 const {
+  KnowledgeUnavailableError,
   createRetrievalService
 } = require('../../../modules/assistant/knowledge/retrieval.service');
 const {
@@ -19,6 +20,7 @@ const {
 } = require('../../../modules/assistant/knowledge/knowledgeIndexContract');
 const AssistantService = require('../../../modules/assistant/assistant.service');
 const { createAssistantConfig } = require('../../../modules/assistant/config/assistant.config');
+const tools = require('../../../modules/assistant/tools/assistantReadTools');
 
 describe('P5C assistant runtime knowledge loader and safe degradation', () => {
   let tempDir;
@@ -33,6 +35,7 @@ describe('P5C assistant runtime knowledge loader and safe degradation', () => {
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+    jest.restoreAllMocks();
   });
 
   const writeTempJson = (filename, content) => {
@@ -103,7 +106,6 @@ describe('P5C assistant runtime knowledge loader and safe degradation', () => {
 
     expect(() => {
       'use strict';
-
       records[0].title = 'Mutated title';
     }).toThrow();
 
@@ -270,23 +272,85 @@ describe('P5C assistant runtime knowledge loader and safe degradation', () => {
     expect(defaultKnowledgeLoader.isReady()).toBe(true);
   });
 
-  describe('AssistantService degradation with custom loader', () => {
+  describe('Section B: Low-level retrieval failure contract', () => {
+    test('retrieval throws KnowledgeUnavailableError when index is missing', () => {
+      const loader = createKnowledgeLoader({ indexPath: path.join(tempDir, 'missing.json') });
+      const retrieval = createRetrievalService({ loader });
+
+      expect(() => retrieval.retrieve('brand query', 'anonymous')).toThrow(KnowledgeUnavailableError);
+      try {
+        retrieval.retrieve('brand query', 'anonymous');
+      } catch (err) {
+        expect(err.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+        expect(err.reason).toBe(REASONS.MISSING);
+        expect(err.statusCode).toBe(503);
+        expect(err.message).not.toContain('missing.json');
+      }
+    });
+
+    test('retrieval throws KnowledgeUnavailableError when index is malformed JSON', () => {
+      const brokenPath = writeTempJson('broken.json', '{ bad syntax');
+      const loader = createKnowledgeLoader({ indexPath: brokenPath });
+      const retrieval = createRetrievalService({ loader });
+
+      expect(() => retrieval.retrieve('brand query', 'anonymous')).toThrow(KnowledgeUnavailableError);
+      try {
+        retrieval.retrieve('brand query', 'anonymous');
+      } catch (err) {
+        expect(err.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+        expect(err.reason).toBe(REASONS.MALFORMED_JSON);
+        expect(err.message).not.toContain('bad syntax');
+      }
+    });
+
+    test('retrieval throws KnowledgeUnavailableError when index has invalid schema', () => {
+      const invalidPath = writeTempJson('invalid.json', [{ id: 'bad' }]);
+      const loader = createKnowledgeLoader({ indexPath: invalidPath });
+      const retrieval = createRetrievalService({ loader });
+
+      expect(() => retrieval.retrieve('brand query', 'anonymous')).toThrow(KnowledgeUnavailableError);
+      try {
+        retrieval.retrieve('brand query', 'anonymous');
+      } catch (err) {
+        expect(err.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+        expect(err.reason).toBe(REASONS.INVALID_SCHEMA);
+      }
+    });
+
+    test('valid READY index with zero matching keywords returns empty array without throwing', () => {
+      const validPath = writeTempJson('index.json', sampleValidIndex);
+      const loader = createKnowledgeLoader({ indexPath: validPath });
+      const retrieval = createRetrievalService({ loader });
+
+      const matches = retrieval.retrieve('nonexistentkeyword12345xyz', 'anonymous');
+      expect(matches).toEqual([]);
+    });
+  });
+
+  describe('Section C: AssistantService degradation and zero tool execution', () => {
     const config = createAssistantConfig({
       AI_ASSISTANT_ENABLED: 'true',
       AI_ASSISTANT_MODE: 'retrieval'
     });
 
-    test('AssistantService reports knowledgeAvailable: false when loader is unavailable', () => {
+    test('capabilities returns knowledgeAvailable: false and tools: [] when unavailable', () => {
       const missingLoader = createKnowledgeLoader({ indexPath: path.join(tempDir, 'missing.json') });
       const service = new AssistantService(config, { knowledgeLoader: missingLoader });
 
-      const capabilities = service.capabilities('anonymous');
-      expect(capabilities.knowledgeAvailable).toBe(false);
-      expect(capabilities.enabled).toBe(true);
-      expect(capabilities.mode).toBe('retrieval');
+      const anonymousCaps = service.capabilities('anonymous');
+      expect(anonymousCaps.knowledgeAvailable).toBe(false);
+      expect(anonymousCaps.tools).toEqual([]);
+
+      const customerCaps = service.capabilities('customer');
+      expect(customerCaps.knowledgeAvailable).toBe(false);
+      expect(customerCaps.tools).toEqual([]);
+
+      const adminCaps = service.capabilities('admin');
+      expect(adminCaps.knowledgeAvailable).toBe(false);
+      expect(adminCaps.tools).toEqual([]);
     });
 
-    test('AssistantService chat throws 503 ASSISTANT_KNOWLEDGE_UNAVAILABLE for knowledge query when unavailable', async () => {
+    test('chat throws 503 ASSISTANT_KNOWLEDGE_UNAVAILABLE for knowledge query when unavailable', async () => {
       const missingLoader = createKnowledgeLoader({ indexPath: path.join(tempDir, 'missing.json') });
       const service = new AssistantService(config, { knowledgeLoader: missingLoader });
 
@@ -301,7 +365,105 @@ describe('P5C assistant runtime knowledge loader and safe degradation', () => {
       });
     });
 
-    test('AssistantService policy violation still triggers policy denial before knowledge check', async () => {
+    test('zero customer tools execute when knowledge is unavailable', async () => {
+      const missingLoader = createKnowledgeLoader({ indexPath: path.join(tempDir, 'missing.json') });
+      const service = new AssistantService(config, { knowledgeLoader: missingLoader });
+
+      const spyOrders = jest.spyOn(tools, 'getCurrentCustomerOrders');
+      const spyOrderStatus = jest.spyOn(tools, 'getCurrentCustomerOrderStatus');
+      const spyPayments = jest.spyOn(tools, 'getCurrentCustomerPaymentStatus');
+      const spyRefunds = jest.spyOn(tools, 'getCurrentCustomerRefundStatus');
+      const spyProducts = jest.spyOn(tools, 'searchPublicProducts');
+
+      // 1. Customer orders intent
+      await expect(service.chat({
+        message: 'show my orders',
+        audience: 'customer',
+        userId: 'test-user-id',
+        requestId: 'test-orders-tool'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyOrders).not.toHaveBeenCalled();
+
+      // 2. Customer order status intent
+      await expect(service.chat({
+        message: 'status for ORD-20260728-OWN12345',
+        audience: 'customer',
+        userId: 'test-user-id',
+        requestId: 'test-order-status-tool'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyOrderStatus).not.toHaveBeenCalled();
+
+      // 3. Customer payment status intent
+      await expect(service.chat({
+        message: 'check my payments',
+        audience: 'customer',
+        userId: 'test-user-id',
+        requestId: 'test-payments-tool'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyPayments).not.toHaveBeenCalled();
+
+      // 4. Customer refund status intent
+      await expect(service.chat({
+        message: 'check my refunds',
+        audience: 'customer',
+        userId: 'test-user-id',
+        requestId: 'test-refunds-tool'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyRefunds).not.toHaveBeenCalled();
+
+      // 5. Public product search intent
+      await expect(service.chat({
+        message: 'find organic almonds',
+        audience: 'anonymous',
+        requestId: 'test-product-tool'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyProducts).not.toHaveBeenCalled();
+    });
+
+    test('zero admin tools execute when knowledge is unavailable', async () => {
+      const missingLoader = createKnowledgeLoader({ indexPath: path.join(tempDir, 'missing.json') });
+      const service = new AssistantService(config, { knowledgeLoader: missingLoader });
+
+      const spyInventory = jest.spyOn(tools, 'getInventorySummary');
+      const spyLowStock = jest.spyOn(tools, 'getLowStockSummary');
+      const spyOrders = jest.spyOn(tools, 'getOrderStatusSummary');
+      const spyPayments = jest.spyOn(tools, 'getPaymentStatusSummary');
+      const spyRefunds = jest.spyOn(tools, 'getRefundSummary');
+      const spyProviders = jest.spyOn(tools, 'getProviderAvailabilitySummary');
+
+      // 1. Admin inventory intent
+      await expect(service.chat({
+        message: 'inventory overview',
+        audience: 'admin',
+        userId: 'admin-user-id',
+        requestId: 'test-admin-inv'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyInventory).not.toHaveBeenCalled();
+
+      // 2. Admin low stock intent
+      await expect(service.chat({
+        message: 'show low stock products',
+        audience: 'admin',
+        userId: 'admin-user-id',
+        requestId: 'test-admin-lowstock'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyLowStock).not.toHaveBeenCalled();
+
+      // 3. Admin provider availability intent
+      await expect(service.chat({
+        message: 'provider availability summary',
+        audience: 'admin',
+        userId: 'admin-user-id',
+        requestId: 'test-admin-providers'
+      })).rejects.toMatchObject({ statusCode: 503, code: 'ASSISTANT_KNOWLEDGE_UNAVAILABLE' });
+      expect(spyProviders).not.toHaveBeenCalled();
+
+      expect(spyOrders).not.toHaveBeenCalled();
+      expect(spyPayments).not.toHaveBeenCalled();
+      expect(spyRefunds).not.toHaveBeenCalled();
+    });
+
+    test('policy violation still triggers policy denial before knowledge check', async () => {
       const missingLoader = createKnowledgeLoader({ indexPath: path.join(tempDir, 'missing.json') });
       const service = new AssistantService(config, { knowledgeLoader: missingLoader });
 

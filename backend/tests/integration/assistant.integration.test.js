@@ -443,9 +443,10 @@ describe('P5C assistant API and role-scoped tools', () => {
       if (tempDir && fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
+      jest.restoreAllMocks();
     });
 
-    test('missing index degrades capabilities and returns 503 for customer chat', async () => {
+    test('missing index degrades capabilities and returns knowledgeAvailable: false with empty tools', async () => {
       const missingLoader = createKnowledgeLoader({
         indexPath: path.join(tempDir, 'missing-index.json')
       });
@@ -455,6 +456,14 @@ describe('P5C assistant API and role-scoped tools', () => {
         .get('/api/assistant/capabilities')
         .expect(200);
       expect(capRes.body.data.knowledgeAvailable).toBe(false);
+      expect(capRes.body.data.tools).toEqual([]);
+    });
+
+    test('missing index returns 503 for customer general chat', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
 
       const chatRes = await request(degradedApp)
         .post('/api/assistant/chat')
@@ -473,6 +482,106 @@ describe('P5C assistant API and role-scoped tools', () => {
       });
       expect(JSON.stringify(chatRes.body)).not.toContain('missing-index.json');
       expect(JSON.stringify(chatRes.body)).not.toContain('stack');
+    });
+
+    test('customer product intent returns 503 and executes zero tools', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+      const spySearch = jest.spyOn(tools, 'searchPublicProducts');
+
+      const chatRes = await request(degradedApp)
+        .post('/api/assistant/chat')
+        .send({ message: 'find organic almonds', history: [] })
+        .expect(503);
+
+      expect(chatRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+      expect(spySearch).not.toHaveBeenCalled();
+    });
+
+    test('authenticated customer order intent returns 503 and executes zero tools', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+      const spyOrders = jest.spyOn(tools, 'getCurrentCustomerOrders');
+
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+
+      const chatRes = await request(degradedApp)
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'show my orders', history: [] })
+        .expect(503);
+
+      expect(chatRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+      expect(spyOrders).not.toHaveBeenCalled();
+    });
+
+    test('authenticated customer payment/refund intent returns 503 and executes zero tools', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+      const spyPayments = jest.spyOn(tools, 'getCurrentCustomerPaymentStatus');
+      const spyRefunds = jest.spyOn(tools, 'getCurrentCustomerRefundStatus');
+
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+
+      const payRes = await request(degradedApp)
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'check my payments', history: [] })
+        .expect(503);
+      expect(payRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+      expect(spyPayments).not.toHaveBeenCalled();
+
+      const refRes = await request(degradedApp)
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'check my refunds', history: [] })
+        .expect(503);
+      expect(refRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+      expect(spyRefunds).not.toHaveBeenCalled();
+    });
+
+    test('valid admin inventory intent returns 503 and executes zero tools', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+      const spyInventory = jest.spyOn(tools, 'getInventorySummary');
+
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
+
+      const response = await request(degradedApp)
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'inventory overview', history: [] })
+        .expect(503);
+
+      expect(response.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+      expect(spyInventory).not.toHaveBeenCalled();
+    });
+
+    test('valid super_admin operational intent returns 503 and executes zero tools', async () => {
+      const missingLoader = createKnowledgeLoader({
+        indexPath: path.join(tempDir, 'missing-index.json')
+      });
+      const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
+      const spyLowStock = jest.spyOn(tools, 'getLowStockSummary');
+
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.SUPER_ADMIN);
+
+      const response = await request(degradedApp)
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'show low stock products', history: [] })
+        .expect(503);
+
+      expect(response.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
+      expect(spyLowStock).not.toHaveBeenCalled();
     });
 
     test('malformed index returns 503 for admin non-tool chat without leaking parser error', async () => {
@@ -523,15 +632,31 @@ describe('P5C assistant API and role-scoped tools', () => {
       });
       const degradedApp = createTestApp({ knowledgeLoader: missingLoader });
 
-      const response = await request(degradedApp)
+      // Unauthenticated request receives 401 AUTH_TOKEN_REQUIRED
+      const anonRes = await request(degradedApp)
         .post('/api/assistant/admin/chat')
-        .send({ message: 'Explain deployment architecture', history: [] })
+        .send({ message: 'inventory overview', history: [] })
         .expect(401);
 
-      expect(response.body).toMatchObject({
+      expect(anonRes.body).toMatchObject({
         success: false,
         error: {
           code: ERROR_CODES.AUTH_TOKEN_REQUIRED
+        }
+      });
+
+      // Unauthorized customer role receives 403 AUTH_FORBIDDEN
+      const { authorization: customerAuth } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+      const forbRes = await request(degradedApp)
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', customerAuth)
+        .send({ message: 'inventory overview', history: [] })
+        .expect(403);
+
+      expect(forbRes.body).toMatchObject({
+        success: false,
+        error: {
+          code: ERROR_CODES.AUTH_FORBIDDEN
         }
       });
     });

@@ -147,9 +147,11 @@ class AssistantService {
       audience,
       historyPersisted: false,
       knowledgeAvailable,
-      tools: Object.entries(tools.TOOL_DEFINITIONS)
-        .filter(([, definition]) => definition.audience.includes(audience))
-        .map(([name]) => name)
+      tools: knowledgeAvailable
+        ? Object.entries(tools.TOOL_DEFINITIONS)
+            .filter(([, definition]) => definition.audience.includes(audience))
+            .map(([name]) => name)
+        : []
     };
   }
 
@@ -191,6 +193,14 @@ class AssistantService {
         );
       }
 
+      if (!this.retrievalService.isAvailable()) {
+        throw new AppError(
+          'Assistant knowledge is temporarily unavailable. Please try again later or contact support.',
+          503,
+          'ASSISTANT_KNOWLEDGE_UNAVAILABLE'
+        );
+      }
+
       const selectedTool = audience === 'admin'
         ? selectAdminTool(message)
         : selectCustomerTool(message, userId);
@@ -210,14 +220,6 @@ class AssistantService {
           tools: usedTools,
           criticalNotice: CRITICAL_NOTICE
         };
-      }
-
-      if (!this.retrievalService.isAvailable()) {
-        throw new AppError(
-          'Assistant knowledge is temporarily unavailable. Please try again later or contact support.',
-          503,
-          'ASSISTANT_KNOWLEDGE_UNAVAILABLE'
-        );
       }
 
       const matches = this.retrievalService.retrieve(

@@ -1,5 +1,15 @@
 const { defaultKnowledgeLoader } = require('./knowledgeIndexLoader');
 
+class KnowledgeUnavailableError extends Error {
+  constructor(reason = 'UNAVAILABLE') {
+    super('Assistant knowledge index is unavailable');
+    this.name = 'KnowledgeUnavailableError';
+    this.code = 'ASSISTANT_KNOWLEDGE_UNAVAILABLE';
+    this.reason = reason;
+    this.statusCode = 503;
+  }
+}
+
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'can', 'do', 'for', 'from', 'how', 'i', 'in',
   'is', 'it', 'me', 'my', 'of', 'on', 'or', 'please', 'the', 'to', 'what',
@@ -39,7 +49,8 @@ class RetrievalService {
 
   retrieve(query, audience, limit = 5) {
     if (!this.isAvailable()) {
-      return [];
+      const status = this.getStatus();
+      throw new KnowledgeUnavailableError(status.reason);
     }
 
     const queryTokens = [...new Set(tokenize(query))];
@@ -77,6 +88,7 @@ const defaultRetrievalService = new RetrievalService();
 const createRetrievalService = (options = {}) => new RetrievalService(options);
 
 module.exports = {
+  KnowledgeUnavailableError,
   RetrievalService,
   createRetrievalService,
   defaultRetrievalService,
