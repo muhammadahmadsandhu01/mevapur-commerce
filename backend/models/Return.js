@@ -1,9 +1,19 @@
+const crypto = require('crypto');
 const mongoose = require('mongoose');
+
+const generateReturnNumber = () => {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const entropy = crypto.randomBytes(10).toString('hex').toUpperCase();
+  return `RET-${date}-${entropy}`;
+};
 
 const returnSchema = new mongoose.Schema({
   returnNumber: {
     type: String,
-    unique: true
+    unique: true,
+    required: true,
+    immutable: true,
+    default: generateReturnNumber
   },
   order: {
     type: mongoose.Schema.Types.ObjectId,
@@ -102,14 +112,7 @@ const returnSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Auto-generate return number
-returnSchema.pre('save', async function(next) {
-  if (!this.returnNumber) {
-    const count = await mongoose.model('Return').countDocuments();
-    this.returnNumber = `RET-${String(count + 1).padStart(6, '0')}`;
-  }
-  next();
-});
+
 
 returnSchema.index({ status: 1, createdAt: -1 });
 returnSchema.index({ customer: 1, createdAt: -1 });
