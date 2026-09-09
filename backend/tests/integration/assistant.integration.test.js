@@ -661,4 +661,79 @@ describe('P5C assistant API and role-scoped tools', () => {
       });
     });
   });
+
+  describe('Assistant Evidence Cards and Source Provenance Integration', () => {
+    test('knowledge response exposes sanitized, complete knowledge evidence cards with no leaked paths', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .send({ message: 'What is the brand tagline and marketplace identity?', history: [] })
+        .expect(200);
+
+      expect(response.body.data.sources.length).toBeGreaterThan(0);
+      const firstCard = response.body.data.sources[0];
+      expect(firstCard).toMatchObject({
+        id: expect.any(String),
+        kind: 'knowledge',
+        title: expect.any(String),
+        category: expect.any(String),
+        reference: expect.any(String),
+        audience: expect.any(Array),
+        snippet: expect.any(String)
+      });
+      expect(firstCard.audience).toContain('anonymous');
+
+      const serialized = JSON.stringify(response.body.data.sources);
+      expect(serialized).not.toMatch(/[a-zA-Z]:[/\\]/);
+      expect(serialized).not.toContain('mongodb://');
+      expect(serialized).not.toContain('password');
+      expect(serialized).not.toContain('stack');
+    });
+
+    test('tool response exposes operational tool evidence card with clear tool provenance', async () => {
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'inventory overview', history: [] })
+        .expect(200);
+
+      expect(response.body.data.sources).toHaveLength(1);
+      const toolCard = response.body.data.sources[0];
+      expect(toolCard).toEqual({
+        id: 'tool:getInventorySummary',
+        kind: 'tool',
+        title: 'Inventory Summary',
+        category: 'operational',
+        reference: 'Role-scoped read-only application tool',
+        audience: ['admin'],
+        toolName: 'getInventorySummary'
+      });
+      expect(response.body.data.tools).toEqual(['getInventorySummary']);
+    });
+
+    test('insufficient information returns zero evidence cards (no hallucination)', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .send({ message: 'Explain astronomical astrophysics cosmology', history: [] })
+        .expect(200);
+
+      expect(response.body.data.answer).toMatch(/Insufficient information/i);
+      expect(response.body.data.sources).toEqual([]);
+      expect(response.body.data.tools).toEqual([]);
+    });
+
+    test('role-scoped boundaries: anonymous request never receives admin evidence cards', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .send({ message: 'deployment configuration and server operations', history: [] })
+        .expect(200);
+
+      const sources = response.body.data.sources;
+      for (const card of sources) {
+        expect(card.audience).toContain('anonymous');
+        expect(card.audience).not.toEqual(['admin']);
+      }
+    });
+  });
 });

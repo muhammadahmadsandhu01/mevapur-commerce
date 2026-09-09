@@ -6,6 +6,10 @@ const {
 } = require('./knowledge/retrieval.service');
 const policy = require('./policy/assistantPolicy');
 const tools = require('./tools/assistantReadTools');
+const {
+  createToolEvidenceCard,
+  buildEvidenceCards
+} = require('./evidence/evidenceCard');
 
 const CRITICAL_NOTICE =
   'Verify critical order, payment, and refund decisions in the normal dashboard status.';
@@ -30,20 +34,6 @@ const withTimeout = async (work, timeoutMs) => {
     clearTimeout(timeout);
   }
 };
-
-const safeSource = (record) => ({
-  id: record.id,
-  title: record.title,
-  reference: record.sourceReference,
-  kind: 'knowledge'
-});
-
-const toolSource = (toolName) => ({
-  id: `tool:${toolName}`,
-  title: toolName.replace(/([a-z])([A-Z])/g, '$1 $2'),
-  reference: 'Role-scoped read-only application tool',
-  kind: 'tool'
-});
 
 const summarizeToolData = (toolName, data) => {
   if (data === null) return 'No matching record was found for this account.';
@@ -216,7 +206,7 @@ class AssistantService {
           mode: 'retrieval',
           label: 'Help Search',
           answer: summarizeToolData(selectedTool.name, data),
-          sources: [toolSource(selectedTool.name)],
+          sources: [createToolEvidenceCard(selectedTool.name)],
           tools: usedTools,
           criticalNotice: CRITICAL_NOTICE
         };
@@ -246,7 +236,7 @@ class AssistantService {
         mode: 'retrieval',
         label: 'Help Search',
         answer: matches.map((match) => match.content).join('\n\n'),
-        sources: matches.map(safeSource),
+        sources: buildEvidenceCards(matches, audience),
         tools: [],
         criticalNotice: CRITICAL_NOTICE
       };

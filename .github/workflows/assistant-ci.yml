@@ -1,0 +1,53 @@
+name: Assistant and Backend CI
+
+on:
+  push:
+    branches:
+      - 'develop/**'
+      - 'main'
+  pull_request:
+    branches:
+      - 'develop/**'
+      - 'main'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  assistant-integrity-and-tests:
+    name: Assistant Integrity and Backend Test Matrix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+
+      - name: Install Backend Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Lint Backend Code
+        working-directory: backend
+        run: npm run lint
+
+      - name: Verify Knowledge Index Drift & Determinism Gate
+        working-directory: backend
+        run: npm run assistant:knowledge:check
+
+      - name: Run Assistant Unit and Integration Tests
+        working-directory: backend
+        run: npm run test:assistant
+
+      - name: Run Complete Backend Test Suite
+        working-directory: backend
+        env:
+          MONGODB_URI: ''
+        run: npm run test:ci
