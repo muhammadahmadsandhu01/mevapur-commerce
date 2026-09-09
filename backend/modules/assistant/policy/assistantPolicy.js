@@ -4,40 +4,61 @@ const BIDI_CONTROLS = /[\u202A-\u202E\u2066-\u2069]/g;
 // Bounded confusable skeleton mapping for Cyrillic and Greek homoglyphs
 // resembling Latin ASCII characters used in assistant policy keywords.
 const CONFUSABLES_MAP = Object.freeze({
-  // Cyrillic
-  '\u0430': 'a', '\u0410': 'a',
-  '\u0441': 'c', '\u0421': 'c',
-  '\u0434': 'd', '\u0414': 'd', '\u0501': 'd', '\u0500': 'd',
-  '\u0435': 'e', '\u0415': 'e', '\u0451': 'e', '\u0401': 'e',
-  '\u0456': 'i', '\u0406': 'i',
-  '\u0458': 'j', '\u0408': 'j',
-  '\u043A': 'k', '\u041A': 'k',
-  '\u043E': 'o', '\u041E': 'o',
-  '\u0440': 'p', '\u0420': 'p',
-  '\u0455': 's', '\u0405': 's',
-  '\u0442': 't', '\u0422': 't',
-  '\u0443': 'y', '\u0423': 'y',
-  '\u0445': 'x', '\u0425': 'x',
+  // Cyrillic (strict visual lookalikes to Latin characters)
+  '\u0430': 'a', // Cyrillic Small Letter A
+  '\u0441': 'c', // Cyrillic Small Letter Es
+  '\u0435': 'e', // Cyrillic Small Letter Ie
+  '\u0451': 'e', // Cyrillic Small Letter Io
+  '\u0456': 'i', // Cyrillic Small Letter Byelorussian-Ukrainian I
+  '\u0458': 'j', // Cyrillic Small Letter Je
+  '\u043A': 'k', // Cyrillic Small Letter Ka
+  '\u043E': 'o', // Cyrillic Small Letter O
+  '\u0440': 'p', // Cyrillic Small Letter Er
+  '\u0455': 's', // Cyrillic Small Letter Dze
+  '\u0443': 'y', // Cyrillic Small Letter U
+  '\u0445': 'x', // Cyrillic Small Letter Ha
 
-  // Greek
-  '\u03B1': 'a', '\u0391': 'a',
-  '\u03B2': 'b', '\u0392': 'b',
-  '\u03B5': 'e', '\u0395': 'e',
-  '\u03B7': 'h', '\u0397': 'h',
-  '\u03B9': 'i', '\u0399': 'i',
-  '\u03BA': 'k', '\u039A': 'k',
-  '\u03BD': 'v', '\u039D': 'v',
-  '\u03BF': 'o', '\u039F': 'o',
-  '\u03C1': 'p', '\u03A1': 'p',
-  '\u03C4': 't', '\u03A4': 't',
-  '\u03C5': 'u', '\u03A5': 'u',
-  '\u03C7': 'x', '\u03A7': 'x'
+  // Greek (strict visual lookalikes to Latin characters)
+  '\u03B1': 'a', // Greek Small Letter Alpha
+  '\u03B5': 'e', // Greek Small Letter Epsilon
+  '\u03B9': 'i', // Greek Small Letter Iota
+  '\u03BA': 'k', // Greek Small Letter Kappa
+  '\u03BF': 'o', // Greek Small Letter Omicron
+  '\u03C1': 'p', // Greek Small Letter Rho
+  '\u03C5': 'u', // Greek Small Letter Upsilon
+  '\u03C7': 'x'  // Greek Small Letter Chi
 });
 
-const CONFUSABLES_REGEX = new RegExp(
-  `[${Object.keys(CONFUSABLES_MAP).join('')}]`,
-  'g'
-);
+// Static regex matching all confusable keys defined above
+const CONFUSABLES_REGEX = /[\u0430\u0441\u0435\u0451\u0456\u0458\u043A\u043E\u0440\u0455\u0443\u0445\u03B1\u03B5\u03B9\u03BA\u03BF\u03C1\u03C5\u03C7]/gu;
+
+const LATIN_CHAR = /\p{Script=Latin}/u;
+const CYRILLIC_CHAR = /\p{Script=Cyrillic}/u;
+const GREEK_CHAR = /\p{Script=Greek}/u;
+
+const normalizeMixedScriptTokens = (text) => text.replace(/\p{L}+/gu, (token) => {
+  let hasLatin = false;
+  let hasCyrillic = false;
+  let hasGreek = false;
+
+  for (const char of token) {
+    if (!hasLatin && LATIN_CHAR.test(char)) hasLatin = true;
+    if (!hasCyrillic && CYRILLIC_CHAR.test(char)) hasCyrillic = true;
+    if (!hasGreek && GREEK_CHAR.test(char)) hasGreek = true;
+  }
+
+  const scriptCount = (hasLatin ? 1 : 0) + (hasCyrillic ? 1 : 0) + (hasGreek ? 1 : 0);
+
+  // Apply confusable replacement only when a letter token combines at least two script groups
+  if (scriptCount >= 2) {
+    return token.replace(
+      CONFUSABLES_REGEX,
+      (char) => CONFUSABLES_MAP[char] || char
+    );
+  }
+
+  return token;
+});
 
 const DENIALS = [
   {
@@ -79,10 +100,7 @@ const normalizeForInspection = (message) => {
     .replace(BIDI_CONTROLS, '')
     .toLowerCase();
 
-  return stripped.replace(
-    CONFUSABLES_REGEX,
-    (char) => CONFUSABLES_MAP[char] || char
-  );
+  return normalizeMixedScriptTokens(stripped);
 };
 
 const evaluate = (message) => {
