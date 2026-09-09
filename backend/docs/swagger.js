@@ -1,7 +1,10 @@
+const path = require('path');
 const swaggerJsdoc = require('swagger-jsdoc');
 const { getRuntimeConfig } = require('../config/runtime.config');
 
 const runtimeConfig = getRuntimeConfig();
+
+const toPosixGlob = (pattern) => pattern.replace(/\\/g, '/');
 
 const options = {
   definition: {
@@ -9,8 +12,10 @@ const options = {
     info: {
       title: 'HARZAAR Commerce API',
       version: '1.0.0',
-      description: 'Authentication, catalogue, commerce, and administration API for the configurable HARZAAR marketplace.',
+      description: 'Authentication, catalog, commerce, and administration API for the HARZAAR single-merchant multi-category commerce platform with Pakistan home-market baseline and staged international readiness architecture.',
+      'x-documentation-status': 'partial'
     },
+    'x-documentation-status': 'partial',
     servers: [
       {
         url: `${runtimeConfig.origins.backend}/api/v1`,
@@ -87,8 +92,9 @@ const options = {
     ]
   },
   apis: [
-    './backend/routes/*.js',
-    './backend/controllers/*.js'
+    toPosixGlob(path.join(__dirname, '../routes/*.js')),
+    toPosixGlob(path.join(__dirname, '../controllers/*.js')),
+    toPosixGlob(path.join(__dirname, '../modules/**/*.routes.js'))
   ]
 };
 
