@@ -14,10 +14,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   assistant-integrity-and-tests:
     name: Assistant Integrity and Backend Test Matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository
@@ -26,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '24.20.0'
           cache: 'npm'
           cache-dependency-path: 'backend/package-lock.json'
 
@@ -38,16 +42,9 @@ jobs:
         working-directory: backend
         run: npm run lint
 
-      - name: Verify Knowledge Index Drift & Determinism Gate
-        working-directory: backend
-        run: npm run assistant:knowledge:check
-
-      - name: Run Assistant Unit and Integration Tests
-        working-directory: backend
-        run: npm run test:assistant
-
-      - name: Run Complete Backend Test Suite
+      - name: Run CI Test Matrix (Knowledge Check + Full Test Suite)
         working-directory: backend
         env:
+          NODE_ENV: test
           MONGODB_URI: ''
         run: npm run test:ci

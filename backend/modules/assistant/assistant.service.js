@@ -202,11 +202,12 @@ class AssistantService {
           this.config.timeoutMs
         );
         outcome = 'tool_answer';
+        const toolCard = createToolEvidenceCard(selectedTool.name);
         return {
           mode: 'retrieval',
           label: 'Help Search',
           answer: summarizeToolData(selectedTool.name, data),
-          sources: [createToolEvidenceCard(selectedTool.name)],
+          sources: toolCard ? [toolCard] : [],
           tools: usedTools,
           criticalNotice: CRITICAL_NOTICE
         };

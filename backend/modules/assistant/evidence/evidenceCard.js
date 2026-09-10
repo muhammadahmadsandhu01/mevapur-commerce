@@ -1,5 +1,3 @@
-const tools = require('../tools/assistantReadTools');
-
 const MAX_TITLE_LENGTH = 100;
 const MAX_REFERENCE_LENGTH = 120;
 const MAX_SNIPPET_LENGTH = 180;
@@ -12,39 +10,163 @@ const SECRET_PATTERNS = [
   /secret\s*[:=]\s*['"]?[^\s'"]+['"]?/gi
 ];
 
-const path = require('path');
+const ALLOWED_TOOL_CARDS = Object.freeze({
+  searchPublicProducts: Object.freeze({
+    id: 'tool:searchPublicProducts',
+    title: 'Product Catalog Search',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['anonymous', 'customer', 'admin'])
+  }),
+  lookupProductBySlug: Object.freeze({
+    id: 'tool:lookupProductBySlug',
+    title: 'Product Catalog Details',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['anonymous', 'customer', 'admin'])
+  }),
+  getCurrentCustomerOrders: Object.freeze({
+    id: 'tool:getCurrentCustomerOrders',
+    title: 'Customer Order History',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['customer', 'admin'])
+  }),
+  getCurrentCustomerOrderStatus: Object.freeze({
+    id: 'tool:getCurrentCustomerOrderStatus',
+    title: 'Customer Order Status',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['customer', 'admin'])
+  }),
+  getCurrentCustomerPaymentStatus: Object.freeze({
+    id: 'tool:getCurrentCustomerPaymentStatus',
+    title: 'Customer Payment Status',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['customer', 'admin'])
+  }),
+  getCurrentCustomerRefundStatus: Object.freeze({
+    id: 'tool:getCurrentCustomerRefundStatus',
+    title: 'Customer Refund Status',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['customer', 'admin'])
+  }),
+  getInventorySummary: Object.freeze({
+    id: 'tool:getInventorySummary',
+    title: 'Admin Inventory Summary',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
+  getLowStockSummary: Object.freeze({
+    id: 'tool:getLowStockSummary',
+    title: 'Admin Low Stock Alert',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
+  getOrderStatusSummary: Object.freeze({
+    id: 'tool:getOrderStatusSummary',
+    title: 'Admin Order Summary',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
+  getPaymentStatusSummary: Object.freeze({
+    id: 'tool:getPaymentStatusSummary',
+    title: 'Admin Payment Summary',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
+  getRefundSummary: Object.freeze({
+    id: 'tool:getRefundSummary',
+    title: 'Admin Refund Summary',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
+  getProviderAvailabilitySummary: Object.freeze({
+    id: 'tool:getProviderAvailabilitySummary',
+    title: 'Admin Provider Status',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  })
+});
 
-const sanitizeReference = (rawRef) => {
+const validateKnowledgeReference = (rawRef) => {
   if (!rawRef || typeof rawRef !== 'string') {
-    return 'Approved application knowledge source';
+    return null;
   }
 
-  let sanitized = rawRef
-    .replace(/\\/g, '/')
-    .replace(/^[a-zA-Z]:[/\\]+/g, '')
-    .trim();
-
-  // Redact potential secret markers
-  SECRET_PATTERNS.forEach((pattern) => {
-    sanitized = sanitized.replace(pattern, '[REDACTED]');
-  });
-
-  // Normalize path traversals
-  sanitized = path.posix.normalize(sanitized)
-    .replace(/^(\.\.\/)+/, '')
-    .replace(/^\/+/, '');
-
-  // If path was prefixed with external directories but contains docs/, anchor to docs/...
-  const docsMatch = sanitized.match(/(?:^|\/)(docs\/[^\s]+)/i);
-  if (docsMatch && !sanitized.startsWith('docs/')) {
-    sanitized = docsMatch[1];
+  const trimmed = rawRef.trim();
+  if (!trimmed || trimmed.length > MAX_REFERENCE_LENGTH) {
+    return null;
   }
 
-  if (sanitized.length > MAX_REFERENCE_LENGTH) {
-    sanitized = sanitized.slice(0, MAX_REFERENCE_LENGTH);
+  // Reject Windows drive paths (C:\ or C:/) and backslashes
+  if (/^[a-zA-Z]:/i.test(trimmed) || trimmed.includes('\\')) {
+    return null;
   }
 
-  return sanitized || 'Approved application knowledge source';
+  // Reject absolute POSIX root paths
+  if (trimmed.startsWith('/')) {
+    return null;
+  }
+
+  // Reject directory traversals
+  if (trimmed.includes('..')) {
+    return null;
+  }
+
+  // Reject URL / URI schemes (runtime://, file://, javascript:, data:, http://, https://, etc.)
+  if (/^[a-zA-Z0-9+.-]+:/i.test(trimmed) || trimmed.includes('://')) {
+    return null;
+  }
+
+  // Reject control characters or newlines
+  if (/[\x00-\x1F\x7F]/.test(trimmed)) {
+    return null;
+  }
+
+  // Reject unsafe characters (quotes, angle brackets, shell/code symbols)
+  if (/[<>"'`$#*?|{}[\]]/.test(trimmed)) {
+    return null;
+  }
+
+  // Must match safe relative posix path or plain text identifier structure (alphanumeric, spaces, dots, hyphens, underscores, slashes)
+  if (!/^[a-zA-Z0-9_.\- /]+$/.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
 };
 
 const sanitizeTitle = (rawTitle) => {
@@ -69,6 +191,7 @@ const buildSafeSnippet = (rawContent, maxLength = MAX_SNIPPET_LENGTH) => {
     cleaned = cleaned.replace(pattern, '[REDACTED]');
   });
 
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, ' ');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
 
   if (cleaned.length <= maxLength) {
@@ -84,28 +207,19 @@ const buildSafeSnippet = (rawContent, maxLength = MAX_SNIPPET_LENGTH) => {
   return `${bounded}...`;
 };
 
-const formatToolTitle = (toolName) => {
-  if (!toolName || typeof toolName !== 'string') {
-    return 'Application Tool';
-  }
-
-  const spaced = toolName
-    .replace(/^get/, '')
-    .replace(/^search/, 'Search ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .trim();
-
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-};
-
 const audiencePermissions = (audience) => {
   if (audience === 'admin') return new Set(['admin']);
   if (audience === 'customer') return new Set(['customer', 'anonymous']);
   return new Set(['anonymous']);
 };
 
-const createKnowledgeEvidenceCard = (record, score) => {
-  if (!record || typeof record !== 'object') {
+const createKnowledgeEvidenceCard = (record) => {
+  if (!record || typeof record !== 'object' || !record.id) {
+    return null;
+  }
+
+  const safeReference = validateKnowledgeReference(record.sourceReference);
+  if (!safeReference) {
     return null;
   }
 
@@ -114,7 +228,9 @@ const createKnowledgeEvidenceCard = (record, score) => {
     kind: 'knowledge',
     title: sanitizeTitle(record.title),
     category: String(record.category || 'general'),
-    reference: sanitizeReference(record.sourceReference),
+    reference: safeReference,
+    referenceType: 'logical',
+    resolvable: false,
     audience: Object.freeze(
       Array.isArray(record.audience)
         ? [...new Set(record.audience)].sort()
@@ -123,27 +239,28 @@ const createKnowledgeEvidenceCard = (record, score) => {
     snippet: buildSafeSnippet(record.content)
   };
 
-  if (typeof score === 'number' && Number.isFinite(score) && score > 0) {
-    card.score = score;
-  }
-
   return Object.freeze(card);
 };
 
 const createToolEvidenceCard = (toolName) => {
-  const definition = tools.TOOL_DEFINITIONS[toolName];
+  if (!toolName || typeof toolName !== 'string') {
+    return null;
+  }
+
+  const allowlisted = ALLOWED_TOOL_CARDS[toolName];
+  if (!allowlisted) {
+    return null;
+  }
+
   const card = {
-    id: `tool:${toolName}`,
+    id: allowlisted.id,
     kind: 'tool',
-    title: formatToolTitle(toolName),
-    category: 'operational',
-    reference: 'Role-scoped read-only application tool',
-    audience: Object.freeze(
-      definition && Array.isArray(definition.audience)
-        ? [...new Set(definition.audience)].sort()
-        : ['admin']
-    ),
-    toolName: String(toolName)
+    title: allowlisted.title,
+    category: allowlisted.category,
+    reference: allowlisted.reference,
+    referenceType: allowlisted.referenceType,
+    resolvable: allowlisted.resolvable,
+    audience: allowlisted.audience
   };
 
   return Object.freeze(card);
@@ -161,18 +278,18 @@ const buildEvidenceCards = (matches, audience) => {
       if (!match || !match.id || !Array.isArray(match.audience)) return false;
       return match.audience.some((entry) => allowed.has(entry));
     })
-    .map((match) => createKnowledgeEvidenceCard(match, match.score))
+    .map((match) => createKnowledgeEvidenceCard(match))
     .filter(Boolean);
 
   return Object.freeze(cards);
 };
 
 module.exports = {
+  ALLOWED_TOOL_CARDS,
   createKnowledgeEvidenceCard,
   createToolEvidenceCard,
   buildEvidenceCards,
-  sanitizeReference,
+  validateKnowledgeReference,
   sanitizeTitle,
-  buildSafeSnippet,
-  formatToolTitle
+  buildSafeSnippet
 };

@@ -663,7 +663,7 @@ describe('P5C assistant API and role-scoped tools', () => {
   });
 
   describe('Assistant Evidence Cards and Source Provenance Integration', () => {
-    test('knowledge response exposes sanitized, complete knowledge evidence cards with no leaked paths', async () => {
+    test('knowledge response exposes sanitized, complete knowledge evidence cards with logical provenance', async () => {
       const response = await request(createTestApp())
         .post('/api/assistant/chat')
         .send({ message: 'What is the brand tagline and marketplace identity?', history: [] })
@@ -677,9 +677,12 @@ describe('P5C assistant API and role-scoped tools', () => {
         title: expect.any(String),
         category: expect.any(String),
         reference: expect.any(String),
+        referenceType: 'logical',
+        resolvable: false,
         audience: expect.any(Array),
         snippet: expect.any(String)
       });
+      expect(firstCard).not.toHaveProperty('score');
       expect(firstCard.audience).toContain('anonymous');
 
       const serialized = JSON.stringify(response.body.data.sources);
@@ -689,7 +692,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       expect(serialized).not.toContain('stack');
     });
 
-    test('tool response exposes operational tool evidence card with clear tool provenance', async () => {
+    test('tool response exposes allowlisted operational tool evidence card without internal function names', async () => {
       const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
 
       const response = await request(createTestApp())
@@ -703,12 +706,14 @@ describe('P5C assistant API and role-scoped tools', () => {
       expect(toolCard).toEqual({
         id: 'tool:getInventorySummary',
         kind: 'tool',
-        title: 'Inventory Summary',
+        title: 'Admin Inventory Summary',
         category: 'operational',
-        reference: 'Role-scoped read-only application tool',
-        audience: ['admin'],
-        toolName: 'getInventorySummary'
+        reference: 'Live role-scoped commerce data',
+        referenceType: 'runtime',
+        resolvable: false,
+        audience: ['admin']
       });
+      expect(toolCard).not.toHaveProperty('toolName');
       expect(response.body.data.tools).toEqual(['getInventorySummary']);
     });
 

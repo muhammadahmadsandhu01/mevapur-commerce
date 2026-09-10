@@ -9,7 +9,7 @@
     "test": "jest --watchAll --verbose",
     "test:ci": "npm run assistant:knowledge:check && jest --coverage --forceExit --runInBand",
     "test:assistant": "npm run assistant:knowledge:check && jest tests/unit/assistant tests/integration/assistant.integration.test.js --runInBand --watchAll=false",
-    "ci:assistant": "npm run assistant:knowledge:check && jest tests/unit/assistant tests/integration/assistant.integration.test.js --runInBand --watchAll=false",
+    "ci:assistant": "npm run test:assistant",
     "lint": "eslint . --max-warnings=0",
     "seed": "node database/seeders/index.js",
     "bootstrap:initial-admin": "node scripts/create-admin.js",
