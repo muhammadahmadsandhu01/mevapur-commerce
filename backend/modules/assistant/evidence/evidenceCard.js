@@ -20,7 +20,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     resolvable: false,
     audience: Object.freeze(['anonymous', 'customer', 'admin'])
   }),
-  lookupProductBySlug: Object.freeze({
+  getPublicProductDetails: Object.freeze({
     id: 'tool:product-catalog-details',
     title: 'Product Catalog Details',
     category: 'operational',
@@ -65,6 +65,15 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     resolvable: false,
     audience: Object.freeze(['customer', 'admin'])
   }),
+  getProductSummary: Object.freeze({
+    id: 'tool:admin-product-summary',
+    title: 'Admin Product Summary',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
   getInventorySummary: Object.freeze({
     id: 'tool:inventory-summary',
     title: 'Admin Inventory Summary',
@@ -95,6 +104,15 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
   getPaymentStatusSummary: Object.freeze({
     id: 'tool:payment-summary',
     title: 'Admin Payment Summary',
+    category: 'operational',
+    reference: 'Live role-scoped commerce data',
+    referenceType: 'runtime',
+    resolvable: false,
+    audience: Object.freeze(['admin'])
+  }),
+  getManualPaymentQueueSummary: Object.freeze({
+    id: 'tool:admin-manual-payment-queue',
+    title: 'Admin Manual Payment Queue',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
     referenceType: 'runtime',

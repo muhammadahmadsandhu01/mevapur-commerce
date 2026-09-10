@@ -7,6 +7,7 @@ const {
   sanitizeTitle,
   buildSafeSnippet
 } = require('../../../modules/assistant/evidence/evidenceCard');
+const { TOOL_DEFINITIONS } = require('../../../modules/assistant/tools/assistantReadTools');
 const AssistantService = require('../../../modules/assistant/assistant.service');
 const { createAssistantConfig } = require('../../../modules/assistant/config/assistant.config');
 const { createKnowledgeLoader } = require('../../../modules/assistant/knowledge/knowledgeIndexLoader');
@@ -248,9 +249,9 @@ describe('Assistant Evidence Card and Provenance System', () => {
       expect(knowledgeCard.id).not.toMatch(/^tool:/);
     });
 
-    test('all 12 assistant read tools have distinct, unique, decoupled public IDs matching format', () => {
+    test('all 14 assistant read tools have distinct, unique, decoupled public IDs matching format', () => {
       const toolKeys = Object.keys(ALLOWED_TOOL_CARDS);
-      expect(toolKeys.length).toBe(12);
+      expect(toolKeys.length).toBe(14);
 
       const seenIds = new Set();
       const idPattern = /^tool:[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -279,7 +280,67 @@ describe('Assistant Evidence Card and Provenance System', () => {
         seenIds.add(card.id);
       });
 
-      expect(seenIds.size).toBe(12);
+      expect(seenIds.size).toBe(14);
+    });
+
+    test('authoritative registry-to-mapping parity between TOOL_DEFINITIONS and ALLOWED_TOOL_CARDS', () => {
+      const registryKeys = Object.keys(TOOL_DEFINITIONS).sort();
+      const mappingKeys = Object.keys(ALLOWED_TOOL_CARDS).sort();
+
+      expect(registryKeys).toHaveLength(14);
+      expect(mappingKeys).toHaveLength(14);
+
+      const missingFromMapping = registryKeys.filter((k) => !mappingKeys.includes(k));
+      const staleInMapping = mappingKeys.filter((k) => !registryKeys.includes(k));
+
+      expect(missingFromMapping).toEqual([]);
+      expect(staleInMapping).toEqual([]);
+
+      const publicIds = mappingKeys.map((k) => ALLOWED_TOOL_CARDS[k].id);
+      const duplicateIds = publicIds.filter((id, index) => publicIds.indexOf(id) !== index);
+      expect(duplicateIds).toEqual([]);
+    });
+
+    test('explicit public Evidence Card IDs for specific and updated tools', () => {
+      expect(createToolEvidenceCard('getPublicProductDetails')).toMatchObject({
+        id: 'tool:product-catalog-details',
+        kind: 'tool',
+        title: 'Product Catalog Details',
+        referenceType: 'runtime',
+        resolvable: false,
+        audience: ['anonymous', 'customer', 'admin']
+      });
+
+      expect(createToolEvidenceCard('getProductSummary')).toMatchObject({
+        id: 'tool:admin-product-summary',
+        kind: 'tool',
+        title: 'Admin Product Summary',
+        referenceType: 'runtime',
+        resolvable: false,
+        audience: ['admin']
+      });
+
+      expect(createToolEvidenceCard('getManualPaymentQueueSummary')).toMatchObject({
+        id: 'tool:admin-manual-payment-queue',
+        kind: 'tool',
+        title: 'Admin Manual Payment Queue',
+        referenceType: 'runtime',
+        resolvable: false,
+        audience: ['admin']
+      });
+
+      // Existing 11 tools retained
+      expect(createToolEvidenceCard('searchPublicProducts')?.id).toBe('tool:product-catalog-search');
+      expect(createToolEvidenceCard('getCurrentCustomerOrders')?.id).toBe('tool:customer-order-history');
+      expect(createToolEvidenceCard('getCurrentCustomerOrderStatus')?.id).toBe('tool:customer-order-status');
+      expect(createToolEvidenceCard('getCurrentCustomerPaymentStatus')?.id).toBe('tool:customer-payment-status');
+      expect(createToolEvidenceCard('getCurrentCustomerRefundStatus')?.id).toBe('tool:customer-refund-status');
+      expect(createToolEvidenceCard('getInventorySummary')?.id).toBe('tool:inventory-summary');
+      expect(createToolEvidenceCard('getLowStockSummary')?.id).toBe('tool:low-stock-alert');
+      expect(createToolEvidenceCard('getOrderStatusSummary')?.id).toBe('tool:order-summary');
+      expect(createToolEvidenceCard('getPaymentStatusSummary')?.id).toBe('tool:payment-summary');
+      expect(createToolEvidenceCard('getRefundSummary')?.id).toBe('tool:refund-summary');
+      expect(createToolEvidenceCard('getProviderAvailabilitySummary')?.id).toBe('tool:provider-status');
     });
   });
 
