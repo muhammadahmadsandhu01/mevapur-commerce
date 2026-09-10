@@ -325,8 +325,8 @@ describe('P5C assistant knowledge index integrity and drift gate', () => {
       const recordsHash = getFileSha256(DEFAULT_SOURCE_PATH);
       const indexHash = getFileSha256(DEFAULT_OUTPUT_PATH);
 
-      expect(recordsHash).toBe('797553c39cb9db4cf702ce6be4b210b9e7a46a1b27b88179110f0d162dcd312f');
-      expect(indexHash).toBe('5fd001bfc46175a90231698a632360b6ffe09c7512bf0222f4b2766a69b5c73c');
+      expect(recordsHash).toBe('273ed21749046481bc9722a144f106e8d6d84478c5da012b47fe752343796896');
+      expect(indexHash).toBe('d7f87e97dea907482e73cc0a802ebf9ac6b41390e7fed6d0dc6e61f4af24ae7f');
     });
   });
 });

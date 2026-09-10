@@ -104,14 +104,41 @@ describe('P5C assistant API and role-scoped tools', () => {
   test('answers anonymous public help and supplies sources', async () => {
     const response = await request(createTestApp())
       .post('/api/assistant/chat')
-      .send({ message: 'Explain returns and refunds', history: [] })
+      .send({ message: 'Explain returns and refunds' })
       .expect(200);
 
     expect(response.body.data.sources.length).toBeGreaterThan(0);
     expect(response.body.data.tools).toEqual([]);
   });
 
-  test('rejects oversized messages and bounded-history violations', async () => {
+  test('rejects requests containing history or unsupported fields', async () => {
+    const resHistory = await request(createTestApp())
+      .post('/api/assistant/chat')
+      .send({ message: 'shipping', history: [] })
+      .expect(400);
+
+    expect(resHistory.body).toMatchObject({
+      success: false,
+      error: {
+        code: 'ASSISTANT_REQUEST_INVALID',
+        message: 'Assistant request contains unsupported fields'
+      }
+    });
+
+    const resExtra = await request(createTestApp())
+      .post('/api/assistant/chat')
+      .send({ message: 'shipping', context: 'unexpected' })
+      .expect(400);
+
+    expect(resExtra.body).toMatchObject({
+      success: false,
+      error: {
+        code: 'ASSISTANT_REQUEST_INVALID'
+      }
+    });
+  });
+
+  test('rejects oversized or empty messages', async () => {
     await request(createTestApp())
       .post('/api/assistant/chat')
       .send({ message: 'x'.repeat(201) })
@@ -119,13 +146,7 @@ describe('P5C assistant API and role-scoped tools', () => {
 
     await request(createTestApp())
       .post('/api/assistant/chat')
-      .send({
-        message: 'shipping',
-        history: Array.from({ length: 9 }, () => ({
-          role: 'user',
-          content: 'bounded'
-        }))
-      })
+      .send({ message: '   ' })
       .expect(400);
   });
 
@@ -133,7 +154,7 @@ describe('P5C assistant API and role-scoped tools', () => {
     test('1. denies anonymous request with 401 AUTH_TOKEN_REQUIRED', async () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(401);
 
       expect(response.body).toMatchObject({
@@ -149,7 +170,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', 'Bearer invalid-malformed-token-string')
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(401);
 
       expect(response.body).toMatchObject({
@@ -170,7 +191,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', `Bearer ${expiredToken}`)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(401);
 
       expect(response.body).toMatchObject({
@@ -191,7 +212,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(401);
 
       expect(response.body).toMatchObject({
@@ -211,7 +232,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(403);
 
       expect(response.body).toMatchObject({
@@ -231,7 +252,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(403);
 
       expect(response.body).toMatchObject({
@@ -251,7 +272,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(403);
 
       expect(response.body).toMatchObject({
@@ -271,7 +292,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(403);
 
       expect(response.body).toMatchObject({
@@ -291,7 +312,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(200);
 
       expect(response.body).toMatchObject({
@@ -318,7 +339,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Inventory overview', history: [] })
+        .send({ message: 'Inventory overview' })
         .expect(200);
 
       expect(response.body).toMatchObject({
@@ -467,7 +488,7 @@ describe('P5C assistant API and role-scoped tools', () => {
 
       const chatRes = await request(degradedApp)
         .post('/api/assistant/chat')
-        .send({ message: 'Explain returns and refunds', history: [] })
+        .send({ message: 'Explain returns and refunds' })
         .expect(503);
 
       expect(chatRes.body).toEqual({
@@ -493,7 +514,7 @@ describe('P5C assistant API and role-scoped tools', () => {
 
       const chatRes = await request(degradedApp)
         .post('/api/assistant/chat')
-        .send({ message: 'find organic almonds', history: [] })
+        .send({ message: 'find organic almonds' })
         .expect(503);
 
       expect(chatRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
@@ -512,7 +533,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const chatRes = await request(degradedApp)
         .post('/api/assistant/chat')
         .set('Authorization', authorization)
-        .send({ message: 'show my orders', history: [] })
+        .send({ message: 'show my orders' })
         .expect(503);
 
       expect(chatRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
@@ -532,7 +553,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const payRes = await request(degradedApp)
         .post('/api/assistant/chat')
         .set('Authorization', authorization)
-        .send({ message: 'check my payments', history: [] })
+        .send({ message: 'check my payments' })
         .expect(503);
       expect(payRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
       expect(spyPayments).not.toHaveBeenCalled();
@@ -540,7 +561,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const refRes = await request(degradedApp)
         .post('/api/assistant/chat')
         .set('Authorization', authorization)
-        .send({ message: 'check my refunds', history: [] })
+        .send({ message: 'check my refunds' })
         .expect(503);
       expect(refRes.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
       expect(spyRefunds).not.toHaveBeenCalled();
@@ -558,7 +579,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(degradedApp)
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'inventory overview', history: [] })
+        .send({ message: 'inventory overview' })
         .expect(503);
 
       expect(response.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
@@ -577,7 +598,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(degradedApp)
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'show low stock products', history: [] })
+        .send({ message: 'show low stock products' })
         .expect(503);
 
       expect(response.body.error.code).toBe('ASSISTANT_KNOWLEDGE_UNAVAILABLE');
@@ -596,7 +617,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(degradedApp)
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'Explain deployment architecture', history: [] })
+        .send({ message: 'Explain deployment architecture' })
         .expect(503);
 
       expect(response.body).toEqual({
@@ -635,7 +656,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       // Unauthenticated request receives 401 AUTH_TOKEN_REQUIRED
       const anonRes = await request(degradedApp)
         .post('/api/assistant/admin/chat')
-        .send({ message: 'inventory overview', history: [] })
+        .send({ message: 'inventory overview' })
         .expect(401);
 
       expect(anonRes.body).toMatchObject({
@@ -650,7 +671,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const forbRes = await request(degradedApp)
         .post('/api/assistant/admin/chat')
         .set('Authorization', customerAuth)
-        .send({ message: 'inventory overview', history: [] })
+        .send({ message: 'inventory overview' })
         .expect(403);
 
       expect(forbRes.body).toMatchObject({
@@ -666,7 +687,7 @@ describe('P5C assistant API and role-scoped tools', () => {
     test('knowledge response exposes sanitized, complete knowledge evidence cards with logical provenance', async () => {
       const response = await request(createTestApp())
         .post('/api/assistant/chat')
-        .send({ message: 'What is the brand tagline and marketplace identity?', history: [] })
+        .send({ message: 'What is the brand tagline and marketplace identity?' })
         .expect(200);
 
       expect(response.body.data.sources.length).toBeGreaterThan(0);
@@ -698,7 +719,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       const response = await request(createTestApp())
         .post('/api/assistant/admin/chat')
         .set('Authorization', authorization)
-        .send({ message: 'inventory overview', history: [] })
+        .send({ message: 'inventory overview' })
         .expect(200);
 
       expect(response.body.data.sources).toHaveLength(1);
@@ -720,7 +741,7 @@ describe('P5C assistant API and role-scoped tools', () => {
     test('insufficient information returns zero evidence cards (no hallucination)', async () => {
       const response = await request(createTestApp())
         .post('/api/assistant/chat')
-        .send({ message: 'Explain astronomical astrophysics cosmology', history: [] })
+        .send({ message: 'Explain astronomical astrophysics cosmology' })
         .expect(200);
 
       expect(response.body.data.answer).toMatch(/Insufficient information/i);
@@ -731,7 +752,7 @@ describe('P5C assistant API and role-scoped tools', () => {
     test('role-scoped boundaries: anonymous request never receives admin evidence cards', async () => {
       const response = await request(createTestApp())
         .post('/api/assistant/chat')
-        .send({ message: 'deployment configuration and server operations', history: [] })
+        .send({ message: 'deployment configuration and server operations' })
         .expect(200);
 
       const sources = response.body.data.sources;
@@ -739,6 +760,181 @@ describe('P5C assistant API and role-scoped tools', () => {
         expect(card.audience).toContain('anonymous');
         expect(card.audience).not.toEqual(['admin']);
       }
+    });
+  });
+
+  describe('Timeout and outage recovery', () => {
+    test('tool timeout returns 503 ASSISTANT_TIMEOUT without query or stack leakage', async () => {
+      const slowConfig = createAssistantConfig({
+        AI_ASSISTANT_ENABLED: 'true',
+        AI_ASSISTANT_MODE: 'retrieval',
+        AI_REQUEST_TIMEOUT_MS: '250'
+      });
+      const AssistantService = require('../../modules/assistant/assistant.service');
+      const slowService = new AssistantService(slowConfig);
+
+      const spyAdminTool = jest.spyOn(tools, 'getInventorySummary').mockImplementation(
+        () => new Promise((resolve) => setTimeout(resolve, 600))
+      );
+
+      const app = createTestApp({ service: slowService });
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
+
+      const response = await request(app)
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'inventory' })
+        .expect(503);
+
+      expect(response.body).toEqual({
+        success: false,
+        error: {
+          code: 'ASSISTANT_TIMEOUT',
+          message: 'Assistant request timed out'
+        },
+        meta: {
+          requestId: 'assistant-integration-test'
+        }
+      });
+      expect(JSON.stringify(response.body)).not.toContain('stack');
+      spyAdminTool.mockRestore();
+    });
+
+    test('unexpected tool exception returns 503 ASSISTANT_TOOL_UNAVAILABLE without leaking internal topology', async () => {
+      const spyOrders = jest.spyOn(tools, 'getCurrentCustomerOrders').mockRejectedValue(
+        new Error('MongoNetworkTimeoutError: connection timed out to 10.0.0.1:27017')
+      );
+
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'my orders' })
+        .expect(503);
+
+      expect(response.body).toEqual({
+        success: false,
+        error: {
+          code: 'ASSISTANT_TOOL_UNAVAILABLE',
+          message: 'Assistant read-only tool is temporarily unavailable. Please try again later.'
+        },
+        meta: {
+          requestId: 'assistant-integration-test'
+        }
+      });
+      expect(JSON.stringify(response.body)).not.toContain('10.0.0.1');
+      expect(JSON.stringify(response.body)).not.toContain('MongoNetworkTimeoutError');
+
+      spyOrders.mockRestore();
+    });
+
+    test('recovers safely on subsequent healthy request after tool failure', async () => {
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
+      const app = createTestApp();
+
+      const healthyRes = await request(app)
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'inventory' })
+        .expect(200);
+
+      expect(healthyRes.body.success).toBe(true);
+      expect(healthyRes.body.data.tools).toEqual(['getInventorySummary']);
+    });
+  });
+
+  describe('Roman Urdu and bilingual support', () => {
+    test('customer Roman Urdu order status check binds to user', async () => {
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+      const spyOrders = jest.spyOn(tools, 'getCurrentCustomerOrders').mockResolvedValue([]);
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'mera order kahan hai' })
+        .expect(200);
+
+      expect(spyOrders).toHaveBeenCalled();
+      expect(response.body.data.tools).toEqual(['getCurrentCustomerOrders']);
+      spyOrders.mockRestore();
+    });
+
+    test('customer Roman Urdu payment check binds to user', async () => {
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+      const spyPayments = jest.spyOn(tools, 'getCurrentCustomerPaymentStatus').mockResolvedValue([]);
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'meri payment hui?' })
+        .expect(200);
+
+      expect(spyPayments).toHaveBeenCalled();
+      expect(response.body.data.tools).toEqual(['getCurrentCustomerPaymentStatus']);
+      spyPayments.mockRestore();
+    });
+
+    test('customer Roman Urdu refund check binds to user', async () => {
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.CUSTOMER);
+      const spyRefunds = jest.spyOn(tools, 'getCurrentCustomerRefundStatus').mockResolvedValue([]);
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'refund kahan hai' })
+        .expect(200);
+
+      expect(spyRefunds).toHaveBeenCalled();
+      expect(response.body.data.tools).toEqual(['getCurrentCustomerRefundStatus']);
+      spyRefunds.mockRestore();
+    });
+
+    test('public Roman Urdu product search executes public product tool', async () => {
+      const spySearch = jest.spyOn(tools, 'searchPublicProducts').mockResolvedValue([]);
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .send({ message: 'organic almonds product dhoondo' })
+        .expect(200);
+
+      expect(spySearch).toHaveBeenCalledWith({ query: 'organic almonds' });
+      expect(response.body.data.tools).toEqual(['searchPublicProducts']);
+      spySearch.mockRestore();
+    });
+
+    test('admin Roman Urdu stock check routes to inventory tool', async () => {
+      const { authorization } = await createAuthenticatedUser(CANONICAL_ROLES.ADMIN);
+      const spyInventory = jest.spyOn(tools, 'getInventorySummary').mockResolvedValue({ productCount: 5, totalUnits: 100, lowStockCount: 0 });
+
+      const response = await request(createTestApp())
+        .post('/api/assistant/admin/chat')
+        .set('Authorization', authorization)
+        .send({ message: 'stock kitna hai' })
+        .expect(200);
+
+      expect(spyInventory).toHaveBeenCalled();
+      expect(response.body.data.tools).toEqual(['getInventorySummary']);
+      spyInventory.mockRestore();
+    });
+
+    test('anonymous help query retrieves general knowledge and never reaches customer/admin tools', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .send({ message: 'storefront navigation and account help' })
+        .expect(200);
+
+      expect(response.body.data.tools).toEqual([]);
+      expect(response.body.data.sources.length).toBeGreaterThan(0);
+    });
+
+    test('ambiguous or unmapped Roman Urdu query falls back safely without executing customer/admin tools', async () => {
+      const response = await request(createTestApp())
+        .post('/api/assistant/chat')
+        .send({ message: 'madad chahiye' })
+        .expect(200);
+
+      expect(response.body.data.tools).toEqual([]);
+      expect(response.body.data.answer).toMatch(/Insufficient information/i);
     });
   });
 });

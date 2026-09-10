@@ -49,7 +49,7 @@ const summarizeToolData = (toolName, data) => {
 
 const productSearchTerms = (message) => {
   const value = message
-    .replace(/\b(find|search|show|browse|buy|products?|catalogue|catalog|for|me|please)\b/gi, ' ')
+    .replace(/\b(find|search|show|browse|buy|products?|catalogue|catalog|details?|for|me|please|dhoondo|dekhao|dikhao|talash|karo|batao|mujhe|chahiye|hai|kahan|mera|meri|mere)\b/gi, ' ')
     .replace(/[^\p{L}\p{N}\s\-']/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -64,25 +64,41 @@ const selectCustomerTool = (message, userId) => {
       run: () => tools.getCurrentCustomerOrderStatus({ userId, orderId: orderNumber })
     };
   }
-  if (userId && /\b(my|mine)\b.{0,20}\borders?\b/i.test(message)) {
+  if (userId && (
+    /\b(my|mine|mera|meri|mere)\b.{0,20}\borders?\b/i.test(message)
+    || /\b(order|orders)\b.{0,20}\b(status|kahan|check)\b/i.test(message)
+    || /\bmera order kahan hai\b/i.test(message)
+    || /\border status check karo\b/i.test(message)
+  )) {
     return {
       name: 'getCurrentCustomerOrders',
       run: () => tools.getCurrentCustomerOrders({ userId })
     };
   }
-  if (userId && /\b(my|mine)\b.{0,20}\bpayments?\b/i.test(message)) {
+  if (userId && (
+    /\b(my|mine|mera|meri|mere)\b.{0,20}\b(payments?|adaigi)\b/i.test(message)
+    || /\bmeri payment (hui|kahan)\b/i.test(message)
+    || /\bpayment hui\b/i.test(message)
+  )) {
     return {
       name: 'getCurrentCustomerPaymentStatus',
       run: () => tools.getCurrentCustomerPaymentStatus({ userId })
     };
   }
-  if (userId && /\b(my|mine)\b.{0,20}\brefunds?\b/i.test(message)) {
+  if (userId && (
+    /\b(my|mine|mera|meri|mere)\b.{0,20}\b(refunds?|wapsi)\b/i.test(message)
+    || /\brefund kahan hai\b/i.test(message)
+    || /\bmera refund\b/i.test(message)
+  )) {
     return {
       name: 'getCurrentCustomerRefundStatus',
       run: () => tools.getCurrentCustomerRefundStatus({ userId })
     };
   }
-  if (/\b(find|search|show|browse|buy)\b.{0,30}\b(products?|catalogue|catalog)\b/i.test(message)) {
+  if (
+    /\b(find|search|show|browse|buy|dhoondo|dekhao|dikhao|talash)\b.{0,30}\b(products?|catalogue|catalog|items?|cheez|cheezain)\b/i.test(message)
+    || /\bproduct (dhoondo|details|search)\b/i.test(message)
+  ) {
     const query = productSearchTerms(message);
     if (query) {
       return {
@@ -96,14 +112,14 @@ const selectCustomerTool = (message, userId) => {
 
 const selectAdminTool = (message) => {
   const definitions = [
-    ['getLowStockSummary', /\blow[- ]?stock\b/i],
-    ['getInventorySummary', /\binventory\b/i],
-    ['getManualPaymentQueueSummary', /\bmanual\b.{0,20}\bpayment/i],
-    ['getOrderStatusSummary', /\b(order|pending orders?)\b/i],
-    ['getPaymentStatusSummary', /\bpayments?\b/i],
-    ['getRefundSummary', /\brefunds?\b/i],
+    ['getLowStockSummary', /\b(low[- ]?stock|kam stock|stock kam)\b/i],
+    ['getInventorySummary', /\b(inventory|stock kitna hai|stock summary|kul stock)\b/i],
+    ['getManualPaymentQueueSummary', /\b(manual\b.{0,20}\bpayment|manual payment queue)\b/i],
+    ['getOrderStatusSummary', /\b(order|pending orders?|tamam orders|orders summary)\b/i],
+    ['getPaymentStatusSummary', /\b(payments?|adaigi|payments summary)\b/i],
+    ['getRefundSummary', /\b(refunds?|wapsi|refunds summary)\b/i],
     ['getProviderAvailabilitySummary', /\b(provider|payment method|edition)\b/i],
-    ['getProductSummary', /\bproducts?\b/i]
+    ['getProductSummary', /\b(products?|products summary)\b/i]
   ];
   const match = definitions.find(([, pattern]) => pattern.test(message));
   if (!match) return null;
@@ -197,20 +213,32 @@ class AssistantService {
 
       if (selectedTool) {
         usedTools.push(selectedTool.name);
-        const data = await withTimeout(
-          Promise.resolve().then(selectedTool.run),
-          this.config.timeoutMs
-        );
-        outcome = 'tool_answer';
-        const toolCard = createToolEvidenceCard(selectedTool.name);
-        return {
-          mode: 'retrieval',
-          label: 'Help Search',
-          answer: summarizeToolData(selectedTool.name, data),
-          sources: toolCard ? [toolCard] : [],
-          tools: usedTools,
-          criticalNotice: CRITICAL_NOTICE
-        };
+        try {
+          const data = await withTimeout(
+            Promise.resolve().then(selectedTool.run),
+            this.config.timeoutMs
+          );
+          outcome = 'tool_answer';
+          const toolCard = createToolEvidenceCard(selectedTool.name);
+          return {
+            mode: 'retrieval',
+            label: 'Help Search',
+            answer: summarizeToolData(selectedTool.name, data),
+            sources: toolCard ? [toolCard] : [],
+            tools: usedTools,
+            criticalNotice: CRITICAL_NOTICE
+          };
+        } catch (error) {
+          outcome = 'tool_error';
+          if (error instanceof AppError) {
+            throw error;
+          }
+          throw new AppError(
+            'Assistant read-only tool is temporarily unavailable. Please try again later.',
+            503,
+            'ASSISTANT_TOOL_UNAVAILABLE'
+          );
+        }
       }
 
       const matches = this.retrievalService.retrieve(

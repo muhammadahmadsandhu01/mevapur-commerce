@@ -99,7 +99,6 @@ export default function HelpAssistant() {
     try {
       const response = await api.post('/assistant/chat', {
         message: normalized,
-        history: [],
       });
       const result = response.data.data as ChatResponse;
       setMessages((current) => [

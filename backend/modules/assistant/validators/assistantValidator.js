@@ -10,7 +10,7 @@ const validateChatRequest = (config) => (req, res, next) => {
     ));
   }
 
-  const allowedKeys = new Set(['message', 'history']);
+  const allowedKeys = new Set(['message']);
   if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
     return next(new AppError(
       'Assistant request contains unsupported fields',
@@ -31,38 +31,8 @@ const validateChatRequest = (config) => (req, res, next) => {
     ));
   }
 
-  const history = body.history === undefined ? [] : body.history;
-  if (!Array.isArray(history) || history.length > config.maxHistoryItems) {
-    return next(new AppError(
-      `Assistant history may contain at most ${config.maxHistoryItems} items`,
-      400,
-      'ASSISTANT_HISTORY_INVALID'
-    ));
-  }
-  for (const item of history) {
-    if (
-      !item
-      || typeof item !== 'object'
-      || !['user', 'assistant'].includes(item.role)
-      || typeof item.content !== 'string'
-      || item.content.length === 0
-      || item.content.length > config.maxInputChars
-    ) {
-      return next(new AppError(
-        'Assistant history item is invalid',
-        400,
-        'ASSISTANT_HISTORY_INVALID'
-      ));
-    }
-  }
-
   req.assistantInput = {
-    message: body.message.trim(),
-    // History is accepted only as bounded request context. P5C never stores it.
-    history: history.map((item) => ({
-      role: item.role,
-      content: item.content
-    }))
+    message: body.message.trim()
   };
   return next();
 };

@@ -1,10 +1,10 @@
 [
   {
     "id": "public-brand-identity",
-    "title": "HARZAAR marketplace identity",
+    "title": "HARZAAR brand identity",
     "audience": ["customer", "anonymous"],
     "category": "brand",
-    "content": "HARZAAR, pronounced Har-Zaar, is the current marketplace identity. Its tagline is CHOOSE BEYOND. HARZAAR is a modern, configurable, multi-category commerce platform. The actual catalogue and stock determine which products are available; the assistant must not claim that every product is available. Payment capabilities and external AI providers are independently configured and are not activated by the HARZAAR identity.",
+    "content": "HARZAAR, pronounced Har-Zaar, is the brand identity. Its tagline is CHOOSE BEYOND. HARZAAR is a configurable, multi-category commerce platform for a single merchant. The actual catalogue and stock determine which products are available; the assistant must not claim that every product is available. Payment capabilities and external AI providers are independently configured and are not activated by the HARZAAR identity.",
     "sourceReference": "docs/HARZAAR_BRAND_GUIDELINES.md"
   },
   {

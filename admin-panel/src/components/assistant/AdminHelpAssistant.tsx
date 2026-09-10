@@ -76,7 +76,6 @@ export default function AdminHelpAssistant() {
     try {
       const response = await api.post('/assistant/admin/chat', {
         message: normalized,
-        history: [],
       });
       const result = response.data.data as ChatResponse;
       setMessages((current) => [

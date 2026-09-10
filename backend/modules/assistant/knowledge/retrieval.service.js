@@ -20,7 +20,7 @@ const tokenize = (value) => (
   String(value)
     .toLowerCase()
     .normalize('NFKC')
-    .match(/[a-z0-9]+/g) || []
+    .match(/[\p{L}\p{N}]+/gu) || []
 ).filter((token) => token.length > 1 && !STOP_WORDS.has(token));
 
 const allowedAudiences = (audience) => {
