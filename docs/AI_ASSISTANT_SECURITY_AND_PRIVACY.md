@@ -48,3 +48,17 @@ Prior to any future activation of conversational memory or generative provider i
 2. **Right to Erasure (GDPR/CCPA)**: Automated endpoints must be provided for users to view and permanently purge conversation records.
 3. **Data Retention Limits**: Automated TTL-based deletion policies must enforce strict maximum data retention windows.
 4. **Independent Vendor Review**: Any third-party model provider must undergo formal vendor privacy assessment and data processing agreement (DPA) execution.
+
+## 8. Rate Limiting Architecture & Clustering Boundaries (DEF-02-C / Batch 2H)
+
+- **In-Memory Default Mode (`store: memory`)**:
+  - The default configuration uses an in-memory token/window store for local development and single-instance deployments.
+  - **Clustering Boundary**: In-memory mode is strictly process-local (`clusterWide: false`) and does not synchronize rate limits across horizontal auto-scaling instances.
+- **Distributed Redis Mode (`store: redis`)**:
+  - Multi-instance deployments can configure distributed rate limiting via `AI_RATE_LIMIT_STORE=redis` and `AI_RATE_LIMIT_REDIS_URL` (or `REDIS_URL`).
+  - Implements atomic sliding/fixed window rate limiting with TTL-based expiration (`clusterWide: true`).
+- **Fail-Closed & Safe Degradation**:
+  - If distributed mode is explicitly configured but Redis connection parameters are missing, invalid, or unreachable, the system fails closed with `ASSISTANT_CONFIGURATION_INVALID` rather than silently degrading to process-local limiting.
+- **Diagnostic Visibility & Secret Minimization**:
+  - Health and capability endpoints expose sanitized diagnostic indicators (`store`, `clusterWide`, `windowMs`, `max`, `keyPrefix`) without leaking connection strings, credentials, or network topologies.
+- **Response Envelope**: Rate-limited requests return a standardized HTTP 429 response with `code: 'ASSISTANT_RATE_LIMITED'` and RFC standard rate-limiting headers.

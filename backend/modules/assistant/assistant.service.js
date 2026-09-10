@@ -153,6 +153,10 @@ class AssistantService {
       audience,
       historyPersisted: false,
       knowledgeAvailable,
+      rateLimiting: {
+        store: this.config.rateLimit?.store || 'memory',
+        clusterWide: Boolean(this.config.rateLimit?.clusterWide)
+      },
       tools: knowledgeAvailable
         ? Object.entries(tools.TOOL_DEFINITIONS)
             .filter(([, definition]) => definition.audience.includes(audience))

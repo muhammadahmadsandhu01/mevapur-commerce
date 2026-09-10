@@ -5,9 +5,7 @@ import path from 'node:path';
 
 describe('Storefront HelpAssistant Component Contracts & UI Invariants (Batch 2F / DEF-02-I)', () => {
   const componentPath = path.resolve(process.cwd(), 'src/components/assistant/HelpAssistant.tsx');
-  const cssModulePath = path.resolve(process.cwd(), 'src/components/assistant/HelpAssistant.module.css');
   const componentSource = fs.readFileSync(componentPath, 'utf8');
-  const cssSource = fs.readFileSync(cssModulePath, 'utf8');
 
   describe('1. Open / Close State and Launch Behavior', () => {
     it('initializes in closed state and toggles open state via launcher button', () => {

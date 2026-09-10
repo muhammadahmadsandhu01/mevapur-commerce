@@ -153,6 +153,80 @@ const createAssistantConfig = (environment = process.env) => {
     });
   }
 
+  const rateLimitStore = (
+    optional(environment, 'AI_RATE_LIMIT_STORE') ||
+    optional(environment, 'AI_ASSISTANT_RATE_LIMIT_STORE') ||
+    'memory'
+  ).toLowerCase();
+
+  const VALID_STORES = new Set(['memory', 'redis']);
+  if (!VALID_STORES.has(rateLimitStore)) {
+    throw new AssistantConfigurationError(
+      'AI_RATE_LIMIT_STORE',
+      'must be memory or redis'
+    );
+  }
+
+  const rateLimitWindowMs = integerValue(
+    environment,
+    'AI_RATE_LIMIT_WINDOW_MS',
+    60000,
+    1000,
+    3600000
+  );
+
+  const rateLimitMax = integerValue(
+    environment,
+    'AI_RATE_LIMIT_MAX',
+    20,
+    1,
+    1000
+  );
+
+  let redisConfig = null;
+  if (rateLimitStore === 'redis') {
+    const redisUrl = (
+      optional(environment, 'AI_RATE_LIMIT_REDIS_URL') ||
+      optional(environment, 'REDIS_URL')
+    );
+    if (!redisUrl) {
+      throw new AssistantConfigurationError(
+        'AI_RATE_LIMIT_REDIS_URL',
+        'Redis URL is required when AI_RATE_LIMIT_STORE is redis'
+      );
+    }
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(redisUrl);
+    } catch {
+      throw new AssistantConfigurationError(
+        'AI_RATE_LIMIT_REDIS_URL',
+        'must be a valid redis:// or rediss:// URL'
+      );
+    }
+    if (parsedUrl.protocol !== 'redis:' && parsedUrl.protocol !== 'rediss:') {
+      throw new AssistantConfigurationError(
+        'AI_RATE_LIMIT_REDIS_URL',
+        'must use redis:// or rediss:// protocol'
+      );
+    }
+    const keyPrefix = optional(environment, 'AI_RATE_LIMIT_PREFIX') || 'assistant_rl:';
+    redisConfig = Object.freeze({
+      url: redisUrl,
+      keyPrefix,
+      clusterWide: true
+    });
+  }
+
+  const rateLimit = Object.freeze({
+    store: rateLimitStore,
+    clusterWide: rateLimitStore === 'redis',
+    windowMs: rateLimitWindowMs,
+    max: rateLimitMax,
+    keyPrefix: rateLimitStore === 'redis' ? (redisConfig?.keyPrefix || 'assistant_rl:') : 'memory:',
+    redis: redisConfig
+  });
+
   return Object.freeze({
     enabled,
     mode,
@@ -184,7 +258,8 @@ const createAssistantConfig = (environment = process.env) => {
       'AI_EXTERNAL_PII_ALLOWED',
       false
     ),
-    provider
+    provider,
+    rateLimit
   });
 };
 

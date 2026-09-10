@@ -1,5 +1,4 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
 const { protect, admin } = require('../../middleware/auth');
 const optionalAuthentication = require('./middleware/optionalAuthentication');
 const {
@@ -11,6 +10,9 @@ const {
 const {
   createAssistantController
 } = require('./assistant.controller');
+const {
+  createAssistantRateLimiter
+} = require('./middleware/assistantRateLimiter');
 
 const createAssistantRouter = (
   config = createAssistantConfig(process.env),
@@ -18,24 +20,7 @@ const createAssistantRouter = (
 ) => {
   const router = express.Router();
   const controller = createAssistantController(config, options);
-  const chatLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 20,
-    standardHeaders: true,
-    legacyHeaders: false,
-    handler(req, res) {
-      return res.status(429).json({
-        success: false,
-        error: {
-          code: 'ASSISTANT_RATE_LIMITED',
-          message: 'Too many assistant requests; please retry later'
-        },
-        meta: {
-          requestId: req.requestId || 'unknown'
-        }
-      });
-    }
-  });
+  const chatLimiter = createAssistantRateLimiter(config, options);
 
   router.get('/capabilities', optionalAuthentication, controller.capabilities);
   router.post(
