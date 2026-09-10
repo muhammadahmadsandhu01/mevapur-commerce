@@ -12,9 +12,23 @@ const {
 const {
   createAssistantRouter
 } = require('../../../modules/assistant/assistant.routes');
+const {
+  createAssistantRedisClient,
+  connectAssistantRedisClient,
+  closeAssistantRedisClient,
+  pingAssistantRedisClient
+} = require('../../../modules/assistant/rateLimit/redisClientFactory');
+const { createApp } = require('../../../app');
+const { startServer } = require('../../../server');
+const { checkReadiness, READINESS_CODES } = require('../../../operations/readiness');
+const { createServerLifecycle } = require('../../../operations/serverLifecycle');
+const lifecycleState = require('../../../operations/lifecycleState');
 const errorHandler = require('../../../middleware/errorHandler');
 
 describe('Assistant Rate Limiting & Distributed Boundary (DEF-02-C / Batch 2H)', () => {
+  beforeEach(() => {
+    lifecycleState.markRunning();
+  });
   describe('Configuration Parsing & Validation', () => {
     test('defaults to in-memory process-local store with safe bounds', () => {
       const config = createAssistantConfig({});
@@ -238,6 +252,279 @@ describe('Assistant Rate Limiting & Distributed Boundary (DEF-02-C / Batch 2H)',
       await expect(store.increment('k')).rejects.toThrow(
         'Redis client is not configured for distributed rate limiting'
       );
+    });
+  });
+
+  describe('Redis Client Factory & Lifecycle Operations', () => {
+    test('createAssistantRedisClient returns null in default memory mode', () => {
+      const config = createAssistantConfig({});
+      expect(createAssistantRedisClient(config)).toBeNull();
+    });
+
+    test('createAssistantRedisClient constructs client using injected factory in redis mode', () => {
+      const config = createAssistantConfig({
+        AI_RATE_LIMIT_STORE: 'redis',
+        AI_RATE_LIMIT_REDIS_URL: 'redis://localhost:6379'
+      });
+      const mockCreateClient = jest.fn().mockReturnValue({
+        on: jest.fn()
+      });
+
+      const client = createAssistantRedisClient(config, { createClient: mockCreateClient });
+      expect(mockCreateClient).toHaveBeenCalledWith({ url: 'redis://localhost:6379' });
+      expect(client).toBeDefined();
+    });
+
+    test('connectAssistantRedisClient connects client cleanly and logs reason code', async () => {
+      const mockClient = {
+        isOpen: false,
+        connect: jest.fn().mockResolvedValue()
+      };
+      const mockLogger = {
+        info: jest.fn(),
+        error: jest.fn()
+      };
+
+      await connectAssistantRedisClient(mockClient, { logger: mockLogger });
+      expect(mockClient.connect).toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Assistant Redis client connected',
+        expect.objectContaining({ reasonCode: 'ASSISTANT_REDIS_CONNECTED' })
+      );
+    });
+
+    test('connectAssistantRedisClient logs sanitized failure on connection error and throws', async () => {
+      const mockClient = {
+        isOpen: false,
+        connect: jest.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+      };
+      const mockLogger = {
+        info: jest.fn(),
+        error: jest.fn()
+      };
+
+      await expect(connectAssistantRedisClient(mockClient, { logger: mockLogger })).rejects.toThrow('ECONNREFUSED');
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Assistant Redis client failed to connect',
+        expect.objectContaining({ reasonCode: 'ASSISTANT_REDIS_CONNECT_FAILED' })
+      );
+    });
+
+    test('closeAssistantRedisClient closes client cleanly via quit or disconnect', async () => {
+      const mockClient = {
+        isOpen: true,
+        quit: jest.fn().mockResolvedValue()
+      };
+      const mockLogger = {
+        info: jest.fn(),
+        warn: jest.fn()
+      };
+
+      await closeAssistantRedisClient(mockClient, { logger: mockLogger });
+      expect(mockClient.quit).toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Assistant Redis client closed cleanly',
+        expect.objectContaining({ reasonCode: 'ASSISTANT_REDIS_CLOSED' })
+      );
+    });
+
+    test('pingAssistantRedisClient returns true when healthy and false when closed', async () => {
+      const healthyClient = {
+        isOpen: true,
+        ping: jest.fn().mockResolvedValue('PONG')
+      };
+      expect(await pingAssistantRedisClient(healthyClient)).toBe(true);
+
+      const closedClient = {
+        isOpen: false,
+        ping: jest.fn()
+      };
+      expect(await pingAssistantRedisClient(closedClient)).toBe(false);
+    });
+  });
+
+  describe('Application & Server Lifecycle Composition Wiring', () => {
+    test('createApp accepts injected redisClient and mounts distributed rate limiter', async () => {
+      const redisConfig = createAssistantConfig({
+        AI_ASSISTANT_ENABLED: 'true',
+        AI_ASSISTANT_MODE: 'retrieval',
+        AI_RATE_LIMIT_STORE: 'redis',
+        AI_RATE_LIMIT_REDIS_URL: 'redis://127.0.0.1:6379'
+      });
+
+      const mockRedisClient = {
+        isOpen: true,
+        eval: jest.fn().mockResolvedValue([1, 60000]),
+        ping: jest.fn().mockResolvedValue('PONG')
+      };
+
+      const app = createApp({
+        assistantConfig: redisConfig,
+        redisClient: mockRedisClient
+      });
+
+      const res = await request(app)
+        .post('/api/assistant/chat')
+        .send({ message: 'Shipping policy' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(mockRedisClient.eval).toHaveBeenCalled();
+    });
+
+    test('startServer fails closed and does not start HTTP server when Redis connection fails', async () => {
+      const originalEnv = process.env.AI_RATE_LIMIT_STORE;
+      const originalUrl = process.env.AI_RATE_LIMIT_REDIS_URL;
+      const originalEnabled = process.env.AI_ASSISTANT_ENABLED;
+      const originalMode = process.env.AI_ASSISTANT_MODE;
+
+      process.env.AI_ASSISTANT_ENABLED = 'true';
+      process.env.AI_ASSISTANT_MODE = 'retrieval';
+      process.env.AI_RATE_LIMIT_STORE = 'redis';
+      process.env.AI_RATE_LIMIT_REDIS_URL = 'redis://invalid-host:6379';
+
+      const mockConnectDatabase = jest.fn().mockResolvedValue();
+      const mockConnectRedis = jest.fn().mockRejectedValue(new Error('Redis connection refused'));
+      const mockLogger = {
+        info: jest.fn(),
+        error: jest.fn(),
+        warn: jest.fn()
+      };
+
+      await expect(startServer({
+        connectDatabase: mockConnectDatabase,
+        connectRedis: mockConnectRedis,
+        logger: mockLogger,
+        loadEnvironment: () => {}
+      })).rejects.toThrow('Redis connection refused');
+
+      process.env.AI_RATE_LIMIT_STORE = originalEnv;
+      process.env.AI_RATE_LIMIT_REDIS_URL = originalUrl;
+      process.env.AI_ASSISTANT_ENABLED = originalEnabled;
+      process.env.AI_ASSISTANT_MODE = originalMode;
+    });
+
+    test('createServerLifecycle invokes closeRedis on shutdown', async () => {
+      const mockCloseRedis = jest.fn().mockResolvedValue();
+      const mockCloseDb = jest.fn().mockResolvedValue();
+      const mockServer = { close: jest.fn((cb) => cb()) };
+      const mockLogger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+      const mockExit = jest.fn();
+
+      const lifecycle = createServerLifecycle({
+        server: mockServer,
+        closeDatabase: mockCloseDb,
+        closeRedis: mockCloseRedis,
+        logger: mockLogger,
+        shutdownTimeoutMs: 1000,
+        exit: mockExit
+      });
+
+      const result = await lifecycle.shutdown('SIGTERM');
+      expect(result.clean).toBe(true);
+      expect(mockCloseDb).toHaveBeenCalled();
+      expect(mockCloseRedis).toHaveBeenCalled();
+    });
+  });
+
+  describe('Readiness Check with Redis Distributed Store', () => {
+    test('checkReadiness reports ready when Redis client is open and ping responds', async () => {
+      const redisConfig = createAssistantConfig({
+        AI_ASSISTANT_ENABLED: 'true',
+        AI_ASSISTANT_MODE: 'retrieval',
+        AI_RATE_LIMIT_STORE: 'redis',
+        AI_RATE_LIMIT_REDIS_URL: 'redis://127.0.0.1:6379'
+      });
+
+      const mockRedisClient = {
+        isOpen: true,
+        ping: jest.fn().mockResolvedValue('PONG')
+      };
+
+      const mockDb = {
+        readyState: 1,
+        db: {
+          admin: () => ({
+            ping: jest.fn().mockResolvedValue({ ok: 1 })
+          })
+        }
+      };
+
+      const result = await checkReadiness({
+        databaseConnection: mockDb,
+        redisClient: mockRedisClient,
+        assistantConfigProvider: () => redisConfig
+      });
+
+      expect(result.ready).toBe(true);
+      expect(result.body.checks.redis).toBe('ready');
+      expect(result.body.reasonCodes).toEqual([]);
+    });
+
+    test('checkReadiness reports not ready when Redis client is disconnected', async () => {
+      const redisConfig = createAssistantConfig({
+        AI_ASSISTANT_ENABLED: 'true',
+        AI_ASSISTANT_MODE: 'retrieval',
+        AI_RATE_LIMIT_STORE: 'redis',
+        AI_RATE_LIMIT_REDIS_URL: 'redis://127.0.0.1:6379'
+      });
+
+      const mockRedisClient = {
+        isOpen: false,
+        ping: jest.fn()
+      };
+
+      const mockDb = {
+        readyState: 1,
+        db: {
+          admin: () => ({
+            ping: jest.fn().mockResolvedValue({ ok: 1 })
+          })
+        }
+      };
+
+      const result = await checkReadiness({
+        databaseConnection: mockDb,
+        redisClient: mockRedisClient,
+        assistantConfigProvider: () => redisConfig
+      });
+
+      expect(result.ready).toBe(false);
+      expect(result.body.checks.redis).toBe('not_ready');
+      expect(result.body.reasonCodes).toContain(READINESS_CODES.REDIS_NOT_READY);
+    });
+
+    test('checkReadiness reports not ready when Redis ping fails', async () => {
+      const redisConfig = createAssistantConfig({
+        AI_ASSISTANT_ENABLED: 'true',
+        AI_ASSISTANT_MODE: 'retrieval',
+        AI_RATE_LIMIT_STORE: 'redis',
+        AI_RATE_LIMIT_REDIS_URL: 'redis://127.0.0.1:6379'
+      });
+
+      const mockRedisClient = {
+        isOpen: true,
+        ping: jest.fn().mockRejectedValue(new Error('Connection lost'))
+      };
+
+      const mockDb = {
+        readyState: 1,
+        db: {
+          admin: () => ({
+            ping: jest.fn().mockResolvedValue({ ok: 1 })
+          })
+        }
+      };
+
+      const result = await checkReadiness({
+        databaseConnection: mockDb,
+        redisClient: mockRedisClient,
+        assistantConfigProvider: () => redisConfig
+      });
+
+      expect(result.ready).toBe(false);
+      expect(result.body.checks.redis).toBe('not_ready');
+      expect(result.body.reasonCodes).toContain(READINESS_CODES.REDIS_PING_FAILED);
     });
   });
 

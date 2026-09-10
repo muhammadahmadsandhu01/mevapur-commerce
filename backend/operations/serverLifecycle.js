@@ -12,6 +12,7 @@ const SHUTDOWN_CODES = Object.freeze({
 const createServerLifecycle = ({
   server,
   closeDatabase,
+  closeRedis,
   logger,
   shutdownTimeoutMs,
   exit = (code) => process.exit(code),
@@ -22,6 +23,7 @@ const createServerLifecycle = ({
 }) => {
   let shutdownPromise;
   let databaseClosePromise;
+  let redisClosePromise;
   let installed = false;
   const handlers = new Map();
 
@@ -30,6 +32,13 @@ const createServerLifecycle = ({
       databaseClosePromise = Promise.resolve().then(closeDatabase);
     }
     return databaseClosePromise;
+  };
+
+  const closeRedisOnce = () => {
+    if (!redisClosePromise && closeRedis) {
+      redisClosePromise = Promise.resolve().then(closeRedis);
+    }
+    return redisClosePromise || Promise.resolve();
   };
 
   const closeHttpServer = () => new Promise((resolve, reject) => {
@@ -54,6 +63,7 @@ const createServerLifecycle = ({
     const orderlyClose = (async () => {
       await closeHttpServer();
       await closeDatabaseOnce();
+      await closeRedisOnce();
     })();
     const timeout = new Promise((resolve, reject) => {
       timeoutId = setTimeoutFn(() => {
@@ -84,6 +94,11 @@ const createServerLifecycle = ({
         await closeDatabaseOnce();
       } catch {
         // The sanitized failure code below is the authoritative shutdown log.
+      }
+      try {
+        await closeRedisOnce();
+      } catch {
+        // Suppress secondary error
       }
       const reasonCode = error?.code === SHUTDOWN_CODES.TIMED_OUT
         ? SHUTDOWN_CODES.TIMED_OUT

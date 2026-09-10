@@ -1,7 +1,11 @@
 let cachedApp;
 
-const loadApplication = () => {
-  if (!cachedApp) cachedApp = require('./app');
+const loadApplication = (options = {}) => {
+  const { createApp } = require('./app');
+  if (options && Object.keys(options).length > 0) {
+    return createApp(options);
+  }
+  if (!cachedApp) cachedApp = createApp();
   return cachedApp;
 };
 
@@ -9,6 +13,9 @@ async function startServer({
   application,
   connectDatabase,
   closeDatabase,
+  connectRedis,
+  closeRedis,
+  redisClient: injectedRedisClient,
   logger,
   loadEnvironment = () => require('dotenv').config(),
   exit
@@ -18,14 +25,47 @@ async function startServer({
   const runtimeConfig = require('./config/runtime.config').getRuntimeConfig();
   const database = require('./config/db');
   const activeLogger = logger || require('./common/utils/logger');
-  const app = application || loadApplication();
   const connect = connectDatabase || database;
   const close = closeDatabase || database.closeDatabase;
   const lifecycleState = require('./operations/lifecycleState');
   const { createServerLifecycle } = require('./operations/serverLifecycle');
+  const { createAssistantConfig } = require('./modules/assistant/config/assistant.config');
+  const {
+    createAssistantRedisClient,
+    connectAssistantRedisClient,
+    closeAssistantRedisClient
+  } = require('./modules/assistant/rateLimit/redisClientFactory');
 
   lifecycleState.markRunning();
   await connect();
+
+  // Assistant Redis rate limit lifecycle (activated only when store is redis)
+  let assistantRedisClient = injectedRedisClient || null;
+  let assistantConfig = null;
+  try {
+    assistantConfig = createAssistantConfig(process.env);
+  } catch (err) {
+    activeLogger.error('Assistant configuration invalid during server startup', {
+      reasonCode: 'ASSISTANT_CONFIG_STARTUP_INVALID'
+    });
+    throw err;
+  }
+
+  if (assistantConfig?.rateLimit?.store === 'redis') {
+    if (!assistantRedisClient) {
+      assistantRedisClient = createAssistantRedisClient(assistantConfig, {
+        logger: activeLogger
+      });
+    }
+    const connectRedisFn = connectRedis
+      || (() => connectAssistantRedisClient(assistantRedisClient, { logger: activeLogger }));
+    await connectRedisFn(assistantRedisClient);
+  }
+
+  const app = application || loadApplication({
+    redisClient: assistantRedisClient,
+    assistantConfig
+  });
 
   const server = app.listen(runtimeConfig.server.port, () => {
     activeLogger.info('HTTP server listening', {
@@ -35,9 +75,13 @@ async function startServer({
     });
   });
 
+  const closeRedisFn = closeRedis
+    || (() => closeAssistantRedisClient(assistantRedisClient, { logger: activeLogger }));
+
   const lifecycle = createServerLifecycle({
     server,
     closeDatabase: close,
+    closeRedis: closeRedisFn,
     logger: activeLogger,
     shutdownTimeoutMs: runtimeConfig.server.shutdownTimeoutMs,
     exit
@@ -47,7 +91,8 @@ async function startServer({
   return {
     app,
     server,
-    lifecycle
+    lifecycle,
+    redisClient: assistantRedisClient
   };
 }
 
