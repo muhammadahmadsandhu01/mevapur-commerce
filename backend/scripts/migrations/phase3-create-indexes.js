@@ -10,7 +10,12 @@ const MIGRATION_ID = 'phase3-create-indexes';
 const INDEX_SPEC = {
   name: 'operationKey_1',
   keys: { operationKey: 1 },
-  options: { unique: true, sparse: true }
+  options: {
+    unique: true,
+    partialFilterExpression: {
+      operationKey: { $type: 'string', $gt: '' }
+    }
+  }
 };
 
 const TARGET_INDEXES = [
@@ -19,7 +24,13 @@ const TARGET_INDEXES = [
     collectionName: 'inventorytransactions',
     key: { operationKey: 1 },
     name: 'operationKey_1',
-    options: { unique: true, sparse: true, name: 'operationKey_1' }
+    options: {
+      unique: true,
+      partialFilterExpression: {
+        operationKey: { $type: 'string', $gt: '' }
+      },
+      name: 'operationKey_1'
+    }
   }
 ];
 
@@ -85,7 +96,10 @@ async function inspectDuplicateData(db) {
     const opKeyDups = await collection.aggregate([
       {
         $match: {
-          operationKey: { $exists: true, $ne: null, $nin: ['', null] }
+          operationKey: {
+            $type: 'string',
+            $gt: ''
+          }
         }
       },
       {

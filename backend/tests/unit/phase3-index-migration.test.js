@@ -359,7 +359,10 @@ describe('DEF-25: Phase 3 Fail-Closed Index Migration Safety Suite (phase3-creat
       const opIndex = indexes.find(i => i.name === 'operationKey_1');
       expect(opIndex).toBeDefined();
       expect(opIndex.unique).toBe(true);
-      expect(opIndex.sparse).toBe(true);
+      expect(opIndex.sparse).toBeUndefined();
+      expect(opIndex.partialFilterExpression).toEqual({
+        operationKey: { $type: 'string', $gt: '' }
+      });
     });
 
     it('26. Exact pre-existing index remains untouched and unowned', async () => {

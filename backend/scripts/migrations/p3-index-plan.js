@@ -49,7 +49,12 @@ const ALLOWLIST = deepFreeze([
     collection: 'inventorytransactions',
     name: 'operationKey_1',
     keys: { operationKey: 1 },
-    options: { unique: true, sparse: true }
+    options: {
+      unique: true,
+      partialFilterExpression: {
+        operationKey: { $type: 'string', $gt: '' }
+      }
+    }
   },
   {
     collection: 'payments',
@@ -367,7 +372,7 @@ async function runDataChecks(database) {
     }),
     duplicateInventoryOperationKeys: await duplicateGroupCount(
       inventory,
-      { operationKey: { $type: 'string' } },
+      { operationKey: { $type: 'string', $gt: '' } },
       '$operationKey'
     ),
     malformedPaymentProviders: await payments.countDocuments({
