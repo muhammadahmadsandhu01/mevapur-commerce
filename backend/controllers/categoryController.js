@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Category = require('../models/Category');
 const Product = require('../models/Product');
+const CategoryResolver = require('../services/category/CategoryResolver');
 const slugify = require('slugify');
 
 async function normalizeAndValidateParentId(parentId, currentCategoryId = null) {
@@ -63,9 +64,7 @@ exports.getCategories = async (req, res) => {
 // @access  Public
 exports.getCategoryById = async (req, res) => {
   try {
-    const category = await Category.findOne({ 
-      $or: [{ _id: req.params.id }, { slug: req.params.id }]
-    });
+    const category = await CategoryResolver.resolveCategory(req.params.id, { requireActive: false });
     
     if (!category) {
       return res.status(404).json({ success: false, message: 'Category not found' });

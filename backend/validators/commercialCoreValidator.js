@@ -2,13 +2,14 @@ const { z } = require('zod');
 const mongoose = require('mongoose');
 
 const objectId = z.string().refine((value) => mongoose.isObjectIdOrHexString(value), 'A valid MongoDB ObjectId is required');
+const categoryIdentifier = z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/, 'A valid Category ObjectId or slug is required');
 const country = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, 'Use an ISO 3166-1 alpha-2 country code');
 const currency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Use an ISO 4217 currency code');
 const shortText = (max) => z.string().trim().min(1).max(max);
 
 const productQuerySchema = z.object({
   keyword: z.string().trim().min(1).max(100).optional(),
-  category: objectId.optional(), brand: objectId.optional(), subcategory: objectId.optional(),
+  category: categoryIdentifier.optional(), brand: objectId.optional(), subcategory: categoryIdentifier.optional(),
   minPrice: z.coerce.number().finite().min(0).optional(), maxPrice: z.coerce.number().finite().min(0).optional(),
   rating: z.coerce.number().finite().min(0).max(5).optional(),
   inStock: z.enum(['true', 'false']).optional(), autocomplete: z.enum(['true']).optional(),

@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const CategoryResolver = require('../services/category/CategoryResolver');
 const mongoose = require('mongoose');
 
 /**
@@ -108,13 +109,25 @@ exports.getProducts = async (req, res) => {
       ];
     }
 
-    // 2. Category Filter
-    if (req.query.category && mongoose.Types.ObjectId.isValid(req.query.category)) {
-      query.category = new mongoose.Types.ObjectId(req.query.category);
+    // 2. Category Filter (Supports canonical slugs and ObjectIds, fail-closed on unknown/inactive)
+    if (req.query.category) {
+      const categoryId = await CategoryResolver.resolveCategoryToId(req.query.category, { requireActive: true });
+      if (categoryId) {
+        query.category = categoryId;
+      } else {
+        // Fail-closed: category was requested but is unknown, inactive, or invalid.
+        // Deterministically match zero products rather than silently dropping the filter.
+        query.category = new mongoose.Types.ObjectId();
+      }
     }
 
-    if (req.query.subcategory && mongoose.Types.ObjectId.isValid(req.query.subcategory)) {
-      query.subcategory = new mongoose.Types.ObjectId(req.query.subcategory);
+    if (req.query.subcategory) {
+      const subcategoryId = await CategoryResolver.resolveCategoryToId(req.query.subcategory, { requireActive: true });
+      if (subcategoryId) {
+        query.subcategory = subcategoryId;
+      } else {
+        query.subcategory = new mongoose.Types.ObjectId();
+      }
     }
 
     // 3. Brand Filter
