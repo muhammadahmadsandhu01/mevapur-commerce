@@ -12,7 +12,7 @@ const SECRET_PATTERNS = [
 
 const ALLOWED_TOOL_CARDS = Object.freeze({
   searchPublicProducts: Object.freeze({
-    id: 'tool:searchPublicProducts',
+    id: 'tool:product-catalog-search',
     title: 'Product Catalog Search',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -21,7 +21,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['anonymous', 'customer', 'admin'])
   }),
   lookupProductBySlug: Object.freeze({
-    id: 'tool:lookupProductBySlug',
+    id: 'tool:product-catalog-details',
     title: 'Product Catalog Details',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -30,7 +30,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['anonymous', 'customer', 'admin'])
   }),
   getCurrentCustomerOrders: Object.freeze({
-    id: 'tool:getCurrentCustomerOrders',
+    id: 'tool:customer-order-history',
     title: 'Customer Order History',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -39,7 +39,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['customer', 'admin'])
   }),
   getCurrentCustomerOrderStatus: Object.freeze({
-    id: 'tool:getCurrentCustomerOrderStatus',
+    id: 'tool:customer-order-status',
     title: 'Customer Order Status',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -48,7 +48,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['customer', 'admin'])
   }),
   getCurrentCustomerPaymentStatus: Object.freeze({
-    id: 'tool:getCurrentCustomerPaymentStatus',
+    id: 'tool:customer-payment-status',
     title: 'Customer Payment Status',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -57,7 +57,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['customer', 'admin'])
   }),
   getCurrentCustomerRefundStatus: Object.freeze({
-    id: 'tool:getCurrentCustomerRefundStatus',
+    id: 'tool:customer-refund-status',
     title: 'Customer Refund Status',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -66,7 +66,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['customer', 'admin'])
   }),
   getInventorySummary: Object.freeze({
-    id: 'tool:getInventorySummary',
+    id: 'tool:inventory-summary',
     title: 'Admin Inventory Summary',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -75,7 +75,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['admin'])
   }),
   getLowStockSummary: Object.freeze({
-    id: 'tool:getLowStockSummary',
+    id: 'tool:low-stock-alert',
     title: 'Admin Low Stock Alert',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -84,7 +84,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['admin'])
   }),
   getOrderStatusSummary: Object.freeze({
-    id: 'tool:getOrderStatusSummary',
+    id: 'tool:order-summary',
     title: 'Admin Order Summary',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -93,7 +93,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['admin'])
   }),
   getPaymentStatusSummary: Object.freeze({
-    id: 'tool:getPaymentStatusSummary',
+    id: 'tool:payment-summary',
     title: 'Admin Payment Summary',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -102,7 +102,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['admin'])
   }),
   getRefundSummary: Object.freeze({
-    id: 'tool:getRefundSummary',
+    id: 'tool:refund-summary',
     title: 'Admin Refund Summary',
     category: 'operational',
     reference: 'Live role-scoped commerce data',
@@ -111,7 +111,7 @@ const ALLOWED_TOOL_CARDS = Object.freeze({
     audience: Object.freeze(['admin'])
   }),
   getProviderAvailabilitySummary: Object.freeze({
-    id: 'tool:getProviderAvailabilitySummary',
+    id: 'tool:provider-status',
     title: 'Admin Provider Status',
     category: 'operational',
     reference: 'Live role-scoped commerce data',

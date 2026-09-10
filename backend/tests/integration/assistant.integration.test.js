@@ -704,7 +704,7 @@ describe('P5C assistant API and role-scoped tools', () => {
       expect(response.body.data.sources).toHaveLength(1);
       const toolCard = response.body.data.sources[0];
       expect(toolCard).toEqual({
-        id: 'tool:getInventorySummary',
+        id: 'tool:inventory-summary',
         kind: 'tool',
         title: 'Admin Inventory Summary',
         category: 'operational',

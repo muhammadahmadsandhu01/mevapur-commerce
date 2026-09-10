@@ -193,11 +193,11 @@ describe('Assistant Evidence Card and Provenance System', () => {
   });
 
   describe('4. Tool Evidence Contract & Allowlist Provenance', () => {
-    test('creates a valid frozen tool evidence card from server allowlist', () => {
+    test('creates a valid frozen tool evidence card from server allowlist with decoupled public ID', () => {
       const card = createToolEvidenceCard('getInventorySummary');
 
       expect(card).toEqual({
-        id: 'tool:getInventorySummary',
+        id: 'tool:inventory-summary',
         kind: 'tool',
         title: 'Admin Inventory Summary',
         category: 'operational',
@@ -214,6 +214,7 @@ describe('Assistant Evidence Card and Provenance System', () => {
       const card = createToolEvidenceCard('searchPublicProducts');
 
       expect(card).not.toHaveProperty('toolName');
+      expect(card.id).toBe('tool:product-catalog-search');
       expect(card.reference).toBe('Live role-scoped commerce data');
       expect(card.reference).not.toContain('runtime://');
       expect(card.reference).not.toContain('javascript:');
@@ -247,9 +248,12 @@ describe('Assistant Evidence Card and Provenance System', () => {
       expect(knowledgeCard.id).not.toMatch(/^tool:/);
     });
 
-    test('all 12 assistant read tools have valid allowlisted definitions', () => {
+    test('all 12 assistant read tools have distinct, unique, decoupled public IDs matching format', () => {
       const toolKeys = Object.keys(ALLOWED_TOOL_CARDS);
       expect(toolKeys.length).toBe(12);
+
+      const seenIds = new Set();
+      const idPattern = /^tool:[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
       toolKeys.forEach((toolKey) => {
         const card = createToolEvidenceCard(toolKey);
@@ -258,7 +262,24 @@ describe('Assistant Evidence Card and Provenance System', () => {
         expect(card.referenceType).toBe('runtime');
         expect(card.resolvable).toBe(false);
         expect(Array.isArray(card.audience)).toBe(true);
+
+        // Required tests:
+        // 1. Matches ^tool:[a-z0-9]+(?:-[a-z0-9]+)*$
+        expect(card.id).toMatch(idPattern);
+
+        // 2. Does not equal internal JS tool name
+        expect(card.id).not.toBe(`tool:${toolKey}`);
+        expect(card.id).not.toBe(toolKey);
+
+        // 3. No camelCase in public ID
+        expect(card.id).toBe(card.id.toLowerCase());
+
+        // 4. All public IDs are unique
+        expect(seenIds.has(card.id)).toBe(false);
+        seenIds.add(card.id);
       });
+
+      expect(seenIds.size).toBe(12);
     });
   });
 
