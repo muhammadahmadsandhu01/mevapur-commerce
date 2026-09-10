@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:assistant": "node --test tests/adminHelpAssistantComponent.test.mts"
   },
   "engines": {
     "node": "24.x",

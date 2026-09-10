@@ -48,3 +48,11 @@ jobs:
           NODE_ENV: test
           MONGODB_URI: ''
         run: npm run test:ci
+
+      - name: Run Storefront Assistant UI Component Tests
+        working-directory: frontend
+        run: npm run test:assistant
+
+      - name: Run Admin Panel Assistant UI Component Tests
+        working-directory: admin-panel
+        run: npm run test:assistant
