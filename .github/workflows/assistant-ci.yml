@@ -32,7 +32,10 @@ jobs:
         with:
           node-version: '24.20.0'
           cache: 'npm'
-          cache-dependency-path: 'backend/package-lock.json'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            admin-panel/package-lock.json
 
       - name: Install Backend Dependencies
         working-directory: backend
@@ -49,10 +52,18 @@ jobs:
           MONGODB_URI: ''
         run: npm run test:ci
 
-      - name: Run Storefront Assistant UI Component Tests
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Storefront Assistant UI Component Tests (Contracts and Real DOM)
         working-directory: frontend
         run: npm run test:assistant
 
-      - name: Run Admin Panel Assistant UI Component Tests
+      - name: Install Admin Panel Dependencies
+        working-directory: admin-panel
+        run: npm ci
+
+      - name: Run Admin Panel Assistant UI Component Tests (Contracts and Real DOM)
         working-directory: admin-panel
         run: npm run test:assistant

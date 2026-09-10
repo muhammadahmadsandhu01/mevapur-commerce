@@ -48,6 +48,8 @@ export default function AdminHelpAssistant() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const nextId = useRef(1);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +64,24 @@ export default function AdminHelpAssistant() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (open) {
+      inputRef.current?.focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        launcherRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
 
   const send = async (message: string) => {
     const normalized = message.trim();
@@ -186,6 +206,7 @@ export default function AdminHelpAssistant() {
             }}
           >
             <textarea
+              ref={inputRef}
               className={styles.input}
               value={input}
               onChange={(event) => setInput(event.target.value.slice(0, 2000))}
@@ -213,10 +234,12 @@ export default function AdminHelpAssistant() {
       )}
 
       <button
+        ref={launcherRef}
         type="button"
         className={styles.launcher}
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
+        aria-controls={open ? 'admin-assistant-title' : undefined}
       >
         {branding.siteName} Admin
       </button>
