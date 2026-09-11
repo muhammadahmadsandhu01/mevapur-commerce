@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:assistant": "node --test tests/helpAssistantComponent.test.mts && vitest run tests/HelpAssistant.dom.test.tsx"
+    "test:assistant": "node --test tests/helpAssistantComponent.test.mts && vitest run tests/HelpAssistant.dom.test.tsx",
+    "test:categories": "node --test tests/categoryPublicVisibilityDef26.test.mts"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.0",

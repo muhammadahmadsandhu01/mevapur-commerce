@@ -60,6 +60,10 @@ jobs:
         working-directory: frontend
         run: npm run test:assistant
 
+      - name: Run Storefront Category Visibility Tests
+        working-directory: frontend
+        run: npm run test:categories
+
       - name: Install Admin Panel Dependencies
         working-directory: admin-panel
         run: npm ci
@@ -67,3 +71,7 @@ jobs:
       - name: Run Admin Panel Assistant UI Component Tests (Contracts and Real DOM)
         working-directory: admin-panel
         run: npm run test:assistant
+
+      - name: Run Admin Category Contract and DOM Tests
+        working-directory: admin-panel
+        run: npm run test:categories
