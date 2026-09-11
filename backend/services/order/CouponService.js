@@ -96,7 +96,15 @@ class CouponService {
   /**
    * Authoritative discount calculation on eligible subtotal
    */
-  calculateDiscount({ coupon, items, subtotal }) {
+  calculateDiscount({ coupon, items, subtotal, currency = 'PKR' }) {
+    if (coupon.currency && currency && coupon.currency !== currency) {
+      throw new AppError(
+        `Coupon currency ${coupon.currency} does not match order currency ${currency}`,
+        400,
+        ERROR_CODES.ORDER_COUPON_INVALID
+      );
+    }
+
     let eligibleItems = items || [];
 
     if (coupon.applicableProducts && coupon.applicableProducts.length > 0) {
@@ -154,7 +162,7 @@ class CouponService {
   /**
    * Transactional validation and reservation during checkout
    */
-  async validateAndReserve({ code, subtotal, items, userId = null, checkoutKey = null, session = null }) {
+  async validateAndReserve({ code, subtotal, items, userId = null, checkoutKey = null, currency = 'PKR', session = null }) {
     if (!code) {
       return {
         snapshot: null,
@@ -275,7 +283,7 @@ class CouponService {
 
     let discountCalculation;
     try {
-      discountCalculation = this.calculateDiscount({ coupon, items, subtotal });
+      discountCalculation = this.calculateDiscount({ coupon, items, subtotal, currency });
     } catch (calcError) {
       await Coupon.findOneAndUpdate(
         { _id: coupon._id },

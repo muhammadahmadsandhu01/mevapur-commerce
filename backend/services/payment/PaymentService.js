@@ -14,6 +14,7 @@ const {
   PROVIDER_ATTEMPT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../constants/paymentConstants');
+const { MoneyMapper } = require('../../modules/commerce');
 
 const PAYMENT_EVENT_TYPES = new Set([
   'payment_intent.processing',
@@ -90,6 +91,11 @@ class PaymentService {
     });
     const providerManifest = providerAdapter.getManifest();
 
+const { MoneyMapper } = require('../../modules/commerce');
+
+    const paymentCurrency = order.payment?.currency || order.currency || 'PKR';
+    const amountExact = order.totalAmountExact || MoneyMapper.fromLegacy(order.totalAmount, paymentCurrency);
+
     try {
       payment = await Payment.create({
         order: order._id,
@@ -98,7 +104,8 @@ class PaymentService {
         gateway: provider,
         status: PAYMENT_STATUSES.PENDING,
         amount: order.totalAmount,
-        currency: order.payment?.currency || 'PKR',
+        amountExact,
+        currency: paymentCurrency,
         providerDisplayName: providerManifest.displayName,
         providerIntegrationVersion: providerManifest.integrationVersion,
         paymentType: providerManifest.paymentType,
@@ -668,6 +675,7 @@ class PaymentService {
 
         if (decision === 'approve') {
           payment.paidAmount = payment.amount;
+          payment.paidAmountExact = payment.amountExact || MoneyMapper.fromLegacy(payment.amount, payment.currency);
           order.paymentStatus = 'Paid';
           order.payment.provider = payment.providerDisplayName
             || payment.provider;
@@ -746,6 +754,7 @@ class PaymentService {
           source: 'admin'
         });
         payment.paidAmount = payment.amount;
+        payment.paidAmountExact = payment.amountExact || MoneyMapper.fromLegacy(payment.amount, payment.currency);
         payment.collectedBy = adminId;
         payment.collectedAt = new Date();
         payment.verificationNote = note.trim();

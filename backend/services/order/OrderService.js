@@ -21,6 +21,14 @@ const {
   ORDER_LIMITS
 } = require('../../constants/orderConstants');
 const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
+const {
+  MoneyMapper,
+  RolloutAuthority,
+  Address,
+  Phone,
+  CountryRegistry,
+  CurrencyRegistry
+} = require('../../modules/commerce');
 
 class OrderService {
   roundMoney(value) {
@@ -128,6 +136,8 @@ class OrderService {
       }
       resolvedKeys.add(resolvedKey);
 
+const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../../modules/commerce');
+
       const rawPrice = variant
         ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
         : product.price;
@@ -141,6 +151,9 @@ class OrderService {
       }
 
       const lineTotal = this.roundMoney(price * item.quantity);
+      const unitPriceExact = MoneyMapper.fromLegacy(price, 'PKR');
+      const lineTotalExact = MoneyMapper.fromLegacy(lineTotal, 'PKR');
+
       const variantLabel = variant
         ? variant.attributes
           .map((attribute) => `${attribute.name}: ${attribute.value}`)
@@ -155,8 +168,10 @@ class OrderService {
         sku: variant?.sku || product.sku || '',
         variant: variantLabel,
         price,
+        unitPriceExact,
         quantity: item.quantity,
         lineTotal,
+        lineTotalExact,
         image: variant?.images?.[0]
           || product.primaryImage
           || product.images?.[0]
@@ -291,9 +306,38 @@ class OrderService {
 
           const market = await MarketService.getConfig();
           const currency = orderData.currency || market.defaultCurrency;
+
+          let countryCode = 'PK';
+          if (orderData.shippingAddress.country) {
+            const rawCountry = orderData.shippingAddress.country;
+            if (rawCountry.toUpperCase() === 'PAKISTAN' || rawCountry.toUpperCase() === 'PK') {
+              countryCode = 'PK';
+            } else if (CountryRegistry.has(rawCountry)) {
+              countryCode = CountryRegistry.get(rawCountry).alpha2;
+            } else {
+              countryCode = rawCountry;
+            }
+          }
+
+          let phoneE164 = undefined;
+          let phoneExtension = undefined;
+          if (orderData.shippingAddress.phone) {
+            try {
+              const parsedPhone = Phone.parse(orderData.shippingAddress.phone, { defaultCountry: countryCode || 'PK' });
+              phoneE164 = parsedPhone.e164;
+              phoneExtension = parsedPhone.extension || undefined;
+            } catch {
+              // Preserve raw phone for compatibility
+            }
+          }
+
           const shippingAddress = {
             ...orderData.shippingAddress,
-            country: this.normalizeCountry(orderData.shippingAddress.country)
+            country: this.normalizeCountry(orderData.shippingAddress.country),
+            countryCode,
+            administrativeArea: orderData.shippingAddress.province || orderData.shippingAddress.state || '',
+            phoneE164,
+            phoneExtension
           };
           await MarketService.assertEligible({ country: shippingAddress.country, currency });
           const pricedItems = await this.resolveItems(orderData.items, session);
@@ -307,6 +351,7 @@ class OrderService {
             items: pricedItems,
             userId,
             checkoutKey: idempotencyKey,
+            currency,
             session
           });
           const afterDiscount = this.roundMoney(
@@ -327,6 +372,20 @@ class OrderService {
           const totalAmount = this.roundMoney(
             afterDiscount + shippingCost + taxAmount
           );
+
+          // Exact Money Persistence Snapshots
+          const subtotalExact = MoneyMapper.fromLegacy(subtotal, currency);
+          const discountExact = MoneyMapper.fromLegacy(coupon.discountAmount, currency);
+          const shippingCostExact = MoneyMapper.fromLegacy(shippingCost, currency);
+          const taxAmountExact = MoneyMapper.fromLegacy(taxAmount, currency);
+          const totalAmountExact = MoneyMapper.fromLegacy(totalAmount, currency);
+
+          const effectiveMode = await MarketService.getEffectiveRolloutMode();
+          if (effectiveMode === 'shadow_write' || effectiveMode === 'exact_read') {
+            RolloutAuthority.assertWriteParity(subtotal, subtotalExact);
+            RolloutAuthority.assertWriteParity(totalAmount, totalAmountExact);
+          }
+
           const paymentProvider = paymentProviderRegistry.resolve(
             orderData.paymentMethod,
             {
@@ -348,6 +407,12 @@ class OrderService {
             shippingAddress,
             paymentMethod: orderData.paymentMethod,
             paymentStatus: 'Pending',
+            currency,
+            subtotalExact,
+            discountExact,
+            shippingCostExact,
+            taxAmountExact,
+            totalAmountExact,
             payment: {
               provider: paymentManifest.displayName,
               currency,

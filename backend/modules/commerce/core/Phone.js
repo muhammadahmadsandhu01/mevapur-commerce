@@ -50,12 +50,16 @@ class Phone {
     }
 
     let defaultCountry = null;
-    if (defaultCountryCode) {
-      const normalizedCountry = CountryRegistry.normalizeCode(defaultCountryCode);
+    let countryArg = defaultCountryCode;
+    if (typeof defaultCountryCode === 'object' && defaultCountryCode !== null) {
+      countryArg = defaultCountryCode.defaultCountry || defaultCountryCode.country || null;
+    }
+    if (countryArg) {
+      const normalizedCountry = CountryRegistry.normalizeCode(countryArg);
       if (CountryRegistry.hasCountry(normalizedCountry)) {
         defaultCountry = normalizedCountry;
       } else {
-        throw CommerceError.phoneInvalidError(`Unsupported country code context: ${defaultCountryCode}`);
+        throw CommerceError.phoneInvalidError(`Unsupported country code context: ${countryArg}`);
       }
     }
 

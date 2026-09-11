@@ -357,6 +357,13 @@ class CurrencyRegistry {
   /**
    * Checks if a currency code is recognized and permitted under given options.
    */
+  static has(code, options = {}) {
+    return this.hasCurrency(code, options);
+  }
+
+  /**
+   * Checks if a currency code is recognized and permitted under given options.
+   */
   static hasCurrency(code, options = {}) {
     try {
       this.getCurrency(code, options);
@@ -389,6 +396,14 @@ class CurrencyRegistry {
     }
 
     return Object.freeze(result);
+  }
+
+  /**
+   * Returns active commercial currency objects.
+   * @returns {Object[]}
+   */
+  static listActiveCommercial() {
+    return this.listCurrencies({ status: 'active', commercialOnly: true });
   }
 
   /**

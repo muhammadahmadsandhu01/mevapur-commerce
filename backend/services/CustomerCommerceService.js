@@ -13,11 +13,28 @@ const ProductVisibilityPolicy = require('./product/ProductVisibilityPolicy');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 
+const { Phone, CountryRegistry } = require('../modules/commerce');
+
 const customerProfile = (user) => ({
   id: String(user._id), fullName: user.fullName, email: user.email, phone: user.phone || '',
   avatar: user.avatar || '', isVerified: Boolean(user.isVerified), createdAt: user.createdAt
 });
-const addressView = (address) => ({ id: String(address._id), fullName: address.fullName, phone: address.phone, address: address.address, addressLine2: address.addressLine2 || '', city: address.city, province: address.state || address.province || '', postalCode: address.postalCode || '', country: address.country, isDefault: Boolean(address.isDefault) });
+const addressView = (address) => ({
+  id: String(address._id),
+  fullName: address.fullName,
+  phone: address.phone,
+  phoneE164: address.phoneE164 || '',
+  phoneExtension: address.phoneExtension || '',
+  address: address.address,
+  addressLine2: address.addressLine2 || '',
+  city: address.city,
+  province: address.state || address.province || address.administrativeArea || '',
+  administrativeArea: address.administrativeArea || address.state || address.province || '',
+  postalCode: address.postalCode || '',
+  country: address.country,
+  countryCode: address.countryCode || (address.country === 'Pakistan' ? 'PK' : address.country),
+  isDefault: Boolean(address.isDefault)
+});
 const returnView = (entry) => ({ id: String(entry._id), returnNumber: entry.returnNumber, order: entry.order, items: entry.items.map((item) => ({ product: item.product, name: item.name, quantity: item.quantity, price: item.price, reason: item.reason, reasonDetails: item.reasonDetails || '' })), status: entry.status, refundMethod: entry.refundMethod, refundAmount: entry.refundAmount, customerNotes: entry.customerNotes || '', rejectedReason: entry.rejectedReason || '', createdAt: entry.createdAt, approvedAt: entry.approvedAt || null, refundedAt: entry.refundedAt || null });
 const refundView = (entry) => ({ id: String(entry._id), refundNumber: entry.refundNumber, order: entry.order, amount: entry.amount, currency: entry.currency, status: entry.status, reason: entry.reason || '', completedAt: entry.completedAt || null, createdAt: entry.createdAt });
 const ownOrder = async (userId, reference) => {
@@ -46,15 +63,86 @@ class CustomerCommerceService {
     await this.assertEligibleCountry(input.country);
     const user = await User.findById(userId);
     if (!user) throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
+
+    let countryCode = 'PK';
+    if (input.country) {
+      if (input.country.toUpperCase() === 'PAKISTAN' || input.country.toUpperCase() === 'PK') {
+        countryCode = 'PK';
+      } else if (CountryRegistry.has(input.country)) {
+        countryCode = CountryRegistry.get(input.country).alpha2;
+      } else {
+        countryCode = input.country;
+      }
+    }
+
+    let phoneE164 = undefined;
+    let phoneExtension = undefined;
+    if (input.phone) {
+      try {
+        const parsedPhone = Phone.parse(input.phone, { defaultCountry: countryCode || 'PK' });
+        phoneE164 = parsedPhone.e164;
+        phoneExtension = parsedPhone.extension || undefined;
+      } catch {
+        // Keep raw phone for backward compatibility
+      }
+    }
+
     if (input.isDefault || user.addresses.length === 0) user.addresses.forEach((address) => { address.isDefault = false; });
-    user.addresses.push({ fullName: input.fullName, phone: input.phone, address: input.address, addressLine2: input.addressLine2 || '', city: input.city, state: input.province, postalCode: input.postalCode || '', country: input.country, isDefault: input.isDefault || user.addresses.length === 0 });
+    user.addresses.push({
+      fullName: input.fullName,
+      phone: input.phone,
+      phoneE164,
+      phoneExtension,
+      address: input.address,
+      addressLine2: input.addressLine2 || '',
+      city: input.city,
+      state: input.province,
+      administrativeArea: input.province || '',
+      postalCode: input.postalCode || '',
+      country: input.country,
+      countryCode,
+      isDefault: input.isDefault || user.addresses.length === 0
+    });
     await user.save(); return addressView(user.addresses[user.addresses.length - 1]);
   }
   async updateAddress(userId, addressId, input) {
     if (input.country) await this.assertEligibleCountry(input.country);
     const user = await User.findById(userId); const address = user?.addresses.id(addressId);
     if (!address) throw new AppError('Address not found', 404, ERROR_CODES.CUSTOMER_ADDRESS_NOT_FOUND);
-    Object.assign(address, { ...(input.fullName !== undefined && { fullName: input.fullName }), ...(input.phone !== undefined && { phone: input.phone }), ...(input.address !== undefined && { address: input.address }), ...(input.addressLine2 !== undefined && { addressLine2: input.addressLine2 }), ...(input.city !== undefined && { city: input.city }), ...(input.province !== undefined && { state: input.province }), ...(input.postalCode !== undefined && { postalCode: input.postalCode }), ...(input.country !== undefined && { country: input.country }) });
+
+    let countryCode = address.countryCode || 'PK';
+    if (input.country) {
+      if (input.country.toUpperCase() === 'PAKISTAN' || input.country.toUpperCase() === 'PK') {
+        countryCode = 'PK';
+      } else if (CountryRegistry.has(input.country)) {
+        countryCode = CountryRegistry.get(input.country).alpha2;
+      } else {
+        countryCode = input.country;
+      }
+    }
+
+    let phoneE164 = address.phoneE164;
+    let phoneExtension = address.phoneExtension;
+    if (input.phone) {
+      try {
+        const parsedPhone = Phone.parse(input.phone, { defaultCountry: countryCode || 'PK' });
+        phoneE164 = parsedPhone.e164;
+        phoneExtension = parsedPhone.extension || undefined;
+      } catch {
+        // Keep existing
+      }
+    }
+
+    Object.assign(address, {
+      ...(input.fullName !== undefined && { fullName: input.fullName }),
+      ...(input.phone !== undefined && { phone: input.phone, phoneE164, phoneExtension }),
+      ...(input.address !== undefined && { address: input.address }),
+      ...(input.addressLine2 !== undefined && { addressLine2: input.addressLine2 }),
+      ...(input.city !== undefined && { city: input.city }),
+      ...(input.province !== undefined && { state: input.province, administrativeArea: input.province }),
+      ...(input.postalCode !== undefined && { postalCode: input.postalCode }),
+      ...(input.country !== undefined && { country: input.country, countryCode })
+    });
     if (input.isDefault) { user.addresses.forEach((entry) => { entry.isDefault = String(entry._id) === String(address._id); }); }
     await user.save(); return addressView(address);
   }

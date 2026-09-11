@@ -54,9 +54,18 @@ const webhookProviderSchema = z.object({
   provider: z.enum(['stripe', 'jazzcash', 'easypaisa'])
 }).strict();
 
+const { CurrencyRegistry } = require('../modules/commerce');
+
 const paymentAvailabilityQuerySchema = z.object({
   country: z.string().trim().min(2).max(100).default('Pakistan'),
-  currency: z.literal('PKR').default('PKR'),
+  currency: z.string()
+    .trim()
+    .length(3)
+    .transform((val) => val.toUpperCase())
+    .refine((val) => CurrencyRegistry.has(val), {
+      message: 'Currency must be an active commercial ISO 4217 code'
+    })
+    .default('PKR'),
   amount: z.coerce.number().finite().positive().max(100000000).optional()
 }).passthrough();
 

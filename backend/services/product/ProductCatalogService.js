@@ -8,6 +8,7 @@ const { assertProductsDeletable, assertVariantsRemovable } = require('../Product
 const { validateMergedPublishedState } = require('../../validators/productValidator');
 const { AppError } = require('../../common/errors/AppError');
 const logger = require('../../utils/logger');
+const { MoneyMapper } = require('../../modules/commerce');
 
 class ProductCatalogService {
   async runInTransaction(callback) {
@@ -97,20 +98,29 @@ class ProductCatalogService {
       // 3. Normalize Variants
       let variants = [];
       if (Array.isArray(data.variants) && data.variants.length > 0) {
-        variants = data.variants.map((v, index) => ({
-          _id: v._id ? new mongoose.Types.ObjectId(v._id) : new mongoose.Types.ObjectId(),
-          sku: v.sku.trim().toUpperCase(),
-          barcode: v.barcode ? v.barcode.trim() : '',
-          attributes: v.attributes,
-          price: Number(v.price),
-          salePrice: v.salePrice ? Number(v.salePrice) : 0,
-          stock: v.stock !== undefined ? Number(v.stock) : (v.initialStock !== undefined ? Number(v.initialStock) : 0),
-          mediaAssetIds: v.mediaAssetIds || [],
-          images: v.images || [],
-          isDefault: v.isDefault !== undefined ? Boolean(v.isDefault) : (index === 0)
-        }));
+        variants = data.variants.map((v, index) => {
+          const vPrice = Number(v.price);
+          const vSalePrice = v.salePrice ? Number(v.salePrice) : 0;
+          const vCostPrice = v.costPrice !== undefined ? Number(v.costPrice) : undefined;
+          return {
+            _id: v._id ? new mongoose.Types.ObjectId(v._id) : new mongoose.Types.ObjectId(),
+            sku: v.sku.trim().toUpperCase(),
+            barcode: v.barcode ? v.barcode.trim() : '',
+            attributes: v.attributes,
+            price: vPrice,
+            priceExact: MoneyMapper.fromLegacy(vPrice, 'PKR'),
+            salePrice: vSalePrice,
+            salePriceExact: vSalePrice > 0 ? MoneyMapper.fromLegacy(vSalePrice, 'PKR') : undefined,
+            costPrice: vCostPrice,
+            costPriceExact: vCostPrice !== undefined ? MoneyMapper.fromLegacy(vCostPrice, 'PKR') : undefined,
+            stock: v.stock !== undefined ? Number(v.stock) : (v.initialStock !== undefined ? Number(v.initialStock) : 0),
+            mediaAssetIds: v.mediaAssetIds || [],
+            images: v.images || [],
+            isDefault: v.isDefault !== undefined ? Boolean(v.isDefault) : (index === 0)
+          };
+        });
 
-        if (!variants.some(v => v.isDefault)) {
+        if (!variants.some((v) => v.isDefault)) {
           variants[0].isDefault = true;
         }
       }
@@ -142,6 +152,10 @@ class ProductCatalogService {
       const status = data.status || 'draft';
       const isActive = (status === 'published');
 
+      const rootPrice = data.price !== undefined ? Number(data.price) : 0;
+      const rootCostPrice = data.costPrice !== undefined ? Number(data.costPrice) : 0;
+      const rootOrigPrice = data.originalPrice !== undefined ? Number(data.originalPrice) : 0;
+
       const product = new Product({
         _id: productId,
         name: data.name.trim(),
@@ -153,9 +167,12 @@ class ProductCatalogService {
         brand: data.brand || null,
         sku: rootSku,
         barcode: data.barcode ? data.barcode.trim() : '',
-        costPrice: data.costPrice !== undefined ? Number(data.costPrice) : 0,
-        price: data.price !== undefined ? Number(data.price) : 0,
-        originalPrice: data.originalPrice !== undefined ? Number(data.originalPrice) : 0,
+        costPrice: rootCostPrice,
+        costPriceExact: MoneyMapper.fromLegacy(rootCostPrice, 'PKR'),
+        price: rootPrice,
+        priceExact: MoneyMapper.fromLegacy(rootPrice, 'PKR'),
+        originalPrice: rootOrigPrice,
+        originalPriceExact: MoneyMapper.fromLegacy(rootOrigPrice, 'PKR'),
         stock: calculatedStock,
         lowStockThreshold: data.lowStockThreshold !== undefined ? Number(data.lowStockThreshold) : 10,
         status,
@@ -319,14 +336,21 @@ class ProductCatalogService {
           }
 
           const oldVar = product.variants.id(variantId);
+          const vPrice = v.price !== undefined ? Number(v.price) : (oldVar?.price || 0);
+          const vSalePrice = v.salePrice !== undefined ? Number(v.salePrice) : (oldVar?.salePrice || 0);
+          const vCostPrice = v.costPrice !== undefined ? Number(v.costPrice) : oldVar?.costPrice;
           return {
             _id: variantId,
             sku: v.sku ? v.sku.trim().toUpperCase() : (oldVar?.sku || ''),
             barcode: v.barcode !== undefined ? v.barcode.trim() : (oldVar?.barcode || ''),
             weight: v.weight !== undefined ? (v.weight === null ? undefined : Number(v.weight)) : oldVar?.weight,
             attributes: v.attributes || oldVar?.attributes || [],
-            price: v.price !== undefined ? Number(v.price) : (oldVar?.price || 0),
-            salePrice: v.salePrice !== undefined ? Number(v.salePrice) : (oldVar?.salePrice || 0),
+            price: vPrice,
+            priceExact: MoneyMapper.fromLegacy(vPrice, 'PKR'),
+            salePrice: vSalePrice,
+            salePriceExact: vSalePrice > 0 ? MoneyMapper.fromLegacy(vSalePrice, 'PKR') : undefined,
+            costPrice: vCostPrice,
+            costPriceExact: vCostPrice !== undefined ? MoneyMapper.fromLegacy(vCostPrice, 'PKR') : undefined,
             stock: oldVar ? oldVar.stock : (v.stock || 0), // Stock not modified directly by edit
             mediaAssetIds: v.mediaAssetIds || oldVar?.mediaAssetIds || [],
             images: v.images || oldVar?.images || [],
@@ -378,9 +402,18 @@ class ProductCatalogService {
       if (data.brand !== undefined) product.brand = data.brand || null;
       if (data.sku !== undefined) product.sku = data.sku ? data.sku.trim().toUpperCase() : null;
       if (data.barcode !== undefined) product.barcode = data.barcode ? data.barcode.trim() : '';
-      if (data.costPrice !== undefined) product.costPrice = Number(data.costPrice);
-      if (data.price !== undefined) product.price = Number(data.price);
-      if (data.originalPrice !== undefined) product.originalPrice = Number(data.originalPrice);
+      if (data.costPrice !== undefined) {
+        product.costPrice = Number(data.costPrice);
+        product.costPriceExact = MoneyMapper.fromLegacy(Number(data.costPrice), 'PKR');
+      }
+      if (data.price !== undefined) {
+        product.price = Number(data.price);
+        product.priceExact = MoneyMapper.fromLegacy(Number(data.price), 'PKR');
+      }
+      if (data.originalPrice !== undefined) {
+        product.originalPrice = Number(data.originalPrice);
+        product.originalPriceExact = MoneyMapper.fromLegacy(Number(data.originalPrice), 'PKR');
+      }
       if (data.lowStockThreshold !== undefined) product.lowStockThreshold = Number(data.lowStockThreshold);
       if (data.isFeatured !== undefined) product.isFeatured = Boolean(data.isFeatured);
       if (data.isNewArrival !== undefined) product.isNewArrival = Boolean(data.isNewArrival);

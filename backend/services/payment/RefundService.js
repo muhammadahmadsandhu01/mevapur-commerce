@@ -32,10 +32,12 @@ const MISSING_INVENTORY_CODES = new Set([
   'RETURN_INVENTORY_VARIANT_MISSING'
 ]);
 
+const { MoneyMapper } = require('../../modules/commerce');
+
 class RefundService {
-  getProvider(providerName) {
+  getProvider(providerName, currency = 'PKR') {
     const provider = paymentProviderRegistry.resolve(providerName, {
-      currency: 'PKR'
+      currency: currency || 'PKR'
     });
     if (!provider.getCapabilities().refund) {
       throw new AppError(
@@ -146,7 +148,7 @@ class RefundService {
     }
 
     if (processingMode === 'provider') {
-      this.getProvider(payment.provider);
+      this.getProvider(payment.provider, payment.currency);
     } else {
       const providerManifest = paymentProviderRegistry
         .getInstalled(payment.provider)
@@ -167,6 +169,7 @@ class RefundService {
         customer: payment.user,
         provider: payment.provider,
         amount,
+        amountExact: MoneyMapper.fromLegacy(amount, payment.currency),
         currency: payment.currency,
         status: REFUND_STATUSES.PENDING,
         idempotencyKey,
@@ -433,7 +436,7 @@ class RefundService {
     let providerConfirmed = false;
     try {
       const payment = await Payment.findById(claimed.payment);
-      const provider = this.getProvider(claimed.provider);
+      const provider = this.getProvider(claimed.provider, payment?.currency || claimed.currency);
       const providerResult = await provider.refundPayment({
         providerPaymentId: payment.providerPaymentId,
         amount: claimed.amount,
@@ -650,6 +653,13 @@ class RefundService {
       0,
       Number((payment.refundReservedAmount - refund.amount).toFixed(2))
     );
+    if (payment.amountExact) {
+      payment.refundedAmountExact = MoneyMapper.fromLegacy(payment.refundedAmount, payment.currency);
+      payment.refundReservedAmountExact = MoneyMapper.fromLegacy(payment.refundReservedAmount, payment.currency);
+    }
+    if (!refund.amountExact && refund.amount) {
+      refund.amountExact = MoneyMapper.fromLegacy(refund.amount, payment.currency || 'PKR');
+    }
     paymentStateMachine.apply(payment, paymentStatus, {
       source: 'refund',
       providerEventId

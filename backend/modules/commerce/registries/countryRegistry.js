@@ -302,6 +302,7 @@ for (const [
 
   const entry = Object.freeze({
     code,
+    alpha2: code,
     alpha3,
     numeric,
     name,
@@ -336,9 +337,27 @@ class CountryRegistry {
   }
 
   /**
+   * Check if country code exists
+   * @param {string} code
+   * @returns {boolean}
+   */
+  static has(code) {
+    return this.hasCountry(code);
+  }
+
+  /**
+   * Alias for getCountry
+   * @param {string} code
+   * @returns {Object}
+   */
+  static get(code) {
+    return this.getCountry(code);
+  }
+
+  /**
    * Retrieve versioned metadata for an ISO 3166-1 country code
    * @param {string} code - Alpha-2 (2 letters), Alpha-3 (3 letters), or 3-digit Numeric string
-   * @returns {Readonly<{code: string, alpha3: string, numeric: string, name: string, defaultCurrency: string, defaultLocale: string, callingCode: string, postalPolicy: string, adminPolicy: string, adminType: string, provenance: Object}>}
+   * @returns {Readonly<{code: string, alpha2: string, alpha3: string, numeric: string, name: string, defaultCurrency: string, defaultLocale: string, callingCode: string, postalPolicy: string, adminPolicy: string, adminType: string, provenance: Object}>}
    */
   static getCountry(code) {
     const normalized = this.normalizeCode(code);

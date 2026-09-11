@@ -1,6 +1,14 @@
 const { AppError } = require('../common/errors/AppError');
+const { CurrencyRegistry } = require('../modules/commerce');
 
-const MINOR_UNITS_PER_MAJOR = 100;
+const getScaleFactor = (currency = 'PKR') => {
+  try {
+    const meta = CurrencyRegistry.get(currency);
+    return 10 ** (meta.exponent !== undefined && meta.exponent !== null ? meta.exponent : 2);
+  } catch {
+    return 100;
+  }
+};
 
 const allocationError = () => new AppError(
   'Order monetary snapshot is unavailable for return allocation',
@@ -8,39 +16,41 @@ const allocationError = () => new AppError(
   'RETURN_REFUND_STATE_UNAVAILABLE'
 );
 
-const toMinorUnits = (value) => {
+const toMinorUnits = (value, currency = 'PKR') => {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount < 0) throw allocationError();
 
+  const scale = getScaleFactor(currency);
   const minorUnits = Math.round(
-    (amount + Number.EPSILON) * MINOR_UNITS_PER_MAJOR
+    (amount + Number.EPSILON) * scale
   );
   if (!Number.isSafeInteger(minorUnits)) throw allocationError();
   return minorUnits;
 };
 
-const optionalMinorUnits = (value) => (
-  value === undefined || value === null ? null : toMinorUnits(value)
+const optionalMinorUnits = (value, currency = 'PKR') => (
+  value === undefined || value === null ? null : toMinorUnits(value, currency)
 );
 
-const fromMinorUnits = (minorUnits) => {
+const fromMinorUnits = (minorUnits, currency = 'PKR') => {
   if (!Number.isSafeInteger(minorUnits) || minorUnits < 0) {
     throw allocationError();
   }
-  return minorUnits / MINOR_UNITS_PER_MAJOR;
+  const scale = getScaleFactor(currency);
+  return minorUnits / scale;
 };
 
 const orderLineKey = (productId, variantId) => (
   `${String(productId)}:${variantId ? String(variantId) : 'root'}`
 );
 
-const lineGrossMinor = (item) => {
+const lineGrossMinor = (item, currency = 'PKR') => {
   if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
     throw allocationError();
   }
 
-  const calculated = toMinorUnits(Number(item.price) * item.quantity);
-  const storedLineTotal = optionalMinorUnits(item.lineTotal);
+  const calculated = toMinorUnits(Number(item.price) * item.quantity, currency);
+  const storedLineTotal = optionalMinorUnits(item.lineTotal, currency);
 
   // Current orders persist lineTotal. Legacy orders do not. If both stored
   // representations disagree, use the lower value so a malformed snapshot can
@@ -91,6 +101,8 @@ const allocateOrderMerchandise = (order) => {
     throw allocationError();
   }
 
+  const currency = order.currency || order.payment?.currency || 'PKR';
+
   const lines = order.items.map((item, index) => {
     const canonicalKey = orderLineKey(item.product, item.variantId);
     return {
@@ -98,20 +110,20 @@ const allocateOrderMerchandise = (order) => {
       index,
       canonicalKey,
       stableKey: `${canonicalKey}:${String(item.sku || '')}:${String(index).padStart(6, '0')}`,
-      grossMinor: lineGrossMinor(item),
+      grossMinor: lineGrossMinor(item, currency),
       quantity: item.quantity
     };
   });
   const grossMinor = lines.reduce((total, line) => total + line.grossMinor, 0);
 
-  const storedSubtotal = optionalMinorUnits(order.subtotal);
+  const storedSubtotal = optionalMinorUnits(order.subtotal, currency);
   const authoritativeSubtotal = Math.min(
     grossMinor,
     storedSubtotal === null ? grossMinor : storedSubtotal
   );
   const discountCandidates = [
-    optionalMinorUnits(order.discount),
-    optionalMinorUnits(order.coupon?.discountAmount)
+    optionalMinorUnits(order.discount, currency),
+    optionalMinorUnits(order.coupon?.discountAmount, currency)
   ].filter((value) => value !== null);
   const discountMinor = Math.min(
     authoritativeSubtotal,
@@ -119,10 +131,10 @@ const allocateOrderMerchandise = (order) => {
   );
   let allocatableMinor = authoritativeSubtotal - discountMinor;
 
-  const storedTotal = optionalMinorUnits(order.totalAmount);
+  const storedTotal = optionalMinorUnits(order.totalAmount, currency);
   if (storedTotal !== null) {
-    const shippingMinor = optionalMinorUnits(order.shippingCost) || 0;
-    const taxMinor = optionalMinorUnits(order.taxAmount) || 0;
+    const shippingMinor = optionalMinorUnits(order.shippingCost, currency) || 0;
+    const taxMinor = optionalMinorUnits(order.taxAmount, currency) || 0;
     const merchandisePaidMinor = Math.max(
       0,
       storedTotal - shippingMinor - taxMinor

@@ -276,7 +276,7 @@ class FinancialMetricsService {
       },
       {
         $group: {
-          _id: null,
+          _id: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] },
           grossCaptured: {
             $sum: {
               $cond: ['$isValidCapturedRevenueOrder', '$orderTotal', 0]
@@ -341,10 +341,44 @@ class FinancialMetricsService {
     ];
 
     const result = await Order.aggregate(pipeline);
-    const summary = result[0] || {
+    const byCurrency = {};
+    let totalAllOrders = 0;
+    let totalAllPaidOrders = 0;
+
+    for (const row of result) {
+      const curr = String(row._id || 'PKR').toUpperCase();
+      totalAllOrders += row.orderCount;
+      totalAllPaidOrders += row.paidOrderCount;
+      byCurrency[curr] = {
+        currency: curr,
+        grossCaptured: FinancialMetricsService.roundMoney(row.grossCaptured),
+        totalRefunded: FinancialMetricsService.roundMoney(row.totalRefunded),
+        realizedRevenue: FinancialMetricsService.roundMoney(row.realizedRevenue),
+        netCollected: FinancialMetricsService.roundMoney(row.realizedRevenue),
+        orderCount: row.orderCount,
+        paidOrderCount: row.paidOrderCount,
+        reconciledCaptureCount: row.reconciledCaptureCount,
+        reconciledCaptureAmount: FinancialMetricsService.roundMoney(row.reconciledCaptureAmount),
+        legacyOrderCaptureCount: row.legacyOrderCaptureCount,
+        legacyOrderCaptureAmount: FinancialMetricsService.roundMoney(row.legacyOrderCaptureAmount),
+        paymentOrderMismatchCount: row.paymentOrderMismatchCount,
+        paymentOrderMismatchAmount: FinancialMetricsService.roundMoney(row.paymentOrderMismatchAmount),
+        refundReconciliationMismatchCount: row.refundMismatchCount,
+        refundReconciliationMismatchAmount: FinancialMetricsService.roundMoney(row.refundMismatchAmount),
+        overRefundAnomalyCount: row.overRefundCount,
+        overRefundAnomalyAmount: FinancialMetricsService.roundMoney(row.overRefundAmount),
+        averageOrderValue: row.orderCount > 0
+          ? FinancialMetricsService.roundMoney(row.realizedRevenue / row.orderCount)
+          : 0
+      };
+    }
+
+    const pkrSummary = byCurrency.PKR || {
+      currency: 'PKR',
       grossCaptured: 0,
       totalRefunded: 0,
       realizedRevenue: 0,
+      netCollected: 0,
       orderCount: 0,
       paidOrderCount: 0,
       reconciledCaptureCount: 0,
@@ -353,32 +387,17 @@ class FinancialMetricsService {
       legacyOrderCaptureAmount: 0,
       paymentOrderMismatchCount: 0,
       paymentOrderMismatchAmount: 0,
-      refundMismatchCount: 0,
-      refundMismatchAmount: 0,
-      overRefundCount: 0,
-      overRefundAmount: 0
+      refundReconciliationMismatchCount: 0,
+      refundReconciliationMismatchAmount: 0,
+      overRefundAnomalyCount: 0,
+      overRefundAnomalyAmount: 0,
+      averageOrderValue: 0
     };
 
     return {
-      grossCaptured: FinancialMetricsService.roundMoney(summary.grossCaptured),
-      totalRefunded: FinancialMetricsService.roundMoney(summary.totalRefunded),
-      realizedRevenue: FinancialMetricsService.roundMoney(summary.realizedRevenue),
-      netCollected: FinancialMetricsService.roundMoney(summary.realizedRevenue),
-      orderCount: summary.orderCount,
-      paidOrderCount: summary.paidOrderCount,
-      reconciledCaptureCount: summary.reconciledCaptureCount,
-      reconciledCaptureAmount: FinancialMetricsService.roundMoney(summary.reconciledCaptureAmount),
-      legacyOrderCaptureCount: summary.legacyOrderCaptureCount,
-      legacyOrderCaptureAmount: FinancialMetricsService.roundMoney(summary.legacyOrderCaptureAmount),
-      paymentOrderMismatchCount: summary.paymentOrderMismatchCount,
-      paymentOrderMismatchAmount: FinancialMetricsService.roundMoney(summary.paymentOrderMismatchAmount),
-      refundReconciliationMismatchCount: summary.refundMismatchCount,
-      refundReconciliationMismatchAmount: FinancialMetricsService.roundMoney(summary.refundMismatchAmount),
-      overRefundAnomalyCount: summary.overRefundCount,
-      overRefundAnomalyAmount: FinancialMetricsService.roundMoney(summary.overRefundAmount),
-      averageOrderValue: summary.orderCount > 0
-        ? FinancialMetricsService.roundMoney(summary.realizedRevenue / summary.orderCount)
-        : 0
+      ...pkrSummary,
+      totalOrdersCountAcrossCurrencies: totalAllOrders,
+      byCurrency
     };
   }
 
@@ -431,7 +450,7 @@ class FinancialMetricsService {
       },
       {
         $group: {
-          _id: null,
+          _id: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] },
           unrefundedLiability: { $sum: '$unrefundedBalance' },
           anomalyOrderCount: { $sum: { $cond: [{ $gt: ['$unrefundedBalance', 0] }, 1, 0] } }
         }
@@ -439,9 +458,20 @@ class FinancialMetricsService {
     ];
 
     const result = await Order.aggregate(pipeline);
+    const byCurrency = {};
+    for (const row of result) {
+      const curr = String(row._id || 'PKR').toUpperCase();
+      byCurrency[curr] = {
+        currency: curr,
+        unrefundedLiability: FinancialMetricsService.roundMoney(row.unrefundedLiability || 0),
+        anomalyOrderCount: row.anomalyOrderCount || 0
+      };
+    }
+    const pkrLiability = byCurrency.PKR || { unrefundedLiability: 0, anomalyOrderCount: 0 };
     return {
-      unrefundedLiability: FinancialMetricsService.roundMoney(result[0]?.unrefundedLiability || 0),
-      anomalyOrderCount: result[0]?.anomalyOrderCount || 0
+      unrefundedLiability: pkrLiability.unrefundedLiability,
+      anomalyOrderCount: pkrLiability.anomalyOrderCount,
+      byCurrency
     };
   }
 

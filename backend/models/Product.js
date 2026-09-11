@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const slugify = require('slugify');
-const { MoneySchema } = require('../modules/commerce');
+const { MoneySchema, MoneyMapper } = require('../modules/commerce');
 
 // Guard Clause: Prevent OverwriteModelError
 if (mongoose.models.Product) {
@@ -397,6 +397,14 @@ if (mongoose.models.Product) {
 
       this.price = hasSalePrice ? salePrice : regularPrice;
       this.originalPrice = regularPrice;
+
+      if (defaultVar.priceExact) {
+        this.priceExact = hasSalePrice && defaultVar.salePriceExact ? defaultVar.salePriceExact : defaultVar.priceExact;
+        this.originalPriceExact = defaultVar.priceExact;
+      } else if (this.priceExact) {
+        this.priceExact = MoneyMapper.fromLegacy(this.price, 'PKR');
+        this.originalPriceExact = MoneyMapper.fromLegacy(this.originalPrice, 'PKR');
+      }
     }
 
     // 5. Dynamic discount calculation

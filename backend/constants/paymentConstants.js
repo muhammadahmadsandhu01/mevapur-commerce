@@ -44,7 +44,11 @@ const WEBHOOK_PROCESSING_STATUSES = Object.freeze({
   FAILED: 'Failed'
 });
 
-const SUPPORTED_PAYMENT_CURRENCIES = Object.freeze(['PKR']);
+const { CurrencyRegistry } = require('../modules/commerce');
+
+const SUPPORTED_PAYMENT_CURRENCIES = Object.freeze(
+  CurrencyRegistry.listActiveCommercial().map((c) => c.code)
+);
 
 module.exports = {
   PAYMENT_PROVIDERS,
