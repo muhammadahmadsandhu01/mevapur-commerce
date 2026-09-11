@@ -18,8 +18,14 @@ function validateStoragePrefix(prefix) {
   }
 
   let decoded = prefix;
+  let prev;
+  let iterations = 0;
   try {
-    decoded = decodeURIComponent(prefix);
+    do {
+      prev = decoded;
+      decoded = decodeURIComponent(decoded);
+      iterations += 1;
+    } while (decoded !== prev && iterations < 5);
   } catch {
     throw new AppError('Storage prefix contains invalid encoding', 400, 'MEDIA_UNSAFE_STORAGE_PREFIX');
   }
@@ -49,14 +55,24 @@ function validateObjectKey(key, canonicalPrefix) {
   }
 
   let decoded = key;
+  let prev;
+  let iterations = 0;
   try {
-    decoded = decodeURIComponent(key);
+    do {
+      prev = decoded;
+      decoded = decodeURIComponent(decoded);
+      iterations += 1;
+    } while (decoded !== prev && iterations < 5);
   } catch {
     return { valid: false, reason: 'INVALID_KEY_ENCODING' };
   }
 
   if (decoded.includes('\0') || decoded.includes('\\') || decoded.includes('*')) {
     return { valid: false, reason: 'UNSAFE_KEY_CHARACTERS' };
+  }
+
+  if (decoded.includes('://') || decoded.startsWith('http:') || decoded.startsWith('https:')) {
+    return { valid: false, reason: 'ABSOLUTE_URL_KEY_REJECTED' };
   }
 
   const clean = decoded.trim().replace(/^\/+/, '');
@@ -69,6 +85,10 @@ function validateObjectKey(key, canonicalPrefix) {
     if (seg === '..' || seg === '.') {
       return { valid: false, reason: 'TRAVERSAL_KEY_SEGMENT' };
     }
+  }
+
+  if (clean === canonicalPrefix || clean === canonicalPrefix.replace(/\/$/, '')) {
+    return { valid: false, reason: 'KEY_EQUALS_PREFIX_NO_OBJECT' };
   }
 
   if (!clean.startsWith(canonicalPrefix)) {

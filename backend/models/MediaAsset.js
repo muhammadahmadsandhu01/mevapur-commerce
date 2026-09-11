@@ -48,7 +48,7 @@ if (mongoose.models.MediaAsset) {
     },
     status: {
       type: String,
-      enum: ['uploading', 'pending', 'committed', 'deletion_requested', 'deleted', 'upload_failed', 'deletion_failed'],
+      enum: ['uploading', 'pending', 'committed', 'deletion_requested', 'deletion_in_progress', 'deleted', 'upload_failed', 'deletion_failed'],
       default: 'uploading',
       index: true
     },
@@ -78,6 +78,14 @@ if (mongoose.models.MediaAsset) {
       default: null
     },
     nextRetryAt: {
+      type: Date,
+      default: null
+    },
+    leaseId: {
+      type: String,
+      default: null
+    },
+    leaseExpiresAt: {
       type: Date,
       default: null
     }

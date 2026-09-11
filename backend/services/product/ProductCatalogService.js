@@ -49,6 +49,9 @@ class ProductCatalogService {
 
     // Check ownership/attachment validity
     for (const asset of assets) {
+      if (['deletion_requested', 'deletion_in_progress', 'deletion_failed', 'deleted', 'upload_failed'].includes(asset.status)) {
+        throw new AppError(`Media asset cannot be attached in status: ${asset.status}`, 400, 'MEDIA_ASSET_INVALID_STATUS');
+      }
       if (asset.status === 'committed' && asset.attachedTo?.id && String(asset.attachedTo.id) !== String(productId)) {
         throw new AppError('Media asset is already committed to another product', 409, 'MEDIA_ASSET_ALREADY_COMMITTED');
       }

@@ -1,3 +1,5 @@
+const fs = require('fs');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 
 const MediaAsset = require('../models/MediaAsset');
@@ -5,19 +7,112 @@ const Product = require('../models/Product');
 const { createStorageProvider } = require('../services/media/StorageProvider');
 const { getRuntimeConfig } = require('../config/runtime.config');
 const MediaService = require('../services/media/MediaService');
-const { parseMigrationCli, validateTargetAndDbConfig } = require('./lib/migrationRuntimeGuard');
+const { parseMigrationCli, validateTargetAndDbConfig, MigrationGuardError } = require('./lib/migrationRuntimeGuard');
+
+function validateCheckpointManifest({
+  manifestPath,
+  expectedSha256,
+  target,
+  canonicalPrefix,
+  dbFingerprint,
+  bucket
+}) {
+  if (!manifestPath || typeof manifestPath !== 'string' || !manifestPath.trim()) {
+    throw new MigrationGuardError('CHECKPOINT_MANIFEST_REQUIRED', 'Apply mode strictly requires --checkpoint-manifest=<path>');
+  }
+  if (!expectedSha256 || typeof expectedSha256 !== 'string' || !expectedSha256.trim()) {
+    throw new MigrationGuardError('EXPECTED_MANIFEST_SHA256_REQUIRED', 'Apply mode strictly requires --expected-manifest-sha256=<hash>');
+  }
+  if (!fs.existsSync(manifestPath)) {
+    throw new MigrationGuardError('MANIFEST_FILE_NOT_FOUND', `Checkpoint manifest file not found: ${manifestPath}`);
+  }
+
+  const rawContent = fs.readFileSync(manifestPath, 'utf8');
+  const computedSha256 = crypto.createHash('sha256').update(rawContent).digest('hex');
+  if (computedSha256.toLowerCase() !== expectedSha256.trim().toLowerCase()) {
+    throw new MigrationGuardError('MANIFEST_HASH_MISMATCH', `Checkpoint manifest SHA-256 mismatch. Expected: ${expectedSha256}, computed: ${computedSha256}`);
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(rawContent);
+  } catch {
+    throw new MigrationGuardError('MALFORMED_MANIFEST', 'Checkpoint manifest contains invalid JSON.');
+  }
+
+  if (!manifest.schemaVersion || typeof manifest.schemaVersion !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_SCHEMA', 'Manifest missing required schemaVersion string.');
+  }
+  if (!manifest.checkpointId || typeof manifest.checkpointId !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_CHECKPOINT_ID', 'Manifest missing required checkpointId string.');
+  }
+
+  const ts = manifest.timestamp || manifest.createdAt;
+  if (!ts) {
+    throw new MigrationGuardError('INVALID_MANIFEST_TIMESTAMP', 'Manifest missing required timestamp/createdAt.');
+  }
+  const date = new Date(ts);
+  if (isNaN(date.getTime())) {
+    throw new MigrationGuardError('INVALID_MANIFEST_TIMESTAMP', 'Manifest timestamp is invalid.');
+  }
+  const ageMs = Date.now() - date.getTime();
+  if (ageMs > 24 * 60 * 60 * 1000 || ageMs < -5 * 60 * 1000) {
+    throw new MigrationGuardError('MANIFEST_STALE', `Checkpoint manifest is stale or in the future (age: ${Math.round(ageMs / 1000)}s). Must be <= 24h old.`);
+  }
+
+  if (String(manifest.target).toLowerCase() !== String(target).toLowerCase()) {
+    throw new MigrationGuardError('MANIFEST_TARGET_MISMATCH', `Manifest target '${manifest.target}' does not match execution target '${target}'.`);
+  }
+
+  if (manifest.prefix && manifest.prefix !== canonicalPrefix) {
+    throw new MigrationGuardError('MANIFEST_PREFIX_MISMATCH', `Manifest prefix '${manifest.prefix}' does not match canonical prefix '${canonicalPrefix}'.`);
+  }
+
+  if (manifest.dbFingerprint && manifest.dbFingerprint !== dbFingerprint) {
+    throw new MigrationGuardError('MANIFEST_DB_FINGERPRINT_MISMATCH', `Manifest dbFingerprint '${manifest.dbFingerprint}' does not match DB '${dbFingerprint}'.`);
+  }
+
+  if (manifest.bucket && bucket && manifest.bucket !== bucket) {
+    throw new MigrationGuardError('MANIFEST_BUCKET_MISMATCH', `Manifest bucket '${manifest.bucket}' does not match configured bucket '${bucket}'.`);
+  }
+
+  if (typeof manifest.inventoryCount !== 'number' || manifest.inventoryCount < 0) {
+    throw new MigrationGuardError('INVALID_MANIFEST_INVENTORY_COUNT', 'Manifest inventoryCount must be a non-negative number.');
+  }
+
+  if (!manifest.manifestHash && !manifest.checksum) {
+    throw new MigrationGuardError('INVALID_MANIFEST_HASH', 'Manifest missing manifestHash/checksum field.');
+  }
+
+  if (!manifest.recoveryClassification) {
+    throw new MigrationGuardError('INVALID_MANIFEST_RECOVERY_CLASSIFICATION', 'Manifest missing recoveryClassification.');
+  }
+
+  if (!['VERIFIED', 'ACKNOWLEDGED'].includes(manifest.operatorVerificationState)) {
+    throw new MigrationGuardError('INVALID_MANIFEST_OPERATOR_STATE', 'Manifest operatorVerificationState must be VERIFIED or ACKNOWLEDGED.');
+  }
+
+  return manifest;
+}
 
 async function reconcileMediaAssets({
   argv = process.argv.slice(2),
   customConfig = null,
   customDbConnected = false,
   customStorageProvider = null,
+  checkpointManifestPath = null,
+  expectedManifestSha256 = null,
   env = process.env
 } = {}) {
   // 1. Strict CLI Argument Parsing
   const cli = parseMigrationCli(argv, {
     allowedModes: ['--dry-run', '--apply'],
-    allowedFlags: ['--confirm-media-reconciliation', '--confirm-production-media-reconciliation'],
+    allowedFlags: [
+      '--confirm-media-reconciliation',
+      '--confirm-production-media-reconciliation',
+      '--checkpoint-manifest=',
+      '--expected-manifest-sha256='
+    ],
     requiredConfirmationMap: {
       apply: {
         staging: ['--confirm-media-reconciliation'],
@@ -47,7 +142,7 @@ async function reconcileMediaAssets({
     try {
       runtimeConfig = getRuntimeConfig(env);
     } catch {
-      runtimeConfig = { storage: { provider: 'mock', s3: { keyPrefix: 'products/' } } };
+      runtimeConfig = { storage: { provider: 'mock', s3: { bucket: 'mevapur-products', keyPrefix: 'products/' } } };
     }
   }
   const storageProvider = customStorageProvider || createStorageProvider(runtimeConfig);
@@ -55,6 +150,32 @@ async function reconcileMediaAssets({
   const rawPrefix = runtimeConfig?.storage?.s3?.keyPrefix || 'products/';
   const canonicalPrefix = MediaService.validateStoragePrefix(rawPrefix);
   console.log(`Canonical Storage Prefix: '${canonicalPrefix}'`);
+
+  const configuredBucket = runtimeConfig?.storage?.s3?.bucket || 'mevapur-products';
+
+  // 3. Checkpoint Manifest Apply Gate
+  if (isApply) {
+    let manifestPath = checkpointManifestPath;
+    let manifestSha = expectedManifestSha256;
+
+    for (const flag of cli.flags) {
+      if (flag.startsWith('--checkpoint-manifest=')) {
+        manifestPath = flag.slice('--checkpoint-manifest='.length);
+      } else if (flag.startsWith('--expected-manifest-sha256=')) {
+        manifestSha = flag.slice('--expected-manifest-sha256='.length);
+      }
+    }
+
+    validateCheckpointManifest({
+      manifestPath,
+      expectedSha256: manifestSha,
+      target: cli.target,
+      canonicalPrefix,
+      dbFingerprint: dbConfig.sanitizedFingerprint,
+      bucket: configuredBucket
+    });
+    console.log('✅ Checkpoint manifest verified.');
+  }
 
   let shouldDisconnect = false;
   if (!customDbConnected && mongoose.connection.readyState === 0) {
@@ -84,7 +205,7 @@ async function reconcileMediaAssets({
 
     // 1. Find all deletion candidates
     const allDeletionCandidates = await MediaAsset.find({
-      status: { $in: ['deletion_requested', 'deletion_failed'] }
+      status: { $in: ['deletion_requested', 'deletion_failed', 'deletion_in_progress'] }
     });
 
     console.log(`Total deletion candidate documents found: ${allDeletionCandidates.length}`);
@@ -125,38 +246,77 @@ async function reconcileMediaAssets({
         if (isApply) {
           await MediaAsset.findOneAndUpdate(
             { _id: asset._id },
-            { $set: { status: 'deletion_failed', lastError: reason } }
+            { $set: { status: 'deletion_failed', lastError: reason, leaseId: null, leaseExpiresAt: null } }
           );
         }
         continue;
       }
 
-      // Active Product Attachment Safety Guard: check if referenced by any Product
-      const isAttached = await Product.exists({
-        $or: [
-          { _id: asset.attachedTo?.id },
-          { mediaAssetIds: asset._id },
-          { primaryMediaAssetId: asset._id },
-          { 'variants.mediaAssetIds': asset._id }
-        ]
-      });
-
-      if (isAttached) {
-        report.quarantinedAttached += 1;
-        if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
-          report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
-        }
-        console.warn(`[ATTACHED-PRESERVED] Asset ${assetIdStr} is still referenced by a Product. Preserving from deletion.`);
-        continue;
-      }
-
       // Execute Deletion
       if (isApply) {
+        const leaseId = crypto.randomUUID();
+        const leaseExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+        // Atomic Exclusive Lease Claim
+        const claimed = await MediaAsset.findOneAndUpdate(
+          {
+            _id: asset._id,
+            $or: [
+              { status: 'deletion_requested' },
+              { status: 'deletion_failed', $or: [{ nextRetryAt: null }, { nextRetryAt: { $lte: now } }] },
+              { status: 'deletion_in_progress', leaseExpiresAt: { $lt: now } }
+            ]
+          },
+          {
+            $set: {
+              status: 'deletion_in_progress',
+              leaseId,
+              leaseExpiresAt
+            }
+          },
+          { new: true }
+        );
+
+        if (!claimed) {
+          console.log(`[LEASE-UNAVAILABLE] Asset ${assetIdStr} could not be leased. Skipping.`);
+          continue;
+        }
+
+        // Authoritative post-claim attachment recheck
+        const isAttached = await Product.exists({
+          $or: [
+            { _id: claimed.attachedTo?.id },
+            { mediaAssetIds: claimed._id },
+            { primaryMediaAssetId: claimed._id },
+            { 'variants.mediaAssetIds': claimed._id }
+          ]
+        });
+
+        if (isAttached) {
+          report.quarantinedAttached += 1;
+          if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
+            report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
+          }
+          console.warn(`[ATTACHED-PRESERVED] Asset ${assetIdStr} is still referenced by a Product. Preserving from deletion.`);
+          await MediaAsset.findOneAndUpdate(
+            { _id: claimed._id, leaseId },
+            {
+              $set: {
+                status: 'deletion_failed',
+                lastError: 'STILL_ATTACHED_TO_PRODUCT',
+                leaseId: null,
+                leaseExpiresAt: null
+              }
+            }
+          );
+          continue;
+        }
+
         try {
           await storageProvider.delete({ key: keyValidation.normalizedKey });
           await MediaAsset.findOneAndUpdate(
-            { _id: asset._id, status: { $in: ['deletion_requested', 'deletion_failed'] } },
-            { $set: { status: 'deleted', lastError: null } }
+            { _id: claimed._id, leaseId },
+            { $set: { status: 'deleted', lastError: null, leaseId: null, leaseExpiresAt: null } }
           );
           report.deleted += 1;
           report.affectedAssetIds.push(assetIdStr);
@@ -164,19 +324,21 @@ async function reconcileMediaAssets({
           const isNotFound = err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404;
           if (isNotFound) {
             await MediaAsset.findOneAndUpdate(
-              { _id: asset._id },
-              { $set: { status: 'deleted', lastError: 'OBJECT_ALREADY_MISSING_ON_PROVIDER' } }
+              { _id: claimed._id, leaseId },
+              { $set: { status: 'deleted', lastError: 'OBJECT_ALREADY_MISSING_ON_PROVIDER', leaseId: null, leaseExpiresAt: null } }
             );
             report.deleted += 1;
             report.affectedAssetIds.push(assetIdStr);
           } else {
             await MediaAsset.findOneAndUpdate(
-              { _id: asset._id },
+              { _id: claimed._id, leaseId },
               {
                 $set: {
                   status: 'deletion_failed',
                   lastError: 'DELETION_FAILED',
-                  nextRetryAt: new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, asset.retryCount + 1))
+                  nextRetryAt: new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, (claimed.retryCount || 0) + 1)),
+                  leaseId: null,
+                  leaseExpiresAt: null
                 },
                 $inc: { retryCount: 1 }
               }
@@ -189,6 +351,25 @@ async function reconcileMediaAssets({
           }
         }
       } else {
+        // Dry-run: check attachment and report
+        const isAttached = await Product.exists({
+          $or: [
+            { _id: asset.attachedTo?.id },
+            { mediaAssetIds: asset._id },
+            { primaryMediaAssetId: asset._id },
+            { 'variants.mediaAssetIds': asset._id }
+          ]
+        });
+
+        if (isAttached) {
+          report.quarantinedAttached += 1;
+          if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
+            report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
+          }
+          console.warn(`[ATTACHED-PRESERVED] Asset ${assetIdStr} is still referenced by a Product. Preserving from deletion.`);
+          continue;
+        }
+
         console.log(`[DRY-RUN] Would delete asset ${assetIdStr} (Retries: ${asset.retryCount})`);
         report.deleted += 1;
         report.affectedAssetIds.push(assetIdStr);
@@ -216,45 +397,81 @@ async function reconcileMediaAssets({
         continue;
       }
 
-      const orphanAttached = await Product.exists({
-        $or: [
-          { mediaAssetIds: orphan._id },
-          { primaryMediaAssetId: orphan._id },
-          { 'variants.mediaAssetIds': orphan._id }
-        ]
-      });
-
-      if (orphanAttached) {
-        report.quarantinedAttached += 1;
-        if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
-          report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
-        }
-        console.warn(`[ATTACHED-PRESERVED] Orphan asset ${orphanIdStr} is referenced by a Product. Preserving from deletion.`);
-        continue;
-      }
-
       if (isApply) {
+        const leaseId = crypto.randomUUID();
+        const leaseExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+        const claimed = await MediaAsset.findOneAndUpdate(
+          {
+            _id: orphan._id,
+            status: { $in: ['uploading', 'pending', 'upload_failed'] }
+          },
+          {
+            $set: {
+              status: 'deletion_in_progress',
+              leaseId,
+              leaseExpiresAt
+            }
+          },
+          { new: true }
+        );
+
+        if (!claimed) {
+          console.log(`[LEASE-UNAVAILABLE] Orphan asset ${orphanIdStr} could not be leased. Skipping.`);
+          continue;
+        }
+
+        const orphanAttached = await Product.exists({
+          $or: [
+            { mediaAssetIds: claimed._id },
+            { primaryMediaAssetId: claimed._id },
+            { 'variants.mediaAssetIds': claimed._id }
+          ]
+        });
+
+        if (orphanAttached) {
+          report.quarantinedAttached += 1;
+          if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
+            report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
+          }
+          console.warn(`[ATTACHED-PRESERVED] Orphan asset ${orphanIdStr} is referenced by a Product. Preserving from deletion.`);
+          await MediaAsset.findOneAndUpdate(
+            { _id: claimed._id, leaseId },
+            {
+              $set: {
+                status: 'deletion_failed',
+                lastError: 'STILL_ATTACHED_TO_PRODUCT',
+                leaseId: null,
+                leaseExpiresAt: null
+              }
+            }
+          );
+          continue;
+        }
+
         try {
           await storageProvider.delete({ key: keyValidation.normalizedKey });
           await MediaAsset.findOneAndUpdate(
-            { _id: orphan._id },
-            { $set: { status: 'deleted', lastError: null } }
+            { _id: claimed._id, leaseId },
+            { $set: { status: 'deleted', lastError: null, leaseId: null, leaseExpiresAt: null } }
           );
         } catch (err) {
           const isNotFound = err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404;
           if (isNotFound) {
             await MediaAsset.findOneAndUpdate(
-              { _id: orphan._id },
-              { $set: { status: 'deleted', lastError: 'OBJECT_ALREADY_MISSING_ON_PROVIDER' } }
+              { _id: claimed._id, leaseId },
+              { $set: { status: 'deleted', lastError: 'OBJECT_ALREADY_MISSING_ON_PROVIDER', leaseId: null, leaseExpiresAt: null } }
             );
           } else {
             await MediaAsset.findOneAndUpdate(
-              { _id: orphan._id },
+              { _id: claimed._id, leaseId },
               {
                 $set: {
                   status: 'deletion_failed',
                   lastError: 'DELETION_FAILED',
-                  nextRetryAt: new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, orphan.retryCount + 1))
+                  nextRetryAt: new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, (claimed.retryCount || 0) + 1)),
+                  leaseId: null,
+                  leaseExpiresAt: null
                 },
                 $inc: { retryCount: 1 }
               }
@@ -262,6 +479,23 @@ async function reconcileMediaAssets({
           }
         }
       } else {
+        const orphanAttached = await Product.exists({
+          $or: [
+            { mediaAssetIds: orphan._id },
+            { primaryMediaAssetId: orphan._id },
+            { 'variants.mediaAssetIds': orphan._id }
+          ]
+        });
+
+        if (orphanAttached) {
+          report.quarantinedAttached += 1;
+          if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
+            report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
+          }
+          console.warn(`[ATTACHED-PRESERVED] Orphan asset ${orphanIdStr} is referenced by a Product. Preserving from deletion.`);
+          continue;
+        }
+
         console.log(`[DRY-RUN] Would clean up orphan asset ${orphanIdStr} (Status: ${orphan.status})`);
       }
     }

@@ -85,6 +85,7 @@ function parseMigrationCli(argv, {
     } else if (allowedModes.includes(arg)) {
       passedModes.push(arg);
     } else if (
+      allowedFlags.some(f => (f.endsWith('=') ? arg.startsWith(f) : f === arg)) ||
       allowedFlags.includes(arg) ||
       arg === '--allow-local' ||
       arg === '--confirm-production'
