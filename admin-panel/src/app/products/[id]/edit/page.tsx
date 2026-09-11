@@ -9,6 +9,7 @@ import {
   Globe, MessageSquare, ArrowLeft
 } from 'lucide-react';
 import { getCategories, getBrands, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
+import { ProductCategorySelect } from '@/components/products/ProductCategorySelect';
 import axios from 'axios';
 import {
   validateProductForm,
@@ -792,47 +793,13 @@ export default function EditProductPage() {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Category <span style={{ color: 'var(--danger-text)' }}>*</span>
-                </label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: errors.category ? '2px solid #DC2626' : '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    fontSize: '14px',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value="">Select Category</option>
-                  {categories.filter(c => !c.parentId).map(cat => {
-                    const isCurrentSelection = formData.category === cat._id;
-                    const isInactive = cat.isActive === false;
-                    return (
-                      <option
-                        key={cat._id}
-                        value={cat._id}
-                        disabled={isInactive && !isCurrentSelection}
-                      >
-                        {cat.name}{isInactive ? ' (Inactive)' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-                {categories.find(c => c._id === formData.category)?.isActive === false && (
-                  <p style={{ color: '#D97706', fontSize: '12px', marginTop: '4px' }}>
-                    ⚠️ Currently assigned to an inactive category.
-                  </p>
-                )}
-                {errors.category && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.category}</p>}
-              </div>
+              <ProductCategorySelect
+                categories={categories}
+                value={formData.category}
+                onChange={(val) => setFormData({ ...formData, category: val })}
+                error={errors.category}
+                isEdit={true}
+              />
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>

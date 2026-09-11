@@ -10,9 +10,11 @@ const {
 } = require('../controllers/categoryController');
 
 // Deprecation notice for legacy mutation routes (canonical route is /api/admin/categories)
+// RFC 9745 Structured Field Date: @1789084800 (2026-09-11 00:00:00 UTC)
 const deprecateLegacyMutation = (req, res, next) => {
-  res.set('X-API-Deprecated', 'Use /api/admin/categories instead');
-  res.set('Deprecation', '@true');
+  res.set('Deprecation', '@1789084800');
+  res.set('X-API-Deprecated', 'true');
+  res.set('X-API-Replacement', '/api/admin/categories');
   next();
 };
 

@@ -448,7 +448,7 @@ describe('DEF-26: Public/Admin Category Visibility & Authorization Integration S
       expect(customerRes.status).toBe(403);
     });
 
-    it('29. Legacy mutation compatibility route POST /api/categories succeeds with deprecation header', async () => {
+    it('29. Legacy mutation compatibility route POST /api/categories succeeds with RFC 9745 Deprecation date and replacement hint', async () => {
       const res = await request(app)
         .post('/api/categories')
         .set('Authorization', adminAuth.token)
@@ -460,11 +460,14 @@ describe('DEF-26: Public/Admin Category Visibility & Authorization Integration S
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(res.headers['x-api-deprecated']).toBe('Use /api/admin/categories instead');
-      expect(res.headers['deprecation']).toBe('@true');
+      expect(res.headers['deprecation']).toBe('@1789084800');
+      expect(res.headers['deprecation']).toMatch(/^@[0-9]+$/);
+      expect(res.headers['x-api-deprecated']).toBe('true');
+      expect(res.headers['x-api-replacement']).toBe('/api/admin/categories');
+      expect(res.headers['sunset']).toBeUndefined();
     });
 
-    it('30. Legacy mutation compatibility route PUT /api/categories/:id succeeds with deprecation header', async () => {
+    it('30. Legacy mutation compatibility route PUT /api/categories/:id succeeds with RFC 9745 Deprecation date and replacement hint', async () => {
       const res = await request(app)
         .put(`/api/categories/${activeCat1._id}`)
         .set('Authorization', adminAuth.token)
@@ -474,11 +477,14 @@ describe('DEF-26: Public/Admin Category Visibility & Authorization Integration S
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.headers['x-api-deprecated']).toBe('Use /api/admin/categories instead');
-      expect(res.headers['deprecation']).toBe('@true');
+      expect(res.headers['deprecation']).toBe('@1789084800');
+      expect(res.headers['deprecation']).toMatch(/^@[0-9]+$/);
+      expect(res.headers['x-api-deprecated']).toBe('true');
+      expect(res.headers['x-api-replacement']).toBe('/api/admin/categories');
+      expect(res.headers['sunset']).toBeUndefined();
     });
 
-    it('31. Legacy mutation compatibility route DELETE /api/categories/:id succeeds with deprecation header', async () => {
+    it('31. Legacy mutation compatibility route DELETE /api/categories/:id succeeds with RFC 9745 Deprecation date and replacement hint', async () => {
       const disposable = await Category.create({
         name: 'Legacy Disposable',
         slug: 'legacy-disposable',
@@ -491,11 +497,14 @@ describe('DEF-26: Public/Admin Category Visibility & Authorization Integration S
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.headers['x-api-deprecated']).toBe('Use /api/admin/categories instead');
-      expect(res.headers['deprecation']).toBe('@true');
+      expect(res.headers['deprecation']).toBe('@1789084800');
+      expect(res.headers['deprecation']).toMatch(/^@[0-9]+$/);
+      expect(res.headers['x-api-deprecated']).toBe('true');
+      expect(res.headers['x-api-replacement']).toBe('/api/admin/categories');
+      expect(res.headers['sunset']).toBeUndefined();
     });
 
-    it('32. Legacy mutation routes reject anonymous/unauthorized callers (401/403)', async () => {
+    it('32. Legacy mutation routes reject anonymous/unauthorized callers (401/403) before execution', async () => {
       const unauthPost = await request(app)
         .post('/api/categories')
         .send({ name: 'Unauth Cat', slug: 'unauth-cat' });
@@ -511,6 +520,39 @@ describe('DEF-26: Public/Admin Category Visibility & Authorization Integration S
         .delete(`/api/categories/${activeCat1._id}`)
         .set('Authorization', managerAuth.token);
       expect(managerDelete.status).toBe(403);
+    });
+
+    it('33. Canonical admin routes and public GET routes do NOT contain Deprecation or Sunset headers', async () => {
+      // Canonical Admin routes
+      const adminListRes = await request(app)
+        .get('/api/admin/categories')
+        .set('Authorization', adminAuth.token);
+      expect(adminListRes.status).toBe(200);
+      expect(adminListRes.headers['deprecation']).toBeUndefined();
+      expect(adminListRes.headers['x-api-deprecated']).toBeUndefined();
+      expect(adminListRes.headers['sunset']).toBeUndefined();
+
+      const adminPostRes = await request(app)
+        .post('/api/admin/categories')
+        .set('Authorization', adminAuth.token)
+        .send({ name: 'Canonical Cat', slug: 'canonical-cat' });
+      expect(adminPostRes.status).toBe(201);
+      expect(adminPostRes.headers['deprecation']).toBeUndefined();
+      expect(adminPostRes.headers['x-api-deprecated']).toBeUndefined();
+      expect(adminPostRes.headers['sunset']).toBeUndefined();
+
+      // Public GET routes
+      const publicListRes = await request(app).get('/api/categories');
+      expect(publicListRes.status).toBe(200);
+      expect(publicListRes.headers['deprecation']).toBeUndefined();
+      expect(publicListRes.headers['x-api-deprecated']).toBeUndefined();
+      expect(publicListRes.headers['sunset']).toBeUndefined();
+
+      const publicDetailRes = await request(app).get(`/api/categories/${activeCat1._id}`);
+      expect(publicDetailRes.status).toBe(200);
+      expect(publicDetailRes.headers['deprecation']).toBeUndefined();
+      expect(publicDetailRes.headers['x-api-deprecated']).toBeUndefined();
+      expect(publicDetailRes.headers['sunset']).toBeUndefined();
     });
   });
 });

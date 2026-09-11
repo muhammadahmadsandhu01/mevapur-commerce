@@ -9,6 +9,7 @@ import {
   Globe, MessageSquare, ArrowLeft
 } from 'lucide-react';
 import { getCategories, getBrands, createProduct, uploadProductImage } from '@/lib/api';
+import { ProductCategorySelect } from '@/components/products/ProductCategorySelect';
 import axios from 'axios';
 import {
   validateProductForm,
@@ -698,34 +699,12 @@ export default function AddProductPage() {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Category <span style={{ color: 'var(--danger-text)' }}>*</span>
-                </label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: errors.category ? '2px solid #DC2626' : '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--input-bg)',
-                    color: 'var(--text-primary)',
-                    fontSize: '14px',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value="">Select Category</option>
-                  {categories.filter(c => !c.parentId).map(cat => (
-                    <option key={cat._id} value={cat._id} disabled={cat.isActive === false}>
-                      {cat.name}{cat.isActive === false ? ' (Inactive)' : ''}
-                    </option>
-                  ))}
-                </select>
-                {errors.category && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.category}</p>}
-              </div>
+              <ProductCategorySelect
+                categories={categories}
+                value={formData.category}
+                onChange={(val) => setFormData({ ...formData, category: val })}
+                error={errors.category}
+              />
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>

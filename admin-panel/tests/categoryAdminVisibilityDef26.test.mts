@@ -9,6 +9,8 @@ describe('DEF-26: Admin Panel Category Visibility & Selector Contract Suite (Tes
   const productAddFile = path.resolve(process.cwd(), 'src/app/products/add/page.tsx');
   const productEditFile = path.resolve(process.cwd(), 'src/app/products/[id]/edit/page.tsx');
 
+  const categorySelectComponentFile = path.resolve(process.cwd(), 'src/components/products/ProductCategorySelect.tsx');
+
   test('29. Category management reads from the canonical protected admin endpoint', () => {
     assert.ok(fs.existsSync(categoriesPageFile), 'Categories page must exist');
     const content = fs.readFileSync(categoriesPageFile, 'utf-8');
@@ -25,16 +27,25 @@ describe('DEF-26: Admin Panel Category Visibility & Selector Contract Suite (Tes
 
   test('30. Product create selector loads authorized active/inactive categories and disables inactive options', () => {
     assert.ok(fs.existsSync(productAddFile), 'Product add page must exist');
-    const content = fs.readFileSync(productAddFile, 'utf-8');
+    assert.ok(fs.existsSync(categorySelectComponentFile), 'ProductCategorySelect component must exist');
+    const addContent = fs.readFileSync(productAddFile, 'utf-8');
+    const selectContent = fs.readFileSync(categorySelectComponentFile, 'utf-8');
 
-    // Verify option rendering logic disables inactive categories
+    // Verify add page integrates ProductCategorySelect
     assert.ok(
-      content.includes('disabled={cat.isActive === false}'),
-      'New product category selector must disable inactive categories'
+      addContent.includes('ProductCategorySelect'),
+      'Product add page must use ProductCategorySelect component'
+    );
+
+    // Verify option rendering logic disables inactive categories in create mode
+    assert.ok(
+      selectContent.includes('isDisabled = isEdit ? (isInactive && !isCurrentSelection) : isInactive') ||
+      selectContent.includes('disabled={isDisabled}'),
+      'Product category selector component must disable inactive categories in create mode'
     );
     assert.ok(
-      content.includes("(Inactive)' : ''"),
-      'New product category selector must display (Inactive) label for inactive categories'
+      selectContent.includes("(Inactive)' : ''"),
+      'Product category selector must display (Inactive) label for inactive categories'
     );
 
     // Functional verification of option selection logic
@@ -57,15 +68,23 @@ describe('DEF-26: Admin Panel Category Visibility & Selector Contract Suite (Tes
 
   test('31. Product edit preserves its selected category (even if inactive) with warning banner', () => {
     assert.ok(fs.existsSync(productEditFile), 'Product edit page must exist');
-    const content = fs.readFileSync(productEditFile, 'utf-8');
+    assert.ok(fs.existsSync(categorySelectComponentFile), 'ProductCategorySelect component must exist');
+    const editContent = fs.readFileSync(productEditFile, 'utf-8');
+    const selectContent = fs.readFileSync(categorySelectComponentFile, 'utf-8');
 
-    // Verify preservation of current selection and warning banner
+    // Verify edit page integrates ProductCategorySelect with isEdit={true}
     assert.ok(
-      content.includes('disabled={isInactive && !isCurrentSelection}'),
+      editContent.includes('ProductCategorySelect') && editContent.includes('isEdit={true}'),
+      'Product edit page must use ProductCategorySelect with isEdit={true}'
+    );
+
+    // Verify preservation of current selection and warning banner in component
+    assert.ok(
+      selectContent.includes('isInactive && !isCurrentSelection'),
       'Product edit category selector must allow current inactive selection but disable other inactive categories'
     );
     assert.ok(
-      content.includes('Currently assigned to an inactive category'),
+      selectContent.includes('Currently assigned to an inactive category'),
       'Product edit must render warning text when product is assigned to an inactive category'
     );
 
