@@ -277,12 +277,12 @@ describe('DEF-04: Enterprise Category Identity & Product/SKU Resolution Integrat
     it('18. No category parameter preserves existing unfiltered published-catalog behavior', async () => {
       const res = await request(app).get('/api/products');
       expect(res.status).toBe(200);
-      expect(res.body.data.length).toBe(4); // Almonds, Cashews, Honey, and Archived Seasonal Item (published)
+      expect(res.body.data.length).toBe(3); // Almonds, Cashews, Honey (Archived Seasonal Item is in inactive category and hidden under DEF-27)
       const slugs = res.body.data.map(p => p.slug);
       expect(slugs).toContain(productCat1A.slug);
       expect(slugs).toContain(productCat1B.slug);
       expect(slugs).toContain(productCat2.slug);
-      expect(slugs).toContain(archivedItem.slug);
+      expect(slugs).not.toContain(archivedItem.slug);
     });
   });
 

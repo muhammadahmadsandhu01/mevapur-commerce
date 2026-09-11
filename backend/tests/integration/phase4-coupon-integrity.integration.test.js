@@ -7,10 +7,22 @@ const Session = require('../../models/Session');
 const Coupon = require('../../models/Coupon');
 const CouponRedemption = require('../../models/CouponRedemption');
 const Product = require('../../models/Product');
+const Category = require('../../models/Category');
 const CouponService = require('../../services/order/CouponService');
 const OrderService = require('../../services/order/OrderService');
 
 let sequence = 0;
+let defaultCategory = null;
+const getOrCreateCouponCategory = async () => {
+  if (!defaultCategory) {
+    defaultCategory = await Category.create({
+      name: 'Coupon Test Category',
+      slug: `cat-coupon-${crypto.randomUUID()}`,
+      isActive: true
+    });
+  }
+  return defaultCategory;
+};
 
 const createAuthToken = async (role = 'admin') => {
   sequence += 1;
@@ -37,6 +49,15 @@ const createAuthToken = async (role = 'admin') => {
 };
 
 const createTestProduct = async (overrides = {}) => {
+  let catId = overrides.category;
+  if (catId === undefined) {
+    const cat = await Category.create({
+      name: `Coupon Test Category ${crypto.randomUUID()}`,
+      slug: `cat-coupon-${crypto.randomUUID()}`,
+      isActive: true
+    });
+    catId = cat._id;
+  }
   return Product.create({
     name: 'Walnuts Supreme',
     slug: `walnuts-supreme-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -47,7 +68,7 @@ const createTestProduct = async (overrides = {}) => {
     sku: `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
     status: 'published',
     isActive: true,
-    category: new mongoose.Types.ObjectId(),
+    category: catId,
     ...overrides
   });
 };

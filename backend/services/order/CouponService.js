@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Coupon = require('../../models/Coupon');
 const CouponRedemption = require('../../models/CouponRedemption');
 const Product = require('../../models/Product');
+const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
 
@@ -532,11 +533,13 @@ class CouponService {
       const productIds = items.map((i) => i.productId || i.product).filter(Boolean);
       const dbProducts = await Product.find({ _id: { $in: productIds } }).lean();
       const productMap = new Map(dbProducts.map((p) => [String(p._id), p]));
+      const activeCategoryIds = await ProductVisibilityPolicy.getActiveCategoryIds();
 
       for (const item of items) {
         const pId = String(item.productId || item.product);
         const product = productMap.get(pId);
-        if (!product || !product.isActive) {
+        const isEligible = product && await ProductVisibilityPolicy.isProductPubliclyEligible(product, { activeCategoryIds });
+        if (!isEligible) {
           throw new AppError(
             `Product not available: ${item.name || pId}`,
             400,

@@ -153,7 +153,12 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
 
   test('2. Exact variant, stock and authoritative price reach cart & checkout with inventory reservation', async () => {
     const customer = await createAuth('customer');
-    const categoryId = new mongoose.Types.ObjectId();
+    const category = await Category.create({
+      name: 'Walnuts Category',
+      slug: `cat-walnuts-${Date.now()}`,
+      isActive: true
+    });
+    const categoryId = category._id;
     const variantId = new mongoose.Types.ObjectId();
 
     // Create a product with specific variants
@@ -228,7 +233,12 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
 
   test('3. Duplicate checkout attempts with the same Idempotency-Key produce exactly ONE order and ONE stock mutation', async () => {
     const customer = await createAuth('customer');
-    const categoryId = new mongoose.Types.ObjectId();
+    const category = await Category.create({
+      name: 'Honey Category',
+      slug: `cat-honey-${Date.now()}`,
+      isActive: true
+    });
+    const categoryId = category._id;
 
     const product = await Product.create({
       name: 'Phase 10 Concurrency Honey',

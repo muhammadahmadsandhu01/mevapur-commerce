@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const CategoryResolver = require('../services/category/CategoryResolver');
+const ProductVisibilityPolicy = require('../services/product/ProductVisibilityPolicy');
 const mongoose = require('mongoose');
 
 /**
@@ -96,62 +97,67 @@ exports.getProducts = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit, 10) || 12, 50);
     const skip = (page - 1) * limit;
 
-    // Public catalog strictly requires published active products
-    const query = { isActive: true, status: 'published' };
     const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // 1. Text Search
-    if (req.query.keyword) {
-      query.$or = [
-        { name: { $regex: escapeRegex(req.query.keyword), $options: 'i' } },
-        { sku: { $regex: escapeRegex(req.query.keyword), $options: 'i' } },
-        { description: { $regex: escapeRegex(req.query.keyword), $options: 'i' } }
-      ];
-    }
-
-    // 2. Category Filter (Supports canonical slugs and ObjectIds, fail-closed on unknown/inactive)
+    // 1. Resolve Category Filters if supplied
+    let requestedCategoryId = null;
     if (req.query.category) {
-      const categoryId = await CategoryResolver.resolveCategoryToId(req.query.category, { requireActive: true });
-      if (categoryId) {
-        query.category = categoryId;
-      } else {
-        // Fail-closed: category was requested but is unknown, inactive, or invalid.
-        // Deterministically match zero products rather than silently dropping the filter.
-        query.category = new mongoose.Types.ObjectId();
+      requestedCategoryId = await CategoryResolver.resolveCategoryToId(req.query.category, { requireActive: true });
+      if (!requestedCategoryId) {
+        requestedCategoryId = new mongoose.Types.ObjectId(); // Fail-closed
       }
     }
 
+    let requestedSubcategoryId = null;
     if (req.query.subcategory) {
-      const subcategoryId = await CategoryResolver.resolveCategoryToId(req.query.subcategory, { requireActive: true });
-      if (subcategoryId) {
-        query.subcategory = subcategoryId;
-      } else {
-        query.subcategory = new mongoose.Types.ObjectId();
+      requestedSubcategoryId = await CategoryResolver.resolveCategoryToId(req.query.subcategory, { requireActive: true });
+      if (!requestedSubcategoryId) {
+        requestedSubcategoryId = new mongoose.Types.ObjectId(); // Fail-closed
       }
     }
 
-    // 3. Brand Filter
+    // 2. Canonical Visibility and Inheritance Filter
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter({
+      categoryId: requestedCategoryId,
+      subcategoryId: requestedSubcategoryId
+    });
+
+    const query = { ...visibilityFilter };
+
+    // 3. Text Search (safely composed under $and so it does not overwrite visibility subcategory $or)
+    if (req.query.keyword) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { name: { $regex: escapeRegex(req.query.keyword), $options: 'i' } },
+          { sku: { $regex: escapeRegex(req.query.keyword), $options: 'i' } },
+          { description: { $regex: escapeRegex(req.query.keyword), $options: 'i' } }
+        ]
+      });
+    }
+
+    // 4. Brand Filter
     if (req.query.brand && mongoose.Types.ObjectId.isValid(req.query.brand)) {
       query.brand = new mongoose.Types.ObjectId(req.query.brand);
     }
 
-    // 4. Price Range Filter
+    // 5. Price Range Filter
     if (req.query.minPrice || req.query.maxPrice) {
       query.price = {};
       if (req.query.minPrice) query.price.$gte = parseFloat(req.query.minPrice);
       if (req.query.maxPrice) query.price.$lte = parseFloat(req.query.maxPrice);
     }
 
-    // 5. Rating Filter
+    // 6. Rating Filter
     if (req.query.rating) {
       query.rating = { $gte: parseFloat(req.query.rating) };
     }
 
-    // 6. Stock Availability
+    // 7. Stock Availability
     if (req.query.inStock === 'true') query.stock = { $gt: 0 };
     else if (req.query.inStock === 'false') query.stock = { $lte: 0 };
 
-    // 7. Dynamic Attribute Filtering
+    // 8. Dynamic Attribute Filtering
     if (req.query.attribute && typeof req.query.attribute === 'object') {
       query.$and = query.$and || [];
       Object.keys(req.query.attribute).forEach(key => {
@@ -183,7 +189,7 @@ exports.getProducts = async (req, res) => {
       return res.json({ success: true, data: formattedProducts });
     }
 
-    // 8. Sorting
+    // 9. Sorting
     let sortOption = {};
     if (req.query.sortBy === 'price-asc') sortOption = { price: 1, _id: -1 };
     else if (req.query.sortBy === 'price-desc') sortOption = { price: -1, _id: -1 };
@@ -231,24 +237,27 @@ exports.getProduct = async (req, res) => {
 
     let product = null;
     if (isValidObjectId) {
-      product = await Product.findOne({ _id: id, isActive: true, status: 'published' })
-        .populate('category', 'name slug')
-        .populate('subcategory', 'name slug')
-        .populate('brand', 'name')
-        .lean();
+      product = await Product.findOne({ _id: id, isActive: true, status: 'published' }).lean();
     }
 
     if (!product) {
-      product = await Product.findOne({ slug: id, isActive: true, status: 'published' })
-        .populate('category', 'name slug')
-        .populate('subcategory', 'name slug')
-        .populate('brand', 'name')
-        .lean();
+      product = await Product.findOne({ slug: id, isActive: true, status: 'published' }).lean();
     }
 
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
+
+    const isEligible = await ProductVisibilityPolicy.isProductCategoryEligible(product);
+    if (!isEligible) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    await Product.populate(product, [
+      { path: 'category', select: 'name slug isActive parentId' },
+      { path: 'subcategory', select: 'name slug isActive parentId' },
+      { path: 'brand', select: 'name' }
+    ]);
 
     res.json({ success: true, data: serializePublicProduct(product) });
   } catch (error) {
@@ -262,7 +271,8 @@ exports.getProduct = async (req, res) => {
 exports.getTopProducts = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 5, 20);
-    const products = await Product.find({ isActive: true, status: 'published' })
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+    const products = await Product.find(visibilityFilter)
       .sort({ rating: -1, reviewCount: -1, _id: -1 })
       .limit(limit)
       .populate('category', 'name slug')
@@ -281,7 +291,8 @@ exports.getTopProducts = async (req, res) => {
 exports.getRecommendedProducts = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 8, 20);
-    const products = await Product.find({ isActive: true, status: 'published' })
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+    const products = await Product.find(visibilityFilter)
       .sort({ isFeatured: -1, rating: -1, soldCount: -1, _id: -1 })
       .limit(limit)
       .populate('category', 'name slug')
@@ -304,11 +315,13 @@ exports.getRecentlyViewed = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    const products = await Product.find({
-      _id: { $in: ids },
-      isActive: true,
-      status: 'published'
-    })
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+    const query = {
+      ...visibilityFilter,
+      _id: { $in: ids }
+    };
+
+    const products = await Product.find(query)
       .populate('category', 'name slug')
       .populate('brand', 'name')
       .lean();

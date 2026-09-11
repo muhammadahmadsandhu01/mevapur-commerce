@@ -12,10 +12,29 @@ const Refund = require('../../models/Refund');
 const Notification = require('../../models/Notification');
 const Coupon = require('../../models/Coupon');
 const Wishlist = require('../../models/Wishlist');
+const Category = require('../../models/Category');
 
 let sequence = 0;
-const auth = async (role = 'customer') => { sequence += 1; const user = await global.createTestUser({ email: `customer-${sequence}@example.test`, role }); const session = await Session.create({ user: user._id, refreshTokenHash: crypto.randomBytes(32).toString('hex'), tokenFamilyId: crypto.randomUUID(), isActive: true, isRevoked: false, expiresAt: new Date(Date.now() + 3600000) }); return { user, authorization: `Bearer ${TokenService.generateAccessToken({ userId: user._id, sessionId: session._id, tokenVersion: user.tokenVersion })}` }; };
-const product = async () => { sequence += 1; return Product.create({ name: `Customer Product ${sequence}`, slug: `customer-product-${sequence}`, description: 'Customer commerce product', sku: `CUS-${sequence}`, price: 100, stock: 20, isActive: true }); };
+const auth = async (role = 'customer') => { sequence += 1; const user = await global.createTestUser({ email: `customer-${sequence}-${Date.now()}@example.test`, role }); const session = await Session.create({ user: user._id, refreshTokenHash: crypto.randomBytes(32).toString('hex'), tokenFamilyId: crypto.randomUUID(), isActive: true, isRevoked: false, expiresAt: new Date(Date.now() + 3600000) }); return { user, authorization: `Bearer ${TokenService.generateAccessToken({ userId: user._id, sessionId: session._id, tokenVersion: user.tokenVersion })}` }; };
+const product = async () => {
+  const uid = crypto.randomUUID();
+  const cat = await Category.create({
+    name: `Customer Category ${uid}`,
+    slug: `cat-customer-${uid}`,
+    isActive: true
+  });
+  return Product.create({
+    name: `Customer Product ${uid}`,
+    slug: `customer-product-${uid}`,
+    description: 'Customer commerce product',
+    sku: `CUS-${uid.slice(0, 8)}`,
+    category: cat._id,
+    price: 100,
+    stock: 20,
+    status: 'published',
+    isActive: true
+  });
+};
 const order = async (user, item, status = 'Delivered') => Order.create({ user: user._id, idempotencyKey: crypto.randomUUID(), requestHash: crypto.randomBytes(32).toString('hex'), items: [{ product: item._id, name: item.name, price: 100, quantity: 1, lineTotal: 100 }], shippingAddress: { fullName: user.fullName, phone: '03001234567', address: '1 Customer Street', city: 'Lahore', province: 'Punjab', country: 'PK' }, paymentMethod: 'cod', payment: { currency: 'PKR' }, paymentStatus: 'Pending', orderStatus: status, subtotal: 100, shippingCost: 0, taxAmount: 0, discount: 0, totalAmount: 100, statusTimeline: [{ status, actor: user._id, actorRole: 'customer', timestamp: new Date(), note: '' }], deliveredAt: status === 'Delivered' ? new Date() : null });
 
 describe('P6B customer commerce ownership contracts', () => {

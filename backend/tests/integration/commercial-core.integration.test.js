@@ -8,8 +8,21 @@ const Order = require('../../models/Order');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const MarketConfig = require('../../models/MarketConfig');
 const ShippingZone = require('../../models/ShippingZone');
+const Category = require('../../models/Category');
 
 let sequence = 0;
+let defaultCategory = null;
+const getOrCreateCoreCategory = async () => {
+  if (!defaultCategory) {
+    defaultCategory = await Category.create({
+      name: 'Commercial Core Category',
+      slug: `core-cat-${crypto.randomUUID()}`,
+      isActive: true
+    });
+  }
+  return defaultCategory;
+};
+
 const auth = async (role = 'customer') => {
   sequence += 1;
   const user = await global.createTestUser({ email: `core-${sequence}@example.test`, role });
@@ -19,7 +32,27 @@ const auth = async (role = 'customer') => {
 };
 const product = async (overrides = {}) => {
   sequence += 1;
-  return Product.create({ name: `Core Product ${sequence}`, slug: `core-product-${sequence}`, description: 'Commercial core integration product', sku: `CORE-${sequence}`, price: 100, stock: 10, isActive: true, ...overrides });
+  let catId = overrides.category;
+  if (catId === undefined) {
+    const cat = await Category.create({
+      name: `Core Category ${crypto.randomUUID()}`,
+      slug: `core-cat-${crypto.randomUUID()}`,
+      isActive: true
+    });
+    catId = cat._id;
+  }
+  return Product.create({
+    name: `Core Product ${sequence}`,
+    slug: `core-product-${sequence}`,
+    description: 'Commercial core integration product',
+    sku: `CORE-${sequence}`,
+    price: 100,
+    stock: 10,
+    status: 'published',
+    isActive: true,
+    category: catId,
+    ...overrides
+  });
 };
 const orderPayload = (item) => ({
   items: [{ productId: String(item._id), quantity: 1 }],

@@ -7,6 +7,7 @@ const CouponService = require('./CouponService');
 const ShippingService = require('./ShippingService');
 const TaxService = require('./TaxService');
 const InventoryService = require('./InventoryService');
+const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const MarketService = require('../MarketService');
 const AuditService = require('../AuditService');
 const logger = require('../../utils/logger');
@@ -78,10 +79,23 @@ class OrderService {
   async resolveItems(items, session) {
     const resolved = [];
     const resolvedKeys = new Set();
+    const activeCategoryIds = await ProductVisibilityPolicy.getActiveCategoryIds({ session });
 
     for (const item of items) {
       const product = await Product.findById(item.productId).session(session);
       if (!product || !product.isActive || product.status !== 'published') {
+        throw new AppError(
+          'A selected product is unavailable',
+          409,
+          ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE
+        );
+      }
+
+      const isCategoryEligible = await ProductVisibilityPolicy.isProductCategoryEligible(product, {
+        session,
+        activeCategoryIds
+      });
+      if (!isCategoryEligible) {
         throw new AppError(
           'A selected product is unavailable',
           409,

@@ -5,6 +5,7 @@ const app = require('../../app');
 const User = require('../../models/User');
 const Product = require('../../models/Product');
 const Coupon = require('../../models/Coupon');
+const Category = require('../../models/Category');
 const TokenService = require('../../services/TokenService');
 const authConfig = require('../../config/auth.config');
 
@@ -13,8 +14,15 @@ describe('Phase 4 Optional Authentication & Public Preview Behavioral Tests', ()
   let anotherUser;
   let testProduct;
   let testCoupon;
+  let testCategory;
 
   beforeEach(async () => {
+    testCategory = await Category.create({
+      name: 'Preview Category',
+      slug: `cat-preview-${Date.now()}`,
+      isActive: true
+    });
+
     customerUser = await User.create({
       fullName: 'Preview Customer',
       email: 'preview@example.com',
@@ -40,7 +48,7 @@ describe('Phase 4 Optional Authentication & Public Preview Behavioral Tests', ()
       stock: 50,
       status: 'published',
       isActive: true,
-      category: new mongoose.Types.ObjectId()
+      category: testCategory._id
     });
 
     testCoupon = await Coupon.create({

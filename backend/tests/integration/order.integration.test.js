@@ -7,8 +7,20 @@ const Coupon = require('../../models/Coupon');
 const Order = require('../../models/Order');
 const Session = require('../../models/Session');
 const InventoryTransaction = require('../../models/InventoryTransaction');
+const Category = require('../../models/Category');
 
 let sequence = 0;
+let defaultCategory = null;
+const getOrCreateOrderCategory = async () => {
+  if (!defaultCategory) {
+    defaultCategory = await Category.create({
+      name: 'Order Integration Category',
+      slug: `order-cat-${crypto.randomUUID()}`,
+      isActive: true
+    });
+  }
+  return defaultCategory;
+};
 
 const createAuth = async (role = 'customer') => {
   sequence += 1;
@@ -39,6 +51,15 @@ const createAuth = async (role = 'customer') => {
 
 const createProduct = async (overrides = {}) => {
   sequence += 1;
+  let catId = overrides.category;
+  if (catId === undefined) {
+    const cat = await Category.create({
+      name: `Order Category ${crypto.randomUUID()}`,
+      slug: `order-cat-${crypto.randomUUID()}`,
+      isActive: true
+    });
+    catId = cat._id;
+  }
   return Product.create({
     name: `Order Product ${sequence}`,
     slug: `order-product-${sequence}`,
@@ -46,7 +67,9 @@ const createProduct = async (overrides = {}) => {
     sku: `ORDER-${sequence}`,
     price: 125,
     stock: 10,
-    isActive: true,
+    status: overrides.status || (overrides.isActive === false ? 'inactive' : 'published'),
+    isActive: overrides.isActive !== undefined ? overrides.isActive : true,
+    category: catId,
     ...overrides
   });
 };

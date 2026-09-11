@@ -3,6 +3,7 @@ const Product = require('../../../models/Product');
 const Order = require('../../../models/Order');
 const Payment = require('../../../models/Payment');
 const Refund = require('../../../models/Refund');
+const ProductVisibilityPolicy = require('../../../services/product/ProductVisibilityPolicy');
 
 const MAX_RESULT_ITEMS = 5;
 const QUERY_TIMEOUT_MS = 2500;
@@ -22,12 +23,17 @@ const searchPublicProducts = async ({ query }) => {
     throw new Error('ASSISTANT_PRODUCT_SEARCH_INVALID');
   }
   const pattern = new RegExp(safeRegex(normalized), 'i');
+  const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
   const products = await Product.find({
-    isActive: true,
-    $or: [
-      { name: pattern },
-      { shortDescription: pattern },
-      { description: pattern }
+    ...visibilityFilter,
+    $and: [
+      {
+        $or: [
+          { name: pattern },
+          { shortDescription: pattern },
+          { description: pattern }
+        ]
+      }
     ]
   })
     .select('name slug shortDescription price stock primaryImage rating')
@@ -53,12 +59,18 @@ const getPublicProductDetails = async ({ productId }) => {
   }
   const product = await Product.findOne({
     _id: productId,
-    isActive: true
+    isActive: true,
+    status: 'published'
   })
-    .select('name slug shortDescription description price stock primaryImage rating')
+    .select('name slug shortDescription description price stock primaryImage rating category subcategory')
     .maxTimeMS(QUERY_TIMEOUT_MS)
     .lean();
+
   if (!product) return null;
+
+  const isEligible = await ProductVisibilityPolicy.isProductCategoryEligible(product);
+  if (!isEligible) return null;
+
   return {
     id: String(product._id),
     name: product.name,

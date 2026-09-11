@@ -9,6 +9,7 @@ const Order = require('../models/Order');
 const MarketService = require('./MarketService');
 const ReturnService = require('./ReturnService');
 const ReviewService = require('./ReviewService');
+const ProductVisibilityPolicy = require('./product/ProductVisibilityPolicy');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 
@@ -66,10 +67,29 @@ class CustomerCommerceService {
   }
 
   async listWishlist(userId) {
-    return Wishlist.find({ user: userId })
-      .populate({ path: 'product', match: { isActive: true }, select: 'name slug price salePrice images stock variants attributes' })
-      .sort({ createdAt: -1 })
-      .then((items) => items.filter((item) => item.product).map((item) => ({
+    const activeCategoryIds = await ProductVisibilityPolicy.getActiveCategoryIds();
+    const activeCatSet = new Set(activeCategoryIds.map((id) => String(id)));
+
+    const items = await Wishlist.find({ user: userId })
+      .populate({
+        path: 'product',
+        match: { isActive: true, status: 'published' },
+        select: 'name slug price salePrice images stock variants attributes category subcategory'
+      })
+      .sort({ createdAt: -1 });
+
+    return items
+      .filter((item) => {
+        if (!item.product) return false;
+        const primaryCat = item.product.category ? String(item.product.category) : null;
+        if (!primaryCat || !activeCatSet.has(primaryCat)) return false;
+        if (item.product.subcategory) {
+          const subCat = String(item.product.subcategory);
+          if (!activeCatSet.has(subCat)) return false;
+        }
+        return true;
+      })
+      .map((item) => ({
         id: String(item._id),
         product: {
           _id: item.product._id,
@@ -84,11 +104,12 @@ class CustomerCommerceService {
           variants: item.product.variants || [],
           attributes: item.product.attributes || []
         }
-      })));
+      }));
   }
   async addWishlist(userId, productId) {
-    const product = await Product.findOne({ _id: productId, isActive: true });
-    if (!product) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
+    const product = await Product.findOne({ _id: productId, isActive: true, status: 'published' });
+    const isEligible = product && await ProductVisibilityPolicy.isProductCategoryEligible(product);
+    if (!isEligible) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
     try { const item = await Wishlist.findOneAndUpdate({ user: userId, product: productId }, { $setOnInsert: { user: userId, product: productId } }, { new: true, upsert: true, setDefaultsOnInsert: true }); return { id: String(item._id), product }; }
     catch (error) { if (error?.code === 11000) return this.addWishlist(userId, productId); throw error; }
   }
