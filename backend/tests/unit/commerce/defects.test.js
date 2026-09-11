@@ -211,8 +211,21 @@ describe('Phase 4C Defect Closures (DEF-28 through DEF-32)', () => {
     });
   });
 
-  describe('DEF-30: Payment request validation accepts commercial currencies beyond PKR', () => {
-    it('accepts valid active commercial currencies (USD, EUR, GBP, AED, SAR)', () => {
+const {
+  paymentAvailabilityQuerySchema,
+  createRefundSchema,
+  createPaymentSchema
+} = require('../../../validators/paymentValidator');
+const {
+  VALID_COMMERCE_CURRENCIES,
+  PROVIDER_SUPPORTED_CURRENCIES,
+  SUPPORTED_PAYMENT_CURRENCIES
+} = require('../../../constants/paymentConstants');
+const PaymentService = require('../../../services/payment/PaymentService');
+const MarketConfig = require('../../../models/MarketConfig');
+
+  describe('DEF-30: All active payment validators accept commercial currencies beyond PKR', () => {
+    it('accepts valid active commercial currencies (USD, EUR, GBP, AED, SAR) in payment availability schema', () => {
       const parseUsd = paymentAvailabilityQuerySchema.safeParse({ currency: 'USD' });
       expect(parseUsd.success).toBe(true);
       expect(parseUsd.data.currency).toBe('USD');
@@ -226,7 +239,7 @@ describe('Phase 4C Defect Closures (DEF-28 through DEF-32)', () => {
       expect(parseAed.data.currency).toBe('AED');
     });
 
-    it('defaults to PKR when currency is omitted', () => {
+    it('defaults to PKR when currency is omitted in availability query', () => {
       const parseDefault = paymentAvailabilityQuerySchema.safeParse({});
       expect(parseDefault.success).toBe(true);
       expect(parseDefault.data.currency).toBe('PKR');
@@ -242,46 +255,113 @@ describe('Phase 4C Defect Closures (DEF-28 through DEF-32)', () => {
       const parseDeprecated = paymentAvailabilityQuerySchema.safeParse({ currency: 'BGN' });
       expect(parseDeprecated.success).toBe(false);
     });
-  });
 
-  describe('DEF-31: paymentConstants exports verified active commercial registry currencies', () => {
-    it('includes active commercial currencies and excludes non-commercial / deprecated', () => {
-      expect(Array.isArray(SUPPORTED_PAYMENT_CURRENCIES)).toBe(true);
-      expect(SUPPORTED_PAYMENT_CURRENCIES.length).toBeGreaterThan(100);
+    it('validates refund and payment creation schemas with exact domain amount bounds', () => {
+      const validRefund = createRefundSchema.safeParse({ amount: 150.50, reason: 'Customer return' });
+      expect(validRefund.success).toBe(true);
 
-      expect(SUPPORTED_PAYMENT_CURRENCIES).toContain('PKR');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).toContain('USD');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).toContain('EUR');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).toContain('GBP');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).toContain('AED');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).toContain('JPY');
+      const negativeRefund = createRefundSchema.safeParse({ amount: -10 });
+      expect(negativeRefund.success).toBe(false);
 
-      // Excludes deprecated / non-commercial
-      expect(SUPPORTED_PAYMENT_CURRENCIES).not.toContain('BGN');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).not.toContain('XAU');
-      expect(SUPPORTED_PAYMENT_CURRENCIES).not.toContain('XYZ');
+      const excessiveRefund = createRefundSchema.safeParse({ amount: 100000001 }); // > 100M
+      expect(excessiveRefund.success).toBe(false);
     });
   });
 
-  describe('DEF-32: Refund provider resolution receives payment actual currency', () => {
-    it('passes payment actual currency to paymentProviderRegistry.resolve', () => {
+  describe('DEF-31: CurrencyRegistry validity is separated from MarketConfig and provider capabilities', () => {
+    it('distinguishes VALID_COMMERCE_CURRENCIES from provider-specific capabilities', () => {
+      expect(Array.isArray(VALID_COMMERCE_CURRENCIES)).toBe(true);
+      expect(VALID_COMMERCE_CURRENCIES.length).toBeGreaterThan(100);
+
+      expect(VALID_COMMERCE_CURRENCIES).toContain('PKR');
+      expect(VALID_COMMERCE_CURRENCIES).toContain('USD');
+      expect(VALID_COMMERCE_CURRENCIES).toContain('EUR');
+      expect(VALID_COMMERCE_CURRENCIES).toContain('GBP');
+      expect(VALID_COMMERCE_CURRENCIES).toContain('AED');
+      expect(VALID_COMMERCE_CURRENCIES).toContain('JPY');
+
+      // Excludes deprecated / non-commercial
+      expect(VALID_COMMERCE_CURRENCIES).not.toContain('BGN');
+      expect(VALID_COMMERCE_CURRENCIES).not.toContain('XAU');
+      expect(VALID_COMMERCE_CURRENCIES).not.toContain('XYZ');
+
+      // Provider-specific capabilities
+      expect(PROVIDER_SUPPORTED_CURRENCIES.cod).toEqual(['PKR']);
+      expect(PROVIDER_SUPPORTED_CURRENCIES.bank_transfer).toEqual(['PKR']);
+      expect(PROVIDER_SUPPORTED_CURRENCIES.raast).toEqual(['PKR']);
+    });
+
+    it('proves that offline/COD rejects non-PKR currencies while PKR remains active', () => {
+      const codAvailabilityPkr = PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'PKR' });
+      expect(codAvailabilityPkr.methods.some((m) => m.code === 'cod')).toBe(true);
+
+      const codAvailabilityUsd = PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'USD' });
+      // COD is not eligible for USD
+      expect(codAvailabilityUsd.methods.some((m) => m.code === 'cod')).toBe(false);
+    });
+
+    it('proves that unconfigured/dormant providers (Stripe) remain unavailable for checkout', () => {
+      const available = PaymentService.getAvailableMethods({ country: 'United States', currency: 'USD' });
+      // Stripe is dormant/unconfigured, so no automated provider is exposed as active
+      expect(available.methods.some((m) => m.code === 'stripe')).toBe(false);
+    });
+  });
+
+  describe('DEF-32: Refund currency resolution without blind PKR fallback', () => {
+    it('passes payment actual currency (USD, EUR, AED, GBP) to paymentProviderRegistry.resolve', () => {
       const mockProvider = {
         getCapabilities: () => ({ refund: true })
       };
       const resolveSpy = jest.spyOn(paymentProviderRegistry, 'resolve').mockReturnValue(mockProvider);
 
       RefundService.getProvider('stripe', 'USD');
-
-      expect(resolveSpy).toHaveBeenCalledWith('stripe', {
-        currency: 'USD'
-      });
+      expect(resolveSpy).toHaveBeenCalledWith('stripe', { currency: 'USD' });
 
       RefundService.getProvider('stripe', 'EUR');
-      expect(resolveSpy).toHaveBeenCalledWith('stripe', {
-        currency: 'EUR'
-      });
+      expect(resolveSpy).toHaveBeenCalledWith('stripe', { currency: 'EUR' });
+
+      RefundService.getProvider('stripe', 'AED');
+      expect(resolveSpy).toHaveBeenCalledWith('stripe', { currency: 'AED' });
+
+      RefundService.getProvider('stripe', 'GBP');
+      expect(resolveSpy).toHaveBeenCalledWith('stripe', { currency: 'GBP' });
 
       resolveSpy.mockRestore();
+    });
+
+    it('authoritatively resolves currency for valid stored payment currency', async () => {
+      const payment = { currency: 'USD' };
+      const resolved = await RefundService.resolveAuthoritativeCurrency(payment);
+      expect(resolved).toBe('USD');
+    });
+
+    it('fails closed when payment and order currencies conflict', async () => {
+      const payment = { currency: 'USD', order: new mongoose.Types.ObjectId() };
+      const order = { currency: 'EUR' };
+
+      await expect(RefundService.resolveAuthoritativeCurrency(payment, order))
+        .rejects
+        .toThrow(/Payment currency \(USD\) does not match order currency \(EUR\)/);
+    });
+
+    it('resolves legacy PKR only when verified by legacy proof', async () => {
+      const payment = { currency: null };
+      const legacyOrder = {
+        currency: 'PKR',
+        shippingAddress: { country: 'Pakistan', countryCode: 'PK' },
+        paymentMethod: 'cod'
+      };
+
+      const resolved = await RefundService.resolveAuthoritativeCurrency(payment, legacyOrder);
+      expect(resolved).toBe('PKR');
+    });
+
+    it('fails closed when currency is missing without legacy proof', async () => {
+      const payment = { currency: null, order: null };
+
+      await expect(RefundService.resolveAuthoritativeCurrency(payment, null))
+        .rejects
+        .toThrow(/Unable to authoritatively resolve payment currency for refund/);
     });
   });
 });

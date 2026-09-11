@@ -71,7 +71,7 @@ describe('RolloutAuthority — Hierarchical Mode & Readiness Verification Unit T
       });
       expect(modeNoEvidence).toBe(RolloutAuthority.MODES.SHADOW_WRITE);
 
-      // Incomplete evidence -> falls back to shadow_write
+      // Incomplete evidence (running status) -> falls back to shadow_write
       const modeBadEvidence = RolloutAuthority.resolveEffectiveMode({
         runtimeMode: 'exact_read',
         requestedMode: 'exact_read',
@@ -79,12 +79,29 @@ describe('RolloutAuthority — Hierarchical Mode & Readiness Verification Unit T
       });
       expect(modeBadEvidence).toBe(RolloutAuthority.MODES.SHADOW_WRITE);
 
-      // Valid evidence -> activates exact_read
+      // Valid canonical MigrationState evidence fixture -> activates exact_read
       const validEvidence = {
-        migrationId: 'phase4d_exact_money_migration_v1',
+        migrationId: 'phase4d-exact-money-migration',
         status: 'completed',
-        registrySnapshot: 'MevaPur currency snapshot 2026-09',
-        verifiedAt: new Date().toISOString()
+        conflictCount: 0,
+        completedAt: new Date().toISOString(),
+        metadata: {
+          schemaVersion: '4.0.0',
+          registrySnapshot: 'MevaPur currency snapshot 2026-09',
+          fieldCoverage: { coveragePercent: 100, reconciled: true },
+          unresolvedParityFailures: 0,
+          scope: [
+            'products',
+            'orders',
+            'payments',
+            'refunds',
+            'coupons',
+            'shipping_zones',
+            'users',
+            'returns'
+          ],
+          verifiedAt: new Date().toISOString()
+        }
       };
       const modeActive = RolloutAuthority.resolveEffectiveMode({
         runtimeMode: 'exact_read',
@@ -92,6 +109,56 @@ describe('RolloutAuthority — Hierarchical Mode & Readiness Verification Unit T
         readinessEvidence: validEvidence
       });
       expect(modeActive).toBe(RolloutAuthority.MODES.EXACT_READ);
+
+      // Evidence with unresolved parity conflicts -> fails closed to shadow_write
+      const evidenceWithConflicts = {
+        ...validEvidence,
+        conflictCount: 3
+      };
+      expect(RolloutAuthority.resolveEffectiveMode({
+        runtimeMode: 'exact_read',
+        requestedMode: 'exact_read',
+        readinessEvidence: evidenceWithConflicts
+      })).toBe(RolloutAuthority.MODES.SHADOW_WRITE);
+
+      // Evidence missing required collection scope -> fails closed to shadow_write
+      const evidenceMissingScope = {
+        ...validEvidence,
+        metadata: {
+          ...validEvidence.metadata,
+          scope: ['products', 'orders'] // missing payments, refunds, etc.
+        }
+      };
+      expect(RolloutAuthority.resolveEffectiveMode({
+        runtimeMode: 'exact_read',
+        requestedMode: 'exact_read',
+        readinessEvidence: evidenceMissingScope
+      })).toBe(RolloutAuthority.MODES.SHADOW_WRITE);
+
+      // Evidence with missing schemaVersion -> fails closed to shadow_write
+      const evidenceMissingSchema = {
+        ...validEvidence,
+        metadata: {
+          ...validEvidence.metadata,
+          schemaVersion: null
+        }
+      };
+      expect(RolloutAuthority.resolveEffectiveMode({
+        runtimeMode: 'exact_read',
+        requestedMode: 'exact_read',
+        readinessEvidence: evidenceMissingSchema
+      })).toBe(RolloutAuthority.MODES.SHADOW_WRITE);
+
+      // Operator acknowledgement requirement enforcement
+      expect(RolloutAuthority.verifyReadinessEvidence(validEvidence, {
+        requireOperatorAck: true,
+        operatorAck: false
+      })).toBe(false);
+
+      expect(RolloutAuthority.verifyReadinessEvidence(validEvidence, {
+        requireOperatorAck: true,
+        operatorAck: true
+      })).toBe(true);
     });
   });
 

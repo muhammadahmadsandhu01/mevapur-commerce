@@ -63,22 +63,22 @@ describe('MoneyMapper & MoneySchema — Decimal128 Exact Persistence Unit Tests'
       expect(MoneyMapper.toMoney(pClf, { allowNonCommercial: true }).equals(clf)).toBe(true);
     });
 
-    it('safely handles amounts beyond Number.MAX_SAFE_INTEGER without precision loss', () => {
-      const hugeMinor = 9999999999999999999999999999n; // 28 digits
-      const money = Money.fromMinor(hugeMinor, 'PKR');
+    it('safely handles amounts up to 18-digit domain bound without precision loss', () => {
+      const maxDomainMinor = 999999999999999999n; // 18 digits (10^18 - 1)
+      const money = Money.fromMinor(maxDomainMinor, 'PKR');
       const persisted = MoneyMapper.toPersistence(money);
 
-      expect(persisted.amountMinor.toString()).toBe('9999999999999999999999999999');
+      expect(persisted.amountMinor.toString()).toBe('999999999999999999');
       const restored = MoneyMapper.toMoney(persisted);
-      expect(restored.amountMinor).toBe(hugeMinor);
-      expect(restored.amountMinor.toString()).toBe('9999999999999999999999999999');
+      expect(restored.amountMinor).toBe(maxDomainMinor);
+      expect(restored.amountMinor.toString()).toBe('999999999999999999');
     });
 
-    it('enforces maximum 34 decimal digit boundary and rejects larger values', () => {
-      const tooLargeMinor = BigInt('1' + '0'.repeat(35)); // 36 digits
+    it('enforces maximum 18 decimal digit domain boundary for Decimal128 aggregation headroom and rejects larger values', () => {
+      const tooLargeMinor = 1000000000000000000n; // 19 digits (10^18)
       const money = Money.fromMinor(tooLargeMinor, 'PKR');
       expect(() => MoneyMapper.toPersistence(money)).toThrow(CommerceError);
-      expect(() => MoneyMapper.toPersistence(money)).toThrow(/exceeds maximum supported digit length/);
+      expect(() => MoneyMapper.toPersistence(money)).toThrow(/exceeds maximum supported domain digit length/);
     });
 
     it('rejects invalid, fractional, or scientific notation strings in toMoney', () => {

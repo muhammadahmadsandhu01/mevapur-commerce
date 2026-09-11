@@ -10,6 +10,8 @@ const CommerceError = require('./CommerceError');
 const { ROUNDING_MODES, roundFraction, allocateLargestRemainder } = require('./Rounding');
 
 const MAX_STRING_LENGTH = 50;
+const MAX_DOMAIN_DIGITS = 18;
+const MAX_DOMAIN_AMOUNT_MINOR = 999999999999999999n;
 
 /**
  * Validates a base-10 integer string format.
@@ -22,6 +24,13 @@ const INTEGER_STRING_REGEX = /^-?[0-9]+$/;
 const DECIMAL_STRING_REGEX = /^-?[0-9]+(?:\.[0-9]+)?$/;
 
 class Money {
+  static get MAX_DOMAIN_DIGITS() {
+    return MAX_DOMAIN_DIGITS;
+  }
+
+  static get MAX_DOMAIN_AMOUNT_MINOR() {
+    return MAX_DOMAIN_AMOUNT_MINOR;
+  }
   /**
    * Internal constructor. Use static factory methods.
    * @private

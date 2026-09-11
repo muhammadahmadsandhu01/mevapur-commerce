@@ -14,7 +14,9 @@
 
 const mongoose = require('mongoose');
 
-const CANONICAL_INTEGER_STRING_REGEX = /^-?[0-9]{1,34}$/;
+// Max 18 digits (10^18 - 1) ensures 16 digits of safe aggregation headroom within Decimal128's 34-digit limit
+const MAX_DOMAIN_DIGITS = 18;
+const CANONICAL_INTEGER_STRING_REGEX = /^-?[0-9]{1,18}$/;
 
 const moneySubschema = new mongoose.Schema({
   amountMinor: {
@@ -23,10 +25,10 @@ const moneySubschema = new mongoose.Schema({
     validate: {
       validator: (val) => {
         if (val === null || val === undefined) return false;
-        const str = val.toString();
+        const str = val.toString().trim();
         return CANONICAL_INTEGER_STRING_REGEX.test(str);
       },
-      message: 'amountMinor must be a canonical integer Decimal128 string (max 34 digits, scale zero, no scientific notation)'
+      message: `amountMinor must be a canonical integer Decimal128 string (max ${MAX_DOMAIN_DIGITS} digits, scale zero, no scientific notation)`
     }
   },
   currency: {
@@ -71,5 +73,7 @@ const moneySubschema = new mongoose.Schema({
     }
   }
 });
+
+moneySubschema.statics.MAX_DOMAIN_DIGITS = MAX_DOMAIN_DIGITS;
 
 module.exports = moneySubschema;

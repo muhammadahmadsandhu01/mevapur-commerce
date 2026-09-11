@@ -32,12 +32,87 @@ const MISSING_INVENTORY_CODES = new Set([
   'RETURN_INVENTORY_VARIANT_MISSING'
 ]);
 
-const { MoneyMapper } = require('../../modules/commerce');
+const { MoneyMapper, CurrencyRegistry, RolloutAuthority } = require('../../modules/commerce');
 
 class RefundService {
-  getProvider(providerName, currency = 'PKR') {
+  /**
+   * Authoritatively resolves payment currency with strict legacy proof and fail-closed mismatch guards.
+   * @param {Object} payment
+   * @param {Object} [order]
+   * @returns {Promise<string>}
+   */
+  async resolveAuthoritativeCurrency(payment, order = null) {
+    if (!payment) {
+      throw new AppError('Payment record is required for currency resolution', 400, 'PAYMENT_NOT_FOUND');
+    }
+
+    const effectiveMode = RolloutAuthority.getRuntimeAuthorizedMode();
+    const linkedOrder = order || (payment.order ? await Order.findById(payment.order) : null);
+
+    // If both payment and order currencies exist, assert they match
+    if (payment.currency && linkedOrder?.currency) {
+      if (payment.currency.toUpperCase() !== linkedOrder.currency.toUpperCase()) {
+        throw new AppError(
+          `Payment currency (${payment.currency}) does not match order currency (${linkedOrder.currency})`,
+          409,
+          'PAYMENT_ORDER_CURRENCY_MISMATCH'
+        );
+      }
+    }
+
+    // 1. Well-formed payment with stored currency
+    if (payment.currency && CurrencyRegistry.has(payment.currency)) {
+      return payment.currency.toUpperCase();
+    }
+
+    // In shadow_write and exact_read modes, missing currency must fail closed immediately
+    if (effectiveMode === RolloutAuthority.MODES.SHADOW_WRITE || effectiveMode === RolloutAuthority.MODES.EXACT_READ) {
+      throw new AppError(
+        'Payment record is missing currency in active rollout mode',
+        500,
+        'COMMERCE_PAYMENT_CURRENCY_MISSING'
+      );
+    }
+
+    // 2. Legacy payment without currency: derive only from authoritative linked order under legacy PKR proof
+    if (linkedOrder) {
+      if (linkedOrder.currency && CurrencyRegistry.has(linkedOrder.currency)) {
+        return linkedOrder.currency.toUpperCase();
+      }
+      // Check legacy PKR proof:
+      // (a) order country is Pakistan or PK
+      // (b) order paymentMethod is COD / offline / bank_transfer
+      // (c) no international currency indicators
+      const isLegacyPakistan = (
+        linkedOrder.shippingAddress?.country === 'Pakistan'
+        || linkedOrder.shippingAddress?.countryCode === 'PK'
+        || ['cod', 'bank_transfer', 'raast'].includes(linkedOrder.paymentMethod)
+        || ['Cash on Delivery', 'Bank Transfer', 'Raast'].includes(linkedOrder.payment?.provider)
+      );
+
+      if (isLegacyPakistan) {
+        return 'PKR';
+      }
+    }
+
+    // Otherwise fail closed
+    throw new AppError(
+      'Unable to authoritatively resolve payment currency for refund',
+      400,
+      'REFUND_CURRENCY_UNRESOLVED'
+    );
+  }
+
+  getProvider(providerName, currency) {
+    if (!currency || !CurrencyRegistry.has(currency)) {
+      throw new AppError(
+        `Valid commercial currency is required for provider resolution: '${currency}'`,
+        400,
+        'PAYMENT_PROVIDER_CURRENCY_REQUIRED'
+      );
+    }
     const provider = paymentProviderRegistry.resolve(providerName, {
-      currency: currency || 'PKR'
+      currency: currency.toUpperCase()
     });
     if (!provider.getCapabilities().refund) {
       throw new AppError(
@@ -147,8 +222,11 @@ class RefundService {
       );
     }
 
+    const linkedOrder = await Order.findById(payment.order);
+    const resolvedCurrency = await this.resolveAuthoritativeCurrency(payment, linkedOrder);
+
     if (processingMode === 'provider') {
-      this.getProvider(payment.provider, payment.currency);
+      this.getProvider(payment.provider, resolvedCurrency);
     } else {
       const providerManifest = paymentProviderRegistry
         .getInstalled(payment.provider)
@@ -169,8 +247,8 @@ class RefundService {
         customer: payment.user,
         provider: payment.provider,
         amount,
-        amountExact: MoneyMapper.fromLegacy(amount, payment.currency),
-        currency: payment.currency,
+        amountExact: MoneyMapper.fromLegacy(amount, resolvedCurrency),
+        currency: resolvedCurrency,
         status: REFUND_STATUSES.PENDING,
         idempotencyKey,
         requestHash,
@@ -436,7 +514,8 @@ class RefundService {
     let providerConfirmed = false;
     try {
       const payment = await Payment.findById(claimed.payment);
-      const provider = this.getProvider(claimed.provider, payment?.currency || claimed.currency);
+      const resolvedCurrency = await this.resolveAuthoritativeCurrency(payment);
+      const provider = this.getProvider(claimed.provider, resolvedCurrency);
       const providerResult = await provider.refundPayment({
         providerPaymentId: payment.providerPaymentId,
         amount: claimed.amount,
@@ -653,12 +732,16 @@ class RefundService {
       0,
       Number((payment.refundReservedAmount - refund.amount).toFixed(2))
     );
+    const currency = payment.currency || refund.currency;
+    if (!currency) {
+      throw new AppError('Authoritative currency missing on payment and refund record', 500, 'REFUND_CURRENCY_UNRESOLVED');
+    }
     if (payment.amountExact) {
-      payment.refundedAmountExact = MoneyMapper.fromLegacy(payment.refundedAmount, payment.currency);
-      payment.refundReservedAmountExact = MoneyMapper.fromLegacy(payment.refundReservedAmount, payment.currency);
+      payment.refundedAmountExact = MoneyMapper.fromLegacy(payment.refundedAmount, currency);
+      payment.refundReservedAmountExact = MoneyMapper.fromLegacy(payment.refundReservedAmount, currency);
     }
     if (!refund.amountExact && refund.amount) {
-      refund.amountExact = MoneyMapper.fromLegacy(refund.amount, payment.currency || 'PKR');
+      refund.amountExact = MoneyMapper.fromLegacy(refund.amount, currency);
     }
     paymentStateMachine.apply(payment, paymentStatus, {
       source: 'refund',

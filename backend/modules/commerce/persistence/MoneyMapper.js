@@ -18,9 +18,15 @@ const Money = require('../core/Money');
 const CurrencyRegistry = require('../registries/currencyRegistry');
 const CommerceError = require('../core/CommerceError');
 
-const CANONICAL_INTEGER_REGEX = /^-?[0-9]{1,34}$/;
+// Max 18 digits (10^18 - 1) provides 16 digits of aggregation headroom within Decimal128's 34-digit limit
+const MAX_DOMAIN_DIGITS = 18;
+const CANONICAL_INTEGER_REGEX = /^-?[0-9]{1,18}$/;
 
 class MoneyMapper {
+  static get MAX_DOMAIN_DIGITS() {
+    return MAX_DOMAIN_DIGITS;
+  }
+
   /**
    * Converts an in-memory Money Value Object into a Mongoose Decimal128 persistence snapshot.
    * @param {Money} money
@@ -56,7 +62,7 @@ class MoneyMapper {
     const amountStr = money.amountMinor.toString();
     if (!CANONICAL_INTEGER_REGEX.test(amountStr)) {
       throw new CommerceError(
-        `amountMinor string '${amountStr}' exceeds maximum supported digit length (34 digits)`,
+        `amountMinor string '${amountStr}' exceeds maximum supported domain digit length (${MAX_DOMAIN_DIGITS} digits for aggregation headroom)`,
         'COMMERCE_MONEY_INVALID_AMOUNT',
         400
       );

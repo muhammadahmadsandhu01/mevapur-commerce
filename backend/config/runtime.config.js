@@ -445,10 +445,27 @@ const createRuntimeConfig = (environment = process.env) => {
     });
   }
 
+  const commerceMoneyMode = parseMode(
+    environment,
+    'COMMERCE_MONEY_MODE',
+    new Set(['legacy', 'shadow_write', 'exact_read']),
+    'legacy',
+    false
+  );
+  const commerceExactReadReady = parseBoolean(
+    environment,
+    'COMMERCE_EXACT_READ_READY',
+    false
+  );
+
   return Object.freeze({
     initialized: true,
     environment: runtimeEnvironment,
     isDeployed,
+    commerce: Object.freeze({
+      moneyMode: commerceMoneyMode,
+      exactReadReady: commerceExactReadReady
+    }),
     origins: Object.freeze({
       storefront,
       admin,

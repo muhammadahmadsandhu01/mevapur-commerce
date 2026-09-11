@@ -46,9 +46,30 @@ const WEBHOOK_PROCESSING_STATUSES = Object.freeze({
 
 const { CurrencyRegistry } = require('../modules/commerce');
 
-const SUPPORTED_PAYMENT_CURRENCIES = Object.freeze(
+/**
+ * Valid active commercial currencies per ISO 4217 registry.
+ */
+const VALID_COMMERCE_CURRENCIES = Object.freeze(
   CurrencyRegistry.listActiveCommercial().map((c) => c.code)
 );
+
+/**
+ * Supported currencies per payment provider adapter.
+ * Note: Provider enablement and availability remain subject to MarketConfig, merchant activation, and runtime configuration.
+ */
+const PROVIDER_SUPPORTED_CURRENCIES = Object.freeze({
+  [PAYMENT_PROVIDERS.COD]: Object.freeze(['PKR']),
+  [PAYMENT_PROVIDERS.BANK_TRANSFER]: Object.freeze(['PKR']),
+  [PAYMENT_PROVIDERS.RAAST]: Object.freeze(['PKR']),
+  [PAYMENT_PROVIDERS.JAZZCASH]: Object.freeze(['PKR']),
+  [PAYMENT_PROVIDERS.EASYPAISA]: Object.freeze(['PKR']),
+  [PAYMENT_PROVIDERS.STRIPE]: VALID_COMMERCE_CURRENCIES
+});
+
+/**
+ * Alias retained for backward compatibility.
+ */
+const SUPPORTED_PAYMENT_CURRENCIES = VALID_COMMERCE_CURRENCIES;
 
 module.exports = {
   PAYMENT_PROVIDERS,
@@ -56,5 +77,7 @@ module.exports = {
   REFUND_STATUSES,
   PROVIDER_ATTEMPT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES,
+  VALID_COMMERCE_CURRENCIES,
+  PROVIDER_SUPPORTED_CURRENCIES,
   SUPPORTED_PAYMENT_CURRENCIES
 };

@@ -9,6 +9,7 @@ const READINESS_CODES = Object.freeze({
   DATABASE_PING_UNAVAILABLE: 'DATABASE_PING_UNAVAILABLE',
   DATABASE_PING_FAILED: 'DATABASE_PING_FAILED',
   DATABASE_PING_TIMEOUT: 'DATABASE_PING_TIMEOUT',
+  EXACT_READ_NOT_READY: 'EXACT_READ_NOT_READY',
   REDIS_NOT_READY: 'REDIS_NOT_READY',
   REDIS_PING_UNAVAILABLE: 'REDIS_PING_UNAVAILABLE',
   REDIS_PING_FAILED: 'REDIS_PING_FAILED',
@@ -112,6 +113,28 @@ const checkReadiness = async ({
     }
   } else {
     checks.database = 'ready';
+  }
+
+  // Exact-Read Commerce Migration Readiness Check
+  if (
+    runtimeConfig?.commerce?.moneyMode === 'exact_read'
+    && databaseConnection?.readyState === 1
+  ) {
+    try {
+      const MigrationState = mongoose.models.MigrationState || require('../models/MigrationState');
+      const { RolloutAuthority } = require('../modules/commerce');
+      const state = await MigrationState.findOne({
+        migrationId: 'phase4d-exact-money-migration'
+      }).lean();
+      const isReady = RolloutAuthority.verifyReadinessEvidence(state);
+      if (!isReady) {
+        checks.database = 'not_ready';
+        reasonCodes.push(READINESS_CODES.EXACT_READ_NOT_READY);
+      }
+    } catch {
+      checks.database = 'not_ready';
+      reasonCodes.push(READINESS_CODES.EXACT_READ_NOT_READY);
+    }
   }
 
   // Assistant Redis readiness check when Redis store is configured
