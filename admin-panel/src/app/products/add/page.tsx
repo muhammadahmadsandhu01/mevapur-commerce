@@ -44,6 +44,7 @@ interface CategoryOption {
   _id: string;
   name: string;
   parentId?: string | null;
+  isActive?: boolean;
 }
 
 interface BrandOption {
@@ -718,7 +719,9 @@ export default function AddProductPage() {
                 >
                   <option value="">Select Category</option>
                   {categories.filter(c => !c.parentId).map(cat => (
-                    <option key={cat._id} value={cat._id}>{cat.name}</option>
+                    <option key={cat._id} value={cat._id} disabled={cat.isActive === false}>
+                      {cat.name}{cat.isActive === false ? ' (Inactive)' : ''}
+                    </option>
                   ))}
                 </select>
                 {errors.category && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.category}</p>}

@@ -171,22 +171,27 @@ export const uploadProductImage = async (file: File) => {
 };
 
 export const getCategories = async () => {
-  const response = await api.get('/categories');
+  const response = await api.get('/admin/categories');
+  return response.data.data;
+};
+
+export const getAdminCategoryById = async (id: string) => {
+  const response = await api.get(`/admin/categories/${id}`);
   return response.data.data;
 };
 
 export const createCategory = async (categoryData: AdminMutationPayload) => {
-  const response = await api.post('/categories', categoryData);
+  const response = await api.post('/admin/categories', categoryData);
   return response.data;
 };
 
 export const updateCategory = async (id: string, categoryData: AdminMutationPayload) => {
-  const response = await api.put(`/categories/${id}`, categoryData);
+  const response = await api.put(`/admin/categories/${id}`, categoryData);
   return response.data;
 };
 
 export const deleteCategory = async (id: string) => {
-  const response = await api.delete(`/categories/${id}`);
+  const response = await api.delete(`/admin/categories/${id}`);
   return response.data;
 };
 

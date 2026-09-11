@@ -38,6 +38,7 @@ const commercialCoreRoutes = require('./routes/commercialCoreRoutes');
 const accountRoutes = require('./routes/accountRoutes');
 const assistantRoutes = require('./modules/assistant/assistant.routes');
 const adminProductRoutes = require('./routes/adminProductRoutes');
+const adminCategoryRoutes = require('./routes/adminCategoryRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 
 const createApp = ({
@@ -162,6 +163,7 @@ const createApp = ({
   app.use('/api/assistant', finalAssistantRoutes);
 
   app.use('/api/admin/products', adminProductRoutes);
+  app.use('/api/admin/categories', adminCategoryRoutes);
   app.use('/api/uploads', uploadRoutes);
 
   // 404 Handler

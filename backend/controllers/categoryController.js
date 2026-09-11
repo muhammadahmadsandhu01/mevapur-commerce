@@ -42,13 +42,12 @@ async function normalizeAndValidateParentId(parentId, currentCategoryId = null) 
   return { hasValue: true, value: parentCategory._id };
 }
 
-// @desc    Get all categories (Flat list for easy Admin management)
+// @desc    Get public active categories
 // @route   GET /api/categories
 // @access  Public
 exports.getCategories = async (req, res) => {
   try {
-    // Flat list return karna admin CRUD ke liye behtar hai
-    const categories = await Category.find({})
+    const categories = await Category.find({ isActive: true })
       .sort({ displayOrder: 1, createdAt: -1 })
       .lean();
 
@@ -59,12 +58,12 @@ exports.getCategories = async (req, res) => {
   }
 };
 
-// @desc    Get single category by slug or ID
+// @desc    Get single active category by slug or ID
 // @route   GET /api/categories/:id
 // @access  Public
 exports.getCategoryById = async (req, res) => {
   try {
-    const category = await CategoryResolver.resolveCategory(req.params.id, { requireActive: false });
+    const category = await CategoryResolver.resolveCategory(req.params.id, { requireActive: true });
     
     if (!category) {
       return res.status(404).json({ success: false, message: 'Category not found' });
@@ -72,6 +71,39 @@ exports.getCategoryById = async (req, res) => {
     res.json({ success: true, data: category });
   } catch (error) {
     console.error('Get category error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get all categories for Admin (Active & Inactive)
+// @route   GET /api/admin/categories
+// @access  Private/Admin
+exports.getAdminCategories = async (req, res) => {
+  try {
+    const categories = await Category.find({})
+      .sort({ displayOrder: 1, createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, data: categories });
+  } catch (error) {
+    console.error('Get admin categories error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get single category by slug or ID for Admin (Active & Inactive)
+// @route   GET /api/admin/categories/:id
+// @access  Private/Admin
+exports.getAdminCategoryById = async (req, res) => {
+  try {
+    const category = await CategoryResolver.resolveCategory(req.params.id, { requireActive: false });
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
+    }
+    res.json({ success: true, data: category });
+  } catch (error) {
+    console.error('Get admin category error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

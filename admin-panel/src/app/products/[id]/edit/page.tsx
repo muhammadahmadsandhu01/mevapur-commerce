@@ -45,6 +45,7 @@ interface CategoryOption {
   _id: string;
   name: string;
   parentId?: string | null;
+  isActive?: boolean;
 }
 
 interface BrandOption {
@@ -811,10 +812,25 @@ export default function EditProductPage() {
                   }}
                 >
                   <option value="">Select Category</option>
-                  {categories.filter(c => !c.parentId).map(cat => (
-                    <option key={cat._id} value={cat._id}>{cat.name}</option>
-                  ))}
+                  {categories.filter(c => !c.parentId).map(cat => {
+                    const isCurrentSelection = formData.category === cat._id;
+                    const isInactive = cat.isActive === false;
+                    return (
+                      <option
+                        key={cat._id}
+                        value={cat._id}
+                        disabled={isInactive && !isCurrentSelection}
+                      >
+                        {cat.name}{isInactive ? ' (Inactive)' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                {categories.find(c => c._id === formData.category)?.isActive === false && (
+                  <p style={{ color: '#D97706', fontSize: '12px', marginTop: '4px' }}>
+                    ⚠️ Currently assigned to an inactive category.
+                  </p>
+                )}
                 {errors.category && <p style={{ color: 'var(--danger-text)', fontSize: '12px', marginTop: '4px' }}>{errors.category}</p>}
               </div>
 

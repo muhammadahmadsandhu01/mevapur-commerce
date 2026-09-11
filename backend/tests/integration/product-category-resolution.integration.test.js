@@ -343,10 +343,16 @@ describe('DEF-04: Enterprise Category Identity & Product/SKU Resolution Integrat
       expect(res.body.success).toBe(false);
     });
 
-    it('26. Inactive category returns category details if requested directly by ID/slug', async () => {
-      const res = await request(app).get(`/api/categories/${inactiveCategory.slug}`);
-      expect(res.status).toBe(200);
-      expect(res.body.data.isActive).toBe(false);
+    it('26. Inactive category returns 404 on public detail endpoint (by slug and ObjectId)', async () => {
+      const resSlug = await request(app).get(`/api/categories/${inactiveCategory.slug}`);
+      expect(resSlug.status).toBe(404);
+      expect(resSlug.body.success).toBe(false);
+      expect(resSlug.body.message).toBe('Category not found');
+
+      const resId = await request(app).get(`/api/categories/${inactiveCategory._id}`);
+      expect(resId.status).toBe(404);
+      expect(resId.body.success).toBe(false);
+      expect(resId.body.message).toBe('Category not found');
     });
   });
 
