@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
+const { MoneySchema } = require('../modules/commerce');
 const {
   PAYMENT_STATUSES,
-  PROVIDER_ATTEMPT_STATUSES,
-  SUPPORTED_PAYMENT_CURRENCIES
+  PROVIDER_ATTEMPT_STATUSES
 } = require('../constants/paymentConstants');
 
 const paymentHistorySchema = new mongoose.Schema({
@@ -142,16 +142,21 @@ const paymentSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  amountExact: { type: MoneySchema, default: null },
   currency: {
     type: String,
     required: true,
     default: 'PKR',
+    trim: true,
     uppercase: true,
-    enum: SUPPORTED_PAYMENT_CURRENCIES
+    match: /^[A-Z]{3}$/
   },
   paidAmount: { type: Number, default: 0, min: 0 },
+  paidAmountExact: { type: MoneySchema, default: null },
   refundedAmount: { type: Number, default: 0, min: 0 },
+  refundedAmountExact: { type: MoneySchema, default: null },
   refundReservedAmount: { type: Number, default: 0, min: 0, select: false },
+  refundReservedAmountExact: { type: MoneySchema, default: null, select: false },
   idempotencyKey: {
     type: String,
     required: true,

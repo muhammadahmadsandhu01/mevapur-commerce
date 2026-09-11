@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const { MoneySchema } = require('../modules/commerce');
 const {
   PAYMENT_METHODS,
   SUPPORTED_ORDER_PAYMENT_METHODS,
@@ -30,6 +31,7 @@ const orderItemSchema = new mongoose.Schema({
   sku: { type: String, default: '', trim: true, maxlength: 100 },
   variant: { type: String, default: '', trim: true, maxlength: 200 },
   price: { type: Number, required: true, min: 0 },
+  unitPriceExact: { type: MoneySchema, default: null },
   quantity: {
     type: Number,
     required: true,
@@ -37,6 +39,7 @@ const orderItemSchema = new mongoose.Schema({
     validate: Number.isInteger
   },
   lineTotal: { type: Number, required: true, min: 0 },
+  lineTotalExact: { type: MoneySchema, default: null },
   image: { type: String, default: '', maxlength: 1000 }
 }, { _id: false });
 
@@ -108,7 +111,17 @@ const orderSchema = new mongoose.Schema({
       trim: true,
       minlength: 2,
       maxlength: 100
-    }
+    },
+    countryCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      match: /^[A-Z]{2}$/,
+      default: null
+    },
+    administrativeArea: { type: String, default: '', trim: true, maxlength: 100 },
+    phoneE164: { type: String, default: '', trim: true, maxlength: 30 },
+    phoneExtension: { type: String, default: '', trim: true, maxlength: 10 }
   },
   paymentMethod: {
     type: String,
@@ -151,7 +164,9 @@ const orderSchema = new mongoose.Schema({
     default: ORDER_STATUSES.PENDING
   },
   subtotal: { type: Number, required: true, min: 0 },
+  subtotalExact: { type: MoneySchema, default: null },
   shippingCost: { type: Number, default: 0, min: 0 },
+  shippingCostExact: { type: MoneySchema, default: null },
   shippingQuote: {
     zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'ShippingZone', default: null },
     zoneName: { type: String, default: '', maxlength: 100 },
@@ -160,8 +175,11 @@ const orderSchema = new mongoose.Schema({
     remoteArea: { type: Boolean, default: false }
   },
   taxAmount: { type: Number, default: 0, min: 0 },
+  taxAmountExact: { type: MoneySchema, default: null },
   discount: { type: Number, default: 0, min: 0 },
+  discountExact: { type: MoneySchema, default: null },
   totalAmount: { type: Number, required: true, min: 0 },
+  totalAmountExact: { type: MoneySchema, default: null },
   customerNote: { type: String, default: '', maxlength: 500 },
   adminNotes: [{
     note: { type: String, maxlength: 500 },

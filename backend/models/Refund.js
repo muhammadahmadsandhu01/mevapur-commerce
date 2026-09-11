@@ -1,9 +1,9 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const { MoneySchema } = require('../modules/commerce');
 const {
   REFUND_STATUSES,
-  PROVIDER_ATTEMPT_STATUSES,
-  SUPPORTED_PAYMENT_CURRENCIES
+  PROVIDER_ATTEMPT_STATUSES
 } = require('../constants/paymentConstants');
 
 const generateRefundNumber = () => (
@@ -62,12 +62,14 @@ const refundSchema = new mongoose.Schema({
     match: /^[a-z0-9_]+$/
   },
   amount: { type: Number, required: true, min: 0.01 },
+  amountExact: { type: MoneySchema, default: null },
   currency: {
     type: String,
     required: true,
     default: 'PKR',
+    trim: true,
     uppercase: true,
-    enum: SUPPORTED_PAYMENT_CURRENCIES
+    match: /^[A-Z]{3}$/
   },
   status: {
     type: String,

@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const { MoneySchema } = require('../modules/commerce');
 
 const generateReturnNumber = () => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -37,7 +38,9 @@ const returnSchema = new mongoose.Schema({
     name: String,
     quantity: { type: Number, required: true, min: 1, validate: Number.isInteger },
     price: { type: Number, required: true, min: 0 },
+    priceExact: { type: MoneySchema, default: null },
     refundAmount: { type: Number, min: 0, default: 0 },
+    refundAmountExact: { type: MoneySchema, default: null },
     reason: {
       type: String,
       enum: ['damaged', 'wrong_item', 'not_as_described', 'not_satisfied', 'duplicate', 'other'],
@@ -74,10 +77,12 @@ const returnSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  refundAmountExact: { type: MoneySchema, default: null },
   shippingCost: {
     type: Number,
     default: 0
   },
+  shippingCostExact: { type: MoneySchema, default: null },
   returnShippingLabel: String,
   trackingNumber: String,
   courierCompany: String,

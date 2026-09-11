@@ -10,6 +10,9 @@ const Address = require('./core/Address');
 const Phone = require('./core/Phone');
 const CommerceError = require('./core/CommerceError');
 const { ROUNDING_MODES, roundFraction, allocateLargestRemainder } = require('./core/Rounding');
+const MoneySchema = require('./persistence/MoneySchema');
+const MoneyMapper = require('./persistence/MoneyMapper');
+const RolloutAuthority = require('./persistence/RolloutAuthority');
 
 module.exports = {
   CurrencyRegistry,
@@ -20,5 +23,8 @@ module.exports = {
   CommerceError,
   ROUNDING_MODES,
   roundFraction,
-  allocateLargestRemainder
+  allocateLargestRemainder,
+  MoneySchema,
+  MoneyMapper,
+  RolloutAuthority
 };

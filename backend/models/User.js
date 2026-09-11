@@ -60,6 +60,16 @@ const userSchema = new mongoose.Schema(
           type: String,
           default: 'Pakistan'
         },
+        countryCode: {
+          type: String,
+          trim: true,
+          uppercase: true,
+          match: /^[A-Z]{2}$/,
+          default: null
+        },
+        administrativeArea: { type: String, default: '', trim: true, maxlength: 100 },
+        phoneE164: { type: String, default: '', trim: true, maxlength: 30 },
+        phoneExtension: { type: String, default: '', trim: true, maxlength: 10 },
         isDefault: {
           type: Boolean,
           default: false

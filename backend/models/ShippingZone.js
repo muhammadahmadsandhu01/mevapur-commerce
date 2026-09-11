@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { MoneySchema } = require('../modules/commerce');
 
 const shippingZoneSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
@@ -7,8 +8,12 @@ const shippingZoneSchema = new mongoose.Schema({
   regions: [{ type: String, trim: true, maxlength: 100 }],
   cities: [{ type: String, trim: true, maxlength: 100 }],
   normalRate: { type: Number, required: true, min: 0 },
+  normalRateExact: { type: MoneySchema, default: null },
   freeShippingThreshold: { type: Number, required: true, min: 0 },
+  freeShippingThresholdExact: { type: MoneySchema, default: null },
   remoteRate: { type: Number, default: null, min: 0 },
+  remoteRateExact: { type: MoneySchema, default: null },
+  currency: { type: String, trim: true, uppercase: true, match: /^[A-Z]{3}$/, default: 'PKR' },
   remoteCities: [{ type: String, trim: true, maxlength: 100 }],
   deliveryMinDays: { type: Number, required: true, min: 0, max: 60 },
   deliveryMaxDays: { type: Number, required: true, min: 0, max: 60 },

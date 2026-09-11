@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { MoneySchema } = require('../modules/commerce');
 
 // Guard Clause: Prevent OverwriteModelError
 if (mongoose.models.Coupon) {
@@ -18,8 +19,12 @@ if (mongoose.models.Coupon) {
       required: true
     },
     value: { type: Number, required: true, min: 0 },
+    valueExact: { type: MoneySchema, default: null },
     minOrderAmount: { type: Number, default: 0, min: 0 },
+    minOrderAmountExact: { type: MoneySchema, default: null },
     maxDiscount: { type: Number, default: 0, min: 0 },
+    maxDiscountExact: { type: MoneySchema, default: null },
+    currency: { type: String, trim: true, uppercase: true, match: /^[A-Z]{3}$/, default: 'PKR' },
     usageLimit: { type: Number, default: 0, min: 0 },
     usedCount: { type: Number, default: 0, min: 0 },
     perCustomerLimit: { type: Number, default: 0, min: 0 },

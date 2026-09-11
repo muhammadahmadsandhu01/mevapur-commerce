@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const slugify = require('slugify');
+const { MoneySchema } = require('../modules/commerce');
 
 // Guard Clause: Prevent OverwriteModelError
 if (mongoose.models.Product) {
@@ -63,15 +64,28 @@ if (mongoose.models.Product) {
       default: 0,
       select: false
     },
+    costPriceExact: {
+      type: MoneySchema,
+      default: null,
+      select: false
+    },
     price: {
       type: Number,
       min: 0,
       default: 0
     },
+    priceExact: {
+      type: MoneySchema,
+      default: null
+    },
     originalPrice: {
       type: Number,
       min: 0,
       default: 0
+    },
+    originalPriceExact: {
+      type: MoneySchema,
+      default: null
     },
     stock: {
       type: Number,
@@ -247,10 +261,22 @@ if (mongoose.models.Product) {
         required: true,
         min: 0
       },
+      priceExact: {
+        type: MoneySchema,
+        default: null
+      },
       salePrice: {
         type: Number,
         min: 0,
         default: 0
+      },
+      salePriceExact: {
+        type: MoneySchema,
+        default: null
+      },
+      costPriceExact: {
+        type: MoneySchema,
+        default: null
       },
       stock: {
         type: Number,
