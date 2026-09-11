@@ -17,19 +17,27 @@ const TokenService = require('../../services/TokenService');
 const MediaService = require('../../services/media/MediaService');
 const { MockStorageProvider } = require('../../services/media/StorageProvider');
 const ProductCatalogService = require('../../services/product/ProductCatalogService');
-const { reconcileMediaAssets } = require('../../scripts/reconcile-media-assets');
+const StorageProvider = require('../../services/media/StorageProvider');
+const {
+  reconcileMediaAssets,
+  validateCheckpointManifest,
+  SUPPORTED_MANIFEST_SCHEMA_VERSIONS,
+  ALLOWED_LOCAL_RECOVERY_CLASSIFICATIONS,
+  ALLOWED_REMOTE_RECOVERY_CLASSIFICATIONS
+} = require('../../scripts/reconcile-media-assets');
 
 function createTempManifest({
   target = 'local',
   canonicalPrefix = 'products/',
   bucket = 'mevapur-products',
+  provider = 'mock',
   dbFingerprint = 'sha256:435744d67cb1',
   inventoryCount = 10,
   schemaVersion = '1.0.0',
   checkpointId = crypto.randomUUID(),
   timestamp = new Date().toISOString(),
-  manifestHash = 'manifest-content-sha256-hash',
-  recoveryClassification = 'UNVERIFIED',
+  inventorySha256,
+  recoveryClassification = 'LOCAL_MOCK_VERIFIED',
   operatorVerificationState = 'VERIFIED'
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-manifest-'));
@@ -38,15 +46,17 @@ function createTempManifest({
     checkpointId,
     timestamp,
     target,
-    provider: 'mock',
+    provider,
     bucket,
     prefix: canonicalPrefix,
     dbFingerprint,
     inventoryCount,
-    manifestHash,
     recoveryClassification,
     operatorVerificationState
   };
+  if (inventorySha256 !== undefined) {
+    manifestObj.inventorySha256 = inventorySha256;
+  }
   const manifestPath = path.join(dir, 'checkpoint-manifest.json');
   fs.writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), 'utf8');
   const sha256 = crypto.createHash('sha256').update(fs.readFileSync(manifestPath, 'utf8')).digest('hex');
@@ -1117,5 +1127,655 @@ describe('Phase 3C-3A: Media Lifecycle, Storage Reconciliation & Irreversible De
     const reloaded = await MediaAsset.findById(asset._id);
     expect(reloaded.status).toBe('deleted');
     expect(reloaded.leaseId).toBeNull();
+  });
+
+  // --- Step 6: Comprehensive Manifest Validation & Zero-Initialization Order Tests ---
+  describe('Step 6: Checkpoint Manifest Validation & Zero-Initialization Order', () => {
+    let connectSpy;
+    let storageSpy;
+
+    beforeEach(() => {
+      connectSpy = jest.spyOn(mongoose, 'connect');
+      storageSpy = jest.spyOn(StorageProvider, 'createStorageProvider');
+    });
+
+    afterEach(() => {
+      connectSpy.mockRestore();
+      storageSpy.mockRestore();
+    });
+
+    it('Case 1: Missing manifest flag fails closed before DB/storage init', async () => {
+      await expect(reconcileMediaAssets({
+        argv: ['--apply', '--target=local', '--allow-local', '--confirm-media-reconciliation'],
+        customDbConnected: false
+      })).rejects.toThrow('Apply mode strictly requires --checkpoint-manifest=<path>');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 2: Missing expected hash fails closed before DB/storage init', async () => {
+      const m = createTempManifest();
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Apply mode strictly requires --expected-manifest-sha256=<hash>');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 3: Wrong file hash fails closed before DB/storage init', async () => {
+      const m = createTempManifest();
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          '--expected-manifest-sha256=0000000000000000000000000000000000000000000000000000000000000000'
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Checkpoint manifest SHA-256 mismatch');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 4: Unsupported schema version fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ schemaVersion: '2.0.0' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest schemaVersion \'2.0.0\' is not supported');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 5: Invalid checkpoint ID (< 8 chars) fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ checkpointId: 'abc' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest missing or invalid checkpointId string');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 6: Invalid timestamp string fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ timestamp: 'not-a-valid-date' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest timestamp is invalid');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 7: Future timestamp beyond clock skew (>5m) fails closed before DB/storage init', async () => {
+      const futureTs = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const m = createTempManifest({ timestamp: futureTs });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Checkpoint manifest timestamp is in the future');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 8: Stale timestamp (>24h) fails closed before DB/storage init', async () => {
+      const staleTs = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const m = createTempManifest({ timestamp: staleTs });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Checkpoint manifest is stale');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 9: Target mismatch fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ target: 'production' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest target \'production\' does not match execution target \'local\'');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 10: Provider mismatch fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ provider: 's3' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest provider \'s3\' does not match configured provider \'mock\'');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 11: Bucket mismatch fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ bucket: 'unauthorized-bucket' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest bucket \'unauthorized-bucket\' does not match configured bucket');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 12: Prefix mismatch fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ canonicalPrefix: 'other-prefix/' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest prefix \'other-prefix/\' does not match canonical prefix');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 13: Database fingerprint mismatch fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ dbFingerprint: 'sha256:000000000000' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest dbFingerprint');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 14: Negative or non-integer inventory count fails closed before DB/storage init', async () => {
+      const mNeg = createTempManifest({ inventoryCount: -1 });
+      tempManifests.push(mNeg);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${mNeg.manifestPath}`,
+          `--expected-manifest-sha256=${mNeg.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest inventoryCount must be a non-negative integer');
+
+      const mFloat = createTempManifest({ inventoryCount: 5.5 });
+      tempManifests.push(mFloat);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${mFloat.manifestPath}`,
+          `--expected-manifest-sha256=${mFloat.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest inventoryCount must be a non-negative integer');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 15: Operator verification state not VERIFIED fails closed before DB/storage init', async () => {
+      const m = createTempManifest({ operatorVerificationState: 'UNVERIFIED' });
+      tempManifests.push(m);
+
+      await expect(reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: false
+      })).rejects.toThrow('Manifest operatorVerificationState must be exactly \'VERIFIED\'');
+
+      expect(connectSpy).toHaveBeenCalledTimes(0);
+      expect(storageSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('Case 16: Recovery classification UNVERIFIED on staging/production fails closed before DB/storage init', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-manifest-'));
+      const manifestObj = {
+        schemaVersion: '1.0.0',
+        checkpointId: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        target: 'staging',
+        provider: 's3',
+        bucket: 'mevapur-staging-bucket',
+        prefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        inventoryCount: 42,
+        recoveryClassification: 'UNVERIFIED',
+        operatorVerificationState: 'VERIFIED'
+      };
+      const manifestPath = path.join(dir, 'checkpoint-manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), 'utf8');
+      const sha256 = crypto.createHash('sha256').update(fs.readFileSync(manifestPath, 'utf8')).digest('hex');
+      tempManifests.push({ dir });
+
+      expect(() => validateCheckpointManifest({
+        manifestPath,
+        expectedSha256: sha256,
+        target: 'staging',
+        canonicalPrefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        bucket: 'mevapur-staging-bucket',
+        provider: 's3'
+      })).toThrow('Staging/Production apply strictly rejects unverified/local recovery classification \'UNVERIFIED\'');
+    });
+
+    it('Case 17: Unknown recovery classification fails closed', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-manifest-'));
+      const manifestObj = {
+        schemaVersion: '1.0.0',
+        checkpointId: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        target: 'staging',
+        provider: 's3',
+        bucket: 'mevapur-staging-bucket',
+        prefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        inventoryCount: 42,
+        recoveryClassification: 'CUSTOM_UNKNOWN_RECOVERY',
+        operatorVerificationState: 'VERIFIED'
+      };
+      const manifestPath = path.join(dir, 'checkpoint-manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), 'utf8');
+      const sha256 = crypto.createHash('sha256').update(fs.readFileSync(manifestPath, 'utf8')).digest('hex');
+      tempManifests.push({ dir });
+
+      expect(() => validateCheckpointManifest({
+        manifestPath,
+        expectedSha256: sha256,
+        target: 'staging',
+        canonicalPrefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        bucket: 'mevapur-staging-bucket',
+        provider: 's3'
+      })).toThrow('Unknown recovery classification \'CUSTOM_UNKNOWN_RECOVERY\'');
+    });
+
+    it('Case 18: Local mock classification used for staging/production target is rejected', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-manifest-'));
+      const manifestObj = {
+        schemaVersion: '1.0.0',
+        checkpointId: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        target: 'staging',
+        provider: 's3',
+        bucket: 'mevapur-staging-bucket',
+        prefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        inventoryCount: 42,
+        recoveryClassification: 'LOCAL_MOCK_VERIFIED',
+        operatorVerificationState: 'VERIFIED'
+      };
+      const manifestPath = path.join(dir, 'checkpoint-manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), 'utf8');
+      const sha256 = crypto.createHash('sha256').update(fs.readFileSync(manifestPath, 'utf8')).digest('hex');
+      tempManifests.push({ dir });
+
+      expect(() => validateCheckpointManifest({
+        manifestPath,
+        expectedSha256: sha256,
+        target: 'staging',
+        canonicalPrefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        bucket: 'mevapur-staging-bucket',
+        provider: 's3'
+      })).toThrow('Staging/Production apply strictly rejects unverified/local recovery classification \'LOCAL_MOCK_VERIFIED\'');
+    });
+
+    it('Case 19: Valid local mock manifest reaches mock-only execution', async () => {
+      const m = createTempManifest({
+        target: 'local',
+        recoveryClassification: 'LOCAL_MOCK_VERIFIED',
+        operatorVerificationState: 'VERIFIED'
+      });
+      tempManifests.push(m);
+
+      const report = await reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: true,
+        customStorageProvider: mockStorage
+      });
+
+      expect(report.mode).toBe('APPLY');
+      expect(report.target).toBe('local');
+    });
+
+    it('Case 20: Valid source-shaped staging manifest passes validation only in a fully mocked harness and makes zero external connections', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-manifest-'));
+      const manifestObj = {
+        schemaVersion: '1.0.0',
+        checkpointId: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        target: 'staging',
+        provider: 's3',
+        bucket: 'mevapur-staging-bucket',
+        prefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        inventoryCount: 100,
+        inventorySha256: 'e'.repeat(64),
+        recoveryClassification: 'VERSIONED_OBJECT_RECOVERY_VERIFIED',
+        operatorVerificationState: 'VERIFIED'
+      };
+      const manifestPath = path.join(dir, 'checkpoint-manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), 'utf8');
+      const sha256 = crypto.createHash('sha256').update(fs.readFileSync(manifestPath, 'utf8')).digest('hex');
+      tempManifests.push({ dir });
+
+      const validated = validateCheckpointManifest({
+        manifestPath,
+        expectedSha256: sha256,
+        target: 'staging',
+        canonicalPrefix: 'products/',
+        dbFingerprint: 'sha256:stagingfingerprint',
+        bucket: 'mevapur-staging-bucket',
+        provider: 's3'
+      });
+
+      expect(validated.schemaVersion).toBe('1.0.0');
+      expect(validated.target).toBe('staging');
+      expect(validated.recoveryClassification).toBe('VERSIONED_OBJECT_RECOVERY_VERIFIED');
+      expect(validated.operatorVerificationState).toBe('VERIFIED');
+    });
+  });
+
+  // --- Step 7: Lease Expiry Safety & Atomicity Tests ---
+  describe('Step 7: Lease Expiry Safety & Atomicity', () => {
+    it('37. deletion-failed lease query enforces retryCount < 5 and ignores retry-exhausted documents', async () => {
+      const asset = await MediaAsset.create({
+        provider: 'mock',
+        bucket: 'test-bucket',
+        key: 'products/2026/09/retry-exhausted-lease.webp',
+        publicUrl: 'https://example.com/retry-exhausted.webp',
+        mimeType: 'image/webp',
+        sizeBytes: 1024,
+        width: 100,
+        height: 100,
+        checksumSha256: 'd1'.repeat(32),
+        status: 'deletion_failed',
+        retryCount: 5,
+        nextRetryAt: new Date(Date.now() - 60000), // past backoff
+        uploader: adminUser._id
+      });
+
+      const key = asset.key;
+      await mockStorage.upload({ key, buffer: Buffer.from('blob'), mimeType: 'image/webp' });
+
+      const m = createTempManifest();
+      tempManifests.push(m);
+
+      const report = await reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: true,
+        customStorageProvider: mockStorage
+      });
+
+      expect(report.retryExhausted).toBe(1);
+      expect(report.deleted).toBe(0);
+      expect(mockStorage.has(key)).toBe(true);
+
+      const reloaded = await MediaAsset.findById(asset._id);
+      expect(reloaded.status).toBe('deletion_failed');
+      expect(reloaded.leaseId).toBeNull();
+    });
+
+    it('38. active lease cannot be stolen by another worker', async () => {
+      const activeLeaseExpiry = new Date(Date.now() + 4 * 60 * 1000); // 4m in future
+      const asset = await MediaAsset.create({
+        provider: 'mock',
+        bucket: 'test-bucket',
+        key: 'products/2026/09/active-lease.webp',
+        publicUrl: 'https://example.com/active-lease.webp',
+        mimeType: 'image/webp',
+        sizeBytes: 1024,
+        width: 100,
+        height: 100,
+        checksumSha256: 'd2'.repeat(32),
+        status: 'deletion_in_progress',
+        leaseId: 'worker-1-active-lease',
+        leaseExpiresAt: activeLeaseExpiry,
+        uploader: adminUser._id
+      });
+
+      const key = asset.key;
+      await mockStorage.upload({ key, buffer: Buffer.from('blob'), mimeType: 'image/webp' });
+
+      const m = createTempManifest();
+      tempManifests.push(m);
+
+      const report = await reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: true,
+        customStorageProvider: mockStorage
+      });
+
+      expect(report.deleted).toBe(0);
+      expect(mockStorage.has(key)).toBe(true);
+
+      const reloaded = await MediaAsset.findById(asset._id);
+      expect(reloaded.status).toBe('deletion_in_progress');
+      expect(reloaded.leaseId).toBe('worker-1-active-lease');
+    });
+
+    it('39. final update requires matching leaseId to prevent stale worker overwriting new owner', async () => {
+      const asset = await MediaAsset.create({
+        provider: 'mock',
+        bucket: 'test-bucket',
+        key: 'products/2026/09/lease-ownership.webp',
+        publicUrl: 'https://example.com/lease-ownership.webp',
+        mimeType: 'image/webp',
+        sizeBytes: 1024,
+        width: 100,
+        height: 100,
+        checksumSha256: 'd3'.repeat(32),
+        status: 'deletion_in_progress',
+        leaseId: 'owner-lease-uuid',
+        leaseExpiresAt: new Date(Date.now() + 60000),
+        uploader: adminUser._id
+      });
+
+      // Attempt update with wrong leaseId
+      const staleUpdate = await MediaAsset.findOneAndUpdate(
+        { _id: asset._id, leaseId: 'stale-worker-lease-uuid' },
+        { $set: { status: 'deleted', leaseId: null, leaseExpiresAt: null } }
+      );
+      expect(staleUpdate).toBeNull();
+
+      // Asset remains untouched
+      const untouched = await MediaAsset.findById(asset._id);
+      expect(untouched.status).toBe('deletion_in_progress');
+      expect(untouched.leaseId).toBe('owner-lease-uuid');
+    });
+
+    it('40. lease fields are cleared on every terminal and retry transition', async () => {
+      const asset1 = await MediaAsset.create({
+        provider: 'mock',
+        bucket: 'test-bucket',
+        key: 'products/2026/09/clear-lease-1.webp',
+        publicUrl: 'https://example.com/clear-1.webp',
+        mimeType: 'image/webp',
+        sizeBytes: 1024,
+        width: 100,
+        height: 100,
+        checksumSha256: 'e1'.repeat(32),
+        status: 'deletion_requested',
+        uploader: adminUser._id
+      });
+      await mockStorage.upload({ key: asset1.key, buffer: Buffer.from('clear-1'), mimeType: 'image/webp' });
+
+      const m = createTempManifest();
+      tempManifests.push(m);
+
+      await reconcileMediaAssets({
+        argv: [
+          '--apply',
+          '--target=local',
+          '--allow-local',
+          '--confirm-media-reconciliation',
+          `--checkpoint-manifest=${m.manifestPath}`,
+          `--expected-manifest-sha256=${m.sha256}`
+        ],
+        customDbConnected: true,
+        customStorageProvider: mockStorage
+      });
+
+      const reloaded1 = await MediaAsset.findById(asset1._id);
+      expect(reloaded1.status).toBe('deleted');
+      expect(reloaded1.leaseId).toBeNull();
+      expect(reloaded1.leaseExpiresAt).toBeNull();
+    });
+
+    it('41. StorageProvider delete operation timeout is 10s, bounded well below the 300s lease duration', () => {
+      const { S3StorageProvider } = require('../../services/media/StorageProvider');
+      const s3Provider = new S3StorageProvider({
+        bucket: 'test-bucket',
+        region: 'us-east-1',
+        accessKeyId: 'test',
+        secretAccessKey: 'test'
+      });
+
+      expect(s3Provider.timeoutMs).toBe(10000); // 10s provider timeout << 300s (5m) lease
+    });
   });
 });

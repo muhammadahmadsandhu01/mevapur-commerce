@@ -4,10 +4,23 @@ const mongoose = require('mongoose');
 
 const MediaAsset = require('../models/MediaAsset');
 const Product = require('../models/Product');
-const { createStorageProvider } = require('../services/media/StorageProvider');
+const StorageProvider = require('../services/media/StorageProvider');
 const { getRuntimeConfig } = require('../config/runtime.config');
 const MediaService = require('../services/media/MediaService');
 const { parseMigrationCli, validateTargetAndDbConfig, MigrationGuardError } = require('./lib/migrationRuntimeGuard');
+
+const SUPPORTED_MANIFEST_SCHEMA_VERSIONS = ['1.0.0'];
+
+const ALLOWED_LOCAL_RECOVERY_CLASSIFICATIONS = [
+  'LOCAL_MOCK_VERIFIED',
+  'LOCAL_EPHEMERAL_VERIFIED'
+];
+
+const ALLOWED_REMOTE_RECOVERY_CLASSIFICATIONS = [
+  'VERSIONED_OBJECT_RECOVERY_VERIFIED',
+  'POINT_IN_TIME_RECOVERY_VERIFIED',
+  'ISOLATED_BACKUP_SNAPSHOT_VERIFIED'
+];
 
 function validateCheckpointManifest({
   manifestPath,
@@ -15,7 +28,8 @@ function validateCheckpointManifest({
   target,
   canonicalPrefix,
   dbFingerprint,
-  bucket
+  bucket,
+  provider
 }) {
   if (!manifestPath || typeof manifestPath !== 'string' || !manifestPath.trim()) {
     throw new MigrationGuardError('CHECKPOINT_MANIFEST_REQUIRED', 'Apply mode strictly requires --checkpoint-manifest=<path>');
@@ -40,56 +54,124 @@ function validateCheckpointManifest({
     throw new MigrationGuardError('MALFORMED_MANIFEST', 'Checkpoint manifest contains invalid JSON.');
   }
 
+  if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
+    throw new MigrationGuardError('MALFORMED_MANIFEST', 'Checkpoint manifest must be a JSON object.');
+  }
+
+  // 1. schemaVersion
   if (!manifest.schemaVersion || typeof manifest.schemaVersion !== 'string') {
     throw new MigrationGuardError('INVALID_MANIFEST_SCHEMA', 'Manifest missing required schemaVersion string.');
   }
-  if (!manifest.checkpointId || typeof manifest.checkpointId !== 'string') {
-    throw new MigrationGuardError('INVALID_MANIFEST_CHECKPOINT_ID', 'Manifest missing required checkpointId string.');
+  if (!SUPPORTED_MANIFEST_SCHEMA_VERSIONS.includes(manifest.schemaVersion)) {
+    throw new MigrationGuardError('UNSUPPORTED_MANIFEST_SCHEMA_VERSION', `Manifest schemaVersion '${manifest.schemaVersion}' is not supported.`);
   }
 
+  // 2. checkpointId
+  if (!manifest.checkpointId || typeof manifest.checkpointId !== 'string' || !manifest.checkpointId.trim() || manifest.checkpointId.trim().length < 8) {
+    throw new MigrationGuardError('INVALID_MANIFEST_CHECKPOINT_ID', 'Manifest missing or invalid checkpointId string (must be non-empty and >= 8 chars).');
+  }
+
+  // 3. timestamp
   const ts = manifest.timestamp || manifest.createdAt;
-  if (!ts) {
-    throw new MigrationGuardError('INVALID_MANIFEST_TIMESTAMP', 'Manifest missing required timestamp/createdAt.');
+  if (!ts || typeof ts !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_TIMESTAMP', 'Manifest missing required timestamp string.');
   }
   const date = new Date(ts);
   if (isNaN(date.getTime())) {
     throw new MigrationGuardError('INVALID_MANIFEST_TIMESTAMP', 'Manifest timestamp is invalid.');
   }
   const ageMs = Date.now() - date.getTime();
-  if (ageMs > 24 * 60 * 60 * 1000 || ageMs < -5 * 60 * 1000) {
-    throw new MigrationGuardError('MANIFEST_STALE', `Checkpoint manifest is stale or in the future (age: ${Math.round(ageMs / 1000)}s). Must be <= 24h old.`);
+  if (ageMs < -5 * 60 * 1000) {
+    throw new MigrationGuardError('MANIFEST_FUTURE_TIMESTAMP', `Checkpoint manifest timestamp is in the future (${Math.round(-ageMs / 1000)}s ahead).`);
+  }
+  if (ageMs > 24 * 60 * 60 * 1000) {
+    throw new MigrationGuardError('MANIFEST_STALE', `Checkpoint manifest is stale (age: ${Math.round(ageMs / 1000)}s). Must be <= 24h old.`);
   }
 
-  if (String(manifest.target).toLowerCase() !== String(target).toLowerCase()) {
+  // 4. target
+  if (!manifest.target || typeof manifest.target !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_TARGET', 'Manifest missing required target string.');
+  }
+  if (manifest.target.toLowerCase() !== String(target).toLowerCase()) {
     throw new MigrationGuardError('MANIFEST_TARGET_MISMATCH', `Manifest target '${manifest.target}' does not match execution target '${target}'.`);
   }
 
-  if (manifest.prefix && manifest.prefix !== canonicalPrefix) {
-    throw new MigrationGuardError('MANIFEST_PREFIX_MISMATCH', `Manifest prefix '${manifest.prefix}' does not match canonical prefix '${canonicalPrefix}'.`);
+  // 5. provider
+  if (!manifest.provider || typeof manifest.provider !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_PROVIDER', 'Manifest missing required provider string.');
+  }
+  if (provider && manifest.provider.toLowerCase() !== String(provider).toLowerCase()) {
+    throw new MigrationGuardError('MANIFEST_PROVIDER_MISMATCH', `Manifest provider '${manifest.provider}' does not match configured provider '${provider}'.`);
   }
 
-  if (manifest.dbFingerprint && manifest.dbFingerprint !== dbFingerprint) {
-    throw new MigrationGuardError('MANIFEST_DB_FINGERPRINT_MISMATCH', `Manifest dbFingerprint '${manifest.dbFingerprint}' does not match DB '${dbFingerprint}'.`);
+  // 6. bucket
+  if (!manifest.bucket || typeof manifest.bucket !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_BUCKET', 'Manifest missing required bucket string.');
   }
-
-  if (manifest.bucket && bucket && manifest.bucket !== bucket) {
+  if (bucket && manifest.bucket !== bucket) {
     throw new MigrationGuardError('MANIFEST_BUCKET_MISMATCH', `Manifest bucket '${manifest.bucket}' does not match configured bucket '${bucket}'.`);
   }
 
-  if (typeof manifest.inventoryCount !== 'number' || manifest.inventoryCount < 0) {
-    throw new MigrationGuardError('INVALID_MANIFEST_INVENTORY_COUNT', 'Manifest inventoryCount must be a non-negative number.');
+  // 7. prefix
+  if (!manifest.prefix || typeof manifest.prefix !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_PREFIX', 'Manifest missing required prefix string.');
+  }
+  if (canonicalPrefix && manifest.prefix !== canonicalPrefix) {
+    throw new MigrationGuardError('MANIFEST_PREFIX_MISMATCH', `Manifest prefix '${manifest.prefix}' does not match canonical prefix '${canonicalPrefix}'.`);
   }
 
-  if (!manifest.manifestHash && !manifest.checksum) {
-    throw new MigrationGuardError('INVALID_MANIFEST_HASH', 'Manifest missing manifestHash/checksum field.');
+  // 8. dbFingerprint
+  if (!manifest.dbFingerprint || typeof manifest.dbFingerprint !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_DB_FINGERPRINT', 'Manifest missing required dbFingerprint string.');
+  }
+  if (dbFingerprint && manifest.dbFingerprint !== dbFingerprint) {
+    throw new MigrationGuardError('MANIFEST_DB_FINGERPRINT_MISMATCH', `Manifest dbFingerprint '${manifest.dbFingerprint}' does not match DB '${dbFingerprint}'.`);
   }
 
-  if (!manifest.recoveryClassification) {
-    throw new MigrationGuardError('INVALID_MANIFEST_RECOVERY_CLASSIFICATION', 'Manifest missing recoveryClassification.');
+  // 9. inventoryCount
+  if (typeof manifest.inventoryCount !== 'number' || !Number.isSafeInteger(manifest.inventoryCount) || manifest.inventoryCount < 0) {
+    throw new MigrationGuardError('INVALID_MANIFEST_INVENTORY_COUNT', 'Manifest inventoryCount must be a non-negative integer.');
   }
 
-  if (!['VERIFIED', 'ACKNOWLEDGED'].includes(manifest.operatorVerificationState)) {
-    throw new MigrationGuardError('INVALID_MANIFEST_OPERATOR_STATE', 'Manifest operatorVerificationState must be VERIFIED or ACKNOWLEDGED.');
+  // 10. inventorySha256 (optional format check)
+  if (manifest.inventorySha256 !== undefined && manifest.inventorySha256 !== null) {
+    if (typeof manifest.inventorySha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(manifest.inventorySha256)) {
+      throw new MigrationGuardError('INVALID_MANIFEST_INVENTORY_SHA256', 'Manifest inventorySha256 must be a 64-character hexadecimal SHA-256 string.');
+    }
+  }
+
+  // 11. operatorVerificationState
+  if (manifest.operatorVerificationState !== 'VERIFIED') {
+    throw new MigrationGuardError('INVALID_MANIFEST_OPERATOR_STATE', `Manifest operatorVerificationState must be exactly 'VERIFIED' (received: '${manifest.operatorVerificationState}').`);
+  }
+
+  // 12. recoveryClassification
+  if (!manifest.recoveryClassification || typeof manifest.recoveryClassification !== 'string') {
+    throw new MigrationGuardError('INVALID_MANIFEST_RECOVERY_CLASSIFICATION', 'Manifest missing required recoveryClassification string.');
+  }
+
+  const normalizedTarget = String(target).toLowerCase();
+  if (normalizedTarget === 'local') {
+    if (!ALLOWED_LOCAL_RECOVERY_CLASSIFICATIONS.includes(manifest.recoveryClassification)) {
+      throw new MigrationGuardError(
+        'INVALID_LOCAL_RECOVERY_CLASSIFICATION',
+        `Local target requires local recovery classification (${ALLOWED_LOCAL_RECOVERY_CLASSIFICATIONS.join(', ')}). Received: '${manifest.recoveryClassification}'.`
+      );
+    }
+  } else {
+    // staging or production
+    if (['UNVERIFIED', 'NONE'].includes(manifest.recoveryClassification) || ALLOWED_LOCAL_RECOVERY_CLASSIFICATIONS.includes(manifest.recoveryClassification)) {
+      throw new MigrationGuardError(
+        'UNVERIFIED_RECOVERY_CLASSIFICATION_BLOCKED',
+        `Staging/Production apply strictly rejects unverified/local recovery classification '${manifest.recoveryClassification}'. Must be one of: ${ALLOWED_REMOTE_RECOVERY_CLASSIFICATIONS.join(', ')}.`
+      );
+    }
+    if (!ALLOWED_REMOTE_RECOVERY_CLASSIFICATIONS.includes(manifest.recoveryClassification)) {
+      throw new MigrationGuardError(
+        'UNKNOWN_RECOVERY_CLASSIFICATION',
+        `Unknown recovery classification '${manifest.recoveryClassification}'. Allowed: ${ALLOWED_REMOTE_RECOVERY_CLASSIFICATIONS.join(', ')}.`
+      );
+    }
   }
 
   return manifest;
@@ -128,7 +210,7 @@ async function reconcileMediaAssets({
   console.log(`Mode: ${isApply ? 'APPLY (Executing deletions)' : 'DRY-RUN (Reporting only, default)'}`);
   console.log(`Target: ${cli.target}`);
 
-  // 2. Validate DB Target and Identity Fingerprint
+  // 2. Validate DB Target and Identity Fingerprint (pure computation, zero DB connection)
   const dbConfig = validateTargetAndDbConfig({
     target: cli.target,
     hasAllowLocal: cli.hasAllowLocal,
@@ -145,15 +227,15 @@ async function reconcileMediaAssets({
       runtimeConfig = { storage: { provider: 'mock', s3: { bucket: 'mevapur-products', keyPrefix: 'products/' } } };
     }
   }
-  const storageProvider = customStorageProvider || createStorageProvider(runtimeConfig);
 
   const rawPrefix = runtimeConfig?.storage?.s3?.keyPrefix || 'products/';
   const canonicalPrefix = MediaService.validateStoragePrefix(rawPrefix);
   console.log(`Canonical Storage Prefix: '${canonicalPrefix}'`);
 
   const configuredBucket = runtimeConfig?.storage?.s3?.bucket || 'mevapur-products';
+  const configuredProvider = runtimeConfig?.storage?.provider || (cli.target === 'local' ? 'mock' : 's3');
 
-  // 3. Checkpoint Manifest Apply Gate
+  // 3. Checkpoint Manifest Apply Gate — STRICTLY VERIFIED BEFORE ANY DB OR STORAGE INITIALIZATION
   if (isApply) {
     let manifestPath = checkpointManifestPath;
     let manifestSha = expectedManifestSha256;
@@ -172,11 +254,16 @@ async function reconcileMediaAssets({
       target: cli.target,
       canonicalPrefix,
       dbFingerprint: dbConfig.sanitizedFingerprint,
-      bucket: configuredBucket
+      bucket: configuredBucket,
+      provider: configuredProvider
     });
     console.log('✅ Checkpoint manifest verified.');
   }
 
+  // 4. Initialize storage provider AFTER manifest verification passes
+  const storageProvider = customStorageProvider || StorageProvider.createStorageProvider(runtimeConfig);
+
+  // 5. Connect to MongoDB AFTER manifest verification passes
   let shouldDisconnect = false;
   if (!customDbConnected && mongoose.connection.readyState === 0) {
     await mongoose.connect(dbConfig.mongoUri);
@@ -263,7 +350,11 @@ async function reconcileMediaAssets({
             _id: asset._id,
             $or: [
               { status: 'deletion_requested' },
-              { status: 'deletion_failed', $or: [{ nextRetryAt: null }, { nextRetryAt: { $lte: now } }] },
+              {
+                status: 'deletion_failed',
+                retryCount: { $lt: 5 },
+                $or: [{ nextRetryAt: null }, { nextRetryAt: { $lte: now } }]
+              },
               { status: 'deletion_in_progress', leaseExpiresAt: { $lt: now } }
             ]
           },
@@ -526,4 +617,10 @@ if (require.main === module) {
   });
 }
 
-module.exports = { reconcileMediaAssets };
+module.exports = {
+  reconcileMediaAssets,
+  validateCheckpointManifest,
+  SUPPORTED_MANIFEST_SCHEMA_VERSIONS,
+  ALLOWED_LOCAL_RECOVERY_CLASSIFICATIONS,
+  ALLOWED_REMOTE_RECOVERY_CLASSIFICATIONS
+};
