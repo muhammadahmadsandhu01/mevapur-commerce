@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const MediaAsset = require('../models/MediaAsset');
+const Product = require('../models/Product');
 const { createStorageProvider } = require('../services/media/StorageProvider');
 const { getRuntimeConfig } = require('../config/runtime.config');
 const MediaService = require('../services/media/MediaService');
@@ -10,6 +11,7 @@ async function reconcileMediaAssets({
   argv = process.argv.slice(2),
   customConfig = null,
   customDbConnected = false,
+  customStorageProvider = null,
   env = process.env
 } = {}) {
   // 1. Strict CLI Argument Parsing
@@ -48,7 +50,7 @@ async function reconcileMediaAssets({
       runtimeConfig = { storage: { provider: 'mock', s3: { keyPrefix: 'products/' } } };
     }
   }
-  const storageProvider = createStorageProvider(runtimeConfig);
+  const storageProvider = customStorageProvider || createStorageProvider(runtimeConfig);
 
   const rawPrefix = runtimeConfig?.storage?.s3?.keyPrefix || 'products/';
   const canonicalPrefix = MediaService.validateStoragePrefix(rawPrefix);
@@ -71,6 +73,7 @@ async function reconcileMediaAssets({
     skippedUntilNextRetry: 0,
     retryExhausted: 0,
     staleOrphans: 0,
+    quarantinedAttached: 0,
     outOfPrefixCount: 0,
     affectedAssetIds: [],
     sanitizedReasonCodes: []
@@ -108,42 +111,81 @@ async function reconcileMediaAssets({
         continue;
       }
 
-      // Prefix Guard: refuse deleting object outside configured canonical prefix
-      if (!asset.key.startsWith(canonicalPrefix)) {
+      // Key & Prefix Security Guard
+      const keyValidation = MediaService.validateObjectKey(asset.key, canonicalPrefix);
+      if (!keyValidation.valid) {
         report.outOfPrefixCount += 1;
         report.failed += 1;
         report.affectedAssetIds.push(assetIdStr);
-        if (!report.sanitizedReasonCodes.includes('OUT_OF_PREFIX_REJECTED')) {
-          report.sanitizedReasonCodes.push('OUT_OF_PREFIX_REJECTED');
+        const reason = keyValidation.reason === 'OUT_OF_PREFIX' ? 'OUT_OF_PREFIX_REJECTED' : 'UNSAFE_KEY_REJECTED';
+        if (!report.sanitizedReasonCodes.includes(reason)) {
+          report.sanitizedReasonCodes.push(reason);
         }
-        console.error(`[PREFIX-VIOLATION] Asset ${assetIdStr} key is outside configured prefix '${canonicalPrefix}'. Refusing deletion.`);
+        console.error(`[PREFIX-VIOLATION] Asset ${assetIdStr} key '${asset.key}' failed validation (${keyValidation.reason}). Refusing deletion.`);
         if (isApply) {
-          asset.status = 'deletion_failed';
-          asset.lastError = 'OUT_OF_PREFIX_REJECTED';
-          await asset.save();
+          await MediaAsset.findOneAndUpdate(
+            { _id: asset._id },
+            { $set: { status: 'deletion_failed', lastError: reason } }
+          );
         }
+        continue;
+      }
+
+      // Active Product Attachment Safety Guard: check if referenced by any Product
+      const isAttached = await Product.exists({
+        $or: [
+          { _id: asset.attachedTo?.id },
+          { mediaAssetIds: asset._id },
+          { primaryMediaAssetId: asset._id },
+          { 'variants.mediaAssetIds': asset._id }
+        ]
+      });
+
+      if (isAttached) {
+        report.quarantinedAttached += 1;
+        if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
+          report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
+        }
+        console.warn(`[ATTACHED-PRESERVED] Asset ${assetIdStr} is still referenced by a Product. Preserving from deletion.`);
         continue;
       }
 
       // Execute Deletion
       if (isApply) {
         try {
-          await storageProvider.delete({ key: asset.key });
-          asset.status = 'deleted';
-          asset.lastError = null;
-          await asset.save();
+          await storageProvider.delete({ key: keyValidation.normalizedKey });
+          await MediaAsset.findOneAndUpdate(
+            { _id: asset._id, status: { $in: ['deletion_requested', 'deletion_failed'] } },
+            { $set: { status: 'deleted', lastError: null } }
+          );
           report.deleted += 1;
           report.affectedAssetIds.push(assetIdStr);
         } catch (err) {
-          asset.status = 'deletion_failed';
-          asset.retryCount += 1;
-          asset.lastError = 'DELETION_FAILED';
-          asset.nextRetryAt = new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, asset.retryCount));
-          await asset.save();
-          report.failed += 1;
-          report.affectedAssetIds.push(assetIdStr);
-          if (!report.sanitizedReasonCodes.includes('DELETION_FAILED')) {
-            report.sanitizedReasonCodes.push('DELETION_FAILED');
+          const isNotFound = err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404;
+          if (isNotFound) {
+            await MediaAsset.findOneAndUpdate(
+              { _id: asset._id },
+              { $set: { status: 'deleted', lastError: 'OBJECT_ALREADY_MISSING_ON_PROVIDER' } }
+            );
+            report.deleted += 1;
+            report.affectedAssetIds.push(assetIdStr);
+          } else {
+            await MediaAsset.findOneAndUpdate(
+              { _id: asset._id },
+              {
+                $set: {
+                  status: 'deletion_failed',
+                  lastError: 'DELETION_FAILED',
+                  nextRetryAt: new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, asset.retryCount + 1))
+                },
+                $inc: { retryCount: 1 }
+              }
+            );
+            report.failed += 1;
+            report.affectedAssetIds.push(assetIdStr);
+            if (!report.sanitizedReasonCodes.includes('DELETION_FAILED')) {
+              report.sanitizedReasonCodes.push('DELETION_FAILED');
+            }
           }
         }
       } else {
@@ -167,20 +209,57 @@ async function reconcileMediaAssets({
     for (const orphan of staleOrphans) {
       const orphanIdStr = String(orphan._id);
 
-      if (!orphan.key.startsWith(canonicalPrefix)) {
+      const keyValidation = MediaService.validateObjectKey(orphan.key, canonicalPrefix);
+      if (!keyValidation.valid) {
         report.outOfPrefixCount += 1;
         console.error(`[PREFIX-VIOLATION] Orphan asset ${orphanIdStr} outside prefix '${canonicalPrefix}'.`);
         continue;
       }
 
+      const orphanAttached = await Product.exists({
+        $or: [
+          { mediaAssetIds: orphan._id },
+          { primaryMediaAssetId: orphan._id },
+          { 'variants.mediaAssetIds': orphan._id }
+        ]
+      });
+
+      if (orphanAttached) {
+        report.quarantinedAttached += 1;
+        if (!report.sanitizedReasonCodes.includes('STILL_ATTACHED_TO_PRODUCT')) {
+          report.sanitizedReasonCodes.push('STILL_ATTACHED_TO_PRODUCT');
+        }
+        console.warn(`[ATTACHED-PRESERVED] Orphan asset ${orphanIdStr} is referenced by a Product. Preserving from deletion.`);
+        continue;
+      }
+
       if (isApply) {
         try {
-          await storageProvider.delete({ key: orphan.key });
-          orphan.status = 'deleted';
-          await orphan.save();
+          await storageProvider.delete({ key: keyValidation.normalizedKey });
+          await MediaAsset.findOneAndUpdate(
+            { _id: orphan._id },
+            { $set: { status: 'deleted', lastError: null } }
+          );
         } catch (err) {
-          orphan.status = 'deletion_failed';
-          await orphan.save();
+          const isNotFound = err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404;
+          if (isNotFound) {
+            await MediaAsset.findOneAndUpdate(
+              { _id: orphan._id },
+              { $set: { status: 'deleted', lastError: 'OBJECT_ALREADY_MISSING_ON_PROVIDER' } }
+            );
+          } else {
+            await MediaAsset.findOneAndUpdate(
+              { _id: orphan._id },
+              {
+                $set: {
+                  status: 'deletion_failed',
+                  lastError: 'DELETION_FAILED',
+                  nextRetryAt: new Date(Date.now() + 5 * 60 * 1000 * Math.pow(2, orphan.retryCount + 1))
+                },
+                $inc: { retryCount: 1 }
+              }
+            );
+          }
         }
       } else {
         console.log(`[DRY-RUN] Would clean up orphan asset ${orphanIdStr} (Status: ${orphan.status})`);
@@ -193,6 +272,7 @@ async function reconcileMediaAssets({
     console.log(`Failed: ${report.failed}`);
     console.log(`Skipped (Backoff): ${report.skippedUntilNextRetry}`);
     console.log(`Retry Exhausted: ${report.retryExhausted}`);
+    console.log(`Quarantined (Attached to Product): ${report.quarantinedAttached}`);
     console.log(`Stale Orphans: ${report.staleOrphans}`);
     console.log(`Out-of-prefix violations: ${report.outOfPrefixCount}`);
 

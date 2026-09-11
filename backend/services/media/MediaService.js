@@ -16,11 +16,66 @@ function validateStoragePrefix(prefix) {
   if (!prefix || typeof prefix !== 'string' || prefix.trim() === '') {
     throw new AppError('Storage prefix cannot be empty', 400, 'MEDIA_INVALID_STORAGE_PREFIX');
   }
-  const clean = prefix.trim().replace(/^\/+/, '');
-  if (clean === '' || clean === '.' || clean.includes('..') || clean.includes('\\') || clean.includes('*')) {
+
+  let decoded = prefix;
+  try {
+    decoded = decodeURIComponent(prefix);
+  } catch {
+    throw new AppError('Storage prefix contains invalid encoding', 400, 'MEDIA_UNSAFE_STORAGE_PREFIX');
+  }
+
+  if (decoded.includes('..') || decoded.includes('\0') || decoded.includes('\\') || decoded.includes('*')) {
     throw new AppError('Storage prefix contains invalid or unsafe traversal characters', 400, 'MEDIA_UNSAFE_STORAGE_PREFIX');
   }
+
+  const clean = decoded.trim().replace(/^\/+/, '');
+  if (clean === '' || clean === '.') {
+    throw new AppError('Storage prefix cannot be root or dot', 400, 'MEDIA_UNSAFE_STORAGE_PREFIX');
+  }
+
+  const segments = clean.split('/');
+  for (const seg of segments) {
+    if (seg === '..' || seg === '.') {
+      throw new AppError('Storage prefix contains invalid or unsafe traversal characters', 400, 'MEDIA_UNSAFE_STORAGE_PREFIX');
+    }
+  }
+
   return clean.endsWith('/') ? clean : `${clean}/`;
+}
+
+function validateObjectKey(key, canonicalPrefix) {
+  if (!key || typeof key !== 'string' || key.trim() === '') {
+    return { valid: false, reason: 'EMPTY_KEY' };
+  }
+
+  let decoded = key;
+  try {
+    decoded = decodeURIComponent(key);
+  } catch {
+    return { valid: false, reason: 'INVALID_KEY_ENCODING' };
+  }
+
+  if (decoded.includes('\0') || decoded.includes('\\') || decoded.includes('*')) {
+    return { valid: false, reason: 'UNSAFE_KEY_CHARACTERS' };
+  }
+
+  const clean = decoded.trim().replace(/^\/+/, '');
+  if (clean === '' || clean === '.') {
+    return { valid: false, reason: 'ROOT_OR_DOT_KEY' };
+  }
+
+  const segments = clean.split('/');
+  for (const seg of segments) {
+    if (seg === '..' || seg === '.') {
+      return { valid: false, reason: 'TRAVERSAL_KEY_SEGMENT' };
+    }
+  }
+
+  if (!clean.startsWith(canonicalPrefix)) {
+    return { valid: false, reason: 'OUT_OF_PREFIX' };
+  }
+
+  return { valid: true, normalizedKey: clean };
 }
 
 class MediaService {
@@ -190,6 +245,7 @@ class MediaService {
 
 const defaultInstance = new MediaService();
 defaultInstance.validateStoragePrefix = validateStoragePrefix;
+defaultInstance.validateObjectKey = validateObjectKey;
 defaultInstance.MediaService = MediaService;
 
 module.exports = defaultInstance;
