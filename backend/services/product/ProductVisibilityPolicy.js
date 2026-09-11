@@ -6,7 +6,7 @@ const MAX_CATEGORY_HIERARCHY_DEPTH = 20;
 /**
  * ProductVisibilityPolicy
  * Canonical, centralized product visibility and eligibility enforcement policy.
- * 
+ *
  * Rules:
  * 1. A product is publicly visible/purchasable if and only if:
  *    - Product is active (`isActive === true`);
@@ -26,7 +26,7 @@ class ProductVisibilityPolicy {
    * @returns {Promise<mongoose.Types.ObjectId[]>} Array of fully active Category ObjectIds.
    */
   async getActiveCategoryIds({ session = null } = {}) {
-    let query = Category.find({ isActive: true }, '_id parentId isActive').lean();
+    let query = Category.find({ isActive: true }, '_id parentId parentCategory isActive').lean();
     if (session) {
       query = query.session(session);
     }
@@ -49,7 +49,7 @@ class ProductVisibilityPolicy {
       let depth = 0;
       const visited = new Set([String(current._id)]);
 
-      while (current && current.parentId) {
+      while (current && (current.parentId || current.parentCategory)) {
         depth += 1;
         if (depth > MAX_CATEGORY_HIERARCHY_DEPTH) {
           // Hierarchy depth exceeded - fail closed
@@ -57,7 +57,7 @@ class ProductVisibilityPolicy {
           break;
         }
 
-        const parentIdStr = String(current.parentId);
+        const parentIdStr = String(current.parentId || current.parentCategory);
         if (visited.has(parentIdStr)) {
           // Cycle detected in category hierarchy - fail closed
           isValid = false;
