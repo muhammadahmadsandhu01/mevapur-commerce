@@ -16,7 +16,7 @@ const {
   PROVIDER_ATTEMPT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../constants/paymentConstants');
-const { MoneyMapper, CurrencyRegistry, RolloutAuthority } = require('../../modules/commerce');
+const { MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
 
 const PAYMENT_EVENT_TYPES = new Set([
   'payment_intent.processing',
@@ -47,107 +47,11 @@ class PaymentService {
   }
 
   static resolveAuthoritativeOrderCurrency(order) {
-    if (!order || typeof order !== 'object') {
-      throw new AppError('Order record is required for currency resolution', 400, 'ORDER_NOT_FOUND');
-    }
-
-    const candidateSources = [
-      { name: 'totalAmountExact', value: order.totalAmountExact?.currency },
-      { name: 'subtotalExact', value: order.subtotalExact?.currency },
-      { name: 'pricingSnapshot', value: order.pricingSnapshot?.currency },
-      { name: 'payment', value: order.payment?.currency },
-      { name: 'order', value: order.currency },
-      { name: 'marketSnapshot', value: order.marketSnapshot?.baseCurrency || order.marketConfig?.baseCurrency }
-    ];
-
-    const presentCurrencies = candidateSources
-      .filter((s) => typeof s.value === 'string' && s.value.trim().length > 0)
-      .map((s) => ({ name: s.name, currency: s.value.trim().toUpperCase() }));
-
-    // 1. If multiple authoritative currency sources exist, assert they all agree
-    if (presentCurrencies.length > 0) {
-      const canonicalCurrency = presentCurrencies[0].currency;
-      for (let i = 1; i < presentCurrencies.length; i += 1) {
-        if (presentCurrencies[i].currency !== canonicalCurrency) {
-          throw new AppError(
-            `Order currency conflict detected between ${presentCurrencies[0].name} (${canonicalCurrency}) and ${presentCurrencies[i].name} (${presentCurrencies[i].currency})`,
-            409,
-            'PAYMENT_ORDER_CURRENCY_MISMATCH'
-          );
-        }
-      }
-
-      if (!CurrencyRegistry.has(canonicalCurrency)) {
-        throw new AppError(
-          `Order currency '${canonicalCurrency}' is not recognized in CurrencyRegistry`,
-          422,
-          'PAYMENT_CURRENCY_REQUIRED'
-        );
-      }
-
-      // In exact_read mode, verify that exact money contract is satisfied
-      const effectiveMode = RolloutAuthority.getRuntimeAuthorizedMode();
-      if (effectiveMode === RolloutAuthority.MODES.EXACT_READ) {
-        if (!order.totalAmountExact || !order.totalAmountExact.currency) {
-          throw new AppError(
-            'Order record does not satisfy exact-money contract in exact_read mode',
-            500,
-            'COMMERCE_ORDER_CURRENCY_MISSING'
-          );
-        }
-      }
-
-      return canonicalCurrency;
-    }
-
-    // 2. In exact_read mode, missing exact money contract fails closed immediately
-    const effectiveMode = RolloutAuthority.getRuntimeAuthorizedMode();
-    if (effectiveMode === RolloutAuthority.MODES.EXACT_READ) {
-      throw new AppError(
-        'Order record is missing authoritative currency in active rollout mode',
-        500,
-        'COMMERCE_ORDER_CURRENCY_MISSING'
-      );
-    }
-
-    // 3. Check for explicit server-owned legacy evidence
-    const hasExplicitLegacyEvidence = Boolean(
-      order.isLegacyRecord === true
-      || order.legacyMode === true
-      || order.schemaVersion === '1.0.0'
-      || order.schemaVersion === 'legacy'
-      || order.schemaVersion === 'legacy-pkr'
-      || order.moneySchemaVersion === '1.0.0'
-      || order.moneySchemaVersion === 'legacy'
-      || order.legacyProvenance?.currency === 'PKR'
-      || order.metadata?.legacyProvenance?.currency === 'PKR'
-      || order.migrationMetadata?.legacyCurrency === 'PKR'
-      || order.migrationId === 'phase4d-exact-money-migration'
-    );
-
-    if (hasExplicitLegacyEvidence) {
-      return 'PKR';
-    }
-
-    // 4. In shadow_write mode without explicit legacy proof, fail closed
-    if (effectiveMode === RolloutAuthority.MODES.SHADOW_WRITE) {
-      throw new AppError(
-        'Order record is missing authoritative currency in active rollout mode',
-        500,
-        'COMMERCE_ORDER_CURRENCY_MISSING'
-      );
-    }
-
-    // 5. In legacy mode without authoritative currency or explicit legacy proof, fail closed
-    throw new AppError(
-      'Unable to authoritatively resolve order currency for payment',
-      422,
-      'PAYMENT_CURRENCY_REQUIRED'
-    );
+    return OrderCurrencyResolver.resolveOrderCurrency(order);
   }
 
   resolveAuthoritativeOrderCurrency(order) {
-    return PaymentService.resolveAuthoritativeOrderCurrency(order);
+    return OrderCurrencyResolver.resolveOrderCurrency(order);
   }
 
   async createPayment({

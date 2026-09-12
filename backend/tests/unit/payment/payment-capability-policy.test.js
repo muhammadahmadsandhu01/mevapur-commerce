@@ -457,29 +457,24 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
     });
   });
 
-  describe('8. Authoritative Order Currency Resolution & Explicit Legacy Evidence', () => {
-    test('1. PK legacy record with explicit legacy evidence resolves to PKR', () => {
-      const explicitLegacyRecords = [
-        { schemaVersion: '1.0.0' },
-        { schemaVersion: 'legacy' },
-        { schemaVersion: 'legacy-pkr' },
-        { isLegacyRecord: true },
-        { legacyMode: true },
-        { moneySchemaVersion: '1.0.0' },
-        { moneySchemaVersion: 'legacy' },
-        { legacyProvenance: { currency: 'PKR' } },
-        { metadata: { legacyProvenance: { currency: 'PKR' } } },
-        { migrationMetadata: { legacyCurrency: 'PKR' } },
-        { migrationId: 'phase4d-exact-money-migration' }
+  describe('8. Authoritative Order Currency Resolution & Persisted Provenance', () => {
+    test('1. PK Order with persisted currency field resolves authoritatively to PKR', () => {
+      const persistedPkRecords = [
+        { payment: { currency: 'PKR' } },
+        { currency: 'PKR' },
+        { totalAmountExact: { amountMinor: '1000', currency: 'PKR' } },
+        { subtotalExact: { amountMinor: '1000', currency: 'PKR' } },
+        { pricingSnapshot: { currency: 'PKR' } },
+        { marketSnapshot: { baseCurrency: 'PKR' } }
       ];
 
-      for (const record of explicitLegacyRecords) {
+      for (const record of persistedPkRecords) {
         const resolved = PaymentService.resolveAuthoritativeOrderCurrency(record);
         expect(resolved).toBe('PKR');
       }
     });
 
-    test('2. Legacy-looking record without explicit legacy evidence fails closed', () => {
+    test('2. Legacy-looking record without explicit persisted currency fails closed', () => {
       const legacyLooking = {
         totalAmount: 1000,
         shippingAddress: { city: 'Lahore', province: 'Punjab' }
@@ -491,7 +486,26 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('3. COD alone cannot imply PKR', () => {
+    test('3. Phantom markers on plain objects are rejected and fail closed', () => {
+      const phantomRecords = [
+        { isLegacyRecord: true },
+        { legacyMode: true },
+        { schemaVersion: '1.0.0' },
+        { schemaVersion: 'legacy' },
+        { moneySchemaVersion: '1.0.0' },
+        { migrationId: 'phase4d-exact-money-migration' }
+      ];
+
+      for (const record of phantomRecords) {
+        expect(() => PaymentService.resolveAuthoritativeOrderCurrency(record))
+          .toThrow(expect.objectContaining({
+            statusCode: 422,
+            code: 'PAYMENT_CURRENCY_REQUIRED'
+          }));
+      }
+    });
+
+    test('4. COD alone cannot imply PKR', () => {
       const order = {
         paymentMethod: 'cod',
         payment: { provider: 'Cash on Delivery' }
@@ -503,7 +517,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('4. Bank transfer alone cannot imply PKR', () => {
+    test('5. Bank transfer alone cannot imply PKR', () => {
       const order = {
         paymentMethod: 'bank_transfer',
         payment: { provider: 'Bank Transfer' }
@@ -515,7 +529,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('5. Raast/provider selection alone cannot supply Order currency', () => {
+    test('6. Raast/provider selection alone cannot supply Order currency', () => {
       const order = {
         paymentMethod: 'raast',
         payment: { provider: 'Raast' }
@@ -527,7 +541,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('6. Pakistan shipping address alone cannot imply PKR', () => {
+    test('7. Pakistan shipping address alone cannot imply PKR', () => {
       const order = {
         shippingAddress: { country: 'Pakistan', countryCode: 'PK' }
       };
@@ -538,7 +552,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('7. GB domestic COD with missing currency fails closed rather than becoming PKR', () => {
+    test('8. GB domestic COD with missing currency fails closed rather than becoming PKR', () => {
       const order = {
         paymentMethod: 'cod',
         shippingAddress: { country: 'United Kingdom', countryCode: 'GB' }
@@ -550,7 +564,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('8. AE domestic COD with missing currency fails closed', () => {
+    test('9. AE domestic COD with missing currency fails closed', () => {
       const order = {
         paymentMethod: 'cod',
         shippingAddress: { country: 'United Arab Emirates', countryCode: 'AE' }
@@ -562,7 +576,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('9. US domestic bank transfer with missing currency fails closed', () => {
+    test('10. US domestic bank transfer with missing currency fails closed', () => {
       const order = {
         paymentMethod: 'bank_transfer',
         shippingAddress: { country: 'United States', countryCode: 'US' }
@@ -574,7 +588,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         }));
     });
 
-    test('10. DE/EUR Order remains EUR', () => {
+    test('11. DE/EUR Order remains EUR', () => {
       const order = {
         currency: 'EUR',
         payment: { currency: 'EUR' },
@@ -585,7 +599,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
       expect(resolved).toBe('EUR');
     });
 
-    test('11. Conflicting exact/payment/market snapshot currencies fail closed', () => {
+    test('12. Conflicting exact/payment/market snapshot currencies fail closed', () => {
       const conflictCases = [
         {
           totalAmountExact: { currency: 'EUR' },
@@ -614,16 +628,16 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
       }
     });
 
-    test('12. shadow_write behavior matches locked Phase 4 compatibility contract', () => {
+    test('13. shadow_write behavior matches locked Phase 4 compatibility contract', () => {
       const origEnv = process.env.COMMERCE_MONEY_MODE;
       try {
         process.env.COMMERCE_MONEY_MODE = 'shadow_write';
 
-        // Genuinely identified legacy record resolves to PKR in shadow_write
-        const legacyRecord = { isLegacyRecord: true };
-        expect(PaymentService.resolveAuthoritativeOrderCurrency(legacyRecord)).toBe('PKR');
+        // Persisted currency resolves to PKR in shadow_write
+        const persistedRecord = { payment: { currency: 'PKR' } };
+        expect(PaymentService.resolveAuthoritativeOrderCurrency(persistedRecord)).toBe('PKR');
 
-        // Missing currency without explicit legacy evidence fails closed in shadow_write
+        // Missing currency fails closed in shadow_write
         const unproven = { paymentMethod: 'cod', shippingAddress: { country: 'Pakistan' } };
         expect(() => PaymentService.resolveAuthoritativeOrderCurrency(unproven))
           .toThrow(expect.objectContaining({
@@ -643,7 +657,7 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
       }
     });
 
-    test('13. exact_read rejects records that do not meet its exact-money contract', () => {
+    test('14. exact_read rejects records that do not meet its exact-money contract', () => {
       const origEnv = process.env.COMMERCE_MONEY_MODE;
       try {
         process.env.COMMERCE_MONEY_MODE = 'exact_read';
@@ -663,9 +677,9 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
             code: 'COMMERCE_ORDER_CURRENCY_MISSING'
           }));
 
-        // Missing totalAmountExact fails closed in exact_read even for legacy record
-        const legacyRecord = { isLegacyRecord: true };
-        expect(() => PaymentService.resolveAuthoritativeOrderCurrency(legacyRecord))
+        // Phantom records fail closed in exact_read
+        const phantomRecord = { isLegacyRecord: true };
+        expect(() => PaymentService.resolveAuthoritativeOrderCurrency(phantomRecord))
           .toThrow(expect.objectContaining({
             statusCode: 500,
             code: 'COMMERCE_ORDER_CURRENCY_MISSING'

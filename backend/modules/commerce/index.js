@@ -13,6 +13,7 @@ const { ROUNDING_MODES, roundFraction, allocateLargestRemainder } = require('./c
 const MoneySchema = require('./persistence/MoneySchema');
 const MoneyMapper = require('./persistence/MoneyMapper');
 const RolloutAuthority = require('./persistence/RolloutAuthority');
+const OrderCurrencyResolver = require('./core/OrderCurrencyResolver');
 const { ExactMoneyMigrationRegistry, ExactMoneyMigrationService } = require('./migration');
 
 module.exports = {
@@ -28,6 +29,7 @@ module.exports = {
   MoneySchema,
   MoneyMapper,
   RolloutAuthority,
+  OrderCurrencyResolver,
   ExactMoneyMigrationRegistry,
   ExactMoneyMigrationService
 };

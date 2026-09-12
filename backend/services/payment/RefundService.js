@@ -32,11 +32,11 @@ const MISSING_INVENTORY_CODES = new Set([
   'RETURN_INVENTORY_VARIANT_MISSING'
 ]);
 
-const { MoneyMapper, CurrencyRegistry, RolloutAuthority } = require('../../modules/commerce');
+const { MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
 
 class RefundService {
   /**
-   * Authoritatively resolves payment currency with strict legacy proof and fail-closed mismatch guards.
+   * Authoritatively resolves payment currency with strict multi-source consistency and fail-closed mismatch guards.
    * @param {Object} payment
    * @param {Object} [order]
    * @returns {Promise<string>}
@@ -47,100 +47,7 @@ class RefundService {
     }
 
     const linkedOrder = order || (payment.order ? await Order.findById(payment.order) : null);
-
-    const candidateSources = [
-      { name: 'payment.amountExact', value: payment.amountExact?.currency },
-      { name: 'payment.currency', value: payment.currency },
-      { name: 'order.totalAmountExact', value: linkedOrder?.totalAmountExact?.currency },
-      { name: 'order.subtotalExact', value: linkedOrder?.subtotalExact?.currency },
-      { name: 'order.pricingSnapshot', value: linkedOrder?.pricingSnapshot?.currency },
-      { name: 'order.currency', value: linkedOrder?.currency },
-      { name: 'order.payment.currency', value: linkedOrder?.payment?.currency },
-      { name: 'order.marketSnapshot', value: linkedOrder?.marketSnapshot?.baseCurrency || linkedOrder?.marketConfig?.baseCurrency }
-    ];
-
-    const presentCurrencies = candidateSources
-      .filter((s) => typeof s.value === 'string' && s.value.trim().length > 0)
-      .map((s) => ({ name: s.name, currency: s.value.trim().toUpperCase() }));
-
-    // 1. If multiple currency sources exist, assert they all agree
-    if (presentCurrencies.length > 0) {
-      const canonicalCurrency = presentCurrencies[0].currency;
-      for (let i = 1; i < presentCurrencies.length; i += 1) {
-        if (presentCurrencies[i].currency !== canonicalCurrency) {
-          throw new AppError(
-            `Payment currency (${canonicalCurrency}) does not match order currency (${presentCurrencies[i].currency})`,
-            409,
-            'PAYMENT_ORDER_CURRENCY_MISMATCH'
-          );
-        }
-      }
-
-      if (!CurrencyRegistry.has(canonicalCurrency)) {
-        throw new AppError(
-          `Payment currency '${canonicalCurrency}' is not recognized in CurrencyRegistry`,
-          400,
-          'REFUND_CURRENCY_UNRESOLVED'
-        );
-      }
-
-      const effectiveMode = RolloutAuthority.getRuntimeAuthorizedMode();
-      if (effectiveMode === RolloutAuthority.MODES.EXACT_READ) {
-        if (!payment.amountExact || !payment.amountExact.currency) {
-          throw new AppError(
-            'Payment record does not satisfy exact-money contract in exact_read mode',
-            500,
-            'COMMERCE_PAYMENT_CURRENCY_MISSING'
-          );
-        }
-      }
-
-      return canonicalCurrency;
-    }
-
-    const effectiveMode = RolloutAuthority.getRuntimeAuthorizedMode();
-    if (effectiveMode === RolloutAuthority.MODES.EXACT_READ) {
-      throw new AppError(
-        'Payment record is missing currency in active rollout mode',
-        500,
-        'COMMERCE_PAYMENT_CURRENCY_MISSING'
-      );
-    }
-
-    // 2. Explicit server-owned legacy proof
-    const hasExplicitLegacyEvidence = Boolean(
-      payment.isLegacyRecord === true
-      || payment.legacyMode === true
-      || payment.schemaVersion === '1.0.0'
-      || payment.schemaVersion === 'legacy'
-      || payment.legacyProvenance?.currency === 'PKR'
-      || payment.migrationId === 'phase4d-exact-money-migration'
-      || linkedOrder?.isLegacyRecord === true
-      || linkedOrder?.legacyMode === true
-      || linkedOrder?.schemaVersion === '1.0.0'
-      || linkedOrder?.schemaVersion === 'legacy'
-      || linkedOrder?.schemaVersion === 'legacy-pkr'
-      || linkedOrder?.legacyProvenance?.currency === 'PKR'
-      || linkedOrder?.migrationId === 'phase4d-exact-money-migration'
-    );
-
-    if (hasExplicitLegacyEvidence) {
-      return 'PKR';
-    }
-
-    if (effectiveMode === RolloutAuthority.MODES.SHADOW_WRITE) {
-      throw new AppError(
-        'Payment record is missing currency in active rollout mode',
-        500,
-        'COMMERCE_PAYMENT_CURRENCY_MISSING'
-      );
-    }
-
-    throw new AppError(
-      'Unable to authoritatively resolve payment currency for refund',
-      400,
-      'REFUND_CURRENCY_UNRESOLVED'
-    );
+    return OrderCurrencyResolver.resolvePaymentCurrency(payment, linkedOrder);
   }
 
   getProvider(providerName, currency) {
