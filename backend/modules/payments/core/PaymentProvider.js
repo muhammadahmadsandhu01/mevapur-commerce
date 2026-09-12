@@ -3,7 +3,7 @@ const { AppError } = require('../../../common/errors/AppError');
 const CONTRACT_VERSION = '1.0';
 
 class PaymentProvider {
-  constructor(manifest) {
+  constructor(manifest = {}) {
     if (new.target === PaymentProvider) {
       throw new AppError(
         'PaymentProvider is an abstract contract',
@@ -12,6 +12,10 @@ class PaymentProvider {
       );
     }
 
+    const normalized = typeof manifest === 'string'
+      ? { code: manifest, displayName: manifest }
+      : manifest;
+
     this.manifest = Object.freeze({
       contractVersion: CONTRACT_VERSION,
       integrationVersion: '1.0.0',
@@ -19,7 +23,9 @@ class PaymentProvider {
       supportedCurrencies: ['PKR'],
       supportedCountries: [],
       capabilities: {},
-      ...manifest
+      requiresWebhook: false,
+      supportsSignatureVerification: false,
+      ...normalized
     });
   }
 

@@ -4,6 +4,7 @@ const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
 const PaymentWebhookEvent = require('../../models/PaymentWebhookEvent');
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
+const PaymentCapabilityPolicy = require('./PaymentCapabilityPolicy');
 const refundService = require('./RefundService');
 const paymentStateMachine = require('./stateMachine/PaymentStateMachine');
 const AuditService = require('../AuditService');
@@ -85,14 +86,14 @@ class PaymentService {
       );
     }
 
+    await PaymentCapabilityPolicy.assertEligibleForOrder(order, provider);
+
     const providerAdapter = this.getProvider(provider, {
       country: order.shippingAddress?.country,
       currency: order.payment?.currency || 'PKR',
       amount: order.totalAmount
     });
     const providerManifest = providerAdapter.getManifest();
-
-const { MoneyMapper } = require('../../modules/commerce');
 
     const paymentCurrency = order.payment?.currency || order.currency || 'PKR';
     const amountExact = order.totalAmountExact || MoneyMapper.fromLegacy(order.totalAmount, paymentCurrency);
@@ -541,14 +542,16 @@ const { MoneyMapper } = require('../../modules/commerce');
       if (err instanceof AppError) throw err;
     }
 
+    const methods = await PaymentCapabilityPolicy.getPublicAvailableMethods({
+      country: effectiveCountry,
+      currency: effectiveCurrency,
+      amount
+    });
+
     return {
       edition: paymentProviderRegistry.edition,
       currency: effectiveCurrency,
-      methods: paymentProviderRegistry.getPublicMethods({
-        country: effectiveCountry,
-        currency: effectiveCurrency,
-        amount
-      })
+      methods
     };
   }
 
@@ -576,12 +579,14 @@ const { MoneyMapper } = require('../../modules/commerce');
 
     effectiveCurrency = String(effectiveCurrency).toUpperCase();
 
+    const providers = await PaymentCapabilityPolicy.getAdminProviderStatuses({
+      country: effectiveCountry,
+      currency: effectiveCurrency
+    });
+
     return {
       edition: paymentProviderRegistry.edition,
-      providers: paymentProviderRegistry.getAdminStatuses({
-        country: effectiveCountry,
-        currency: effectiveCurrency
-      })
+      providers
     };
   }
 

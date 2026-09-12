@@ -6,7 +6,7 @@ const manifest = Object.freeze({
   contractVersion: '1.0',
   integrationVersion: '2.0.0',
   paymentType: 'automated',
-  supportedCurrencies: ['PKR'],
+  supportedCurrencies: [],
   supportedCountries: [],
   capabilities: {
     createPayment: true,
@@ -16,7 +16,9 @@ const manifest = Object.freeze({
     refund: true,
     callback: true,
     customerConfirmation: false
-  }
+  },
+  requiresWebhook: true,
+  supportsSignatureVerification: true
 });
 
 legacyStripeProvider.getManifest = () => manifest;
@@ -28,12 +30,14 @@ legacyStripeProvider.validateConfig = (config = {}) => {
     reason: configured ? null : 'PAYMENT_PROVIDER_NOT_CONFIGURED'
   };
 };
-legacyStripeProvider.evaluateEligibility = ({ currency = 'PKR' } = {}) => ({
-  eligible: String(currency).toUpperCase() === 'PKR',
-  reason: String(currency).toUpperCase() === 'PKR'
-    ? null
-    : 'PAYMENT_CURRENCY_UNSUPPORTED'
-});
+legacyStripeProvider.evaluateEligibility = ({ currency } = {}) => {
+  const normalizedCurrency = currency ? String(currency).toUpperCase() : '';
+  const eligible = !currency || /^[A-Z]{3}$/.test(normalizedCurrency);
+  return {
+    eligible,
+    reason: eligible ? null : 'PAYMENT_CURRENCY_UNSUPPORTED'
+  };
+};
 legacyStripeProvider.getPublicMetadata = (config = {}) => ({
   code: manifest.code,
   displayName: manifest.displayName,
