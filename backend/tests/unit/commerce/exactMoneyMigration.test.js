@@ -1,7 +1,6 @@
 'use strict';
 
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 const Product = require('../../../models/Product');
 const Order = require('../../../models/Order');
 const Payment = require('../../../models/Payment');
@@ -23,7 +22,7 @@ const { RolloutAuthority, CurrencyRegistry, CountryRegistry } = require('../../.
 const { runCli } = require('../../../scripts/migrations/phase4d-exact-money-migration');
 const { MigrationGuardError } = require('../../../scripts/lib/migrationRuntimeGuard');
 
-describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
+describe('Phase 4D-1 R1 Exact-Money & Legacy Identity Migration Suite', () => {
   beforeEach(async () => {
     // Clear collections
     await Product.deleteMany({});
@@ -59,6 +58,12 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       await expect(
         runCli(['--target=local', '--allow-local', '--apply'])
       ).rejects.toThrow(/requires explicit confirmation token: --confirm-phase4d-apply/);
+    });
+
+    it('denies finalize mode when confirmation token is missing', async () => {
+      await expect(
+        runCli(['--target=local', '--allow-local', '--finalize'])
+      ).rejects.toThrow(/requires explicit confirmation token: --confirm-phase4d-finalize/);
     });
 
     it('denies rollback mode when confirmation token is missing', async () => {
@@ -126,7 +131,7 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       expect(resKWD.exactUpdates.subtotalExact.exponent).toBe(3);
     });
 
-    it('converts fixed coupons into valueExact, but leaves percentage coupons unmapped', () => {
+    it('converts fixed coupons into valueExact, but marks percentage coupons as inapplicable', () => {
       const fixedCoupon = { type: 'fixed', value: 500, minOrderAmount: 2000, currency: 'PKR' };
       const resFixed = ExactMoneyMigrationRegistry.evaluateDocument(fixedCoupon, 'coupons');
       expect(resFixed.exactUpdates.valueExact.amountMinor.toString()).toBe('50000');
@@ -135,6 +140,7 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       const percentCoupon = { type: 'percentage', value: 15, minOrderAmount: 1000, currency: 'PKR' };
       const resPercent = ExactMoneyMigrationRegistry.evaluateDocument(percentCoupon, 'coupons');
       expect(resPercent.exactUpdates.valueExact).toBeUndefined();
+      expect(resPercent.fieldStats.inapplicable).toBe(1);
       expect(resPercent.exactUpdates.minOrderAmountExact.amountMinor.toString()).toBe('100000');
     });
 
@@ -213,7 +219,6 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
 
   describe('3. Inventory & Dry-Run Non-Mutating Execution', () => {
     it('evaluates compliance counts truthfully without mutating documents', async () => {
-      // Seed unmigrated product
       await Product.create({
         name: 'Organic Almonds',
         slug: 'organic-almonds',
@@ -225,10 +230,12 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       });
 
       const inv = await ExactMoneyMigrationService.inventory({ legacyCurrency: 'PKR', legacyCountry: 'PK' });
-      expect(inv.models.products.totalScanned).toBe(1);
-      expect(inv.models.products.alreadyCompliant).toBe(0);
-      expect(inv.models.products.wouldUpdate).toBe(1);
-      expect(inv.summary.wouldUpdate).toBe(1);
+      expect(inv.models.products.totalDocuments).toBe(1);
+      expect(inv.models.products.alreadyCompliantDocs).toBe(0);
+      expect(inv.models.products.wouldUpdateDocs).toBe(1);
+      expect(inv.models.products.totalEligibleFields).toBe(1);
+      expect(inv.models.products.wouldBackfillFields).toBe(1);
+      expect(inv.summary.wouldUpdateDocs).toBe(1);
 
       // Verify product in database was NOT changed
       const pAfter = await Product.findOne({ sku: 'ALM-001' });
@@ -246,15 +253,15 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
         isActive: true
       });
 
-      // No legacyCurrency provided
       const inv = await ExactMoneyMigrationService.inventory({});
-      expect(inv.models.products.unresolved).toBe(1);
-      expect(inv.models.products.wouldUpdate).toBe(0);
+      expect(inv.models.products.unresolvedDocs).toBe(1);
+      expect(inv.models.products.unresolvedFields).toBe(1);
+      expect(inv.models.products.wouldUpdateDocs).toBe(0);
     });
   });
 
-  describe('4. Apply, CAS Updates, Idempotency & Concurrency', () => {
-    it('applies exact-money backfill across all models and records journal entries', async () => {
+  describe('4. Apply, CAS Updates, Transactions & Concurrency', () => {
+    it('applies exact-money backfill across all models and records journal entries in transactions', async () => {
       const user = await User.create({
         fullName: 'Test User',
         email: 'test@example.com',
@@ -375,9 +382,10 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       const couponUpdated = await Coupon.findById(coupon._id);
       expect(couponUpdated.valueExact.amountMinor.toString()).toBe('50000');
 
-      // Verify journal recorded entries
-      const journalCount = await MigrationJournal.countDocuments({ migrationId: CANONICAL_MIGRATION_ID });
-      expect(journalCount).toBeGreaterThanOrEqual(6);
+      // Verify journal recorded entries with status applied
+      const journals = await MigrationJournal.find({ migrationId: CANONICAL_MIGRATION_ID });
+      expect(journals.length).toBeGreaterThanOrEqual(6);
+      expect(journals.every(j => j.status === 'applied')).toBe(true);
 
       // Verify idempotency: running apply again updates 0 records
       const secondApply = await ExactMoneyMigrationService.apply({
@@ -391,25 +399,25 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
     it('blocks concurrent apply worker when lease is held', async () => {
       const lease1 = await ExactMoneyMigrationService.acquireLease(CANONICAL_MIGRATION_ID, 'worker-1');
       expect(lease1.acquired).toBe(true);
+      expect(lease1.leaseId).toBeDefined();
 
       const lease2 = await ExactMoneyMigrationService.acquireLease(CANONICAL_MIGRATION_ID, 'worker-2');
       expect(lease2.acquired).toBe(false);
       expect(lease2.workerId).toBe('worker-1');
 
-      await ExactMoneyMigrationService.releaseLease(CANONICAL_MIGRATION_ID, 'worker-1');
+      await ExactMoneyMigrationService.releaseLease(CANONICAL_MIGRATION_ID, lease1.leaseId);
       const lease3 = await ExactMoneyMigrationService.acquireLease(CANONICAL_MIGRATION_ID, 'worker-2');
       expect(lease3.acquired).toBe(true);
-      await ExactMoneyMigrationService.releaseLease(CANONICAL_MIGRATION_ID, 'worker-2');
+      await ExactMoneyMigrationService.releaseLease(CANONICAL_MIGRATION_ID, lease3.leaseId);
     });
 
     it('detects existing parity conflict and fails closed without overwriting', async () => {
-      // Seed product with conflicting exact value
       await Product.create({
         name: 'Conflicting Product',
         slug: 'conflicting-product',
         price: 1000,
         priceExact: {
-          amountMinor: mongoose.Types.Decimal128.fromString('999999'), // Mismatched exact value
+          amountMinor: mongoose.Types.Decimal128.fromString('999999'),
           currency: 'PKR',
           exponent: 2,
           registrySnapshot: 'currency-registry-v1'
@@ -421,7 +429,8 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       });
 
       const inv = await ExactMoneyMigrationService.inventory({ legacyCurrency: 'PKR' });
-      expect(inv.models.products.conflicts).toBe(1);
+      expect(inv.models.products.conflictDocs).toBe(1);
+      expect(inv.models.products.conflictingFields).toBe(1);
 
       const applyRes = await ExactMoneyMigrationService.apply({ legacyCurrency: 'PKR' });
       expect(applyRes.conflictCount).toBe(1);
@@ -430,19 +439,181 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       const p = await Product.findOne({ sku: 'CONF-001' });
       expect(p.priceExact.amountMinor.toString()).toBe('999999');
     });
+
+    it('strong CAS update predicate blocks out-of-band price edits that do not increment version', async () => {
+      const p = await Product.create({
+        name: 'CAS Test Product',
+        slug: 'cas-test-product',
+        price: 1500,
+        stock: 10,
+        sku: 'CAS-001',
+        status: 'published',
+        isActive: true
+      });
+
+      // Construct evaluator with original price 1500
+      const evalRes = ExactMoneyMigrationRegistry.evaluateDocument(p, 'products', { legacyCurrency: 'PKR' });
+
+      // Simulate out-of-band update that alters price to 2000 without incrementing __v
+      await Product.collection.updateOne({ _id: p._id }, { $set: { price: 2000 } });
+
+      // Attempt update using stale CAS filter (which expects price: 1500)
+      const updateRes = await Product.collection.updateOne(evalRes.casFilter, { $set: evalRes.exactUpdates });
+      expect(updateRes.modifiedCount).toBe(0); // CAS prevented clobbering!
+
+      // Product price remains 2000, and exact price is still null
+      const pAfter = await Product.findById(p._id);
+      expect(pAfter.price).toBe(2000);
+      expect(pAfter.priceExact).toBeNull();
+    });
   });
 
-  describe('5. Safe CAS Rollback', () => {
+  describe('5. Authoritative Cross-Document Provenance', () => {
+    it('Payment resolves currency from real linked Order document', async () => {
+      const user = await User.create({
+        fullName: 'Provenance User',
+        email: 'prov@example.com',
+        password: 'Password123!',
+        phone: '03001234567'
+      });
+
+      const order = await Order.create({
+        orderId: 'ORD-PROV-001',
+        user: user._id,
+        idempotencyKey: 'idemp-order-prov',
+        requestHash: 'hash-order-prov',
+        paymentMethod: 'stripe',
+        paymentStatus: 'Pending',
+        payment: { currency: 'USD' },
+        subtotal: 100,
+        totalAmount: 100,
+        items: [{
+          product: new mongoose.Types.ObjectId(),
+          name: 'Item',
+          price: 100,
+          quantity: 1,
+          lineTotal: 100
+        }],
+        shippingAddress: {
+          fullName: 'Prov User',
+          phone: '03001234567',
+          address: 'Street 1',
+          city: 'City',
+          province: 'Province',
+          country: 'Pakistan'
+        },
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      // Payment missing currency field
+      const payment = await Payment.create({
+        order: order._id,
+        user: user._id,
+        provider: 'stripe',
+        amount: 100,
+        idempotencyKey: 'idemp-pay-prov',
+        requestHash: 'hash-pay-prov',
+        providerIdempotencyKey: 'prov-idemp-prov',
+        status: 'Pending'
+      });
+
+      // Manually unset currency to simulate legacy record missing currency
+      await Payment.collection.updateOne({ _id: payment._id }, { $unset: { currency: 1 } });
+
+      const resolved = await ExactMoneyMigrationService.resolveLinkedCurrency({ _id: payment._id, order: order._id }, 'payments');
+      expect(resolved).toBe('USD');
+
+      await ExactMoneyMigrationService.apply({});
+      const pAfter = await Payment.findById(payment._id);
+      expect(pAfter.amountExact.currency).toBe('USD');
+      expect(pAfter.amountExact.amountMinor.toString()).toBe('10000');
+    });
+
+    it('Refund resolves currency from linked Payment document', async () => {
+      const user = await User.create({
+        fullName: 'Refund User',
+        email: 'refund@example.com',
+        password: 'Password123!',
+        phone: '03001234567'
+      });
+
+      const order = await Order.create({
+        orderId: 'ORD-REF-001',
+        user: user._id,
+        idempotencyKey: 'idemp-order-ref',
+        requestHash: 'hash-order-ref',
+        paymentMethod: 'stripe',
+        paymentStatus: 'Paid',
+        payment: { currency: 'EUR' },
+        subtotal: 50,
+        totalAmount: 50,
+        items: [{
+          product: new mongoose.Types.ObjectId(),
+          name: 'Item',
+          price: 50,
+          quantity: 1,
+          lineTotal: 50
+        }],
+        shippingAddress: {
+          fullName: 'Ref User',
+          phone: '03001234567',
+          address: 'Street 1',
+          city: 'City',
+          province: 'Province',
+          country: 'Pakistan'
+        },
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const payment = await Payment.create({
+        order: order._id,
+        user: user._id,
+        provider: 'stripe',
+        amount: 50,
+        currency: 'EUR',
+        idempotencyKey: 'idemp-pay-ref',
+        requestHash: 'hash-pay-ref',
+        providerIdempotencyKey: 'prov-idemp-ref',
+        status: 'Completed'
+      });
+
+      const refund = await Refund.create({
+        payment: payment._id,
+        order: order._id,
+        customer: user._id,
+        provider: 'stripe',
+        amount: 50,
+        currency: 'EUR',
+        processedBy: user._id,
+        idempotencyKey: 'idemp-refund-001',
+        requestHash: 'hash-refund-001',
+        providerIdempotencyKey: 'prov-idemp-refund-001',
+        status: 'Pending'
+      });
+
+      await Refund.collection.updateOne({ _id: refund._id }, { $unset: { currency: 1 } });
+
+      const resolved = await ExactMoneyMigrationService.resolveLinkedCurrency({ _id: refund._id, payment: payment._id, order: order._id }, 'refunds');
+      expect(resolved).toBe('EUR');
+
+      await ExactMoneyMigrationService.apply({});
+      const rAfter = await Refund.findById(refund._id);
+      expect(rAfter.amountExact.currency).toBe('EUR');
+      expect(rAfter.amountExact.amountMinor.toString()).toBe('5000');
+    });
+  });
+
+  describe('6. Safe Rollback', () => {
     it('recovers from stale expired lease cleanly', async () => {
-      // Simulate expired lease
       await MigrationState.create({
         migrationId: CANONICAL_MIGRATION_ID,
         status: 'pending',
         metadata: {
           lease: {
+            leaseId: 'stale-lease-1',
             workerId: 'stale-worker-999',
             acquiredAt: new Date(Date.now() - 600000),
-            expiresAt: new Date(Date.now() - 300000) // Expired 5 mins ago
+            expiresAt: new Date(Date.now() - 300000)
           }
         }
       });
@@ -450,11 +621,10 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       const newLease = await ExactMoneyMigrationService.acquireLease(CANONICAL_MIGRATION_ID, 'new-worker');
       expect(newLease.acquired).toBe(true);
       expect(newLease.workerId).toBe('new-worker');
-      await ExactMoneyMigrationService.releaseLease(CANONICAL_MIGRATION_ID, 'new-worker');
+      await ExactMoneyMigrationService.releaseLease(CANONICAL_MIGRATION_ID, newLease.leaseId);
     });
 
     it('preserves pre-existing exact fields created by application code during rollback', async () => {
-      // Seed product with existing valid exact value (unmigrated by this migration)
       const existingProduct = await Product.create({
         name: 'Pre-existing Exact Product',
         slug: 'pre-existing-exact-product',
@@ -485,7 +655,6 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
         isActive: true
       });
 
-      // Product that needs migration
       const migrateProduct = await Product.create({
         name: 'Cashews',
         slug: 'cashews',
@@ -501,7 +670,7 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
 
       // Rollback
       const rollbackRes = await ExactMoneyMigrationService.rollback();
-      expect(rollbackRes.rolledBackCount).toBe(1); // Only CSH-001 rolled back
+      expect(rollbackRes.rolledBackCount).toBe(1);
 
       // Pre-existing product priceExact remains untouched
       const preAfter = await Product.findById(existingProduct._id);
@@ -514,7 +683,7 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
       expect(cshAfter.price).toBe(3000);
     });
 
-    it('unsets only migration-owned fields and preserves legacy data', async () => {
+    it('unsets only migration-owned fields, updates journal status to rolled_back, and preserves legacy data', async () => {
       const product = await Product.create({
         name: 'Cashews',
         slug: 'cashews',
@@ -537,19 +706,49 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
 
       p = await Product.findById(product._id);
       expect(p.priceExact).toBeNull();
-      expect(p.price).toBe(3000); // Legacy preserved!
-      expect(p.stock).toBe(50); // Stock untouched!
+      expect(p.price).toBe(3000);
+      expect(p.stock).toBe(50);
       expect(p.sku).toBe('CSH-001');
 
-      // Journal cleaned
-      const journalLeft = await MigrationJournal.countDocuments({ documentId: product._id });
-      expect(journalLeft).toBe(0);
+      // Journal entry retained with status rolled_back
+      const journal = await MigrationJournal.findOne({ documentId: product._id });
+      expect(journal).not.toBeNull();
+      expect(journal.status).toBe('rolled_back');
+      expect(journal.rolledBackAt).toBeInstanceOf(Date);
     });
   });
 
-  describe('6. Independent Verification & Readiness Evidence Contract', () => {
-    it('refuses completion when field coverage is incomplete or conflicts exist', async () => {
-      // Seed unmigrated product
+  describe('7. Read-Only Verification vs Mutating Finalize Authority', () => {
+    it('verify mode is strictly read-only and writes zero records', async () => {
+      await Product.create({
+        name: 'Item 1',
+        slug: 'item-1',
+        price: 500,
+        stock: 10,
+        sku: 'ITM-001',
+        status: 'published',
+        isActive: true
+      });
+
+      const verifyRes = await ExactMoneyMigrationService.verify({ legacyCurrency: 'PKR' });
+      expect(verifyRes.verified).toBe(false);
+
+      // Verify NO MigrationState record created by verify()
+      const stateCount = await MigrationState.countDocuments({});
+      expect(stateCount).toBe(0);
+
+      // Verify NO MigrationJournal record created by verify()
+      const journalCount = await MigrationJournal.countDocuments({});
+      expect(journalCount).toBe(0);
+    });
+
+    it('finalize before apply is rejected', async () => {
+      await expect(
+        ExactMoneyMigrationService.finalize({ legacyCurrency: 'PKR' })
+      ).rejects.toThrow(/Apply must run before finalization/);
+    });
+
+    it('refuses finalize when field coverage is incomplete or conflicts exist', async () => {
       await Product.create({
         name: 'Unmigrated Item',
         slug: 'unmigrated-item',
@@ -560,17 +759,26 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
         isActive: true
       });
 
-      const verifyRes = await ExactMoneyMigrationService.verify({ legacyCurrency: 'PKR' });
-      expect(verifyRes.verified).toBe(false);
-      expect(verifyRes.evidence.status).toBe('failed');
+      // Mark state as applied manually to test finalize boundary
+      await MigrationState.create({
+        migrationId: CANONICAL_MIGRATION_ID,
+        status: 'applied',
+        processedCount: 1
+      });
 
-      // RolloutAuthority readiness verification must reject it
-      const isReady = RolloutAuthority.verifyReadinessEvidence(verifyRes.evidence);
+      await expect(
+        ExactMoneyMigrationService.finalize({ legacyCurrency: 'PKR' })
+      ).rejects.toThrow(/Migration finalization rejected/);
+
+      const state = await MigrationState.findOne({ migrationId: CANONICAL_MIGRATION_ID });
+      expect(state.status).toBe('failed');
+
+      // Readiness authority rejects failed state
+      const isReady = RolloutAuthority.verifyReadinessEvidence(state);
       expect(isReady).toBe(false);
     });
 
-    it('records completed MigrationState evidence that satisfies RolloutAuthority exact-read readiness', async () => {
-      // Seed compliant items
+    it('authorized finalize records completed MigrationState evidence that satisfies RolloutAuthority exact-read readiness', async () => {
       await Product.create({
         name: 'Fully Compliant Item',
         slug: 'fully-compliant-item',
@@ -583,29 +791,31 @@ describe('Phase 4D-1 Exact-Money & Legacy Identity Migration Suite', () => {
         isActive: true
       });
 
+      // 1. Apply
       await ExactMoneyMigrationService.apply({ legacyCurrency: 'PKR', legacyCountry: 'PK' });
 
-      const verifyRes = await ExactMoneyMigrationService.verify({
-        legacyCurrency: 'PKR',
-        legacyCountry: 'PK'
-      });
-
+      // 2. Read-only verify
+      const verifyRes = await ExactMoneyMigrationService.verify({ legacyCurrency: 'PKR', legacyCountry: 'PK' });
       expect(verifyRes.verified).toBe(true);
-      expect(verifyRes.evidence.status).toBe('completed');
-      expect(verifyRes.evidence.conflictCount).toBe(0);
-      expect(verifyRes.evidence.metadata.fieldCoverage).toBe(100);
-      expect(verifyRes.evidence.metadata.unresolvedParityFailures).toBe(0);
-      expect(verifyRes.evidence.metadata.scope).toEqual(RolloutAuthority.REQUIRED_MODEL_SCOPE);
 
-      // Verify RolloutAuthority accepts evidence
-      const isReady = RolloutAuthority.verifyReadinessEvidence(verifyRes.evidence);
+      // 3. Finalize
+      const finalizeRes = await ExactMoneyMigrationService.finalize({ legacyCurrency: 'PKR', legacyCountry: 'PK' });
+      expect(finalizeRes.finalized).toBe(true);
+      expect(finalizeRes.state.status).toBe('completed');
+      expect(finalizeRes.state.conflictCount).toBe(0);
+      expect(finalizeRes.state.metadata.fieldCoverage).toBe(100);
+      expect(finalizeRes.state.metadata.unresolvedParityFailures).toBe(0);
+      expect(finalizeRes.state.metadata.scope).toEqual(RolloutAuthority.REQUIRED_MODEL_SCOPE);
+
+      // 4. RolloutAuthority accepts evidence
+      const isReady = RolloutAuthority.verifyReadinessEvidence(finalizeRes.state);
       expect(isReady).toBe(true);
 
-      // Verify RolloutAuthority.resolveEffectiveMode elevates to exact_read when authorized
+      // 5. RolloutAuthority elevates to exact_read when requested
       const effectiveMode = RolloutAuthority.resolveEffectiveMode({
         runtimeMode: 'exact_read',
         requestedMode: 'exact_read',
-        readinessEvidence: verifyRes.evidence
+        readinessEvidence: finalizeRes.state
       });
       expect(effectiveMode).toBe('exact_read');
     });

@@ -12,7 +12,7 @@ if (mongoose.models.MigrationState) {
     },
     status: {
       type: String,
-      enum: ['pending', 'running', 'completed', 'failed', 'rolled_back'],
+      enum: ['pending', 'running', 'applied', 'completed', 'failed', 'rolled_back'],
       default: 'pending',
       index: true
     },

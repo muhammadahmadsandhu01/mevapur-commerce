@@ -9,8 +9,9 @@
  *   --inventory : Read-only evaluation and status breakdown across all 8 required models.
  *   --dry-run   : Read-only simulation of updates.
  *   --apply     : Bounded batch migration of exact money and normalized identity fields.
- *   --verify    : Independent verification scan recording MigrationState completion evidence.
- *   --rollback  : Idempotent rollback of migration-owned fields.
+ *   --verify    : Read-only independent verification scan and coverage report.
+ *   --finalize  : Separately authorized write of MigrationState completion evidence.
+ *   --rollback  : Idempotent transactional rollback of migration-owned fields.
  */
 
 const mongoose = require('mongoose');
@@ -25,9 +26,10 @@ const {
 } = require('../../modules/commerce/migration');
 const CurrencyRegistry = require('../../modules/commerce/registries/currencyRegistry');
 
-const ALLOWED_MODES = ['--inventory', '--dry-run', '--apply', '--verify', '--rollback'];
+const ALLOWED_MODES = ['--inventory', '--dry-run', '--apply', '--verify', '--finalize', '--rollback'];
 const ALLOWED_FLAGS = [
   '--confirm-phase4d-apply',
+  '--confirm-phase4d-finalize',
   '--confirm-phase4d-rollback',
   '--confirm-production',
   '--allow-local',
@@ -43,6 +45,11 @@ const REQUIRED_CONFIRMATION_MAP = {
     staging: ['--confirm-phase4d-apply'],
     production: ['--confirm-phase4d-apply', '--confirm-production'],
     local: ['--confirm-phase4d-apply']
+  },
+  finalize: {
+    staging: ['--confirm-phase4d-finalize'],
+    production: ['--confirm-phase4d-finalize', '--confirm-production'],
+    local: ['--confirm-phase4d-finalize']
   },
   rollback: {
     staging: ['--confirm-phase4d-rollback'],
@@ -169,6 +176,13 @@ async function runCli(argv = process.argv.slice(2)) {
       console.log('=== Phase 4D Exact-Money Migration Verification ===');
       console.log(JSON.stringify(verifyRes, null, 2));
       return verifyRes;
+    }
+
+    if (cli.mode === '--finalize') {
+      const finalizeRes = await ExactMoneyMigrationService.finalize(options);
+      console.log('=== Phase 4D Exact-Money Migration Finalized ===');
+      console.log(JSON.stringify(finalizeRes, null, 2));
+      return finalizeRes;
     }
 
     if (cli.mode === '--rollback') {

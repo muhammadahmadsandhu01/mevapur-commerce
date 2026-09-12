@@ -2,6 +2,17 @@
 
 const mongoose = require('mongoose');
 
+const ALLOWED_COLLECTIONS = [
+  'products',
+  'orders',
+  'payments',
+  'refunds',
+  'returns',
+  'coupons',
+  'shipping_zones',
+  'users'
+];
+
 if (mongoose.models.MigrationJournal) {
   module.exports = mongoose.models.MigrationJournal;
 } else {
@@ -14,6 +25,7 @@ if (mongoose.models.MigrationJournal) {
     collectionName: {
       type: String,
       required: true,
+      enum: ALLOWED_COLLECTIONS,
       index: true
     },
     documentId: {
@@ -21,9 +33,22 @@ if (mongoose.models.MigrationJournal) {
       required: true,
       index: true
     },
+    status: {
+      type: String,
+      enum: ['applied', 'rolled_back', 'conflict'],
+      default: 'applied',
+      required: true,
+      index: true
+    },
     fieldsWritten: {
       type: [String],
-      required: true
+      required: true,
+      validate: {
+        validator: (paths) => Array.isArray(paths) && paths.every(
+          p => typeof p === 'string' && p.trim().length > 0 && !p.startsWith('$') && !p.includes('\0')
+        ),
+        message: 'Invalid field paths in fieldsWritten'
+      }
     },
     preconditionFingerprint: {
       type: String,
@@ -41,6 +66,10 @@ if (mongoose.models.MigrationJournal) {
       type: Date,
       default: Date.now,
       index: true
+    },
+    rolledBackAt: {
+      type: Date,
+      default: null
     }
   }, {
     timestamps: true

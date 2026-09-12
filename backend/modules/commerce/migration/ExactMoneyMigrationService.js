@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const MigrationState = require('../../../models/MigrationState');
 const MigrationJournal = require('../../../models/MigrationJournal');
@@ -67,11 +68,12 @@ class ExactMoneyMigrationService {
   }
 
   /**
-   * Acquires a distributed lease on MigrationState to prevent concurrent apply operations.
+   * Acquires a distributed lease on MigrationState to prevent concurrent mutating operations.
    */
-  static async acquireLease(migrationId = CANONICAL_MIGRATION_ID, workerId = `worker-${Date.now()}`) {
+  static async acquireLease(migrationId = CANONICAL_MIGRATION_ID, workerId = `worker-${process.pid}-${Date.now()}`) {
     const now = new Date();
     const leaseExpiry = new Date(now.getTime() + LEASE_DURATION_MS);
+    const leaseId = `lease-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
     let state = await MigrationState.findOne({ migrationId });
     if (!state) {
@@ -80,13 +82,14 @@ class ExactMoneyMigrationService {
         status: 'pending',
         metadata: {
           lease: {
+            leaseId,
             workerId,
             acquiredAt: now,
             expiresAt: leaseExpiry
           }
         }
       });
-      return { acquired: true, workerId, state };
+      return { acquired: true, leaseId, workerId, state };
     }
 
     const currentLease = state.metadata?.lease;
@@ -96,6 +99,7 @@ class ExactMoneyMigrationService {
       state.metadata = {
         ...(state.metadata || {}),
         lease: {
+          leaseId,
           workerId,
           acquiredAt: now,
           expiresAt: leaseExpiry
@@ -103,11 +107,12 @@ class ExactMoneyMigrationService {
       };
       state.markModified('metadata');
       await state.save();
-      return { acquired: true, workerId, state };
+      return { acquired: true, leaseId, workerId, state };
     }
 
     return {
       acquired: false,
+      leaseId: currentLease.leaseId || null,
       workerId: currentLease.workerId,
       expiresAt: currentLease.expiresAt
     };
@@ -116,13 +121,78 @@ class ExactMoneyMigrationService {
   /**
    * Releases lease on MigrationState.
    */
-  static async releaseLease(migrationId = CANONICAL_MIGRATION_ID, workerId) {
+  static async releaseLease(migrationId = CANONICAL_MIGRATION_ID, leaseIdOrWorkerId) {
     const state = await MigrationState.findOne({ migrationId });
-    if (state && state.metadata?.lease?.workerId === workerId) {
-      state.metadata.lease = null;
-      state.markModified('metadata');
-      await state.save();
+    if (state && state.metadata?.lease) {
+      const lease = state.metadata.lease;
+      if (lease.leaseId === leaseIdOrWorkerId || lease.workerId === leaseIdOrWorkerId) {
+        state.metadata.lease = null;
+        state.markModified('metadata');
+        await state.save();
+      }
     }
+  }
+
+  /**
+   * Loads authoritative cross-document provenance where required (Payment -> Order, Refund -> Payment/Order, Return -> Order).
+   */
+  static async resolveLinkedCurrency(doc, modelScope, session = null) {
+    if (!doc) return null;
+    const rawDoc = doc._doc || doc;
+
+    if (modelScope === 'payments') {
+      if (rawDoc.order) {
+        const OrderModel = mongoose.models.Order || mongoose.model('Order');
+        const q = OrderModel.findById(rawDoc.order);
+        if (session) q.session(session);
+        const linkedOrder = await q.exec();
+        if (linkedOrder) {
+          const rawOrder = linkedOrder._doc || linkedOrder;
+          const curr = rawOrder.payment?.currency || rawOrder.currency;
+          if (curr) return curr;
+        }
+      }
+      if (rawDoc.currency && typeof rawDoc.currency === 'string') return rawDoc.currency;
+    } else if (modelScope === 'refunds') {
+      if (rawDoc.payment) {
+        const PaymentModel = mongoose.models.Payment || mongoose.model('Payment');
+        const q = PaymentModel.findById(rawDoc.payment);
+        if (session) q.session(session);
+        const linkedPayment = await q.exec();
+        if (linkedPayment) {
+          const rawPay = linkedPayment._doc || linkedPayment;
+          if (rawPay.amountExact?.currency) return rawPay.amountExact.currency;
+          if (rawPay.currency) return rawPay.currency;
+        }
+      }
+      if (rawDoc.order) {
+        const OrderModel = mongoose.models.Order || mongoose.model('Order');
+        const q = OrderModel.findById(rawDoc.order);
+        if (session) q.session(session);
+        const linkedOrder = await q.exec();
+        if (linkedOrder) {
+          const rawOrder = linkedOrder._doc || linkedOrder;
+          const curr = rawOrder.payment?.currency || rawOrder.currency;
+          if (curr) return curr;
+        }
+      }
+      if (rawDoc.currency && typeof rawDoc.currency === 'string') return rawDoc.currency;
+    } else if (modelScope === 'returns') {
+      if (rawDoc.order) {
+        const OrderModel = mongoose.models.Order || mongoose.model('Order');
+        const q = OrderModel.findById(rawDoc.order);
+        if (session) q.session(session);
+        const linkedOrder = await q.exec();
+        if (linkedOrder) {
+          const rawOrder = linkedOrder._doc || linkedOrder;
+          const curr = rawOrder.payment?.currency || rawOrder.currency;
+          if (curr) return curr;
+        }
+      }
+      if (rawDoc.currency && typeof rawDoc.currency === 'string') return rawDoc.currency;
+    }
+
+    return null;
   }
 
   /**
@@ -141,68 +211,100 @@ class ExactMoneyMigrationService {
       },
       models: {},
       summary: {
-        totalScanned: 0,
-        alreadyCompliant: 0,
-        wouldUpdate: 0,
-        conflicts: 0,
-        unresolved: 0,
-        overallCoveragePercent: 100
+        totalDocuments: 0,
+        alreadyCompliantDocs: 0,
+        wouldUpdateDocs: 0,
+        conflictDocs: 0,
+        unresolvedDocs: 0,
+        totalEligibleFields: 0,
+        compliantFields: 0,
+        wouldBackfillFields: 0,
+        conflictingFields: 0,
+        unresolvedFields: 0,
+        inapplicableFields: 0,
+        overallFieldCoveragePercent: 100
       }
     };
 
     for (const modelScope of scope) {
       const Model = this.getModel(modelScope);
       const modelStats = {
-        totalScanned: 0,
-        alreadyCompliant: 0,
-        wouldUpdate: 0,
-        conflicts: 0,
-        unresolved: 0,
-        coveragePercent: 100,
+        totalDocuments: 0,
+        alreadyCompliantDocs: 0,
+        wouldUpdateDocs: 0,
+        conflictDocs: 0,
+        unresolvedDocs: 0,
+        totalEligibleFields: 0,
+        compliantFields: 0,
+        wouldBackfillFields: 0,
+        conflictingFields: 0,
+        unresolvedFields: 0,
+        inapplicableFields: 0,
+        fieldCoveragePercent: 100,
         conflictDetails: []
       };
 
       const cursor = Model.find({}).cursor();
       for await (const doc of cursor) {
-        modelStats.totalScanned++;
-        const evalResult = evaluateDocument(doc, modelScope, options);
+        modelStats.totalDocuments++;
+        const linkedCurrency = await this.resolveLinkedCurrency(doc, modelScope);
+        const evalResult = evaluateDocument(doc, modelScope, { ...options, linkedCurrency });
 
+        // Document level
         if (evalResult.status === 'already_compliant') {
-          modelStats.alreadyCompliant++;
+          modelStats.alreadyCompliantDocs++;
         } else if (evalResult.status === 'would_update') {
-          modelStats.wouldUpdate++;
+          modelStats.wouldUpdateDocs++;
         } else if (evalResult.status === 'conflict') {
-          modelStats.conflicts++;
+          modelStats.conflictDocs++;
           modelStats.conflictDetails.push({
             id: String(doc._id),
             reason: evalResult.reason
           });
         } else {
-          modelStats.unresolved++;
+          modelStats.unresolvedDocs++;
+        }
+
+        // Field level
+        if (evalResult.fieldStats) {
+          modelStats.totalEligibleFields += evalResult.fieldStats.eligible;
+          modelStats.compliantFields += evalResult.fieldStats.compliant;
+          modelStats.wouldBackfillFields += evalResult.fieldStats.wouldBackfill;
+          modelStats.conflictingFields += evalResult.fieldStats.conflicts;
+          modelStats.unresolvedFields += evalResult.fieldStats.unresolved;
+          modelStats.inapplicableFields += evalResult.fieldStats.inapplicable;
         }
       }
 
-      const total = modelStats.totalScanned;
-      modelStats.coveragePercent = total === 0 ? 100 : Math.round((modelStats.alreadyCompliant / total) * 100);
+      const totalFields = modelStats.totalEligibleFields;
+      modelStats.fieldCoveragePercent = totalFields === 0
+        ? 100
+        : Math.round((modelStats.compliantFields / totalFields) * 100);
 
       report.models[modelScope] = modelStats;
-      report.summary.totalScanned += modelStats.totalScanned;
-      report.summary.alreadyCompliant += modelStats.alreadyCompliant;
-      report.summary.wouldUpdate += modelStats.wouldUpdate;
-      report.summary.conflicts += modelStats.conflicts;
-      report.summary.unresolved += modelStats.unresolved;
+      report.summary.totalDocuments += modelStats.totalDocuments;
+      report.summary.alreadyCompliantDocs += modelStats.alreadyCompliantDocs;
+      report.summary.wouldUpdateDocs += modelStats.wouldUpdateDocs;
+      report.summary.conflictDocs += modelStats.conflictDocs;
+      report.summary.unresolvedDocs += modelStats.unresolvedDocs;
+      report.summary.totalEligibleFields += modelStats.totalEligibleFields;
+      report.summary.compliantFields += modelStats.compliantFields;
+      report.summary.wouldBackfillFields += modelStats.wouldBackfillFields;
+      report.summary.conflictingFields += modelStats.conflictingFields;
+      report.summary.unresolvedFields += modelStats.unresolvedFields;
+      report.summary.inapplicableFields += modelStats.inapplicableFields;
     }
 
-    const totalAll = report.summary.totalScanned;
-    report.summary.overallCoveragePercent = totalAll === 0
+    const totalAllFields = report.summary.totalEligibleFields;
+    report.summary.overallFieldCoveragePercent = totalAllFields === 0
       ? 100
-      : Math.round((report.summary.alreadyCompliant / totalAll) * 100);
+      : Math.round((report.summary.compliantFields / totalAllFields) * 100);
 
     return report;
   }
 
   /**
-   * Dry-run simulation of migration.
+   * Dry-run simulation of migration (strictly read-only).
    */
   static async dryRun(options = {}) {
     const inv = await this.inventory(options);
@@ -214,7 +316,7 @@ class ExactMoneyMigrationService {
   }
 
   /**
-   * Applies exact-money backfill across all required model collections in bounded batches.
+   * Applies exact-money backfill across all required model collections in transactional bounded batches.
    */
   static async apply(options = {}) {
     const batchSize = options.batchSize || DEFAULT_BATCH_SIZE;
@@ -263,7 +365,8 @@ class ExactMoneyMigrationService {
             modelProcessed++;
             results.processedCount++;
 
-            const evalResult = evaluateDocument(doc, modelScope, options);
+            const linkedCurrency = await this.resolveLinkedCurrency(doc, modelScope);
+            const evalResult = evaluateDocument(doc, modelScope, { ...options, linkedCurrency });
 
             if (evalResult.status === 'conflict') {
               modelConflicts++;
@@ -272,27 +375,28 @@ class ExactMoneyMigrationService {
             }
 
             if (evalResult.status === 'would_update' && Object.keys(evalResult.exactUpdates).length > 0) {
-              const preFingerprint = computeFingerprint({
-                id: String(doc._id),
-                version: doc.__v,
-                updatedAt: doc.updatedAt
-              });
+              const session = await mongoose.startSession();
+              let committed = false;
 
-              // Construct atomic conditional update using version / updatedAt filter (CAS)
-              const casFilter = { _id: doc._id };
-              if (doc.__v !== undefined) casFilter.__v = doc.__v;
+              try {
+                session.startTransaction();
 
-              const updateRes = await Model.collection.updateOne(
-                casFilter,
-                { $set: evalResult.exactUpdates }
-              );
+                // 1. Conditional Business Document Update using strong CAS filter
+                const updateRes = await Model.collection.updateOne(
+                  evalResult.casFilter,
+                  { $set: evalResult.exactUpdates },
+                  { session }
+                );
 
-              if (updateRes.modifiedCount > 0) {
-                modelUpdated++;
-                results.updatedCount++;
+                if (updateRes.modifiedCount === 0) {
+                  // CAS mismatch: concurrent edit occurred
+                  await session.abortTransaction();
+                  modelConflicts++;
+                  results.conflictCount++;
+                  continue;
+                }
 
-                const postFingerprint = computeFingerprint(evalResult.exactUpdates);
-
+                // 2. MigrationJournal Ownership Entry written in SAME transaction
                 await MigrationJournal.findOneAndUpdate(
                   {
                     migrationId: CANONICAL_MIGRATION_ID,
@@ -301,15 +405,32 @@ class ExactMoneyMigrationService {
                   },
                   {
                     $set: {
+                      status: 'applied',
                       fieldsWritten: evalResult.fieldsWritten,
-                      preconditionFingerprint: preFingerprint,
-                      postWriteFingerprint: postFingerprint,
+                      preconditionFingerprint: evalResult.preconditionFingerprint,
+                      postWriteFingerprint: evalResult.postWriteFingerprint,
                       schemaVersion: MIGRATION_TOOL_VERSION,
-                      migratedAt: new Date()
+                      migratedAt: new Date(),
+                      rolledBackAt: null
                     }
                   },
-                  { upsert: true }
+                  { upsert: true, session }
                 );
+
+                await session.commitTransaction();
+                committed = true;
+                modelUpdated++;
+                results.updatedCount++;
+              } catch (txErr) {
+                if (!committed) {
+                  try {
+                    await session.abortTransaction();
+                  } catch {}
+                }
+                modelConflicts++;
+                results.conflictCount++;
+              } finally {
+                await session.endSession();
               }
             }
           }
@@ -329,37 +450,97 @@ class ExactMoneyMigrationService {
         };
       }
 
-      state.status = results.conflictCount > 0 ? 'failed' : 'running';
+      state.status = results.conflictCount > 0 ? 'failed' : 'applied';
       await state.save();
 
       return results;
     } finally {
-      await this.releaseLease(CANONICAL_MIGRATION_ID, workerId);
+      await this.releaseLease(CANONICAL_MIGRATION_ID, leaseRes.leaseId || workerId);
     }
   }
 
   /**
-   * Independent verification scan that checks 100% field coverage and records MigrationState completion evidence.
+   * Independent verification scan (strictly read-only).
+   * Re-reads all required collections and verifies field coverage without mutating data.
    */
   static async verify(options = {}) {
     const inv = await this.inventory(options);
-    const dbFingerprint = this.getDatabaseFingerprint();
-    const regSnapshot = this.getRegistrySnapshot();
 
-    const is100Coverage = inv.summary.overallCoveragePercent === 100 && inv.summary.wouldUpdate === 0;
-    const hasZeroConflicts = inv.summary.conflicts === 0;
-    const hasZeroUnresolved = inv.summary.unresolved === 0;
+    const is100Coverage = inv.summary.overallFieldCoveragePercent === 100 && inv.summary.wouldBackfillFields === 0;
+    const hasZeroConflicts = inv.summary.conflictingFields === 0 && inv.summary.conflictDocs === 0;
+    const hasZeroUnresolved = inv.summary.unresolvedFields === 0 && inv.summary.unresolvedDocs === 0;
     const isVerified = is100Coverage && hasZeroConflicts && hasZeroUnresolved;
 
-    let state = await MigrationState.findOne({ migrationId: CANONICAL_MIGRATION_ID });
-    if (!state) {
-      state = new MigrationState({ migrationId: CANONICAL_MIGRATION_ID });
+    return {
+      verified: isVerified,
+      inventory: inv,
+      summary: inv.summary
+    };
+  }
+
+  /**
+   * Separately authorized mutating finalization mode that verifies readiness and writes canonical MigrationState completed evidence.
+   */
+  static async finalize(options = {}) {
+    const workerId = `finalize-worker-${process.pid}-${Date.now()}`;
+    const leaseRes = await this.acquireLease(CANONICAL_MIGRATION_ID, workerId);
+
+    if (!leaseRes.acquired) {
+      throw new CommerceError(
+        `Cannot finalize migration: active lease held by worker '${leaseRes.workerId}' until ${leaseRes.expiresAt}`,
+        'COMMERCE_MIGRATION_LEASE_HELD',
+        409
+      );
     }
 
-    if (isVerified) {
+    try {
+      let state = await MigrationState.findOne({ migrationId: CANONICAL_MIGRATION_ID });
+      if (!state) {
+        state = new MigrationState({ migrationId: CANONICAL_MIGRATION_ID });
+      }
+
+      // Finalize requires proof that apply ran previously
+      if (state.status !== 'applied' && state.status !== 'running' && state.processedCount === 0) {
+        throw new CommerceError(
+          `Cannot finalize migration: migration is in '${state.status}' state with 0 processed records. Apply must run before finalization.`,
+          'COMMERCE_MIGRATION_NOT_APPLIED',
+          400
+        );
+      }
+
+      // Re-run independent verification scan
+      const verifyRes = await this.verify(options);
+      const dbFingerprint = this.getDatabaseFingerprint();
+      const regSnapshot = this.getRegistrySnapshot();
+
+      if (!verifyRes.verified) {
+        state.status = 'failed';
+        state.lastReasonCode = verifyRes.summary.overallFieldCoveragePercent < 100
+          ? 'INCOMPLETE_FIELD_COVERAGE'
+          : (verifyRes.summary.conflictingFields > 0 ? 'PARITY_CONFLICTS_EXIST' : 'UNRESOLVED_RECORDS_EXIST');
+        state.metadata = {
+          schemaVersion: MIGRATION_TOOL_VERSION,
+          toolVersion: MIGRATION_TOOL_VERSION,
+          databaseFingerprint: dbFingerprint,
+          registrySnapshot: regSnapshot,
+          fieldCoverage: verifyRes.summary.overallFieldCoveragePercent,
+          unresolvedParityFailures: verifyRes.summary.conflictingFields,
+          conflictCount: verifyRes.summary.conflictingFields,
+          scope: RolloutAuthority.REQUIRED_MODEL_SCOPE
+        };
+        await state.save();
+
+        throw new CommerceError(
+          `Migration finalization rejected: ${state.lastReasonCode}. Incomplete field coverage or unresolved conflicts remain.`,
+          'COMMERCE_MIGRATION_VERIFICATION_FAILED',
+          400
+        );
+      }
+
+      // Verification passed -> Record authoritative completed evidence
       state.status = 'completed';
       state.completedAt = new Date();
-      state.processedCount = inv.summary.totalScanned;
+      state.processedCount = verifyRes.inventory.summary.totalDocuments;
       state.conflictCount = 0;
       state.metadata = {
         schemaVersion: MIGRATION_TOOL_VERSION,
@@ -377,104 +558,137 @@ class ExactMoneyMigrationService {
         },
         verifiedAt: new Date().toISOString()
       };
-    } else {
-      state.status = 'failed';
-      state.lastReasonCode = !is100Coverage
-        ? 'INCOMPLETE_FIELD_COVERAGE'
-        : (!hasZeroConflicts ? 'PARITY_CONFLICTS_EXIST' : 'UNRESOLVED_RECORDS_EXIST');
-      state.metadata = {
-        schemaVersion: MIGRATION_TOOL_VERSION,
-        toolVersion: MIGRATION_TOOL_VERSION,
-        databaseFingerprint: dbFingerprint,
-        registrySnapshot: regSnapshot,
-        fieldCoverage: inv.summary.overallCoveragePercent,
-        unresolvedParityFailures: inv.summary.conflicts,
-        conflictCount: inv.summary.conflicts,
-        scope: RolloutAuthority.REQUIRED_MODEL_SCOPE
+
+      await state.save();
+
+      return {
+        finalized: true,
+        state: state.toObject ? state.toObject() : state
       };
+    } finally {
+      await this.releaseLease(CANONICAL_MIGRATION_ID, leaseRes.leaseId || workerId);
     }
-
-    await state.save();
-
-    return {
-      verified: isVerified,
-      inventory: inv,
-      evidence: state.toObject ? state.toObject() : state
-    };
   }
 
   /**
-   * Idempotently rolls back exact fields created by this migration without touching legacy fields or newer writes.
+   * Idempotently rolls back exact fields created by this migration in transactions without touching legacy fields or newer writes.
    */
   static async rollback(options = {}) {
-    const journalEntries = await MigrationJournal.find({ migrationId: CANONICAL_MIGRATION_ID });
-    let rolledBackCount = 0;
-    let skippedCount = 0;
+    const workerId = `rollback-worker-${process.pid}-${Date.now()}`;
+    const leaseRes = await this.acquireLease(CANONICAL_MIGRATION_ID, workerId);
 
-    for (const entry of journalEntries) {
-      const Model = this.getModel(entry.collectionName);
-      const doc = await Model.findById(entry.documentId);
+    if (!leaseRes.acquired) {
+      throw new CommerceError(
+        `Cannot rollback migration: active lease held by worker '${leaseRes.workerId}' until ${leaseRes.expiresAt}`,
+        'COMMERCE_MIGRATION_LEASE_HELD',
+        409
+      );
+    }
 
-      if (!doc) {
-        skippedCount++;
-        continue;
-      }
+    try {
+      const journalEntries = await MigrationJournal.find({
+        migrationId: CANONICAL_MIGRATION_ID,
+        status: 'applied'
+      });
 
-      // Build $unset updates for the fields written by migration
-      const unsets = {};
-      let hasArrayField = false;
+      let rolledBackCount = 0;
+      let skippedCount = 0;
 
-      for (const f of entry.fieldsWritten) {
-        if (f.includes('.')) {
-          hasArrayField = true;
-        } else {
-          unsets[f] = 1;
+      for (const entry of journalEntries) {
+        const Model = this.getModel(entry.collectionName);
+        const session = await mongoose.startSession();
+        let committed = false;
+
+        try {
+          session.startTransaction();
+          const doc = await Model.findById(entry.documentId).session(session);
+
+          if (!doc) {
+            await MigrationJournal.updateOne(
+              { _id: entry._id },
+              { $set: { status: 'rolled_back', rolledBackAt: new Date() } },
+              { session }
+            );
+            await session.commitTransaction();
+            committed = true;
+            skippedCount++;
+            continue;
+          }
+
+          // Build $unset updates for the fields written by migration
+          const unsets = {};
+          let hasArrayField = false;
+
+          for (const f of entry.fieldsWritten) {
+            if (f.includes('.')) {
+              hasArrayField = true;
+            } else {
+              unsets[f] = 1;
+            }
+          }
+
+          if (Object.keys(unsets).length > 0) {
+            await Model.collection.updateOne({ _id: doc._id }, { $unset: unsets }, { session });
+          }
+
+          if (hasArrayField) {
+            if (entry.collectionName === 'products' && Array.isArray(doc.variants)) {
+              doc.variants.forEach(v => {
+                v.priceExact = undefined;
+                v.salePriceExact = undefined;
+              });
+              await doc.save({ session });
+            } else if (entry.collectionName === 'orders' && Array.isArray(doc.items)) {
+              doc.items.forEach(item => {
+                item.unitPriceExact = undefined;
+                item.lineTotalExact = undefined;
+              });
+              await doc.save({ session });
+            } else if (entry.collectionName === 'returns' && Array.isArray(doc.items)) {
+              doc.items.forEach(item => {
+                item.priceExact = undefined;
+                item.refundAmountExact = undefined;
+              });
+              await doc.save({ session });
+            }
+          }
+
+          await MigrationJournal.updateOne(
+            { _id: entry._id },
+            { $set: { status: 'rolled_back', rolledBackAt: new Date() } },
+            { session }
+          );
+
+          await session.commitTransaction();
+          committed = true;
+          rolledBackCount++;
+        } catch (err) {
+          if (!committed) {
+            try {
+              await session.abortTransaction();
+            } catch {}
+          }
+          skippedCount++;
+        } finally {
+          await session.endSession();
         }
       }
 
-      if (Object.keys(unsets).length > 0) {
-        await Model.collection.updateOne({ _id: doc._id }, { $unset: unsets });
+      let state = await MigrationState.findOne({ migrationId: CANONICAL_MIGRATION_ID });
+      if (state) {
+        state.status = 'rolled_back';
+        state.completedAt = new Date();
+        await state.save();
       }
 
-      if (hasArrayField) {
-        // Handle nested/array subdocument unsets cleanly
-        if (entry.collectionName === 'products' && Array.isArray(doc.variants)) {
-          doc.variants.forEach(v => {
-            v.priceExact = undefined;
-            v.salePriceExact = undefined;
-          });
-          await doc.save();
-        } else if (entry.collectionName === 'orders' && Array.isArray(doc.items)) {
-          doc.items.forEach(item => {
-            item.unitPriceExact = undefined;
-            item.lineTotalExact = undefined;
-          });
-          await doc.save();
-        } else if (entry.collectionName === 'returns' && Array.isArray(doc.items)) {
-          doc.items.forEach(item => {
-            item.priceExact = undefined;
-            item.refundAmountExact = undefined;
-          });
-          await doc.save();
-        }
-      }
-
-      await MigrationJournal.deleteOne({ _id: entry._id });
-      rolledBackCount++;
+      return {
+        status: 'rolled_back',
+        rolledBackCount,
+        skippedCount
+      };
+    } finally {
+      await this.releaseLease(CANONICAL_MIGRATION_ID, leaseRes.leaseId || workerId);
     }
-
-    let state = await MigrationState.findOne({ migrationId: CANONICAL_MIGRATION_ID });
-    if (state) {
-      state.status = 'rolled_back';
-      state.completedAt = new Date();
-      await state.save();
-    }
-
-    return {
-      status: 'rolled_back',
-      rolledBackCount,
-      skippedCount
-    };
   }
 }
 
