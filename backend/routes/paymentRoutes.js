@@ -21,7 +21,7 @@ const webhookRouter = express.Router();
 
 webhookRouter.post(
   '/:provider',
-  express.raw({ type: 'application/json', limit: '1mb' }),
+  express.raw({ type: 'application/json', limit: '256kb' }),
   validate(webhookProviderSchema, {
     source: 'params',
     code: 'PAYMENT_VALIDATION_FAILED'
@@ -36,6 +36,20 @@ router.get(
     code: 'PAYMENT_VALIDATION_FAILED'
   }),
   paymentController.getAvailableMethods
+);
+
+router.get(
+  '/webhooks/health',
+  protect,
+  admin,
+  paymentController.getWebhookHealth
+);
+
+router.get(
+  '/webhook/health',
+  protect,
+  admin,
+  paymentController.getWebhookHealth
 );
 
 router.get(

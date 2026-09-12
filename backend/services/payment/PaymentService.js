@@ -17,6 +17,8 @@ const {
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../constants/paymentConstants');
 const { MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
+const paymentWebhookInboxService = require('./webhooks/PaymentWebhookInboxService');
+const paymentWebhookProcessor = require('./webhooks/PaymentWebhookProcessor');
 
 const PAYMENT_EVENT_TYPES = new Set([
   'payment_intent.processing',
@@ -859,150 +861,13 @@ class PaymentService {
     return { idempotentReplay, payment: publicPayment };
   }
 
-  async handleWebhook(providerName, rawBody, signature) {
-    const provider = paymentProviderRegistry.getInstalled(providerName);
-    const event = typeof provider.verifyCallback === 'function'
-      ? provider.verifyCallback(rawBody, signature)
-      : provider.verifyWebhookSignature(rawBody, signature);
-
-    if (
-      !event
-      || typeof event.id !== 'string'
-      || typeof event.type !== 'string'
-      || !event.data?.object
-    ) {
-      throw new AppError(
-        'The verified webhook event is malformed',
-        400,
-        'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
-      );
-    }
-
-    const payloadHash = hashValue(rawBody);
-    let ledger;
-    let inserted = false;
-
-    try {
-      ledger = await PaymentWebhookEvent.create({
-        provider: providerName,
-        providerEventId: event.id,
-        eventType: event.type,
-        payloadHash,
-        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED
-      });
-      inserted = true;
-    } catch (error) {
-      if (!isDuplicateKey(error)) {
-        throw error;
-      }
-      ledger = await PaymentWebhookEvent.findOne({
-        provider: providerName,
-        providerEventId: event.id
-      }).select('+payloadHash +processingClaim');
-    }
-
-    if (!ledger || ledger.payloadHash !== payloadHash) {
-      throw new AppError(
-        'Webhook event identifier was reused with a different payload',
-        409,
-        'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
-      );
-    }
-
-    if (
-      [
-        WEBHOOK_PROCESSING_STATUSES.PROCESSED,
-        WEBHOOK_PROCESSING_STATUSES.IGNORED
-      ].includes(ledger.status)
-    ) {
-      return {
-        received: true,
-        duplicate: true,
-        outcome: ledger.status.toLowerCase()
-      };
-    }
-
-    const processingClaim = crypto.randomUUID();
-    const claimed = await PaymentWebhookEvent.findOneAndUpdate({
-      _id: ledger._id,
-      $or: [{
-        status: {
-          $in: [
-            WEBHOOK_PROCESSING_STATUSES.RECEIVED,
-            WEBHOOK_PROCESSING_STATUSES.FAILED
-          ]
-        }
-      }, {
-        status: WEBHOOK_PROCESSING_STATUSES.PROCESSING,
-        processingStartedAt: {
-          $lt: new Date(Date.now() - CLAIM_LEASE_MS)
-        }
-      }]
-    }, {
-      $set: {
-        status: WEBHOOK_PROCESSING_STATUSES.PROCESSING,
-        processingClaim,
-        processingStartedAt: new Date(),
-        errorCode: ''
-      },
-      $inc: { attemptCount: 1 }
-    }, {
-      new: true
-    }).select('+processingClaim');
-
-    if (!claimed) {
-      return {
-        received: true,
-        duplicate: !inserted,
-        outcome: 'processing'
-      };
-    }
-
-    try {
-      const result = await this.processVerifiedStripeEvent(event);
-      const finalStatus = result.outcome === 'ignored'
-        ? WEBHOOK_PROCESSING_STATUSES.IGNORED
-        : WEBHOOK_PROCESSING_STATUSES.PROCESSED;
-
-      await PaymentWebhookEvent.updateOne({
-        _id: claimed._id,
-        processingClaim
-      }, {
-        $set: {
-          status: finalStatus,
-          processedAt: new Date(),
-          processingClaim: ''
-        }
-      });
-
-      return {
-        received: true,
-        duplicate: false,
-        outcome: result.outcome
-      };
-    } catch (error) {
-      await PaymentWebhookEvent.updateOne({
-        _id: claimed._id,
-        processingClaim
-      }, {
-        $set: {
-          status: WEBHOOK_PROCESSING_STATUSES.FAILED,
-          errorCode: typeof error.code === 'string'
-            ? error.code
-            : 'PAYMENT_WEBHOOK_PROCESSING_FAILED',
-          processingClaim: ''
-        }
-      });
-
-      if (error.isOperational) {
-        throw error;
-      }
-      throw new AppError(
-        'Webhook processing failed',
-        503,
-        'PAYMENT_WEBHOOK_PROCESSING_FAILED'
-      );
-    }
+  async handleWebhook(providerName, rawBody, signature, options = {}) {
+    return paymentWebhookInboxService.recordWebhook({
+      provider: providerName,
+      rawBody,
+      signature,
+      ...options
+    });
   }
 
   async processVerifiedStripeEvent(event) {

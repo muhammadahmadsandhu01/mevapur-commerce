@@ -100,6 +100,14 @@ class PaymentProvider {
     throw this.operationUnavailable('verifyCallback');
   }
 
+  verifyWebhookSignature(_options = {}) {
+    throw this.operationUnavailable('verifyWebhookSignature');
+  }
+
+  normalizeWebhookEvent(_options = {}) {
+    throw this.operationUnavailable('normalizeWebhookEvent');
+  }
+
   async processCallback(_event) {
     throw this.operationUnavailable('processCallback');
   }

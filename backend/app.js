@@ -109,6 +109,7 @@ const createApp = ({
 
   // Payment gateways sign the exact request bytes. Mount this before any
   // JSON parsing or sanitization so signature verification remains valid.
+  app.use('/api/payments/webhooks', paymentRoutes.webhookRouter);
   app.use('/api/payments/webhook', paymentRoutes.webhookRouter);
 
   app.use(parseCookies);

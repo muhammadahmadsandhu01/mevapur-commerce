@@ -37,11 +37,12 @@ const PROVIDER_ATTEMPT_STATUSES = Object.freeze({
 });
 
 const WEBHOOK_PROCESSING_STATUSES = Object.freeze({
-  RECEIVED: 'Received',
-  PROCESSING: 'Processing',
-  PROCESSED: 'Processed',
-  IGNORED: 'Ignored',
-  FAILED: 'Failed'
+  RECEIVED: 'received',
+  PROCESSING: 'processing',
+  RETRY_SCHEDULED: 'retry_scheduled',
+  PROCESSED: 'processed',
+  IGNORED: 'ignored',
+  DEAD_LETTER: 'dead_letter'
 });
 
 const { CurrencyRegistry } = require('../modules/commerce');

@@ -87,4 +87,12 @@ router.get('/products/top', protect, admin, async (req, res) => {
   }
 });
 
+const paymentWebhookController = require('../controllers/paymentWebhookController');
+
+// @desc    Get payment webhook inbox health statistics
+// @route   GET /api/admin/payments/webhooks/health
+// @access  Private/Admin
+router.get('/payments/webhooks/health', protect, admin, paymentWebhookController.getWebhookHealth);
+router.get('/payments/webhook/health', protect, admin, paymentWebhookController.getWebhookHealth);
+
 module.exports = router;

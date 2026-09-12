@@ -155,33 +155,10 @@ exports.collectCodPayment = async (req, res, next) => {
   }
 };
 
-exports.handleWebhook = async (req, res, next) => {
-  try {
-    if (!Buffer.isBuffer(req.body)) {
-      throw new AppError(
-        'Webhook body must be provided as raw bytes',
-        400,
-        'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
-      );
-    }
+const paymentWebhookController = require('./paymentWebhookController');
 
-    const signature = req.headers['stripe-signature']
-      || req.headers['x-payment-signature'];
-    const result = await PaymentService.handleWebhook(
-      req.params.provider,
-      req.body,
-      signature
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-      meta: { requestId: req.requestId || 'unknown' }
-    });
-  } catch (error) {
-    return next(error);
-  }
-};
+exports.handleWebhook = paymentWebhookController.handleWebhook;
+exports.getWebhookHealth = paymentWebhookController.getWebhookHealth;
 
 exports.createRefund = async (req, res, next) => {
   try {
