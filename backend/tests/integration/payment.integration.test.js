@@ -9,6 +9,7 @@ const Payment = require('../../models/Payment');
 const Refund = require('../../models/Refund');
 const PaymentWebhookEvent = require('../../models/PaymentWebhookEvent');
 const Session = require('../../models/Session');
+const paymentWebhookProcessor = require('../../services/payment/webhooks/PaymentWebhookProcessor');
 
 let sequence = 0;
 let currentEvent;
@@ -355,7 +356,7 @@ describe('Payment API and provider reconciliation', () => {
     expect(first.body.data).toMatchObject({
       received: true,
       duplicate: false,
-      outcome: 'processed'
+      outcome: 'received'
     });
     expect(duplicate.status).toBe(200);
     expect(duplicate.body.data.duplicate).toBe(true);
@@ -363,6 +364,8 @@ describe('Payment API and provider reconciliation', () => {
       ([rawBody]) => Buffer.isBuffer(rawBody)
     )).toBe(true);
     expect(await PaymentWebhookEvent.countDocuments()).toBe(1);
+
+    await paymentWebhookProcessor.processPending();
 
     const reconciledPayment = await Payment.findById(payment._id);
     const reconciledOrder = await Order.findById(order._id);
@@ -389,21 +392,21 @@ describe('Payment API and provider reconciliation', () => {
     expect(invalid.status).toBe(400);
     expect(await PaymentWebhookEvent.countDocuments()).toBe(0);
 
-    const original = PaymentService.processVerifiedStripeEvent;
-    const transient = jest.spyOn(PaymentService, 'processVerifiedStripeEvent')
-      .mockRejectedValueOnce(new Error('isolated transient test failure'))
-      .mockImplementation(original.bind(PaymentService));
-
+    const createSpy = jest.spyOn(PaymentWebhookEvent, 'create').mockRejectedValueOnce(new Error('transient persistence error'));
     const first = await postCurrentWebhook();
+    createSpy.mockRestore();
+
     const retry = await postCurrentWebhook();
-    transient.mockRestore();
 
     expect(first.status).toBe(503);
     expect(retry.status).toBe(200);
+
+    await paymentWebhookProcessor.processPending();
+
     expect((await Payment.findById(payment._id)).status).toBe('Completed');
     expect((await PaymentWebhookEvent.findOne({
       providerEventId: 'evt_transient_retry'
-    })).attemptCount).toBe(2);
+    })).status).toBe('processed');
   });
 
   test('does not complete on amount, currency, or metadata mismatch', async () => {
@@ -424,7 +427,10 @@ describe('Payment API and provider reconciliation', () => {
       });
 
       const response = await postCurrentWebhook();
-      expect(response.status).toBe(422);
+      expect(response.status).toBe(200);
+
+      await paymentWebhookProcessor.processPending();
+
       expect((await Payment.findById(payment._id)).status).toBe('Processing');
       expect((await Order.findById(order._id)).paymentStatus).toBe('Pending');
     }
@@ -438,6 +444,7 @@ describe('Payment API and provider reconciliation', () => {
 
     currentEvent = eventForPayment(payment, { id: 'evt_first_success' });
     expect((await postCurrentWebhook()).status).toBe(200);
+    await paymentWebhookProcessor.processPending();
 
     currentEvent = eventForPayment(payment, {
       id: 'evt_late_failure',
@@ -446,7 +453,8 @@ describe('Payment API and provider reconciliation', () => {
     const late = await postCurrentWebhook();
 
     expect(late.status).toBe(200);
-    expect(late.body.data.outcome).toBe('ignored');
+    await paymentWebhookProcessor.processPending();
+
     expect((await Payment.findById(payment._id)).status).toBe('Completed');
     expect((await Order.findById(order._id)).paymentStatus).toBe('Paid');
   });
@@ -469,6 +477,9 @@ describe('Payment API and provider reconciliation', () => {
     expect(await PaymentWebhookEvent.countDocuments({
       providerEventId: 'evt_simultaneous_duplicate'
     })).toBe(1);
+
+    await paymentWebhookProcessor.processPending();
+
     const completed = await Payment.findById(payment._id);
     expect(completed.status).toBe('Completed');
     expect(completed.history.filter(
@@ -484,7 +495,11 @@ describe('Payment API and provider reconciliation', () => {
     };
     const unsupported = await postCurrentWebhook();
     expect(unsupported.status).toBe(200);
-    expect(unsupported.body.data.outcome).toBe('ignored');
+
+    await paymentWebhookProcessor.processPending();
+    expect((await PaymentWebhookEvent.findOne({
+      providerEventId: 'evt_unsupported_valid'
+    })).status).toBe('ignored');
 
     currentEvent = {
       id: 'evt_missing_payment',
@@ -500,10 +515,12 @@ describe('Payment API and provider reconciliation', () => {
       }
     };
     const missing = await postCurrentWebhook();
-    expect(missing.status).toBe(404);
+    expect(missing.status).toBe(200);
+
+    await paymentWebhookProcessor.processPending();
     expect((await PaymentWebhookEvent.findOne({
       providerEventId: 'evt_missing_payment'
-    })).status).toBe('Failed');
+    })).status).toBe('retry_scheduled');
   });
 });
 
@@ -688,6 +705,8 @@ describe('Admin refund orchestration', () => {
     const webhook = await postCurrentWebhook();
 
     expect(webhook.status).toBe(200);
+    await paymentWebhookProcessor.processPending();
+
     expect((await Refund.findById(refund._id)).status).toBe('Completed');
     expect((await Payment.findById(payment._id))).toMatchObject({
       status: 'PartiallyRefunded',
