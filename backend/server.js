@@ -62,6 +62,32 @@ async function startServer({
     await connectRedisFn(assistantRedisClient);
   }
 
+  // Pre-listen exact-read migration verification gate
+  if (runtimeConfig?.commerce?.moneyMode === 'exact_read') {
+    const MigrationState = require('./models/MigrationState');
+    const { RolloutAuthority } = require('./modules/commerce');
+
+    let state = null;
+    try {
+      state = await MigrationState.findOne({
+        migrationId: 'phase4d-exact-money-migration'
+      }).lean();
+    } catch (dbErr) {
+      activeLogger.error('Failed to query MigrationState for exact_read startup verification', {
+        reasonCode: 'EXACT_READ_MIGRATION_QUERY_FAILED'
+      });
+      throw new Error('Exact-read startup verification failed: database query error');
+    }
+
+    const isReady = RolloutAuthority.verifyReadinessEvidence(state);
+    if (!isReady) {
+      activeLogger.error('Exact-read readiness evidence missing or incomplete; refusing to open HTTP listener', {
+        reasonCode: 'EXACT_READ_STARTUP_NOT_READY'
+      });
+      throw new Error('Exact-read startup refused: MigrationState is incomplete, unverified, or conflicting');
+    }
+  }
+
   const app = application || loadApplication({
     redisClient: assistantRedisClient,
     assistantConfig

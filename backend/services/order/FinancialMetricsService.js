@@ -626,7 +626,8 @@ class FinancialMetricsService {
       {
         $addFields: {
           verifiedRefunded: { $sum: '$refundDocs.amount' },
-          orderTotal: { $ifNull: ['$totalAmount', 0] }
+          orderTotal: { $ifNull: ['$totalAmount', 0] },
+          orderCurrency: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] }
         }
       },
       {
@@ -638,19 +639,35 @@ class FinancialMetricsService {
       },
       {
         $group: {
-          _id: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+          _id: {
+            date: { $dateToString: { format: dateFormat, date: '$createdAt' } },
+            currency: '$orderCurrency'
+          },
           revenue: { $sum: '$netAmount' },
           orders: { $sum: 1 }
         }
       },
-      { $sort: { _id: 1 } }
+      { $sort: { '_id.date': 1, '_id.currency': 1 } }
     ]);
 
-    const chartData = chartAggregation.map((c) => ({
-      date: c._id,
-      revenue: FinancialMetricsService.roundMoney(c.revenue),
-      orders: c.orders
-    }));
+    const chartData = [];
+    const chartDataByCurrency = {};
+    for (const c of chartAggregation) {
+      const curr = String(c._id.currency || 'PKR').toUpperCase();
+      const entry = {
+        date: c._id.date,
+        currency: curr,
+        revenue: FinancialMetricsService.roundMoney(c.revenue),
+        orders: c.orders
+      };
+      chartData.push(entry);
+      if (!chartDataByCurrency[curr]) chartDataByCurrency[curr] = [];
+      chartDataByCurrency[curr].push({
+        date: c._id.date,
+        revenue: entry.revenue,
+        orders: entry.orders
+      });
+    }
 
     const paymentMethodsAgg = await Order.aggregate([
       {
@@ -682,7 +699,8 @@ class FinancialMetricsService {
       {
         $addFields: {
           verifiedRefunded: { $sum: '$refundDocs.amount' },
-          orderTotal: { $ifNull: ['$totalAmount', 0] }
+          orderTotal: { $ifNull: ['$totalAmount', 0] },
+          orderCurrency: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] }
         }
       },
       {
@@ -694,7 +712,10 @@ class FinancialMetricsService {
       },
       {
         $group: {
-          _id: '$paymentMethod',
+          _id: {
+            method: '$paymentMethod',
+            currency: '$orderCurrency'
+          },
           count: { $sum: 1 },
           total: { $sum: '$netAmount' }
         }
@@ -702,21 +723,38 @@ class FinancialMetricsService {
       { $sort: { total: -1 } }
     ]);
 
-    const paymentMethods = paymentMethodsAgg.map((pm) => ({
-      _id: pm._id,
-      count: pm.count,
-      total: FinancialMetricsService.roundMoney(pm.total)
-    }));
+    const paymentMethods = [];
+    const paymentMethodsByCurrency = {};
+    for (const pm of paymentMethodsAgg) {
+      const curr = String(pm._id.currency || 'PKR').toUpperCase();
+      const entry = {
+        _id: pm._id.method,
+        currency: curr,
+        count: pm.count,
+        total: FinancialMetricsService.roundMoney(pm.total)
+      };
+      paymentMethods.push(entry);
+      if (!paymentMethodsByCurrency[curr]) paymentMethodsByCurrency[curr] = [];
+      paymentMethodsByCurrency[curr].push({
+        _id: pm._id.method,
+        count: pm.count,
+        total: entry.total
+      });
+    }
 
     return {
       summary: {
         totalRevenue: revenueSummary.realizedRevenue,
         totalOrders: revenueSummary.orderCount,
         averageOrderValue: revenueSummary.averageOrderValue,
-        period: `${dateRange.start.toISOString().slice(0, 10)} to ${dateRange.end.toISOString().slice(0, 10)}`
+        period: `${dateRange.start.toISOString().slice(0, 10)} to ${dateRange.end.toISOString().slice(0, 10)}`,
+        byCurrency: revenueSummary.byCurrency
       },
+      byCurrency: revenueSummary.byCurrency,
       chartData,
-      paymentMethods
+      chartDataByCurrency,
+      paymentMethods,
+      paymentMethodsByCurrency
     };
   }
 
@@ -764,7 +802,10 @@ class FinancialMetricsService {
       {
         $group: {
           _id: {
-            $ifNull: [{ $arrayElemAt: ['$categoryDoc.name', 0] }, 'Uncategorized']
+            category: {
+              $ifNull: [{ $arrayElemAt: ['$categoryDoc.name', 0] }, 'Uncategorized']
+            },
+            currency: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] }
           },
           totalSales: { $sum: '$items.quantity' },
           totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
@@ -774,12 +815,26 @@ class FinancialMetricsService {
       { $sort: { totalRevenue: -1 } }
     ]);
 
-    const mappedCategoryStats = categoryStats.map((cs) => ({
-      _id: cs._id,
-      totalSales: cs.totalSales,
-      totalRevenue: FinancialMetricsService.roundMoney(cs.totalRevenue),
-      productCount: cs.productCount
-    }));
+    const mappedCategoryStats = [];
+    const categoryStatsByCurrency = {};
+    for (const cs of categoryStats) {
+      const curr = String(cs._id.currency || 'PKR').toUpperCase();
+      const entry = {
+        _id: cs._id.category,
+        currency: curr,
+        totalSales: cs.totalSales,
+        totalRevenue: FinancialMetricsService.roundMoney(cs.totalRevenue),
+        productCount: cs.productCount
+      };
+      mappedCategoryStats.push(entry);
+      if (!categoryStatsByCurrency[curr]) categoryStatsByCurrency[curr] = [];
+      categoryStatsByCurrency[curr].push({
+        _id: cs._id.category,
+        totalSales: cs.totalSales,
+        totalRevenue: entry.totalRevenue,
+        productCount: cs.productCount
+      });
+    }
 
     const lowStockDocs = await Product.find({
       $expr: { $lte: ['$stock', { $ifNull: ['$lowStockThreshold', 10] }] },
@@ -796,6 +851,7 @@ class FinancialMetricsService {
     return {
       topProducts,
       categoryStats: mappedCategoryStats,
+      categoryStatsByCurrency,
       lowStockProducts: lowStockDocs,
       outOfStockCount,
       totalProducts
@@ -849,7 +905,8 @@ class FinancialMetricsService {
       {
         $addFields: {
           verifiedRefunded: { $sum: '$refundDocs.amount' },
-          orderTotal: { $ifNull: ['$totalAmount', 0] }
+          orderTotal: { $ifNull: ['$totalAmount', 0] },
+          orderCurrency: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] }
         }
       },
       {
@@ -861,17 +918,20 @@ class FinancialMetricsService {
       },
       {
         $group: {
-          _id: '$user',
+          _id: {
+            user: '$user',
+            currency: '$orderCurrency'
+          },
           totalSpent: { $sum: '$netAmount' },
           orderCount: { $sum: 1 }
         }
       },
       { $sort: { totalSpent: -1 } },
-      { $limit: 10 },
+      { $limit: 20 },
       {
         $lookup: {
           from: 'users',
-          localField: '_id',
+          localField: '_id.user',
           foreignField: '_id',
           as: 'userDoc'
         }
@@ -879,7 +939,8 @@ class FinancialMetricsService {
       { $unwind: '$userDoc' },
       {
         $project: {
-          userId: { $toString: '$_id' },
+          userId: { $toString: '$_id.user' },
+          currency: '$_id.currency',
           fullName: '$userDoc.fullName',
           email: '$userDoc.email',
           totalSpent: 1,
@@ -888,13 +949,28 @@ class FinancialMetricsService {
       }
     ]);
 
-    const topSpenders = topSpendersAgg.map((ts) => ({
-      userId: ts.userId,
-      fullName: ts.fullName || 'Customer',
-      email: ts.email || 'N/A',
-      totalSpent: FinancialMetricsService.roundMoney(ts.totalSpent),
-      orderCount: ts.orderCount
-    }));
+    const topSpenders = [];
+    const topSpendersByCurrency = {};
+    for (const ts of topSpendersAgg) {
+      const curr = String(ts.currency || 'PKR').toUpperCase();
+      const entry = {
+        userId: ts.userId,
+        fullName: ts.fullName || 'Customer',
+        email: ts.email || 'N/A',
+        currency: curr,
+        totalSpent: FinancialMetricsService.roundMoney(ts.totalSpent),
+        orderCount: ts.orderCount
+      };
+      topSpenders.push(entry);
+      if (!topSpendersByCurrency[curr]) topSpendersByCurrency[curr] = [];
+      topSpendersByCurrency[curr].push({
+        userId: entry.userId,
+        fullName: entry.fullName,
+        email: entry.email,
+        totalSpent: entry.totalSpent,
+        orderCount: entry.orderCount
+      });
+    }
 
     const customerGrowthAgg = await User.aggregate([
       {
@@ -924,6 +1000,7 @@ class FinancialMetricsService {
         growthRate
       },
       topSpenders,
+      topSpendersByCurrency,
       customerGrowth
     };
   }
@@ -1023,7 +1100,7 @@ class FinancialMetricsService {
    * Authoritative Customer Financial Summary reusing canonical realized finance semantics.
    * Matches non-cancelled, captured/paid orders, deduces completed refunds, and aggregates per customer.
    * @param {Array<mongoose.Types.ObjectId>|mongoose.Types.ObjectId|string} customerIds
-   * @returns {Promise<Map<string, { realizedOrders: number, totalSpent: number, averageOrderValue: number, firstOrderDate: Date|null, lastOrderDate: Date|null }>>}
+   * @returns {Promise<Map<string, { realizedOrders: number, totalSpent: number, averageOrderValue: number, byCurrency: Object, firstOrderDate: Date|null, lastOrderDate: Date|null }>>}
    */
   static async getCustomerFinancialSummary(customerIds) {
     const ids = Array.isArray(customerIds) ? customerIds : [customerIds];
@@ -1059,7 +1136,8 @@ class FinancialMetricsService {
       {
         $addFields: {
           verifiedRefunded: { $sum: '$refundDocs.amount' },
-          orderTotal: { $ifNull: ['$totalAmount', 0] }
+          orderTotal: { $ifNull: ['$totalAmount', 0] },
+          orderCurrency: { $ifNull: ['$payment.currency', { $ifNull: ['$currency', 'PKR'] }] }
         }
       },
       {
@@ -1071,7 +1149,10 @@ class FinancialMetricsService {
       },
       {
         $group: {
-          _id: '$user',
+          _id: {
+            user: '$user',
+            currency: '$orderCurrency'
+          },
           totalSpent: { $sum: '$netAmount' },
           realizedOrders: { $sum: 1 },
           firstOrderDate: { $min: '$createdAt' },
@@ -1084,19 +1165,48 @@ class FinancialMetricsService {
     const summaryMap = new Map();
 
     results.forEach((row) => {
+      const userIdStr = row._id.user.toString();
+      const curr = String(row._id.currency || 'PKR').toUpperCase();
       const realizedOrders = row.realizedOrders || 0;
       const totalSpent = FinancialMetricsService.roundMoney(row.totalSpent || 0);
       const averageOrderValue = realizedOrders > 0
         ? FinancialMetricsService.roundMoney(totalSpent / realizedOrders)
         : 0;
 
-      summaryMap.set(row._id.toString(), {
+      let existing = summaryMap.get(userIdStr);
+      if (!existing) {
+        existing = {
+          realizedOrders: 0,
+          totalSpent: 0,
+          averageOrderValue: 0,
+          byCurrency: {},
+          firstOrderDate: row.firstOrderDate || null,
+          lastOrderDate: row.lastOrderDate || null
+        };
+        summaryMap.set(userIdStr, existing);
+      }
+
+      existing.realizedOrders += realizedOrders;
+      existing.byCurrency[curr] = {
+        currency: curr,
         realizedOrders,
         totalSpent,
         averageOrderValue,
         firstOrderDate: row.firstOrderDate || null,
         lastOrderDate: row.lastOrderDate || null
-      });
+      };
+
+      if (curr === 'PKR' || !existing.byCurrency.PKR) {
+        existing.totalSpent = totalSpent;
+        existing.averageOrderValue = averageOrderValue;
+      }
+
+      if (row.firstOrderDate && (!existing.firstOrderDate || row.firstOrderDate < existing.firstOrderDate)) {
+        existing.firstOrderDate = row.firstOrderDate;
+      }
+      if (row.lastOrderDate && (!existing.lastOrderDate || row.lastOrderDate > existing.lastOrderDate)) {
+        existing.lastOrderDate = row.lastOrderDate;
+      }
     });
 
     return summaryMap;

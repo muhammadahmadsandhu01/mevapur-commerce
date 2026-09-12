@@ -8,6 +8,7 @@ const { SUPPORTED_PAYMENT_CURRENCIES } = require('../../../constants/paymentCons
 const RefundService = require('../../../services/payment/RefundService');
 const paymentProviderRegistry = require('../../../modules/payments/core/providerRegistry');
 const Order = require('../../../models/Order');
+const Product = require('../../../models/Product');
 const Payment = require('../../../models/Payment');
 const Refund = require('../../../models/Refund');
 const { CurrencyRegistry } = require('../../../modules/commerce');
@@ -15,6 +16,7 @@ const { CurrencyRegistry } = require('../../../modules/commerce');
 describe('Phase 4C Defect Closures (DEF-28 through DEF-32)', () => {
   afterEach(async () => {
     await Order.deleteMany({});
+    await Product.deleteMany({});
     await Payment.deleteMany({});
     await Refund.deleteMany({});
   });
@@ -157,6 +159,135 @@ describe('Phase 4C Defect Closures (DEF-28 through DEF-32)', () => {
       expect(metrics.byCurrency.PKR.realizedRevenue).not.toBe(1550);
       expect(metrics.byCurrency.USD.realizedRevenue).not.toBe(1550);
     });
+
+    it('partitions getSalesReport, getProductStats, getCustomerStats, and getCustomerFinancialSummary across multiple currencies', async () => {
+      const baseShippingAddress = {
+        fullName: 'Global Customer',
+        phone: '+923001234567',
+        address: 'Street 1',
+        city: 'Lahore',
+        province: 'Punjab',
+        country: 'Pakistan'
+      };
+
+      const User = require('../../../models/User');
+      const uDoc1 = await User.create({
+        fullName: 'Customer One',
+        email: `c1-${Date.now()}@example.com`,
+        password: 'Password123!',
+        phone: '+923001111111',
+        role: 'customer'
+      });
+      const uDoc2 = await User.create({
+        fullName: 'Customer Two',
+        email: `c2-${Date.now()}@example.com`,
+        password: 'Password123!',
+        phone: '+923002222222',
+        role: 'customer'
+      });
+      const user1 = uDoc1._id;
+      const user2 = uDoc2._id;
+      const catId = new mongoose.Types.ObjectId();
+
+      const Category = require('../../../models/Category');
+      await Category.create({ _id: catId, name: 'Premium Nuts', slug: 'premium-nuts', isActive: true });
+
+      const prod1 = await Product.create({
+        name: 'Pistachios',
+        slug: 'pistachios',
+        category: catId,
+        price: 2000,
+        stock: 50,
+        status: 'published',
+        isActive: true
+      });
+
+      const prod2 = await Product.create({
+        name: 'Almonds USD',
+        slug: 'almonds-usd',
+        category: catId,
+        price: 30,
+        stock: 50,
+        status: 'published',
+        isActive: true
+      });
+
+      const baseTimeline = (userId) => [{
+        status: 'Delivered',
+        actor: userId,
+        actorRole: 'customer',
+        timestamp: new Date()
+      }];
+
+      // PKR Order: 2000 PKR
+      await Order.create({
+        orderId: 'ORD-PKR-REP',
+        user: user1,
+        idempotencyKey: 'idem-pkr-rep',
+        requestHash: 'hash-pkr-rep',
+        totalAmount: 2000,
+        subtotal: 2000,
+        paymentMethod: 'cod',
+        paymentStatus: 'Paid',
+        orderStatus: 'Delivered',
+        currency: 'PKR',
+        statusTimeline: baseTimeline(user1),
+        payment: { provider: 'Cash on Delivery', currency: 'PKR', paidAt: new Date() },
+        items: [{ product: prod1._id, name: 'Pistachios', quantity: 1, price: 2000, lineTotal: 2000 }],
+        shippingAddress: baseShippingAddress
+      });
+
+      // USD Order: 60 USD
+      await Order.create({
+        orderId: 'ORD-USD-REP',
+        user: user2,
+        idempotencyKey: 'idem-usd-rep',
+        requestHash: 'hash-usd-rep',
+        totalAmount: 60,
+        subtotal: 60,
+        paymentMethod: 'stripe',
+        paymentStatus: 'Paid',
+        orderStatus: 'Delivered',
+        currency: 'USD',
+        statusTimeline: baseTimeline(user2),
+        payment: { provider: 'Stripe', currency: 'USD', paidAt: new Date() },
+        items: [{ product: prod2._id, name: 'Almonds USD', quantity: 2, price: 30, lineTotal: 60 }],
+        shippingAddress: baseShippingAddress
+      });
+
+      // 1. Sales Report
+      const salesReport = await FinancialMetricsService.getSalesReport();
+      expect(salesReport.byCurrency).toBeDefined();
+      expect(salesReport.byCurrency.PKR.realizedRevenue).toBe(2000);
+      expect(salesReport.byCurrency.USD.realizedRevenue).toBe(60);
+      expect(salesReport.chartDataByCurrency.PKR).toBeDefined();
+      expect(salesReport.chartDataByCurrency.USD).toBeDefined();
+      expect(salesReport.paymentMethodsByCurrency.PKR).toBeDefined();
+      expect(salesReport.paymentMethodsByCurrency.USD).toBeDefined();
+
+      // 2. Product Stats
+      const productStats = await FinancialMetricsService.getProductStats();
+      expect(productStats.categoryStatsByCurrency).toBeDefined();
+      expect(productStats.categoryStatsByCurrency.PKR).toBeDefined();
+      expect(productStats.categoryStatsByCurrency.PKR[0].totalRevenue).toBe(2000);
+      expect(productStats.categoryStatsByCurrency.USD).toBeDefined();
+      expect(productStats.categoryStatsByCurrency.USD[0].totalRevenue).toBe(60);
+
+      // 3. Customer Stats
+      const customerStats = await FinancialMetricsService.getCustomerStats();
+      expect(customerStats.topSpendersByCurrency).toBeDefined();
+      expect(customerStats.topSpendersByCurrency.PKR).toBeDefined();
+      expect(customerStats.topSpendersByCurrency.PKR[0].totalSpent).toBe(2000);
+      expect(customerStats.topSpendersByCurrency.USD).toBeDefined();
+      expect(customerStats.topSpendersByCurrency.USD[0].totalSpent).toBe(60);
+
+      // 4. Customer Financial Summary
+      const summaryMap = await FinancialMetricsService.getCustomerFinancialSummary([user1, user2]);
+      const u1Summary = summaryMap.get(user1.toString());
+      const u2Summary = summaryMap.get(user2.toString());
+      expect(u1Summary.byCurrency.PKR.totalSpent).toBe(2000);
+      expect(u2Summary.byCurrency.USD.totalSpent).toBe(60);
+    });
   });
 
   describe('DEF-29: Return allocation does not assume two-decimal currencies', () => {
@@ -222,9 +353,9 @@ const {
   SUPPORTED_PAYMENT_CURRENCIES
 } = require('../../../constants/paymentConstants');
 const PaymentService = require('../../../services/payment/PaymentService');
-const MarketConfig = require('../../../models/MarketConfig');
+const MarketService = require('../../../services/MarketService');
 
-  describe('DEF-30: All active payment validators accept commercial currencies beyond PKR', () => {
+  describe('DEF-30: All active payment validators accept commercial currencies beyond PKR and allow optional currency', () => {
     it('accepts valid active commercial currencies (USD, EUR, GBP, AED, SAR) in payment availability schema', () => {
       const parseUsd = paymentAvailabilityQuerySchema.safeParse({ currency: 'USD' });
       expect(parseUsd.success).toBe(true);
@@ -239,10 +370,10 @@ const MarketConfig = require('../../../models/MarketConfig');
       expect(parseAed.data.currency).toBe('AED');
     });
 
-    it('defaults to PKR when currency is omitted in availability query', () => {
-      const parseDefault = paymentAvailabilityQuerySchema.safeParse({});
-      expect(parseDefault.success).toBe(true);
-      expect(parseDefault.data.currency).toBe('PKR');
+    it('allows currency to be omitted so MarketService can resolve authoritative market base currency', () => {
+      const parseOmitted = paymentAvailabilityQuerySchema.safeParse({});
+      expect(parseOmitted.success).toBe(true);
+      expect(parseOmitted.data.currency).toBeUndefined();
     });
 
     it('rejects invalid or non-commercial currencies (XYZ, XAU, BGN)', () => {
@@ -291,19 +422,78 @@ const MarketConfig = require('../../../models/MarketConfig');
       expect(PROVIDER_SUPPORTED_CURRENCIES.raast).toEqual(['PKR']);
     });
 
-    it('proves that offline/COD rejects non-PKR currencies while PKR remains active', () => {
-      const codAvailabilityPkr = PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'PKR' });
-      expect(codAvailabilityPkr.methods.some((m) => m.code === 'cod')).toBe(true);
+    it('resolves market-aware currency when currency is omitted (legacy PK -> PKR, UAE -> AED, UK -> GBP)', async () => {
+      // 1. Default PK Market
+      const defaultMethods = await PaymentService.getAvailableMethods();
+      expect(defaultMethods.currency).toBe('PKR');
 
-      const codAvailabilityUsd = PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'USD' });
-      // COD is not eligible for USD
-      expect(codAvailabilityUsd.methods.some((m) => m.code === 'cod')).toBe(false);
+      // 2. UAE Market configured
+      const config = await MarketService.getConfig();
+      config.baseCurrency = 'AED';
+      config.defaultCurrency = 'AED';
+      config.enabledCurrencies = ['PKR', 'AED'];
+      config.merchantCountry = 'AE';
+      config.homeCountry = 'AE';
+      await config.save();
+
+      const uaeMethods = await PaymentService.getAvailableMethods();
+      expect(uaeMethods.currency).toBe('AED');
+
+      // 3. UK Market configured
+      config.baseCurrency = 'GBP';
+      config.defaultCurrency = 'GBP';
+      config.enabledCurrencies = ['PKR', 'GBP'];
+      config.merchantCountry = 'GB';
+      config.homeCountry = 'GB';
+      await config.save();
+
+      const ukMethods = await PaymentService.getAvailableMethods();
+      expect(ukMethods.currency).toBe('GBP');
+
+      // 4. Reset back to PK
+      config.baseCurrency = 'PKR';
+      config.defaultCurrency = 'PKR';
+      config.enabledCurrencies = ['PKR'];
+      config.merchantCountry = 'PK';
+      config.homeCountry = 'PK';
+      await config.save();
     });
 
-    it('proves that unconfigured/dormant providers (Stripe) remain unavailable for checkout', () => {
-      const available = PaymentService.getAvailableMethods({ country: 'United States', currency: 'USD' });
+    it('rejects market-disabled currency during availability check', async () => {
+      await expect(PaymentService.getAvailableMethods({ currency: 'JPY' }))
+        .rejects
+        .toThrow(/Currency 'JPY' is not enabled for this market/);
+    });
+
+    it('proves that offline/COD rejects non-PKR currencies while PKR remains active', async () => {
+      const codAvailabilityPkr = await PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'PKR' });
+      expect(codAvailabilityPkr.methods.some((m) => m.code === 'cod')).toBe(true);
+
+      const config = await MarketService.getConfig();
+      config.enabledCurrencies.push('USD');
+      await config.save();
+
+      const codAvailabilityUsd = await PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'USD' });
+      // COD is not eligible for USD
+      expect(codAvailabilityUsd.methods.some((m) => m.code === 'cod')).toBe(false);
+
+      config.enabledCurrencies = ['PKR'];
+      await config.save();
+    });
+
+    it('proves that unconfigured/dormant providers (Stripe) remain unavailable for checkout', async () => {
+      const config = await MarketService.getConfig();
+      config.enabledCurrencies.push('USD');
+      config.enabledCountries.push('US');
+      await config.save();
+
+      const available = await PaymentService.getAvailableMethods({ country: 'United States', currency: 'USD' });
       // Stripe is dormant/unconfigured, so no automated provider is exposed as active
       expect(available.methods.some((m) => m.code === 'stripe')).toBe(false);
+
+      config.enabledCurrencies = ['PKR'];
+      config.enabledCountries = ['PK'];
+      await config.save();
     });
   });
 

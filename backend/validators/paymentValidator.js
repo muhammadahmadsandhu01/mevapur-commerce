@@ -57,7 +57,7 @@ const webhookProviderSchema = z.object({
 const { CurrencyRegistry } = require('../modules/commerce');
 
 const paymentAvailabilityQuerySchema = z.object({
-  country: z.string().trim().min(2).max(100).default('Pakistan'),
+  country: z.string().trim().min(2).max(100).optional(),
   currency: z.string()
     .trim()
     .length(3)
@@ -65,7 +65,7 @@ const paymentAvailabilityQuerySchema = z.object({
     .refine((val) => CurrencyRegistry.has(val), {
       message: 'Currency must be an active commercial ISO 4217 code'
     })
-    .default('PKR'),
+    .optional(),
   amount: z.coerce.number().finite().positive().max(100000000).optional()
 }).passthrough();
 

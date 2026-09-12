@@ -7,6 +7,7 @@ const paymentProviderRegistry = require('../../modules/payments/core/providerReg
 const refundService = require('./RefundService');
 const paymentStateMachine = require('./stateMachine/PaymentStateMachine');
 const AuditService = require('../AuditService');
+const MarketService = require('../MarketService');
 const logger = require('../../utils/logger');
 const { AppError } = require('../../common/errors/AppError');
 const {
@@ -501,31 +502,85 @@ const { MoneyMapper } = require('../../modules/commerce');
     };
   }
 
-  getAvailableMethods({
-    country = 'Pakistan',
-    currency = 'PKR',
+  async getAvailableMethods({
+    country,
+    currency,
     amount
   } = {}) {
+    let effectiveCountry = country;
+    let effectiveCurrency = currency;
+
+    if (!effectiveCountry || !effectiveCurrency) {
+      try {
+        const market = await MarketService.getConfig();
+        if (!effectiveCountry) {
+          effectiveCountry = market.homeCountry === 'PK' ? 'Pakistan' : market.homeCountry;
+        }
+        if (!effectiveCurrency) {
+          effectiveCurrency = market.defaultCurrency || market.baseCurrency || 'PKR';
+        }
+      } catch {
+        if (!effectiveCountry) effectiveCountry = 'Pakistan';
+        if (!effectiveCurrency) effectiveCurrency = 'PKR';
+      }
+    }
+
+    effectiveCurrency = String(effectiveCurrency).toUpperCase();
+
+    // Verify if market enables this currency when explicit currency was supplied or resolved
+    try {
+      const isEnabled = await MarketService.isCurrencyEnabled(effectiveCurrency);
+      if (!isEnabled) {
+        throw new AppError(
+          `Currency '${effectiveCurrency}' is not enabled for this market`,
+          409,
+          'MARKET_CURRENCY_INELIGIBLE'
+        );
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+    }
+
     return {
       edition: paymentProviderRegistry.edition,
-      currency: String(currency).toUpperCase(),
+      currency: effectiveCurrency,
       methods: paymentProviderRegistry.getPublicMethods({
-        country,
-        currency,
+        country: effectiveCountry,
+        currency: effectiveCurrency,
         amount
       })
     };
   }
 
-  getProviderStatuses({
-    country = 'Pakistan',
-    currency = 'PKR'
+  async getProviderStatuses({
+    country,
+    currency
   } = {}) {
+    let effectiveCountry = country;
+    let effectiveCurrency = currency;
+
+    if (!effectiveCountry || !effectiveCurrency) {
+      try {
+        const market = await MarketService.getConfig();
+        if (!effectiveCountry) {
+          effectiveCountry = market.homeCountry === 'PK' ? 'Pakistan' : market.homeCountry;
+        }
+        if (!effectiveCurrency) {
+          effectiveCurrency = market.defaultCurrency || market.baseCurrency || 'PKR';
+        }
+      } catch {
+        if (!effectiveCountry) effectiveCountry = 'Pakistan';
+        if (!effectiveCurrency) effectiveCurrency = 'PKR';
+      }
+    }
+
+    effectiveCurrency = String(effectiveCurrency).toUpperCase();
+
     return {
       edition: paymentProviderRegistry.edition,
       providers: paymentProviderRegistry.getAdminStatuses({
-        country,
-        currency
+        country: effectiveCountry,
+        currency: effectiveCurrency
       })
     };
   }

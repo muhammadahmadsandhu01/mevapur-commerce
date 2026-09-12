@@ -76,7 +76,7 @@ exports.listPayments = async (req, res, next) => {
 
 exports.getAvailableMethods = async (req, res, next) => {
   try {
-    const result = PaymentService.getAvailableMethods(req.query);
+    const result = await PaymentService.getAvailableMethods(req.query);
     return res.json({
       success: true,
       data: result,
@@ -89,7 +89,7 @@ exports.getAvailableMethods = async (req, res, next) => {
 
 exports.getProviderStatuses = async (req, res, next) => {
   try {
-    const result = PaymentService.getProviderStatuses(req.query);
+    const result = await PaymentService.getProviderStatuses(req.query);
     return res.json({
       success: true,
       data: result,
