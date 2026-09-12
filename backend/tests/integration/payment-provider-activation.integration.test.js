@@ -6,6 +6,8 @@ const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
 const Session = require('../../models/Session');
 const MerchantPaymentAccount = require('../../models/MerchantPaymentAccount');
+const StripeProvider = require('../../modules/payments/providers/stripe/StripeProvider');
+const { MoneyMapper } = require('../../modules/commerce');
 
 let sequence = 0;
 
@@ -84,6 +86,8 @@ describe('Phase 5A: Payment Provider Activation & Governance Integration', () =>
   });
 
   afterEach(async () => {
+    delete process.env.STRIPE_SECRET_KEY;
+    StripeProvider.resetClientForTests();
     await MerchantPaymentAccount.deleteMany({});
   });
 
@@ -275,6 +279,85 @@ describe('Phase 5A: Payment Provider Activation & Governance Integration', () =>
 
       expect(response.status).toBe(403);
       expect(response.body.error.code).toBe('PAYMENT_FORBIDDEN');
+    });
+
+    test('createPayment preserves international Order currency (AED) and does not fall back to PKR', async () => {
+      process.env.STRIPE_SECRET_KEY = 'sk_test_mock_secret_key_12345';
+      StripeProvider.setClientForTests({
+        paymentIntents: {
+          create: jest.fn().mockResolvedValue({
+            id: 'pi_test_aed_123',
+            status: 'requires_action',
+            client_secret: 'pi_test_secret_aed'
+          })
+        }
+      });
+
+      await MerchantPaymentAccount.create({
+        provider: 'stripe',
+        environment: 'sandbox',
+        isEnabled: true,
+        accountAlias: 'stripe-uae-sandbox',
+        merchantCountry: 'AE',
+        settlementCurrency: 'AED',
+        supportedCurrencies: ['AED', 'USD'],
+        supportedCountries: ['AE', 'PK'],
+        sandboxVerification: 'verified',
+        underwritingVerification: 'verified',
+        webhookVerification: 'verified'
+      });
+
+      const customerAuth = await createAuth('customer');
+      const order = await createOrder(customerAuth.user, 'stripe', 150, 'AED');
+      await Order.findByIdAndUpdate(order._id, {
+        $set: {
+          'shippingAddress.country': 'United Arab Emirates',
+          'shippingAddress.countryCode': 'AE',
+          totalAmountExact: MoneyMapper.fromLegacy(150, 'AED')
+        }
+      });
+
+      const response = await request(app)
+        .post('/api/payments')
+        .set('Authorization', customerAuth.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({
+          orderId: order._id.toString(),
+          provider: 'stripe'
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.payment.currency).toBe('AED');
+      expect(response.body.data.payment.currency).not.toBe('PKR');
+    });
+
+    test('createPayment fails closed on non-legacy order without authoritative currency', async () => {
+      const customerAuth = await createAuth('customer');
+      const order = await createOrder(customerAuth.user, 'bank_transfer', 200, 'PKR');
+
+      // Set explicit empty currency on modern order with exact money fields
+      await Order.findByIdAndUpdate(order._id, {
+        $set: {
+          currency: '',
+          'payment.currency': '',
+          'shippingAddress.country': 'United Arab Emirates',
+          'shippingAddress.countryCode': 'AE',
+          totalAmountExact: { amountMinor: '20000', currency: '' }
+        }
+      });
+
+      const response = await request(app)
+        .post('/api/payments')
+        .set('Authorization', customerAuth.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({
+          orderId: order._id.toString(),
+          provider: 'bank_transfer'
+        });
+
+      expect(response.status).toBe(422);
+      expect(response.body.error.code).toBe('PAYMENT_CURRENCY_REQUIRED');
     });
   });
 

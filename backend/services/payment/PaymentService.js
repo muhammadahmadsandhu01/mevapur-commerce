@@ -16,7 +16,7 @@ const {
   PROVIDER_ATTEMPT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../constants/paymentConstants');
-const { MoneyMapper } = require('../../modules/commerce');
+const { MoneyMapper, CurrencyRegistry, RolloutAuthority } = require('../../modules/commerce');
 
 const PAYMENT_EVENT_TYPES = new Set([
   'payment_intent.processing',
@@ -44,6 +44,75 @@ const CLAIM_LEASE_MS = 5 * 60 * 1000;
 class PaymentService {
   getProvider(providerName, context = {}) {
     return paymentProviderRegistry.resolve(providerName, context);
+  }
+
+  resolveAuthoritativeOrderCurrency(order) {
+    if (!order) {
+      throw new AppError('Order record is required for currency resolution', 400, 'ORDER_NOT_FOUND');
+    }
+
+    const exactCurrency = order.totalAmountExact?.currency
+      || order.subtotalExact?.currency
+      || order.pricingSnapshot?.currency;
+
+    const snapshotCurrency = order.payment?.currency || order.currency;
+
+    // 1. If both exact and snapshot currencies exist, assert they match
+    if (exactCurrency && snapshotCurrency) {
+      if (exactCurrency.toUpperCase() !== snapshotCurrency.toUpperCase()) {
+        throw new AppError(
+          `Order exact currency (${exactCurrency}) does not match order payment currency (${snapshotCurrency})`,
+          409,
+          'PAYMENT_ORDER_CURRENCY_MISMATCH'
+        );
+      }
+    }
+
+    // 2. Exact-money Order snapshot currency takes priority
+    if (exactCurrency && CurrencyRegistry.has(exactCurrency)) {
+      return exactCurrency.toUpperCase();
+    }
+
+    // 3. Immutable Order payment/currency snapshot
+    if (snapshotCurrency && CurrencyRegistry.has(snapshotCurrency)) {
+      return snapshotCurrency.toUpperCase();
+    }
+
+    // 4. Market snapshot / base-currency field if authoritative
+    const marketCurrency = order.marketConfig?.baseCurrency || order.marketSnapshot?.baseCurrency;
+    if (marketCurrency && CurrencyRegistry.has(marketCurrency)) {
+      return marketCurrency.toUpperCase();
+    }
+
+    // In shadow_write and exact_read modes, missing currency must fail closed immediately
+    const effectiveMode = RolloutAuthority.getRuntimeAuthorizedMode();
+    if (effectiveMode === RolloutAuthority.MODES.SHADOW_WRITE || effectiveMode === RolloutAuthority.MODES.EXACT_READ) {
+      throw new AppError(
+        'Order record is missing authoritative currency in active rollout mode',
+        500,
+        'COMMERCE_ORDER_CURRENCY_MISSING'
+      );
+    }
+
+    // 5. Apply PKR only through the established Phase 4 legacy-order compatibility boundary and only with legacy proof
+    const hasExactMoneyFields = Boolean(order.totalAmountExact || order.subtotalExact);
+    const isLegacyPakistanProof = !hasExactMoneyFields && (
+      order.shippingAddress?.country === 'Pakistan'
+      || order.shippingAddress?.countryCode === 'PK'
+      || ['cod', 'bank_transfer', 'raast'].includes(order.paymentMethod)
+      || ['Cash on Delivery', 'Bank Transfer', 'Raast'].includes(order.payment?.provider)
+    );
+
+    if (isLegacyPakistanProof) {
+      return 'PKR';
+    }
+
+    // 6. Non-legacy order without authoritative currency fails closed
+    throw new AppError(
+      'Unable to authoritatively resolve order currency for payment',
+      422,
+      'PAYMENT_CURRENCY_REQUIRED'
+    );
   }
 
   async createPayment({
@@ -86,16 +155,17 @@ class PaymentService {
       );
     }
 
-    await PaymentCapabilityPolicy.assertEligibleForOrder(order, provider);
+    const paymentCurrency = this.resolveAuthoritativeOrderCurrency(order);
+
+    await PaymentCapabilityPolicy.assertEligibleForOrder(order, provider, paymentCurrency);
 
     const providerAdapter = this.getProvider(provider, {
       country: order.shippingAddress?.country,
-      currency: order.payment?.currency || 'PKR',
+      currency: paymentCurrency,
       amount: order.totalAmount
     });
     const providerManifest = providerAdapter.getManifest();
 
-    const paymentCurrency = order.payment?.currency || order.currency || 'PKR';
     const amountExact = order.totalAmountExact || MoneyMapper.fromLegacy(order.totalAmount, paymentCurrency);
 
     try {
@@ -232,7 +302,7 @@ class PaymentService {
     }, {
       new: true
     }).select(
-      '+providerIdempotencyKey +providerAttemptStatus +providerClaimToken '
+      '+idempotencyKey +requestHash +providerIdempotencyKey +providerAttemptStatus +providerClaimToken '
       + '+providerClaimedAt +providerAttemptCount'
     );
 

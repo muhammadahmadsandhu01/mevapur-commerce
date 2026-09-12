@@ -336,9 +336,14 @@ class PaymentCapabilityPolicy {
     return results;
   }
 
-  async assertEligibleForOrder(order, providerCode) {
+  async assertEligibleForOrder(order, providerCode, currencyParam = null) {
     const country = order.shippingAddress?.country || 'Pakistan';
-    const currency = order.payment?.currency || order.currency || 'PKR';
+    const currency = currencyParam
+      || order.totalAmountExact?.currency
+      || order.subtotalExact?.currency
+      || order.payment?.currency
+      || order.currency
+      || null;
     const amount = order.totalAmount;
 
     const evaluation = await this.evaluateOperational(providerCode, {

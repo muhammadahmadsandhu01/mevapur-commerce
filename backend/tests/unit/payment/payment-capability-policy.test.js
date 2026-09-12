@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const PaymentCapabilityPolicy = require('../../../services/payment/PaymentCapabilityPolicy').PaymentCapabilityPolicy;
+const PaymentService = require('../../../services/payment/PaymentService');
 const PaymentProvider = require('../../../modules/payments/core/PaymentProvider');
 const PaymentProviderRegistry = require('../../../modules/payments/core/PaymentProviderRegistry');
 const cod = require('../../../modules/payments/providers/cod/CodProvider');
@@ -452,6 +453,88 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
         expect(method).not.toHaveProperty('reason');
         expect(method).not.toHaveProperty('auditClassification');
         expect(method).not.toHaveProperty('verificationStatus');
+      });
+    });
+  });
+
+  describe('8. Authoritative Order Currency Resolution & Scoped Legacy Fallback', () => {
+    test('exact-money Order snapshot currency takes priority over legacy field', () => {
+      const order = {
+        totalAmountExact: { amountMinor: '5000', currency: 'EUR' },
+        currency: 'EUR',
+        payment: { currency: 'EUR' }
+      };
+
+      const resolved = PaymentService.resolveAuthoritativeOrderCurrency(order);
+      expect(resolved).toBe('EUR');
+    });
+
+    test('immutable Order payment/currency snapshot is used when exact snapshot is absent', () => {
+      const order = {
+        totalAmountExact: null,
+        payment: { currency: 'GBP' }
+      };
+
+      const resolved = PaymentService.resolveAuthoritativeOrderCurrency(order);
+      expect(resolved).toBe('GBP');
+    });
+
+    test('fails closed when exact snapshot currency conflicts with payment currency', () => {
+      const order = {
+        totalAmountExact: { amountMinor: '5000', currency: 'EUR' },
+        payment: { currency: 'USD' }
+      };
+
+      expect(() => PaymentService.resolveAuthoritativeOrderCurrency(order))
+        .toThrow(expect.objectContaining({
+          statusCode: 409,
+          code: 'PAYMENT_ORDER_CURRENCY_MISMATCH'
+        }));
+    });
+
+    test('Pakistan legacy Order without exact fields resolves through explicit legacy PKR compatibility path', () => {
+      const legacyOrder = {
+        totalAmountExact: null,
+        subtotalExact: null,
+        shippingAddress: { country: 'Pakistan', countryCode: 'PK' },
+        paymentMethod: 'cod'
+      };
+
+      const resolved = PaymentService.resolveAuthoritativeOrderCurrency(legacyOrder);
+      expect(resolved).toBe('PKR');
+    });
+
+    test('new/global Order without authoritative currency fails closed', () => {
+      const globalOrderWithoutCurrency = {
+        totalAmountExact: null,
+        subtotalExact: null,
+        currency: null,
+        payment: { currency: null },
+        shippingAddress: { country: 'United Arab Emirates', countryCode: 'AE' },
+        paymentMethod: 'stripe'
+      };
+
+      expect(() => PaymentService.resolveAuthoritativeOrderCurrency(globalOrderWithoutCurrency))
+        .toThrow(expect.objectContaining({
+          statusCode: 422,
+          code: 'PAYMENT_CURRENCY_REQUIRED'
+        }));
+    });
+
+    test('international Orders preserve exact currencies and cannot become PKR (AED, GBP, EUR, USD)', () => {
+      const currencies = ['AED', 'GBP', 'EUR', 'USD'];
+
+      currencies.forEach((curr) => {
+        const order = {
+          currency: curr,
+          payment: { currency: curr },
+          shippingAddress: { country: 'International' },
+          paymentMethod: 'stripe'
+        };
+
+        const resolved = PaymentService.resolveAuthoritativeOrderCurrency(order);
+        expect(resolved).toBe(curr);
+        expect(resolved).not.toBe('PKR');
       });
     });
   });
