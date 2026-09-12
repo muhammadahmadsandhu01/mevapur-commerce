@@ -205,37 +205,53 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
   });
 
   describe('4. Domestic COD Policy', () => {
-    test('COD is available for domestic Pakistan delivery with PKR', async () => {
-      const evaluation = await policy.evaluateOperational('cod', {
-        country: 'Pakistan',
-        currency: 'PKR'
-      });
+    test('table-driven domestic COD configurations and cross-border rejection (PK, GB, AE, US, DE)', async () => {
+      const testCases = [
+        { merchantCountry: 'PK', baseCurrency: 'PKR', deliveryCountry: 'PK', currency: 'PKR', expectedEligible: true },
+        { merchantCountry: 'PK', baseCurrency: 'PKR', deliveryCountry: 'Pakistan', currency: 'PKR', expectedEligible: true },
+        { merchantCountry: 'GB', baseCurrency: 'GBP', deliveryCountry: 'GB', currency: 'GBP', expectedEligible: true },
+        { merchantCountry: 'GB', baseCurrency: 'GBP', deliveryCountry: 'United Kingdom', currency: 'GBP', expectedEligible: true },
+        { merchantCountry: 'AE', baseCurrency: 'AED', deliveryCountry: 'AE', currency: 'AED', expectedEligible: true },
+        { merchantCountry: 'AE', baseCurrency: 'AED', deliveryCountry: 'United Arab Emirates', currency: 'AED', expectedEligible: true },
+        { merchantCountry: 'US', baseCurrency: 'USD', deliveryCountry: 'US', currency: 'USD', expectedEligible: true },
+        { merchantCountry: 'US', baseCurrency: 'USD', deliveryCountry: 'United States', currency: 'USD', expectedEligible: true },
+        { merchantCountry: 'DE', baseCurrency: 'EUR', deliveryCountry: 'DE', currency: 'EUR', expectedEligible: true },
+        { merchantCountry: 'DE', baseCurrency: 'EUR', deliveryCountry: 'Germany', currency: 'EUR', expectedEligible: true },
+        // Cross-border or currency mismatch rejections
+        { merchantCountry: 'PK', baseCurrency: 'PKR', deliveryCountry: 'GB', currency: 'PKR', expectedEligible: false, reason: 'PAYMENT_COUNTRY_UNSUPPORTED' },
+        { merchantCountry: 'PK', baseCurrency: 'PKR', deliveryCountry: 'PK', currency: 'USD', expectedEligible: false, reason: 'PAYMENT_CURRENCY_UNSUPPORTED' },
+        { merchantCountry: 'GB', baseCurrency: 'GBP', deliveryCountry: 'US', currency: 'GBP', expectedEligible: false, reason: 'PAYMENT_COUNTRY_UNSUPPORTED' },
+        { merchantCountry: 'GB', baseCurrency: 'GBP', deliveryCountry: 'GB', currency: 'EUR', expectedEligible: false, reason: 'PAYMENT_CURRENCY_UNSUPPORTED' },
+        { merchantCountry: 'AE', baseCurrency: 'AED', deliveryCountry: 'AE', currency: 'USD', expectedEligible: false, reason: 'PAYMENT_CURRENCY_UNSUPPORTED' }
+      ];
 
-      expect(evaluation.isOperational).toBe(true);
-      expect(evaluation.eligible).toBe(true);
-      expect(evaluation.publicAvailable).toBe(true);
+      for (const tc of testCases) {
+        const evaluation = await policy.evaluateOperational('cod', {
+          merchantCountry: tc.merchantCountry,
+          baseCurrency: tc.baseCurrency,
+          deliveryCountry: tc.deliveryCountry,
+          currency: tc.currency
+        });
+
+        expect(evaluation.eligible).toBe(tc.expectedEligible);
+        if (tc.expectedEligible) {
+          expect(evaluation.publicAvailable).toBe(true);
+          expect(evaluation.reason).toBeNull();
+        } else {
+          expect(evaluation.publicAvailable).toBe(false);
+          expect(evaluation.reason).toBe(tc.reason);
+        }
+      }
     });
 
-    test('COD fails closed for international delivery country', async () => {
-      const evaluation = await policy.evaluateOperational('cod', {
-        country: 'United Arab Emirates',
-        currency: 'PKR'
-      });
-
-      expect(evaluation.eligible).toBe(false);
-      expect(evaluation.publicAvailable).toBe(false);
-      expect(evaluation.reason).toBe('PAYMENT_COUNTRY_UNSUPPORTED');
-    });
-
-    test('COD fails closed for non-domestic currency', async () => {
-      const evaluation = await policy.evaluateOperational('cod', {
-        country: 'Pakistan',
-        currency: 'USD'
-      });
-
-      expect(evaluation.eligible).toBe(false);
-      expect(evaluation.publicAvailable).toBe(false);
-      expect(evaluation.reason).toBe('PAYMENT_CURRENCY_UNSUPPORTED');
+    test('COD provider declares offline manifest flags and requires zero underwriting/webhook evidence', () => {
+      const manifest = cod.getManifest();
+      expect(manifest.paymentType).toBe('offline');
+      expect(manifest.isOfflineMethod).toBe(true);
+      expect(manifest.requiresMerchantAccount).toBe(false);
+      expect(manifest.requiresUnderwriting).toBe(false);
+      expect(manifest.requiresWebhook).toBe(false);
+      expect(manifest.requiresExternalCredentials).toBe(false);
     });
   });
 
@@ -253,6 +269,14 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
       expect(containsSecretKey({ nested: { secretKey: 'foo' } })).toBe(true);
       expect(containsSecretKey({ list: [{ credential: 'bar' }] })).toBe(true);
       expect(containsSecretKey({ normalField: 'value' })).toBe(false);
+    });
+
+    test('detects and rejects secret token patterns in string values', () => {
+      expect(containsSecretKey({ proof: 'sk_live_51ABC123456789' })).toBe(true);
+      expect(containsSecretKey({ proof: 'sk_test_51ABC123456789' })).toBe(true);
+      expect(containsSecretKey({ proof: 'whsec_abcdef123456789' })).toBe(true);
+      expect(containsSecretKey({ proof: 'Bearer eyJhbGciOiJIUzI1Ni...' })).toBe(true);
+      expect(containsSecretKey({ proof: 'DOC-VERIFIED-REF-123' })).toBe(false);
     });
 
     test('validator rejects forbidden secret fields without reproducing secret material in errors', () => {
@@ -276,6 +300,44 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
       } catch (error) {
         expect(JSON.stringify(error)).not.toContain('super_confidential_secret_value');
       }
+    });
+
+    test('validator rejects secret tokens in evidence reference values', () => {
+      expect(() => {
+        validateMerchantPaymentAccountInput({
+          provider: 'stripe',
+          evidenceReferences: {
+            sandboxProof: 'sk_test_51ForbiddenStripeSecret'
+          }
+        });
+      }).toThrow(
+        expect.objectContaining({
+          statusCode: 400,
+          code: 'PAYMENT_SECRETS_FORBIDDEN'
+        })
+      );
+    });
+
+    test('validator accepts bounded non-secret accountAlias', () => {
+      const validated = validateMerchantPaymentAccountInput({
+        provider: 'stripe',
+        accountAlias: 'main-stripe-acct'
+      });
+      expect(validated.accountAlias).toBe('main-stripe-acct');
+    });
+
+    test('validator rejects invalid or unbounded accountAlias', () => {
+      expect(() => {
+        validateMerchantPaymentAccountInput({
+          provider: 'stripe',
+          accountAlias: 'invalid alias with spaces!'
+        });
+      }).toThrow(
+        expect.objectContaining({
+          statusCode: 400,
+          code: 'PAYMENT_VALIDATION_FAILED'
+        })
+      );
     });
 
     test('validator rejects unknown fields via strict schema boundary', () => {
@@ -302,7 +364,52 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
     });
   });
 
-  describe('6. Public Discovery Privacy', () => {
+  describe('6. Runtime Gate Independence', () => {
+    test('database record alone cannot activate provider if runtime feature flag is disabled', async () => {
+      // Mock account with 100% verified status in DB
+      const fullyVerifiedAccount = {
+        provider: 'stripe',
+        environment: 'production',
+        isEnabled: true,
+        merchantCountry: 'PK',
+        settlementCurrency: 'PKR',
+        supportedCurrencies: ['PKR'],
+        supportedCountries: ['PK'],
+        sandboxVerification: 'verified',
+        underwritingVerification: 'verified',
+        webhookVerification: 'verified'
+      };
+
+      const mockAccountModel = {
+        findOne: jest.fn().mockResolvedValue(fullyVerifiedAccount)
+      };
+
+      // Registry where runtime feature flag is false
+      const disabledRuntimeRegistry = new PaymentProviderRegistry({
+        providers: [stripe],
+        edition: 'full',
+        editionManifests: { full: { providers: ['stripe'] } },
+        featureFlags: { stripe: false }, // RUNTIME GATE DISABLED
+        providerConfigs: { stripe: { credentialConfigured: true } }
+      });
+
+      const runtimeGatedPolicy = new PaymentCapabilityPolicy({
+        registry: disabledRuntimeRegistry,
+        AccountModel: mockAccountModel
+      });
+
+      const evaluation = await runtimeGatedPolicy.evaluateOperational('stripe', {
+        country: 'Pakistan',
+        currency: 'PKR'
+      });
+
+      expect(evaluation.isOperational).toBe(false);
+      expect(evaluation.auditClassification).toBe('DORMANT');
+      expect(evaluation.reason).toBe('PAYMENT_PROVIDER_DISABLED');
+    });
+  });
+
+  describe('7. Public Discovery Privacy', () => {
     test('public available methods hides internal reasons and unverified providers', async () => {
       const mockAccountModel = {
         findOne: jest.fn().mockImplementation((query) => {

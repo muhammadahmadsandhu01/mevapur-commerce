@@ -7,7 +7,8 @@ class CodProvider extends PaymentProvider {
       displayName: 'Cash on Delivery',
       integrationVersion: '1.0.0',
       paymentType: 'offline',
-      supportedCountries: ['PK', 'PAKISTAN'],
+      supportedCurrencies: [],
+      supportedCountries: [],
       capabilities: {
         createPayment: true,
         status: true,
@@ -16,7 +17,13 @@ class CodProvider extends PaymentProvider {
         refund: false,
         callback: false,
         customerConfirmation: false
-      }
+      },
+      requiresMerchantAccount: false,
+      requiresUnderwriting: false,
+      requiresWebhook: false,
+      requiresExternalCredentials: false,
+      isOfflineMethod: true,
+      supportsSignatureVerification: false
     });
   }
 

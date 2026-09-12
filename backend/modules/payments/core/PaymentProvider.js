@@ -23,7 +23,11 @@ class PaymentProvider {
       supportedCurrencies: ['PKR'],
       supportedCountries: [],
       capabilities: {},
+      requiresMerchantAccount: false,
+      requiresUnderwriting: false,
       requiresWebhook: false,
+      requiresExternalCredentials: false,
+      isOfflineMethod: false,
       supportsSignatureVerification: false,
       ...normalized
     });
@@ -42,12 +46,16 @@ class PaymentProvider {
   }
 
   evaluateEligibility({ currency = 'PKR', country = '' } = {}) {
-    const currencyEligible = this.manifest.supportedCurrencies.includes(
-      String(currency).toUpperCase()
-    );
-    const countries = this.manifest.supportedCountries;
+    const currencies = this.manifest.supportedCurrencies || [];
+    const normalizedCurrency = currency ? String(currency).toUpperCase() : '';
+    const currencyEligible = currencies.length === 0
+      || currencies.includes(normalizedCurrency);
+
+    const countries = this.manifest.supportedCountries || [];
+    const normalizedCountry = country ? String(country).toUpperCase() : '';
     const countryEligible = countries.length === 0
-      || countries.includes(String(country).toUpperCase());
+      || countries.includes(normalizedCountry)
+      || (['PK', 'PAKISTAN'].includes(normalizedCountry) && countries.includes('PK'));
 
     return {
       eligible: currencyEligible && countryEligible,

@@ -114,15 +114,87 @@ describe('Phase 5A: Payment Provider Activation & Governance Integration', () =>
     });
   });
 
-  describe('2. Admin Status Inspection (Read-Only)', () => {
-    test('regular customer cannot access provider status inspection endpoint', async () => {
-      const customerAuth = await createAuth('customer');
+  describe('2. Admin Status Inspection (Read-Only) & Mounted Route RBAC', () => {
+    test('enforces comprehensive RBAC across all role and session states on mounted /api/payments/providers/status', async () => {
+      // 1. Anonymous (no token) -> 401
+      const anonRes = await request(app).get('/api/payments/providers/status');
+      expect(anonRes.status).toBe(401);
 
-      const response = await request(app)
+      // 2. Malformed token -> 401
+      const malformedRes = await request(app)
         .get('/api/payments/providers/status')
-        .set('Authorization', customerAuth.authorization);
+        .set('Authorization', 'Bearer invalid.malformed.jwt.token');
+      expect(malformedRes.status).toBe(401);
 
-      expect(response.status).toBe(403);
+      // 3. Expired token -> 401
+      const expiredUser = await global.createTestUser({ role: 'admin' });
+      const expiredSession = await Session.create({
+        user: expiredUser._id,
+        refreshTokenHash: crypto.randomBytes(32).toString('hex'),
+        tokenFamilyId: crypto.randomUUID(),
+        isActive: true,
+        isRevoked: false,
+        expiresAt: new Date(Date.now() - 1000) // expired
+      });
+      const expiredToken = TokenService.generateAccessToken({
+        userId: expiredUser._id,
+        sessionId: expiredSession._id,
+        tokenVersion: expiredUser.tokenVersion
+      });
+      // Force expired session test
+      await Session.findByIdAndUpdate(expiredSession._id, { isActive: false });
+      const expiredRes = await request(app)
+        .get('/api/payments/providers/status')
+        .set('Authorization', `Bearer ${expiredToken}`);
+      expect(expiredRes.status).toBe(401);
+
+      // 4. Revoked session -> 401
+      const revokedUser = await global.createTestUser({ role: 'admin' });
+      const revokedSession = await Session.create({
+        user: revokedUser._id,
+        refreshTokenHash: crypto.randomBytes(32).toString('hex'),
+        tokenFamilyId: crypto.randomUUID(),
+        isActive: false,
+        isRevoked: true,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+      });
+      const revokedToken = TokenService.generateAccessToken({
+        userId: revokedUser._id,
+        sessionId: revokedSession._id,
+        tokenVersion: revokedUser.tokenVersion
+      });
+      const revokedRes = await request(app)
+        .get('/api/payments/providers/status')
+        .set('Authorization', `Bearer ${revokedToken}`);
+      expect(revokedRes.status).toBe(401);
+
+      // 5-8. Forbidden non-admin roles -> 403
+      const forbiddenRoles = ['customer', 'support', 'inventory', 'manager'];
+      for (const role of forbiddenRoles) {
+        const auth = await createAuth(role);
+        const res = await request(app)
+          .get('/api/payments/providers/status')
+          .set('Authorization', auth.authorization);
+        expect(res.status).toBe(403);
+      }
+
+      // 9. Admin role -> 200
+      const adminAuth = await createAuth('admin');
+      const adminRes = await request(app)
+        .get('/api/payments/providers/status')
+        .set('Authorization', adminAuth.authorization);
+      expect(adminRes.status).toBe(200);
+      expect(adminRes.body.success).toBe(true);
+      expect(Array.isArray(adminRes.body.data.providers)).toBe(true);
+
+      // 10. Super Admin role -> 200
+      const superAdminAuth = await createAuth('super_admin');
+      const superAdminRes = await request(app)
+        .get('/api/payments/providers/status')
+        .set('Authorization', superAdminAuth.authorization);
+      expect(superAdminRes.status).toBe(200);
+      expect(superAdminRes.body.success).toBe(true);
+      expect(Array.isArray(superAdminRes.body.data.providers)).toBe(true);
     });
 
     test('admin receives sanitized provider audit report with computed operational states', async () => {
@@ -206,7 +278,7 @@ describe('Phase 5A: Payment Provider Activation & Governance Integration', () =>
     });
   });
 
-  describe('4. Isolated MerchantPaymentAccount Governance', () => {
+  describe('4. Isolated MerchantPaymentAccount Governance & Multi-Environment Coexistence', () => {
     test('fixtures insert directly into MerchantPaymentAccount without general admin CRUD endpoint', async () => {
       const account = await MerchantPaymentAccount.create({
         provider: 'stripe',
@@ -229,6 +301,41 @@ describe('Phase 5A: Payment Provider Activation & Governance Integration', () =>
       expect(account._id).toBeDefined();
       expect(account.provider).toBe('stripe');
       expect(account.underwritingVerification).toBe('verified');
+    });
+
+    test('sandbox and production accounts coexist for the same provider with compound index', async () => {
+      const sandboxAccount = await MerchantPaymentAccount.create({
+        provider: 'stripe',
+        environment: 'sandbox',
+        accountAlias: 'default',
+        isEnabled: true,
+        merchantCountry: 'PK',
+        settlementCurrency: 'PKR',
+        supportedCurrencies: ['PKR'],
+        supportedCountries: ['PK'],
+        sandboxVerification: 'verified'
+      });
+
+      const prodAccount = await MerchantPaymentAccount.create({
+        provider: 'stripe',
+        environment: 'production',
+        accountAlias: 'default',
+        isEnabled: false,
+        merchantCountry: 'PK',
+        settlementCurrency: 'PKR',
+        supportedCurrencies: ['PKR'],
+        supportedCountries: ['PK'],
+        sandboxVerification: 'unverified',
+        underwritingVerification: 'unverified'
+      });
+
+      expect(sandboxAccount._id).toBeDefined();
+      expect(prodAccount._id).toBeDefined();
+      expect(sandboxAccount.environment).toBe('sandbox');
+      expect(prodAccount.environment).toBe('production');
+
+      const accounts = await MerchantPaymentAccount.find({ provider: 'stripe' });
+      expect(accounts.length).toBe(2);
     });
 
     test('rejection of secret fields on MerchantPaymentAccount persistence', async () => {

@@ -2,11 +2,22 @@ const paymentProviderRegistry = require('../../modules/payments/core/providerReg
 const MerchantPaymentAccount = require('../../models/MerchantPaymentAccount');
 const { AppError } = require('../../common/errors/AppError');
 
-const PAKISTAN_COUNTRY_CODES = new Set(['PK', 'PAKISTAN']);
-
-const isDomesticPakistan = (country) => {
-  if (!country) return true;
-  return PAKISTAN_COUNTRY_CODES.has(String(country).trim().toUpperCase());
+const normalizeCountryCode = (country) => {
+  if (!country) return '';
+  const cleaned = String(country).trim().toUpperCase();
+  const countryMap = {
+    PAKISTAN: 'PK',
+    'UNITED KINGDOM': 'GB',
+    'GREAT BRITAIN': 'GB',
+    UK: 'GB',
+    'UNITED ARAB EMIRATES': 'AE',
+    UAE: 'AE',
+    'UNITED STATES': 'US',
+    USA: 'US',
+    GERMANY: 'DE',
+    DEUTSCHLAND: 'DE'
+  };
+  return countryMap[cleaned] || cleaned;
 };
 
 class PaymentCapabilityPolicy {
@@ -15,32 +26,36 @@ class PaymentCapabilityPolicy {
     this.AccountModel = AccountModel;
   }
 
-  async getMerchantAccount(providerCode) {
+  async getMerchantAccount(providerCode, environment) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const targetEnv = environment || (isProd ? 'production' : 'sandbox');
+
     if (this.AccountModel) {
       try {
-        const account = await this.AccountModel.findOne({ provider: providerCode });
+        const account = await this.AccountModel.findOne({
+          provider: providerCode,
+          environment: targetEnv
+        }) || await this.AccountModel.findOne({ provider: providerCode });
+
         if (account) {
           return account;
         }
       } catch (_error) {
-        // Fallback to runtime deployment config if DB model not available or query fails
+        // Fallback to runtime deployment config if DB query fails
       }
     }
 
     // Default configuration fallback from environment
-    const isProd = process.env.NODE_ENV === 'production';
     const featureFlags = this.registry.featureFlags || {};
     const providerConfigs = this.registry.providerConfigs || {};
     const isEnabled = featureFlags[providerCode] === true;
 
-    // By default for current deployment:
-    // Manual / COD methods in Pakistan are enabled and verified for domestic sandbox/production.
-    // Online automated providers (like Stripe, JazzCash, Easypaisa) without verified underwriting start UNVERIFIED/DORMANT.
     const isDomesticManual = ['cod', 'bank_transfer', 'raast'].includes(providerCode);
 
     return {
       provider: providerCode,
-      environment: isProd ? 'production' : 'sandbox',
+      environment: targetEnv,
+      accountAlias: 'default',
       isEnabled,
       merchantCountry: 'PK',
       settlementCurrency: 'PKR',
@@ -105,27 +120,31 @@ class PaymentCapabilityPolicy {
       };
     }
 
-    const account = await this.getMerchantAccount(providerCode);
-    const enabled = account.isEnabled === true;
+    // Independent Runtime Deployment Gate (Feature Flag from Environment/Config)
+    const runtimeEnabled = this.registry.featureFlags[providerCode] === true;
     const configValidation = provider.validateConfig(
       this.registry.providerConfigs[providerCode] || {}
     );
     const configured = configValidation.configured === true;
 
-    if (!enabled) {
+    const account = await this.getMerchantAccount(providerCode, context.environment);
+    const accountEnabled = account.isEnabled === true;
+    const effectiveEnabled = runtimeEnabled && accountEnabled;
+
+    if (!runtimeEnabled || !accountEnabled) {
       return {
         code: providerCode,
         displayName: manifest.displayName,
         paymentType: manifest.paymentType,
         installed: true,
         included: true,
-        enabled: false,
+        enabled: effectiveEnabled,
         configured,
         isOperational: false,
         eligible: false,
         publicAvailable: false,
         auditClassification: 'DORMANT',
-        reason: 'PAYMENT_PROVIDER_DISABLED',
+        reason: !runtimeEnabled ? 'PAYMENT_PROVIDER_DISABLED' : 'PAYMENT_ACCOUNT_DISABLED',
         capabilities: provider.getCapabilities(),
         account
       };
@@ -155,22 +174,28 @@ class PaymentCapabilityPolicy {
     let verificationReason = null;
     let auditClassification = 'IMPLEMENTED';
 
-    if (isProduction) {
-      if (account.underwritingVerification !== 'verified') {
-        verificationReason = 'PAYMENT_UNDERWRITING_UNVERIFIED';
-        auditClassification = 'UNVERIFIED';
-      } else if (account.sandboxVerification !== 'verified') {
-        verificationReason = 'PAYMENT_SANDBOX_UNVERIFIED';
-        auditClassification = 'UNVERIFIED';
-      } else if (manifest.requiresWebhook && account.webhookVerification !== 'verified') {
-        verificationReason = 'PAYMENT_WEBHOOK_UNVERIFIED';
-        auditClassification = 'UNVERIFIED';
-      }
-    } else {
-      // Sandbox environment
-      if (account.sandboxVerification === 'failed') {
-        verificationReason = 'PAYMENT_SANDBOX_FAILED';
-        auditClassification = 'UNVERIFIED';
+    const requiresMerchantUnderwriting = manifest.requiresMerchantAccount !== false
+      && manifest.requiresUnderwriting !== false
+      && !manifest.isOfflineMethod;
+
+    if (requiresMerchantUnderwriting) {
+      if (isProduction) {
+        if (account.underwritingVerification !== 'verified') {
+          verificationReason = 'PAYMENT_UNDERWRITING_UNVERIFIED';
+          auditClassification = 'UNVERIFIED';
+        } else if (manifest.requiresExternalCredentials && account.sandboxVerification !== 'verified') {
+          verificationReason = 'PAYMENT_SANDBOX_UNVERIFIED';
+          auditClassification = 'UNVERIFIED';
+        } else if (manifest.requiresWebhook && account.webhookVerification !== 'verified') {
+          verificationReason = 'PAYMENT_WEBHOOK_UNVERIFIED';
+          auditClassification = 'UNVERIFIED';
+        }
+      } else {
+        // Sandbox environment
+        if (account.sandboxVerification === 'failed') {
+          verificationReason = 'PAYMENT_SANDBOX_FAILED';
+          auditClassification = 'UNVERIFIED';
+        }
       }
     }
 
@@ -178,25 +203,31 @@ class PaymentCapabilityPolicy {
 
     // Evaluate Context Eligibility (Country & Currency)
     let eligibilityReason = null;
-    const reqCountry = context.country ? String(context.country).trim().toUpperCase() : '';
+    const rawDeliveryCountry = context.deliveryCountry || context.country;
+    const reqCountry = normalizeCountryCode(rawDeliveryCountry);
     const reqCurrency = context.currency ? String(context.currency).trim().toUpperCase() : '';
 
-    // COD Special Policy (Requirement 12)
-    if (providerCode === 'cod') {
-      if (reqCountry && !isDomesticPakistan(reqCountry)) {
+    // COD Domestic Policy (Section 2)
+    if (providerCode === 'cod' || manifest.isOfflineMethod) {
+      const merchantCountry = normalizeCountryCode(
+        context.merchantCountry || account.merchantCountry || 'PK'
+      );
+      const domesticCurrency = String(
+        context.baseCurrency || account.settlementCurrency || 'PKR'
+      ).trim().toUpperCase();
+
+      if (reqCountry && reqCountry !== merchantCountry) {
         eligibilityReason = 'PAYMENT_COUNTRY_UNSUPPORTED';
-      } else if (reqCurrency && reqCurrency !== 'PKR') {
+      } else if (reqCurrency && reqCurrency !== domesticCurrency) {
         eligibilityReason = 'PAYMENT_CURRENCY_UNSUPPORTED';
       }
     } else {
       // Generic provider country / currency check from account & adapter manifest
-      const supportedCountries = (account.supportedCountries || []).map((c) => String(c).toUpperCase());
+      const supportedCountries = (account.supportedCountries || []).map((c) => normalizeCountryCode(c));
       const supportedCurrencies = (account.supportedCurrencies || []).map((c) => String(c).toUpperCase());
 
       if (reqCountry && supportedCountries.length > 0) {
-        const countryMatch = supportedCountries.includes(reqCountry)
-          || (isDomesticPakistan(reqCountry) && supportedCountries.includes('PK'));
-        if (!countryMatch) {
+        if (!supportedCountries.includes(reqCountry)) {
           eligibilityReason = 'PAYMENT_COUNTRY_UNSUPPORTED';
         }
       }

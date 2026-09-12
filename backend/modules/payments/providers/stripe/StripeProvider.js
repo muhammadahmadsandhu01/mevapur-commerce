@@ -17,7 +17,11 @@ const manifest = Object.freeze({
     callback: true,
     customerConfirmation: false
   },
+  requiresMerchantAccount: true,
+  requiresUnderwriting: true,
   requiresWebhook: true,
+  requiresExternalCredentials: true,
+  isOfflineMethod: false,
   supportsSignatureVerification: true
 });
 

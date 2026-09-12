@@ -19,6 +19,11 @@ const PROHIBITED_SECRET_PATTERNS = [
   /credential/i
 ];
 
+const PROHIBITED_SECRET_VALUE_PATTERNS = [
+  /^(sk_live|sk_test|rk_live|rk_test|whsec_)/i,
+  /^Bearer\s+[a-zA-Z0-9._-]+/i
+];
+
 const containsSecretKey = (obj) => {
   if (!obj || typeof obj !== 'object') {
     return false;
@@ -30,7 +35,11 @@ const containsSecretKey = (obj) => {
     if (PROHIBITED_SECRET_PATTERNS.some((pattern) => pattern.test(key))) {
       return true;
     }
-    if (typeof obj[key] === 'object' && obj[key] !== null) {
+    if (typeof obj[key] === 'string') {
+      if (PROHIBITED_SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(obj[key].trim()))) {
+        return true;
+      }
+    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
       if (containsSecretKey(obj[key])) {
         return true;
       }
@@ -57,15 +66,9 @@ const configProvenanceSchema = z.object({
 }).strict();
 
 const merchantPaymentAccountSchema = z.object({
-  provider: z.enum([
-    'cod',
-    'bank_transfer',
-    'raast',
-    'jazzcash',
-    'easypaisa',
-    'stripe'
-  ]),
+  provider: z.string().trim().min(2).max(32).regex(/^[a-z0-9_]{2,32}$/),
   environment: z.enum(['sandbox', 'production']).default('sandbox'),
+  accountAlias: z.string().trim().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/).default('default'),
   isEnabled: z.boolean().default(false),
   merchantCountry: z.string().trim().length(2).transform((v) => v.toUpperCase()).default('PK'),
   settlementCurrency: z.string().trim().length(3).transform((v) => v.toUpperCase()).default('PKR'),

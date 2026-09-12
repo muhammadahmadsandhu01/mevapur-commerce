@@ -43,10 +43,12 @@ const configProvenanceSchema = new mongoose.Schema({
 const merchantPaymentAccountSchema = new mongoose.Schema({
   provider: {
     type: String,
-    enum: ['cod', 'bank_transfer', 'raast', 'jazzcash', 'easypaisa', 'stripe'],
     required: true,
     trim: true,
     lowercase: true,
+    minlength: 2,
+    maxlength: 32,
+    match: /^[a-z0-9_]{2,32}$/,
     immutable: true
   },
   environment: {
@@ -54,6 +56,14 @@ const merchantPaymentAccountSchema = new mongoose.Schema({
     enum: ['sandbox', 'production'],
     default: 'sandbox',
     required: true
+  },
+  accountAlias: {
+    type: String,
+    trim: true,
+    minlength: 1,
+    maxlength: 64,
+    default: 'default',
+    match: /^[a-zA-Z0-9_-]+$/
   },
   isEnabled: {
     type: Boolean,
@@ -138,8 +148,8 @@ const merchantPaymentAccountSchema = new mongoose.Schema({
 });
 
 merchantPaymentAccountSchema.index(
-  { provider: 1 },
-  { unique: true, name: 'unique_merchant_payment_provider' }
+  { provider: 1, environment: 1, accountAlias: 1 },
+  { unique: true, name: 'unique_merchant_provider_env_alias' }
 );
 
 module.exports = mongoose.models.MerchantPaymentAccount
