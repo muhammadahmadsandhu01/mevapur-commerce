@@ -13,11 +13,14 @@ const TokenService = require('../../services/TokenService');
 const PaymentWebhookEvent = require('../../models/PaymentWebhookEvent');
 const Payment = require('../../models/Payment');
 const Order = require('../../models/Order');
+const Refund = require('../../models/Refund');
+const Product = require('../../models/Product');
 const Session = require('../../models/Session');
 const EmailService = require('../../services/EmailService');
 const paymentWebhookProcessor = require('../../services/payment/webhooks/PaymentWebhookProcessor');
 const {
   PAYMENT_STATUSES,
+  REFUND_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../constants/paymentConstants');
 
@@ -129,6 +132,8 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       PaymentWebhookEvent.syncIndexes(),
       Payment.syncIndexes(),
       Order.syncIndexes(),
+      Refund.syncIndexes(),
+      Product.syncIndexes(),
       Session.syncIndexes()
     ]);
   });
@@ -138,6 +143,8 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       PaymentWebhookEvent.deleteMany({}),
       Payment.deleteMany({}),
       Order.deleteMany({}),
+      Refund.deleteMany({}),
+      Product.deleteMany({}),
       Session.deleteMany({})
     ]);
     jest.clearAllMocks();
@@ -468,23 +475,85 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
   });
 
   describe('4. Admin Webhook Health RBAC & Privacy', () => {
-    test('anonymous request to admin health endpoint returns 401', async () => {
-      const response = await request(app).get('/api/admin/payments/webhooks/health');
-      expect(response.status).toBe(401);
-    });
+    test('enforces comprehensive RBAC across all role and token states for health inspection', async () => {
+      // 1. Anonymous (no token) -> 401
+      const noTokenRes = await request(app).get('/api/admin/payments/webhooks/health');
+      expect(noTokenRes.status).toBe(401);
+      expect(noTokenRes.body.error?.code || noTokenRes.body.code).toBe('AUTH_TOKEN_REQUIRED');
 
-    test('customer and manager roles are forbidden (403)', async () => {
-      const customerAuth = await createAuth('customer');
-      const res1 = await request(app)
+      // 2. Malformed token -> 401
+      const malformedRes = await request(app)
         .get('/api/admin/payments/webhooks/health')
-        .set('Authorization', customerAuth.authorization);
-      expect(res1.status).toBe(403);
+        .set('Authorization', 'Bearer not-a-valid-jwt-token');
+      expect(malformedRes.status).toBe(401);
+      expect(malformedRes.body.error?.code || malformedRes.body.code).toBe('AUTH_TOKEN_INVALID');
 
-      const managerAuth = await createAuth('manager');
-      const res2 = await request(app)
+      // 3. Expired token -> 401
+      const expiredUser = await global.createTestUser({ email: 'expired-admin@example.com', role: 'admin' });
+      const expiredSession = await Session.create({
+        user: expiredUser._id,
+        refreshTokenHash: crypto.randomBytes(32).toString('hex'),
+        tokenFamilyId: crypto.randomUUID(),
+        isActive: true,
+        isRevoked: false,
+        expiresAt: new Date(Date.now() - 1000)
+      });
+      const expiredToken = TokenService.generateAccessToken({
+        userId: expiredUser._id,
+        sessionId: expiredSession._id,
+        tokenVersion: expiredUser.tokenVersion
+      });
+      const expiredRes = await request(app)
         .get('/api/admin/payments/webhooks/health')
-        .set('Authorization', managerAuth.authorization);
-      expect(res2.status).toBe(403);
+        .set('Authorization', `Bearer ${expiredToken}`);
+      expect(expiredRes.status).toBe(401);
+
+      // 4. Revoked session -> 401
+      const revokedUser = await global.createTestUser({ email: 'revoked-admin@example.com', role: 'admin' });
+      const revokedSession = await Session.create({
+        user: revokedUser._id,
+        refreshTokenHash: crypto.randomBytes(32).toString('hex'),
+        tokenFamilyId: crypto.randomUUID(),
+        isActive: false,
+        isRevoked: true,
+        expiresAt: new Date(Date.now() + 60000)
+      });
+      const revokedToken = TokenService.generateAccessToken({
+        userId: revokedUser._id,
+        sessionId: revokedSession._id,
+        tokenVersion: revokedUser.tokenVersion
+      });
+      const revokedRes = await request(app)
+        .get('/api/admin/payments/webhooks/health')
+        .set('Authorization', `Bearer ${revokedToken}`);
+      expect(revokedRes.status).toBe(401);
+      expect(revokedRes.body.error?.code || revokedRes.body.code).toBe('AUTH_SESSION_REVOKED');
+
+      // 5-8. Non-admin roles (customer, support, inventory, manager) -> 403
+      for (const forbiddenRole of ['customer', 'support', 'inventory', 'manager']) {
+        const auth = await createAuth(forbiddenRole);
+        const forbiddenRes = await request(app)
+          .get('/api/admin/payments/webhooks/health')
+          .set('Authorization', auth.authorization);
+        expect(forbiddenRes.status).toBe(403);
+        expect(forbiddenRes.body.error?.code || forbiddenRes.body.code).toBe('AUTH_FORBIDDEN');
+      }
+
+      // 9. Admin role -> 200
+      const adminAuth = await createAuth('admin');
+      const adminRes = await request(app)
+        .get('/api/admin/payments/webhooks/health')
+        .set('Authorization', adminAuth.authorization);
+      expect(adminRes.status).toBe(200);
+      expect(adminRes.body.success).toBe(true);
+
+      // 10. Super Admin role -> 200
+      const superAdminAuth = await createAuth('super_admin');
+      const superAdminRes = await request(app)
+        .get('/api/admin/payments/webhooks/health')
+        .set('Authorization', superAdminAuth.authorization);
+      expect(superAdminRes.status).toBe(200);
+      expect(superAdminRes.body.success).toBe(true);
     });
 
     test('admin receives sanitized aggregate statistics with zero sensitive fields', async () => {
@@ -527,6 +596,397 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       expect(responseStr).not.toContain('payloadHash');
       expect(responseStr).not.toContain('pi_health_1');
       expect(responseStr).not.toContain('evt_health_1');
+    });
+  });
+
+  describe('5. Real Transaction, Rollback, Cross-Account Isolation & Lease Safety', () => {
+    test('mid-transaction failure rolls back payment and order mutations completely', async () => {
+      const { payment, order, paymentIntentId } = await createTestOrderAndPayment({
+        amount: 80,
+        currency: 'USD',
+        paymentStatus: PAYMENT_STATUSES.PROCESSING
+      });
+
+      const eventDoc = await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_tx_fail_${crypto.randomUUID()}`,
+        eventType: 'payment_intent.succeeded',
+        providerPaymentId: paymentIntentId,
+        amountMinor: 8000,
+        currency: 'USD',
+        payloadHash: 'hash_tx_fail',
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      // Inject error on Order.prototype.save during transaction
+      const originalSave = Order.prototype.save;
+      let saveCalled = false;
+      Order.prototype.save = function saveWithInjectedFailure(...args) {
+        saveCalled = true;
+        throw new Error('Injected mid-transaction database failure');
+      };
+
+      try {
+        const summary = await paymentWebhookProcessor.processPending({ batchSize: 10 });
+        expect(summary.retryScheduled).toBe(1);
+        expect(saveCalled).toBe(true);
+
+        // Verify transaction rollback: Payment remains PROCESSING and Order remains Pending
+        const rolledBackPayment = await Payment.findById(payment._id);
+        expect(rolledBackPayment.status).toBe(PAYMENT_STATUSES.PROCESSING);
+        expect(rolledBackPayment.paidAmount).toBe(0);
+
+        const rolledBackOrder = await Order.findById(order._id);
+        expect(rolledBackOrder.paymentStatus).toBe('Pending');
+
+        const updatedEvent = await PaymentWebhookEvent.findById(eventDoc._id);
+        expect(updatedEvent.status).toBe(WEBHOOK_PROCESSING_STATUSES.RETRY_SCHEDULED);
+      } finally {
+        Order.prototype.save = originalSave;
+      }
+    });
+
+    test('cross-account isolation fails closed with PAYMENT_ACCOUNT_MISMATCH when accountAlias differs', async () => {
+      const { payment, order, paymentIntentId } = await createTestOrderAndPayment({
+        amount: 60,
+        currency: 'USD',
+        paymentStatus: PAYMENT_STATUSES.PROCESSING
+      });
+
+      // Scope payment to merchant account A
+      payment.capabilitySnapshot = { accountAlias: 'merchant_account_A' };
+      await payment.save();
+
+      // Webhook event arriving for merchant account B
+      await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'merchant_account_B',
+        environment: 'sandbox',
+        providerEventId: `evt_cross_account_${crypto.randomUUID()}`,
+        eventType: 'payment_intent.succeeded',
+        providerPaymentId: paymentIntentId,
+        amountMinor: 6000,
+        currency: 'USD',
+        payloadHash: 'hash_cross_acc',
+        eventData: {
+          providerEventId: 'evt_cross_account',
+          eventType: 'payment_intent.succeeded',
+          metadata: {
+            accountAlias: 'merchant_account_B'
+          }
+        },
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      const summary = await paymentWebhookProcessor.processPending({ batchSize: 10 });
+      expect(summary.deadLettered).toBe(1);
+
+      // Payment remains untouched
+      const unaffectedPayment = await Payment.findById(payment._id);
+      expect(unaffectedPayment.status).toBe(PAYMENT_STATUSES.PROCESSING);
+
+      const unaffectedOrder = await Order.findById(order._id);
+      expect(unaffectedOrder.paymentStatus).toBe('Pending');
+    });
+
+    test('stale lease owner cannot finalize event after lease expiration and reclaim', async () => {
+      const { paymentIntentId } = await createTestOrderAndPayment({
+        amount: 40,
+        currency: 'USD',
+        paymentStatus: PAYMENT_STATUSES.PROCESSING
+      });
+
+      const eventDoc = await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_stale_${crypto.randomUUID()}`,
+        eventType: 'payment_intent.succeeded',
+        providerPaymentId: paymentIntentId,
+        amountMinor: 4000,
+        currency: 'USD',
+        payloadHash: 'hash_stale',
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      // Claim event with worker 1
+      const lease1 = crypto.randomUUID();
+      const claim1 = await paymentWebhookProcessor.claimEvent({
+        now: new Date(),
+        leaseDurationMs: 1000,
+        leaseId: lease1
+      });
+      expect(claim1).not.toBeNull();
+      expect(claim1.leaseId).toBe(lease1);
+
+      // Simulate lease expiration
+      claim1.leaseExpiresAt = new Date(Date.now() - 5000);
+      await claim1.save();
+
+      // Worker 2 reclaims the expired event
+      const lease2 = crypto.randomUUID();
+      const claim2 = await paymentWebhookProcessor.claimEvent({
+        now: new Date(),
+        leaseDurationMs: 60000,
+        leaseId: lease2
+      });
+      expect(claim2).not.toBeNull();
+      expect(claim2.leaseId).toBe(lease2);
+
+      // Worker 1 attempts to finalize with stale lease1 -> fails closed
+      const staleResult = await paymentWebhookProcessor.processClaimedEvent(claim1);
+      expect(staleResult.status).toBe(WEBHOOK_PROCESSING_STATUSES.DEAD_LETTER);
+
+      // Document still has active lease2
+      const currentDoc = await PaymentWebhookEvent.findById(eventDoc._id).select('+leaseId');
+      expect(currentDoc.leaseId).toBe(lease2);
+    });
+
+    test('deterministic retry delay calculation is bounded and capped at 1 hour', () => {
+      const delays = [];
+      for (let attempt = 0; attempt <= 12; attempt += 1) {
+        const delay = paymentWebhookProcessor.calculateRetryDelay(attempt, { jitterMs: 100 });
+        delays.push(delay);
+        expect(delay).toBeGreaterThanOrEqual(1000);
+        expect(delay).toBeLessThanOrEqual(3600000);
+      }
+
+      // Check exponential growth
+      expect(delays[1]).toBeGreaterThan(delays[0]);
+      expect(delays[2]).toBeGreaterThan(delays[1]);
+
+      // Check cap at attempt 12
+      expect(delays[12]).toBe(3600000);
+    });
+  });
+
+  describe('6. Refund Reconciliation, Inventory Preservation & System Boundaries', () => {
+    test('reconciles partial refund provider event against authorized internal refund record', async () => {
+      const { user, order, payment, paymentIntentId } = await createTestOrderAndPayment({
+        amount: 100,
+        currency: 'USD',
+        paymentStatus: PAYMENT_STATUSES.COMPLETED
+      });
+
+      const providerRefundId = `re_${crypto.randomUUID()}`;
+      const refundDoc = await Refund.create({
+        payment: payment._id,
+        order: order._id,
+        customer: user._id,
+        provider: 'stripe',
+        amount: 40,
+        currency: 'USD',
+        status: REFUND_STATUSES.PENDING,
+        providerRefundId,
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomBytes(32).toString('hex'),
+        providerIdempotencyKey: `prk_${crypto.randomUUID()}`,
+        providerAttemptStatus: 'Ready',
+        reservationActive: true,
+        processingMode: 'provider',
+        providerOutcome: 'pending',
+        processedBy: user._id
+      });
+
+      await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_ref_${crypto.randomUUID()}`,
+        eventType: 'refund.created',
+        providerPaymentId: paymentIntentId,
+        providerRefundId,
+        amountMinor: 4000,
+        currency: 'USD',
+        payloadHash: 'hash_refund_partial',
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        eventData: {
+          providerEventId: 'evt_ref_1',
+          eventType: 'refund.created',
+          providerPaymentId: paymentIntentId,
+          providerRefundId,
+          amountMinor: 4000,
+          currency: 'USD',
+          rawObjectStatus: 'succeeded',
+          metadata: {
+            paymentId: String(payment._id),
+            orderId: String(order._id),
+            refundId: String(refundDoc._id)
+          }
+        },
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      const summary = await paymentWebhookProcessor.processPending({ batchSize: 10 });
+      expect(summary.processed).toBe(1);
+
+      const updatedPayment = await Payment.findById(payment._id);
+      expect(updatedPayment.refundedAmount).toBe(40);
+      expect(updatedPayment.status).toBe(PAYMENT_STATUSES.PARTIALLY_REFUNDED);
+
+      const updatedOrder = await Order.findById(order._id);
+      expect(updatedOrder.paymentStatus).toBe('PartiallyRefunded');
+
+      const updatedRefund = await Refund.findById(refundDoc._id);
+      expect(updatedRefund.status).toBe(REFUND_STATUSES.COMPLETED);
+    });
+
+    test('reconciles full refund provider event against authorized internal refund record', async () => {
+      const { user, order, payment, paymentIntentId } = await createTestOrderAndPayment({
+        amount: 100,
+        currency: 'USD',
+        paymentStatus: PAYMENT_STATUSES.COMPLETED
+      });
+
+      const providerRefundId = `re_full_${crypto.randomUUID()}`;
+      const refundDoc = await Refund.create({
+        payment: payment._id,
+        order: order._id,
+        customer: user._id,
+        provider: 'stripe',
+        amount: 100,
+        currency: 'USD',
+        status: REFUND_STATUSES.PENDING,
+        providerRefundId,
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomBytes(32).toString('hex'),
+        providerIdempotencyKey: `prk_full_${crypto.randomUUID()}`,
+        providerAttemptStatus: 'Ready',
+        reservationActive: true,
+        processingMode: 'provider',
+        providerOutcome: 'pending',
+        processedBy: user._id
+      });
+
+      await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_ref_full_${crypto.randomUUID()}`,
+        eventType: 'refund.created',
+        providerPaymentId: paymentIntentId,
+        providerRefundId,
+        amountMinor: 10000,
+        currency: 'USD',
+        payloadHash: 'hash_refund_full',
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        eventData: {
+          providerEventId: 'evt_ref_full',
+          eventType: 'refund.created',
+          providerPaymentId: paymentIntentId,
+          providerRefundId,
+          amountMinor: 10000,
+          currency: 'USD',
+          rawObjectStatus: 'succeeded',
+          metadata: {
+            paymentId: String(payment._id),
+            orderId: String(order._id),
+            refundId: String(refundDoc._id)
+          }
+        },
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      const summary = await paymentWebhookProcessor.processPending({ batchSize: 10 });
+      expect(summary.processed).toBe(1);
+
+      const updatedPayment = await Payment.findById(payment._id);
+      expect(updatedPayment.refundedAmount).toBe(100);
+      expect(updatedPayment.status).toBe(PAYMENT_STATUSES.REFUNDED);
+
+      const updatedOrder = await Order.findById(order._id);
+      expect(updatedOrder.paymentStatus).toBe('Refunded');
+
+      const updatedRefund = await Refund.findById(refundDoc._id);
+      expect(updatedRefund.status).toBe(REFUND_STATUSES.COMPLETED);
+    });
+
+    test('fails closed with dead-letter on unknown refund reference or mismatched amount', async () => {
+      await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_ref_unknown_${crypto.randomUUID()}`,
+        eventType: 'refund.created',
+        providerPaymentId: 'pi_unknown',
+        providerRefundId: 're_nonexistent',
+        amountMinor: 5000,
+        currency: 'USD',
+        payloadHash: 'hash_ref_unknown',
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        eventData: {
+          providerRefundId: 're_nonexistent',
+          metadata: { refundId: new (require('mongoose').Types.ObjectId)().toString() }
+        },
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      const summary = await paymentWebhookProcessor.processPending({ batchSize: 10 });
+      expect(summary.deadLettered).toBe(1);
+
+      const event = await PaymentWebhookEvent.findOne({ providerRefundId: 're_nonexistent' });
+      expect(event.status).toBe(WEBHOOK_PROCESSING_STATUSES.DEAD_LETTER);
+    });
+
+    test('payment failure or cancellation does not mutate product inventory or dispatch communications', async () => {
+      const initialStock = 50;
+      const testProduct = await Product.create({
+        name: 'Inventory Test Product',
+        slug: `inv-test-prod-${Date.now()}`,
+        description: 'Test description',
+        price: 30,
+        stock: initialStock,
+        sku: `SKU-INV-${Date.now()}`,
+        isActive: true
+      });
+
+      const { order, paymentIntentId } = await createTestOrderAndPayment({
+        amount: 60,
+        currency: 'USD',
+        paymentStatus: PAYMENT_STATUSES.PROCESSING
+      });
+
+      order.items = [{
+        product: testProduct._id,
+        name: testProduct.name,
+        sku: testProduct.sku,
+        price: 30,
+        quantity: 2,
+        lineTotal: 60
+      }];
+      await order.save();
+
+      const sendEmailSpy = jest.spyOn(EmailService, 'send').mockResolvedValue({ success: true });
+
+      await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_inv_test_${crypto.randomUUID()}`,
+        eventType: 'payment_intent.payment_failed',
+        providerPaymentId: paymentIntentId,
+        amountMinor: 6000,
+        currency: 'USD',
+        payloadHash: 'hash_inv_test',
+        status: WEBHOOK_PROCESSING_STATUSES.RECEIVED,
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      const summary = await paymentWebhookProcessor.processPending({ batchSize: 10 });
+      expect(summary.processed).toBe(1);
+
+      // Verify product stock is completely untouched
+      const refreshedProduct = await Product.findById(testProduct._id);
+      expect(refreshedProduct.stock).toBe(initialStock);
+
+      // Verify zero external email/SMS dispatch
+      expect(sendEmailSpy).not.toHaveBeenCalled();
+      sendEmailSpy.mockRestore();
     });
   });
 });

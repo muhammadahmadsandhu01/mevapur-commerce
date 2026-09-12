@@ -19,7 +19,8 @@ const normalizedEventDataSchema = new mongoose.Schema({
   metadata: {
     paymentId: { type: String, default: '', maxlength: 128 },
     orderId: { type: String, default: '', maxlength: 128 },
-    refundId: { type: String, default: '', maxlength: 128 }
+    refundId: { type: String, default: '', maxlength: 128 },
+    accountAlias: { type: String, default: '', maxlength: 128 }
   }
 }, {
   _id: false,

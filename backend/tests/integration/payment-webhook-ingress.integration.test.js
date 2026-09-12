@@ -258,7 +258,7 @@ describe('Phase 5B: Payment Webhook Ingress Integration Tests', () => {
       expect(res1.status).toBe(200);
       expect(res1.body.data.duplicate).toBe(false);
 
-      // Concurrent / repeated delivery with exact same bytes
+      // Repeated delivery with exact same bytes
       const res2 = await request(app)
         .post('/api/payments/webhooks/stripe')
         .set('Content-Type', 'application/json')
@@ -267,6 +267,37 @@ describe('Phase 5B: Payment Webhook Ingress Integration Tests', () => {
 
       expect(res2.status).toBe(200);
       expect(res2.body.data.duplicate).toBe(true);
+
+      const count = await PaymentWebhookEvent.countDocuments({ providerEventId: id });
+      expect(count).toBe(1);
+    });
+
+    test('concurrent identical deliveries create exactly one event and both return 200', async () => {
+      const { payloadString, signatureHeader, id } = createSignedStripePayload({ id: `evt_concurrent_${crypto.randomUUID()}` });
+      const fakeClient = {
+        webhooks: {
+          constructEvent: jest.fn().mockImplementation((rawBody) => JSON.parse(rawBody.toString('utf8')))
+        }
+      };
+      StripeProvider.setClientForTests(fakeClient);
+
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .post('/api/payments/webhooks/stripe')
+          .set('Content-Type', 'application/json')
+          .set('stripe-signature', signatureHeader)
+          .send(payloadString),
+        request(app)
+          .post('/api/payments/webhooks/stripe')
+          .set('Content-Type', 'application/json')
+          .set('stripe-signature', signatureHeader)
+          .send(payloadString)
+      ]);
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect([res1.body.data.duplicate, res2.body.data.duplicate]).toContain(false);
+      expect([res1.body.data.duplicate, res2.body.data.duplicate]).toContain(true);
 
       const count = await PaymentWebhookEvent.countDocuments({ providerEventId: id });
       expect(count).toBe(1);
@@ -356,6 +387,43 @@ describe('Phase 5B: Payment Webhook Ingress Integration Tests', () => {
       expect(doc.eventData.rawBody).toBeUndefined();
       expect(doc.eventData.secret).toBeUndefined();
       expect(doc.payloadHash).toBeUndefined(); // Selected false by default
+    });
+
+    test('retained legacy route /api/payments/webhook/:provider receives raw bytes untouched before JSON middleware', async () => {
+      const { payloadString, signatureHeader, id } = createSignedStripePayload({ id: 'evt_legacy_route_test' });
+      const fakeClient = {
+        webhooks: {
+          constructEvent: jest.fn().mockImplementation((rawBody) => {
+            expect(Buffer.isBuffer(rawBody)).toBe(true);
+            return JSON.parse(rawBody.toString('utf8'));
+          })
+        }
+      };
+      StripeProvider.setClientForTests(fakeClient);
+
+      const response = await request(app)
+        .post('/api/payments/webhook/stripe')
+        .set('Content-Type', 'application/json')
+        .set('stripe-signature', signatureHeader)
+        .send(payloadString);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.received).toBe(true);
+      expect(fakeClient.webhooks.constructEvent).toHaveBeenCalledTimes(1);
+
+      const doc = await PaymentWebhookEvent.findOne({ providerEventId: 'evt_legacy_route_test' });
+      expect(doc).not.toBeNull();
+      expect(doc.provider).toBe('stripe');
+    });
+
+    test('strict schema throws and fails closed when unauthorized arbitrary fields are injected', async () => {
+      await expect(PaymentWebhookEvent.create({
+        provider: 'stripe',
+        providerEventId: 'evt_strict_test',
+        eventType: 'payment_intent.succeeded',
+        payloadHash: 'hash_test',
+        unauthorizedArbitraryField: 'attack_payload'
+      })).rejects.toThrow();
     });
   });
 });

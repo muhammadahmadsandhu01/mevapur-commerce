@@ -197,7 +197,7 @@ class StripeProvider extends PaymentProvider {
         throw err;
       }
       throw new AppError(
-        `Invalid Stripe webhook signature: ${err.message}`,
+        'Invalid Stripe webhook signature',
         400,
         'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
       );

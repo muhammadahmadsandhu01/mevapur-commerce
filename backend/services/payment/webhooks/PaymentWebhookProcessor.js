@@ -15,6 +15,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const PaymentWebhookEvent = require('../../../models/PaymentWebhookEvent');
 const Payment = require('../../../models/Payment');
 const Order = require('../../../models/Order');
@@ -49,6 +50,21 @@ const toMinorUnits = (amount) => {
 };
 
 class PaymentWebhookProcessor {
+  /**
+   * Computes deterministic bounded retry delay with injectable or deterministic jitter.
+   * @param {number} attemptCount
+   * @param {Object} [options]
+   * @param {number|null} [options.jitterMs]
+   * @returns {number} Delay in milliseconds
+   */
+  calculateRetryDelay(attemptCount, { jitterMs = null } = {}) {
+    const baseDelayMs = 1000 * Math.pow(2, Math.min(attemptCount, 20));
+    const deterministicJitter = jitterMs !== null
+      ? jitterMs
+      : ((attemptCount * 137) % 500);
+    return Math.min(baseDelayMs + deterministicJitter, 3600000); // Capped at 1 hour
+  }
+
   /**
    * Atomically claims one due or expired-lease event.
    * @param {Object} options
@@ -125,16 +141,18 @@ class PaymentWebhookProcessor {
   }
 
   /**
-   * Processes a single claimed event idempotently.
+   * Processes a single claimed event idempotently in a transaction.
    * @param {Object} claimedEvent - Claimed PaymentWebhookEvent document
    * @param {Object} options
    * @param {Date} [options.now=new Date()]
    * @param {number} [options.maxAttempts=5]
+   * @param {ClientSession|null} [options.session=null]
    * @returns {Promise<{ outcome: string, status: string }>}
    */
   async processClaimedEvent(claimedEvent, {
     now = new Date(),
-    maxAttempts = 5
+    maxAttempts = 5,
+    session: injectedSession = null
   } = {}) {
     if (!claimedEvent || !claimedEvent._id || !claimedEvent.leaseId) {
       throw new AppError('A valid claimed event with active lease is required for processing', 400, 'PAYMENT_WEBHOOK_LEASE_REQUIRED');
@@ -143,17 +161,12 @@ class PaymentWebhookProcessor {
     const {
       _id: eventId,
       leaseId,
-      provider,
-      environment,
-      accountAlias,
       eventType,
-      providerEventId,
-      providerPaymentId,
-      amountMinor,
-      currency,
-      eventData,
       attemptCount
     } = claimedEvent;
+
+    const ownSession = !injectedSession ? await mongoose.startSession() : null;
+    const session = injectedSession || ownSession;
 
     try {
       let outcome = 'processed';
@@ -161,39 +174,76 @@ class PaymentWebhookProcessor {
       if (REFUND_EVENT_TYPES.has(eventType)) {
         outcome = await this.processRefundEvent({
           claimedEvent,
-          now
+          now,
+          session
         });
-      } else if (PAYMENT_EVENT_TYPES.has(eventType)) {
-        outcome = await this.processPaymentEvent({
-          claimedEvent,
-          now
+
+        const finalStatus = outcome === 'ignored'
+          ? WEBHOOK_PROCESSING_STATUSES.IGNORED
+          : WEBHOOK_PROCESSING_STATUSES.PROCESSED;
+
+        const updateResult = await PaymentWebhookEvent.updateOne({
+          _id: eventId,
+          status: WEBHOOK_PROCESSING_STATUSES.PROCESSING,
+          leaseId
+        }, {
+          $set: {
+            status: finalStatus,
+            processedAt: now,
+            leaseId: '',
+            leaseAcquiredAt: null,
+            leaseExpiresAt: null
+          }
         });
-      } else {
-        // Unsupported or unhandled event type -> safely ignore
-        outcome = 'ignored';
+
+        if (updateResult.matchedCount === 0) {
+          const err = new AppError('Stale worker attempted to finalize webhook event after lease expiration', 409, 'PAYMENT_WEBHOOK_LEASE_EXPIRED');
+          err.isPermanent = true;
+          throw err;
+        }
+
+        return { outcome, status: finalStatus };
       }
+
+      await session.withTransaction(async () => {
+        if (PAYMENT_EVENT_TYPES.has(eventType)) {
+          outcome = await this.processPaymentEvent({
+            claimedEvent,
+            now,
+            session
+          });
+        } else {
+          outcome = 'ignored';
+        }
+
+        const finalStatus = outcome === 'ignored'
+          ? WEBHOOK_PROCESSING_STATUSES.IGNORED
+          : WEBHOOK_PROCESSING_STATUSES.PROCESSED;
+
+        const updateResult = await PaymentWebhookEvent.updateOne({
+          _id: eventId,
+          status: WEBHOOK_PROCESSING_STATUSES.PROCESSING,
+          leaseId
+        }, {
+          $set: {
+            status: finalStatus,
+            processedAt: now,
+            leaseId: '',
+            leaseAcquiredAt: null,
+            leaseExpiresAt: null
+          }
+        }, { session });
+
+        if (updateResult.matchedCount === 0) {
+          const err = new AppError('Stale worker attempted to finalize webhook event after lease expiration', 409, 'PAYMENT_WEBHOOK_LEASE_EXPIRED');
+          err.isPermanent = true;
+          throw err;
+        }
+      });
 
       const finalStatus = outcome === 'ignored'
         ? WEBHOOK_PROCESSING_STATUSES.IGNORED
         : WEBHOOK_PROCESSING_STATUSES.PROCESSED;
-
-      const updateResult = await PaymentWebhookEvent.updateOne({
-        _id: eventId,
-        status: WEBHOOK_PROCESSING_STATUSES.PROCESSING,
-        leaseId
-      }, {
-        $set: {
-          status: finalStatus,
-          processedAt: now,
-          leaseId: '',
-          leaseAcquiredAt: null,
-          leaseExpiresAt: null
-        }
-      });
-
-      if (updateResult.matchedCount === 0) {
-        logger.warn('Stale worker attempted to finalize webhook event after lease expiration', { eventId, leaseId });
-      }
 
       return { outcome, status: finalStatus };
     } catch (error) {
@@ -201,10 +251,13 @@ class PaymentWebhookProcessor {
         error.isPermanent
         || error.code === 'PAYMENT_ORDER_CURRENCY_MISMATCH'
         || error.code === 'PAYMENT_AMOUNT_MISMATCH'
+        || error.code === 'PAYMENT_CURRENCY_MISMATCH'
         || error.code === 'PAYMENT_STATUS_TRANSITION_INVALID'
         || error.code === 'PAYMENT_ACCOUNT_MISMATCH'
         || error.code === 'PAYMENT_METADATA_MISMATCH'
         || error.code === 'PAYMENT_WEBHOOK_METADATA_MISMATCH'
+        || error.code === 'PAYMENT_WEBHOOK_LEASE_EXPIRED'
+        || error.code === 'REFUND_NOT_FOUND'
       );
 
       const errorCode = typeof error.code === 'string'
@@ -235,9 +288,7 @@ class PaymentWebhookProcessor {
       }
 
       // Retryable error: schedule bounded exponential backoff
-      const baseDelayMs = 1000 * Math.pow(2, Math.min(attemptCount, 10));
-      const jitterMs = Math.floor(Math.random() * 500);
-      const delayMs = Math.min(baseDelayMs + jitterMs, 3600000); // Capped at 1 hour
+      const delayMs = this.calculateRetryDelay(attemptCount);
       const nextAttemptAt = new Date(now.getTime() + delayMs);
 
       await PaymentWebhookEvent.updateOne({
@@ -257,16 +308,21 @@ class PaymentWebhookProcessor {
       });
 
       return { outcome: 'retry_scheduled', status: WEBHOOK_PROCESSING_STATUSES.RETRY_SCHEDULED };
+    } finally {
+      if (ownSession) {
+        await ownSession.endSession();
+      }
     }
   }
 
   /**
    * Processes a payment-intent webhook event against authoritative Payment and Order records.
    */
-  async processPaymentEvent({ claimedEvent, now }) {
+  async processPaymentEvent({ claimedEvent, now, session = null }) {
     const {
       provider,
       environment,
+      accountAlias,
       eventType,
       providerEventId,
       providerPaymentId,
@@ -280,21 +336,33 @@ class PaymentWebhookProcessor {
       throw err;
     }
 
-    const payment = await Payment.findOne({
+    const query = {
       provider,
       $or: [
         { providerPaymentId },
         { paymentIntentId: providerPaymentId }
       ]
-    });
+    };
+
+    const paymentQuery = Payment.findOne(query);
+    const payment = session ? await paymentQuery.session(session) : await paymentQuery;
 
     if (!payment) {
       throw new AppError(`Payment not found for provider reference: ${providerPaymentId}`, 404, 'PAYMENT_NOT_FOUND');
     }
 
-    const order = await Order.findById(payment.order);
+    const orderQuery = Order.findById(payment.order);
+    const order = session ? await orderQuery.session(session) : await orderQuery;
     if (!order) {
       const err = new AppError(`Linked Order ${payment.order} not found for payment ${payment._id}`, 404, 'ORDER_NOT_FOUND');
+      err.isPermanent = true;
+      throw err;
+    }
+
+    // Cross-account isolation check
+    const eventMetadata = claimedEvent.eventData?.metadata || {};
+    if (eventMetadata.accountAlias && payment.capabilitySnapshot?.accountAlias && eventMetadata.accountAlias !== payment.capabilitySnapshot.accountAlias) {
+      const err = new AppError('Webhook event account scope does not match payment merchant account', 409, 'PAYMENT_ACCOUNT_MISMATCH');
       err.isPermanent = true;
       throw err;
     }
@@ -361,7 +429,7 @@ class PaymentWebhookProcessor {
         });
         payment.paidAmount = payment.amount;
         payment.providerPaymentId = providerPaymentId;
-        await payment.save();
+        await payment.save(session ? { session } : {});
 
         order.paymentStatus = 'Paid';
         order.payment = {
@@ -375,10 +443,10 @@ class PaymentWebhookProcessor {
           status: order.orderStatus,
           actor: order.user,
           actorRole: 'system',
-          notes: 'Payment completed via verified webhook',
+          note: 'Payment completed via verified webhook',
           timestamp: now
         });
-        await order.save();
+        await order.save(session ? { session } : {});
 
         return 'processed';
       }
@@ -400,17 +468,17 @@ class PaymentWebhookProcessor {
           errorCode: claimedEvent.errorCode || 'PAYMENT_FAILED_BY_PROVIDER',
           at: now
         });
-        await payment.save();
+        await payment.save(session ? { session } : {});
 
         order.paymentStatus = 'Failed';
         order.statusTimeline.push({
           status: order.orderStatus,
           actor: order.user,
           actorRole: 'system',
-          notes: 'Payment failed via provider webhook',
+          note: 'Payment failed via provider webhook',
           timestamp: now
         });
-        await order.save();
+        await order.save(session ? { session } : {});
 
         return 'processed';
       }
@@ -429,17 +497,17 @@ class PaymentWebhookProcessor {
           providerEventId,
           at: now
         });
-        await payment.save();
+        await payment.save(session ? { session } : {});
 
-        order.orderStatus = 'Cancelled';
+        order.paymentStatus = 'Cancelled';
         order.statusTimeline.push({
-          status: 'Cancelled',
+          status: order.orderStatus,
           actor: order.user,
           actorRole: 'system',
-          notes: 'Order cancelled via provider webhook',
+          note: 'Order payment cancelled via provider webhook',
           timestamp: now
         });
-        await order.save();
+        await order.save(session ? { session } : {});
 
         return 'processed';
       }
