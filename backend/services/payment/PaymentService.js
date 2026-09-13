@@ -16,7 +16,7 @@ const {
   PROVIDER_ATTEMPT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../constants/paymentConstants');
-const { MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
+const { Money, MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
 const paymentWebhookInboxService = require('./webhooks/PaymentWebhookInboxService');
 const paymentWebhookProcessor = require('./webhooks/PaymentWebhookProcessor');
 
@@ -109,6 +109,9 @@ class PaymentService {
 
     const amountExact = order.totalAmountExact || MoneyMapper.fromLegacy(order.totalAmount, paymentCurrency);
 
+    const isProd = process.env.NODE_ENV === 'production';
+    const merchantAccount = await PaymentCapabilityPolicy.getMerchantAccount(provider, isProd ? 'production' : 'sandbox');
+
     try {
       payment = await Payment.create({
         order: order._id,
@@ -122,7 +125,11 @@ class PaymentService {
         providerDisplayName: providerManifest.displayName,
         providerIntegrationVersion: providerManifest.integrationVersion,
         paymentType: providerManifest.paymentType,
-        capabilitySnapshot: providerAdapter.getCapabilities(),
+        capabilitySnapshot: {
+          ...providerAdapter.getCapabilities(),
+          accountAlias: merchantAccount?.accountAlias || 'default',
+          environment: merchantAccount?.environment || (isProd ? 'production' : 'sandbox')
+        },
         idempotencyKey,
         requestHash,
         providerIdempotencyKey: `payment:${order._id}:${idempotencyKey}`,
@@ -897,22 +904,35 @@ class PaymentService {
     this.assertProviderMetadata(payment, providerPayment.metadata);
 
     if (event.type === 'payment_intent.succeeded') {
+      if (providerPayment.currency?.toUpperCase() !== payment.currency) {
+        throw new AppError(
+          'Provider payment currency does not match the order currency',
+          422,
+          'PAYMENT_CURRENCY_MISMATCH'
+        );
+      }
+
       const providerAmount = providerPayment.amount_received
         || providerPayment.amount;
-      const expectedMinor = Math.round((payment.amount + Number.EPSILON) * 100);
+
+      let expectedMinor;
+      try {
+        expectedMinor = payment.amountExact?.amountMinor !== undefined
+          ? Number(payment.amountExact.amountMinor)
+          : Number(Money.fromLegacyNumber(payment.amount, payment.currency).amountMinor);
+      } catch (_err) {
+        throw new AppError(
+          'Payment amount or currency is invalid',
+          422,
+          'PAYMENT_CURRENCY_UNSUPPORTED'
+        );
+      }
 
       if (providerAmount !== expectedMinor) {
         throw new AppError(
           'Provider payment amount does not match the order total',
           422,
           'PAYMENT_AMOUNT_MISMATCH'
-        );
-      }
-      if (providerPayment.currency?.toUpperCase() !== payment.currency) {
-        throw new AppError(
-          'Provider payment currency does not match the order currency',
-          422,
-          'PAYMENT_CURRENCY_MISMATCH'
         );
       }
     }

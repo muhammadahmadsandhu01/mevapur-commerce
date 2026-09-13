@@ -21,7 +21,7 @@ const Payment = require('../../../models/Payment');
 const Order = require('../../../models/Order');
 const paymentStateMachine = require('../stateMachine/PaymentStateMachine');
 const refundService = require('../RefundService');
-const { OrderCurrencyResolver } = require('../../../modules/commerce');
+const { Money, MoneyMapper, CurrencyRegistry, OrderCurrencyResolver } = require('../../../modules/commerce');
 const {
   PAYMENT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
@@ -42,11 +42,23 @@ const REFUND_EVENT_TYPES = new Set([
   'refund.failed'
 ]);
 
-const toMinorUnits = (amount) => {
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return 0;
+const toMinorUnits = (amount, currency = 'USD') => {
+  if (typeof amount === 'object' && amount?.amountMinor !== undefined) {
+    const money = MoneyMapper.toMoney(amount);
+    return Number(money.amountMinor);
   }
-  return Math.round((amount + Number.EPSILON) * 100);
+  if (typeof amount === 'number') {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return 0;
+    }
+    const money = Money.fromLegacyNumber(amount, currency);
+    return Number(money.amountMinor);
+  }
+  if (typeof amount === 'string') {
+    const money = Money.fromDecimal(amount, currency);
+    return Number(money.amountMinor);
+  }
+  return 0;
 };
 
 class PaymentWebhookProcessor {
@@ -247,6 +259,15 @@ class PaymentWebhookProcessor {
 
       return { outcome, status: finalStatus };
     } catch (error) {
+      if (error.code === 'PAYMENT_WEBHOOK_LEASE_EXPIRED') {
+        logger.warn('Stale worker lost event lease during processing; releasing without mutating event', {
+          eventId,
+          leaseId,
+          attemptCount
+        });
+        return { outcome: 'lease_lost', status: WEBHOOK_PROCESSING_STATUSES.PROCESSING };
+      }
+
       const isPermanent = Boolean(
         error.isPermanent
         || error.code === 'PAYMENT_ORDER_CURRENCY_MISMATCH'
@@ -256,7 +277,6 @@ class PaymentWebhookProcessor {
         || error.code === 'PAYMENT_ACCOUNT_MISMATCH'
         || error.code === 'PAYMENT_METADATA_MISMATCH'
         || error.code === 'PAYMENT_WEBHOOK_METADATA_MISMATCH'
-        || error.code === 'PAYMENT_WEBHOOK_LEASE_EXPIRED'
         || error.code === 'REFUND_NOT_FOUND'
       );
 
@@ -336,8 +356,13 @@ class PaymentWebhookProcessor {
       throw err;
     }
 
+    const targetAccountAlias = accountAlias || 'default';
+    const targetEnvironment = environment || 'sandbox';
+
     const query = {
       provider,
+      'capabilitySnapshot.environment': targetEnvironment,
+      'capabilitySnapshot.accountAlias': targetAccountAlias,
       $or: [
         { providerPaymentId },
         { paymentIntentId: providerPaymentId }
@@ -391,7 +416,17 @@ class PaymentWebhookProcessor {
 
     // Amount validation
     if (amountMinor > 0) {
-      const expectedMinor = toMinorUnits(payment.amount);
+      let expectedMinor;
+      try {
+        expectedMinor = payment.amountExact?.amountMinor !== undefined
+          ? Number(payment.amountExact.amountMinor)
+          : toMinorUnits(payment.amount, payment.currency || authoritativeOrderCurrency);
+      } catch (_err) {
+        const err = new AppError('Invalid currency precision or amount on payment', 422, 'PAYMENT_AMOUNT_MISMATCH');
+        err.isPermanent = true;
+        throw err;
+      }
+
       if (expectedMinor > 0 && amountMinor !== expectedMinor) {
         const err = new AppError(
           `Event amount (${amountMinor}) does not match payment expected minor amount (${expectedMinor})`,

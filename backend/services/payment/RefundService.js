@@ -32,7 +32,7 @@ const MISSING_INVENTORY_CODES = new Set([
   'RETURN_INVENTORY_VARIANT_MISSING'
 ]);
 
-const { MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
+const { Money, MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
 
 class RefundService {
   /**
@@ -298,8 +298,11 @@ class RefundService {
             !returnEntry
             || String(returnEntry.order) !== String(refund.order)
             || !['approved', 'inspected'].includes(returnEntry.status)
-            || Number(returnEntry.refundAmount.toFixed(2))
-              !== Number(refund.amount.toFixed(2))
+            || (returnEntry.refundAmount !== undefined && refund.amount !== undefined
+              && (returnEntry.refundAmountExact && refund.amountExact
+                ? MoneyMapper.toMoney(returnEntry.refundAmountExact).amountMinor !== MoneyMapper.toMoney(refund.amountExact).amountMinor
+                : Money.fromLegacyNumber(returnEntry.refundAmount, refund.currency || 'PKR').amountMinor
+                  !== Money.fromLegacyNumber(refund.amount, refund.currency || 'PKR').amountMinor))
             || (returnEntry.refund
               && String(returnEntry.refund) !== String(refund._id))
           ) {
@@ -466,6 +469,7 @@ class RefundService {
       const providerResult = await provider.refundPayment({
         providerPaymentId: payment.providerPaymentId,
         amount: claimed.amount,
+        currency: resolvedCurrency,
         refundId: claimed._id,
         paymentId: payment._id,
         orderId: payment.order,
@@ -644,8 +648,11 @@ class RefundService {
         || String(returnEntry.order) !== String(order._id)
         || String(returnEntry.refund) !== String(refund._id)
         || !['approved', 'inspected'].includes(returnEntry.status)
-        || Number(returnEntry.refundAmount.toFixed(2))
-          !== Number(refund.amount.toFixed(2))
+        || (returnEntry.refundAmount !== undefined && refund.amount !== undefined
+          && (returnEntry.refundAmountExact && refund.amountExact
+            ? MoneyMapper.toMoney(returnEntry.refundAmountExact).amountMinor !== MoneyMapper.toMoney(refund.amountExact).amountMinor
+            : Money.fromLegacyNumber(returnEntry.refundAmount, refund.currency || 'PKR').amountMinor
+              !== Money.fromLegacyNumber(refund.amount, refund.currency || 'PKR').amountMinor))
       ))
     ) {
       throw new AppError(
@@ -663,32 +670,51 @@ class RefundService {
     providerEventId = '',
     reconciliationReasonCode = ''
   }) {
-    const paidAmount = payment.paidAmount > 0
-      ? payment.paidAmount
-      : payment.amount;
-    const nextRefundedAmount = Number(
-      (payment.refundedAmount + refund.amount).toFixed(2)
-    );
-    const fullyRefunded = nextRefundedAmount >= paidAmount;
-    const paymentStatus = fullyRefunded
-      ? PAYMENT_STATUSES.REFUNDED
-      : PAYMENT_STATUSES.PARTIALLY_REFUNDED;
-
-    payment.refundedAmount = nextRefundedAmount;
-    payment.refundReservedAmount = Math.max(
-      0,
-      Number((payment.refundReservedAmount - refund.amount).toFixed(2))
-    );
     const currency = payment.currency || refund.currency;
     if (!currency) {
       throw new AppError('Authoritative currency missing on payment and refund record', 500, 'REFUND_CURRENCY_UNRESOLVED');
     }
-    if (payment.amountExact) {
-      payment.refundedAmountExact = MoneyMapper.fromLegacy(payment.refundedAmount, currency);
-      payment.refundReservedAmountExact = MoneyMapper.fromLegacy(payment.refundReservedAmount, currency);
-    }
+
+    const currentRefundedMoney = payment.refundedAmountExact
+      ? MoneyMapper.toMoney(payment.refundedAmountExact)
+      : Money.fromLegacyNumber(payment.refundedAmount || 0, currency);
+
+    const refundMoney = refund.amountExact
+      ? MoneyMapper.toMoney(refund.amountExact)
+      : Money.fromLegacyNumber(refund.amount || 0, currency);
+
+    const nextRefundedMoney = currentRefundedMoney.add(refundMoney);
+
+    const totalPaidMoney = (payment.paidAmount > 0)
+      ? (payment.paidAmountExact
+        ? MoneyMapper.toMoney(payment.paidAmountExact)
+        : Money.fromLegacyNumber(payment.paidAmount, currency))
+      : (payment.amountExact
+        ? MoneyMapper.toMoney(payment.amountExact)
+        : Money.fromLegacyNumber(payment.amount || 0, currency));
+
+    const fullyRefunded = nextRefundedMoney.amountMinor >= totalPaidMoney.amountMinor;
+    const paymentStatus = fullyRefunded
+      ? PAYMENT_STATUSES.REFUNDED
+      : PAYMENT_STATUSES.PARTIALLY_REFUNDED;
+
+    payment.refundedAmount = Number(nextRefundedMoney.toDecimalString());
+    payment.refundedAmountExact = MoneyMapper.toPersistence(nextRefundedMoney);
+
+    const currentReservedMoney = payment.refundReservedAmountExact
+      ? MoneyMapper.toMoney(payment.refundReservedAmountExact)
+      : Money.fromLegacyNumber(payment.refundReservedAmount || 0, currency);
+
+    const nextReservedMinor = currentReservedMoney.amountMinor > refundMoney.amountMinor
+      ? currentReservedMoney.amountMinor - refundMoney.amountMinor
+      : 0n;
+    const nextReservedMoney = Money.fromMinor(nextReservedMinor, currency);
+
+    payment.refundReservedAmount = Number(nextReservedMoney.toDecimalString());
+    payment.refundReservedAmountExact = MoneyMapper.toPersistence(nextReservedMoney);
+
     if (!refund.amountExact && refund.amount) {
-      refund.amountExact = MoneyMapper.fromLegacy(refund.amount, currency);
+      refund.amountExact = MoneyMapper.toPersistence(refundMoney);
     }
     paymentStateMachine.apply(payment, paymentStatus, {
       source: 'refund',
@@ -1014,16 +1040,6 @@ class RefundService {
       );
     }
     if (
-      Number.isFinite(providerRefund.amount)
-      && providerRefund.amount !== Math.round((refund.amount + Number.EPSILON) * 100)
-    ) {
-      throw new AppError(
-        'Provider refund amount does not match the refund record',
-        422,
-        'PAYMENT_AMOUNT_MISMATCH'
-      );
-    }
-    if (
       providerRefund.currency
       && providerRefund.currency.toUpperCase() !== refund.currency
     ) {
@@ -1032,6 +1048,28 @@ class RefundService {
         422,
         'PAYMENT_CURRENCY_MISMATCH'
       );
+    }
+    if (Number.isFinite(providerRefund.amount)) {
+      let expectedMinor;
+      try {
+        expectedMinor = refund.amountExact?.amountMinor !== undefined
+          ? Number(refund.amountExact.amountMinor)
+          : Number(Money.fromLegacyNumber(refund.amount, refund.currency).amountMinor);
+      } catch (_err) {
+        throw new AppError(
+          'Unsupported currency or invalid amount in refund record',
+          422,
+          'PAYMENT_CURRENCY_UNSUPPORTED'
+        );
+      }
+
+      if (providerRefund.amount !== expectedMinor) {
+        throw new AppError(
+          'Provider refund amount does not match the refund record',
+          422,
+          'PAYMENT_AMOUNT_MISMATCH'
+        );
+      }
     }
 
     if (refund.status === REFUND_STATUSES.COMPLETED) {

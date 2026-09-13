@@ -191,7 +191,7 @@ class PaymentWebhookInboxService {
           throw new AppError(
             'Webhook event identifier was reused with a different payload',
             409,
-            'PAYMENT_WEBHOOK_VERIFICATION_FAILED'
+            'PAYMENT_WEBHOOK_PAYLOAD_HASH_MISMATCH'
           );
         }
       }

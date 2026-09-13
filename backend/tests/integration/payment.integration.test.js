@@ -10,6 +10,7 @@ const Refund = require('../../models/Refund');
 const PaymentWebhookEvent = require('../../models/PaymentWebhookEvent');
 const Session = require('../../models/Session');
 const paymentWebhookProcessor = require('../../services/payment/webhooks/PaymentWebhookProcessor');
+const { Money } = require('../../modules/commerce');
 
 let sequence = 0;
 let currentEvent;
@@ -100,7 +101,9 @@ const beginPayment = (auth, order, idempotencyKey = crypto.randomUUID()) => requ
 const eventForPayment = (payment, {
   id = `evt_${crypto.randomUUID()}`,
   type = 'payment_intent.succeeded',
-  amount = Math.round(payment.amount * 100),
+  amount = payment.amountExact?.amountMinor !== undefined
+    ? Number(payment.amountExact.amountMinor)
+    : Number(Money.fromLegacyNumber(payment.amount, payment.currency || 'PKR').amountMinor),
   currency = 'pkr',
   metadata
 } = {}) => ({

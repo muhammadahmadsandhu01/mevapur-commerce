@@ -331,7 +331,7 @@ describe('Phase 5B: Payment Webhook Ingress Integration Tests', () => {
         .send(conflicting.payloadString);
 
       expect(res2.status).toBe(409);
-      expect(res2.body.error?.code || res2.body.code).toBe('PAYMENT_WEBHOOK_VERIFICATION_FAILED');
+      expect(res2.body.error?.code || res2.body.code).toBe('PAYMENT_WEBHOOK_PAYLOAD_HASH_MISMATCH');
 
       // Original doc remains untouched with original amount
       const savedDoc = await PaymentWebhookEvent.findOne({ providerEventId: 'evt_conflict_123' });

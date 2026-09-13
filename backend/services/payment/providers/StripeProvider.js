@@ -4,12 +4,25 @@ const { getStripeConfig } = require('../../../config/payment.config');
 const { AppError } = require('../../../utils/errors/AppError');
 const { PAYMENT_STATUSES } = require('../../../constants/paymentConstants');
 
-const toMinorUnits = (amount) => {
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new AppError('Payment amount is invalid', 422, 'PAYMENT_AMOUNT_INVALID');
-  }
+const { Money, MoneyMapper } = require('../../../modules/commerce');
 
-  return Math.round((amount + Number.EPSILON) * 100);
+const toMinorUnits = (amount, currency = 'USD') => {
+  if (typeof amount === 'object' && amount?.amountMinor !== undefined) {
+    const money = MoneyMapper.toMoney(amount);
+    return Number(money.amountMinor);
+  }
+  if (typeof amount === 'number') {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new AppError('Payment amount is invalid', 422, 'PAYMENT_AMOUNT_INVALID');
+    }
+    const money = Money.fromLegacyNumber(amount, currency);
+    return Number(money.amountMinor);
+  }
+  if (typeof amount === 'string') {
+    const money = Money.fromDecimal(amount, currency);
+    return Number(money.amountMinor);
+  }
+  throw new AppError('Payment amount is invalid', 422, 'PAYMENT_AMOUNT_INVALID');
 };
 
 const sanitizeProviderFailure = () => (
@@ -60,7 +73,7 @@ class StripeProvider extends PaymentProvider {
   }) {
     try {
       const paymentIntent = await this.stripe.paymentIntents.create({
-        amount: toMinorUnits(amount),
+        amount: toMinorUnits(amount, currency),
         currency: currency.toLowerCase(),
         automatic_payment_methods: { enabled: true },
         metadata: {
@@ -96,6 +109,7 @@ class StripeProvider extends PaymentProvider {
   async refundPayment({
     providerPaymentId,
     amount,
+    currency = 'USD',
     refundId,
     paymentId,
     orderId,
@@ -104,7 +118,7 @@ class StripeProvider extends PaymentProvider {
     try {
       const refund = await this.stripe.refunds.create({
         payment_intent: providerPaymentId,
-        amount: toMinorUnits(amount),
+        amount: toMinorUnits(amount, currency),
         metadata: {
           refundId: String(refundId),
           paymentId: String(paymentId),
