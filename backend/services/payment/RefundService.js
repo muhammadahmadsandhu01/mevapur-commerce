@@ -7,6 +7,7 @@ const Return = require('../../models/Return');
 const ReturnInventoryService = require('../ReturnInventoryService');
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
 const paymentStateMachine = require('./stateMachine/PaymentStateMachine');
+const AuditService = require('../AuditService');
 const { AppError } = require('../../common/errors/AppError');
 const {
   PAYMENT_STATUSES,
@@ -752,6 +753,7 @@ class RefundService {
     reasonCode
   }) {
     const session = await mongoose.startSession();
+    let completedContext = null;
     try {
       await session.withTransaction(async () => {
         const context = await this.loadCompletionContext(refundId, session);
@@ -785,9 +787,26 @@ class RefundService {
         returnEntry.refund = refund._id;
 
         await this.saveCompletionContext(context, session);
+        completedContext = context;
       });
     } finally {
       await session.endSession();
+    }
+
+    if (completedContext) {
+      await AuditService.log({
+        userId: this.inventoryActor(completedContext.refund),
+        eventName: 'PAYMENT.REFUNDED',
+        status: 'SUCCESS',
+        metadata: {
+          refundId: String(completedContext.refund._id),
+          paymentId: String(completedContext.payment._id),
+          orderId: String(completedContext.order._id),
+          amount: completedContext.refund.amount,
+          currency: completedContext.refund.currency,
+          reconciliationReasonCode: reasonCode
+        }
+      });
     }
   }
 
@@ -796,6 +815,7 @@ class RefundService {
     providerEventId = ''
   }) {
     const session = await mongoose.startSession();
+    let completedContext = null;
     try {
       try {
         await session.withTransaction(async () => {
@@ -824,6 +844,7 @@ class RefundService {
 
           this.applyFinancialCompletion(context, { source, providerEventId });
           await this.saveCompletionContext(context, session);
+          completedContext = context;
         });
       } catch (error) {
         if (!MISSING_INVENTORY_CODES.has(error?.code)) throw error;
@@ -835,6 +856,21 @@ class RefundService {
       }
     } finally {
       await session.endSession();
+    }
+
+    if (completedContext) {
+      await AuditService.log({
+        userId: this.inventoryActor(completedContext.refund),
+        eventName: 'PAYMENT.REFUNDED',
+        status: 'SUCCESS',
+        metadata: {
+          refundId: String(completedContext.refund._id),
+          paymentId: String(completedContext.payment._id),
+          orderId: String(completedContext.order._id),
+          amount: completedContext.refund.amount,
+          currency: completedContext.refund.currency
+        }
+      });
     }
   }
 

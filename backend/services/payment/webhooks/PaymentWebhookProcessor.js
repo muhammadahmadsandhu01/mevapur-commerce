@@ -27,6 +27,7 @@ const {
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../../constants/paymentConstants');
 const { AppError } = require('../../../common/errors/AppError');
+const AuditService = require('../../AuditService');
 const logger = require('../../../utils/logger');
 
 const PAYMENT_EVENT_TYPES = new Set([
@@ -259,6 +260,18 @@ class PaymentWebhookProcessor {
         ? WEBHOOK_PROCESSING_STATUSES.IGNORED
         : WEBHOOK_PROCESSING_STATUSES.PROCESSED;
 
+      if (outcome === 'processed' || outcome === 'refund_reconciled') {
+        await AuditService.log({
+          eventName: 'PAYMENT.WEBHOOK_PROCESSED',
+          status: 'SUCCESS',
+          metadata: {
+            providerEventId: claimedEvent.providerEventId,
+            eventType: claimedEvent.eventType,
+            provider: claimedEvent.provider
+          }
+        });
+      }
+
       return { outcome, status: finalStatus };
     } catch (error) {
       if (error.code === 'PAYMENT_WEBHOOK_LEASE_EXPIRED') {
@@ -303,6 +316,17 @@ class PaymentWebhookProcessor {
             leaseId: '',
             leaseAcquiredAt: null,
             leaseExpiresAt: null
+          }
+        });
+
+        await AuditService.log({
+          eventName: 'PAYMENT.WEBHOOK_REJECTED',
+          status: 'FAILED',
+          metadata: {
+            providerEventId: claimedEvent.providerEventId,
+            eventType: claimedEvent.eventType,
+            provider: claimedEvent.provider,
+            errorCode
           }
         });
 

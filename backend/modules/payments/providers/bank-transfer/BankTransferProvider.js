@@ -7,7 +7,8 @@ class BankTransferProvider extends PaymentProvider {
       displayName: 'Bank Transfer',
       integrationVersion: '1.0.0',
       paymentType: 'manual',
-      supportedCountries: ['PK', 'PAKISTAN'],
+      supportedCountries: [],
+      supportedCurrencies: [],
       capabilities: {
         createPayment: true,
         status: true,

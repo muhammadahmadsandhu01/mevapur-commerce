@@ -488,6 +488,19 @@ class PaymentService {
         requestId: undefined
       });
 
+      await AuditService.log({
+        userId: persisted.user,
+        eventName: 'PAYMENT.INITIATED',
+        status: 'SUCCESS',
+        metadata: {
+          paymentId: String(persisted._id),
+          orderId: String(persisted.order),
+          provider: persisted.provider,
+          currency: persisted.currency,
+          amount: persisted.amount
+        }
+      });
+
       return this.toPaymentSession(persisted, {
         ...providerResult,
         idempotentReplay: Boolean(idempotentReplay && claimed.providerAttemptCount > 1)
@@ -1985,6 +1998,20 @@ class PaymentService {
       eventType: event.type,
       outcome
     });
+
+    if (outcome === 'processed') {
+      await AuditService.log({
+        eventName: 'PAYMENT.WEBHOOK_PROCESSED',
+        status: 'SUCCESS',
+        metadata: {
+          paymentId: String(payment._id),
+          orderId: String(payment.order),
+          providerEventId: event.id,
+          eventType: event.type
+        }
+      });
+    }
+
     return { outcome };
   }
 }

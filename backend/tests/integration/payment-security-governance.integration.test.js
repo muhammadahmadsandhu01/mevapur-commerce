@@ -6,11 +6,15 @@
 'use strict';
 
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const app = require('../../app');
 const TokenService = require('../../services/TokenService');
+const authConfig = require('../../config/auth.config');
 const stripeProvider = require('../../services/payment/providers/StripeProvider');
 const PaymentService = require('../../services/payment/PaymentService');
+const RefundService = require('../../services/payment/RefundService');
+const PaymentWebhookProcessor = require('../../services/payment/webhooks/PaymentWebhookProcessor');
 const PaymentProviderRegistry = require('../../modules/payments/core/PaymentProviderRegistry');
 const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
@@ -28,6 +32,23 @@ let createdIntents;
 let idempotentIntents;
 let capturedIntents;
 let canceledIntents;
+
+const generateExpiredJwt = (user, session) => {
+  const payload = {
+    sub: String(user._id),
+    sid: String(session._id),
+    jti: crypto.randomUUID(),
+    tokenVersion: Number(user.tokenVersion),
+    type: 'access'
+  };
+
+  return jwt.sign(payload, authConfig.jwt.secret, {
+    algorithm: 'HS256',
+    expiresIn: '-10s',
+    issuer: authConfig.jwt.issuer,
+    audience: authConfig.jwt.audience
+  });
+};
 
 const createAuth = async (role = 'customer', options = {}) => {
   sequence += 1;
@@ -53,7 +74,8 @@ const createAuth = async (role = 'customer', options = {}) => {
   return {
     user,
     session,
-    authorization: `Bearer ${accessToken}`
+    authorization: `Bearer ${accessToken}`,
+    expiredJwtAuthorization: `Bearer ${generateExpiredJwt(user, session)}`
   };
 };
 
@@ -542,33 +564,49 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
       expect(json).not.toContain('whsec_');
     });
 
-    test('15. Anonymous / malformed / expired-session / revoked-session return canonical 401 codes on operational metrics', async () => {
-      // Anonymous
-      const anonRes = await request(app).get('/api/payments/operations/metrics');
-      expect(anonRes.status).toBe(401);
-      expect(anonRes.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
+    test('15. Anonymous / malformed / expired-token / expired-session / revoked-session return canonical 401 codes', async () => {
+      const endpoints = [
+        '/api/payments/operations/metrics',
+        '/api/payments/providers/status'
+      ];
 
-      // Malformed
-      const malformedRes = await request(app)
-        .get('/api/payments/operations/metrics')
-        .set('Authorization', 'Bearer invalid_garbage_token');
-      expect(malformedRes.status).toBe(401);
+      for (const endpoint of endpoints) {
+        // 1. Missing token -> AUTH_TOKEN_REQUIRED
+        const anonRes = await request(app).get(endpoint);
+        expect(anonRes.status).toBe(401);
+        expect(anonRes.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
 
-      // Expired session
-      const expiredAuth = await createAuth('admin', { sessionExpired: true });
-      const expiredRes = await request(app)
-        .get('/api/payments/operations/metrics')
-        .set('Authorization', expiredAuth.authorization);
-      expect(expiredRes.status).toBe(401);
-      expect(expiredRes.body.error.code).toBe('AUTH_SESSION_EXPIRED');
+        // 2. Malformed token -> AUTH_TOKEN_INVALID
+        const malformedRes = await request(app)
+          .get(endpoint)
+          .set('Authorization', 'Bearer invalid_garbage_token_structure');
+        expect(malformedRes.status).toBe(401);
+        expect(malformedRes.body.error.code).toBe('AUTH_TOKEN_INVALID');
 
-      // Revoked session
-      const revokedAuth = await createAuth('admin', { sessionRevoked: true });
-      const revokedRes = await request(app)
-        .get('/api/payments/operations/metrics')
-        .set('Authorization', revokedAuth.authorization);
-      expect(revokedRes.status).toBe(401);
-      expect(revokedRes.body.error.code).toBe('AUTH_SESSION_REVOKED');
+        // 3. Cryptographically valid but expired JWT -> AUTH_TOKEN_EXPIRED
+        const auth = await createAuth('admin');
+        const expiredTokenRes = await request(app)
+          .get(endpoint)
+          .set('Authorization', auth.expiredJwtAuthorization);
+        expect(expiredTokenRes.status).toBe(401);
+        expect(expiredTokenRes.body.error.code).toBe('AUTH_TOKEN_EXPIRED');
+
+        // 4. Valid JWT with expired server-side session -> AUTH_SESSION_EXPIRED
+        const expiredSessionAuth = await createAuth('admin', { sessionExpired: true });
+        const expiredSessionRes = await request(app)
+          .get(endpoint)
+          .set('Authorization', expiredSessionAuth.authorization);
+        expect(expiredSessionRes.status).toBe(401);
+        expect(expiredSessionRes.body.error.code).toBe('AUTH_SESSION_EXPIRED');
+
+        // 5. Revoked session -> AUTH_SESSION_REVOKED
+        const revokedAuth = await createAuth('admin', { sessionRevoked: true });
+        const revokedRes = await request(app)
+          .get(endpoint)
+          .set('Authorization', revokedAuth.authorization);
+        expect(revokedRes.status).toBe(401);
+        expect(revokedRes.body.error.code).toBe('AUTH_SESSION_REVOKED');
+      }
     });
 
     test('16. Customer/support/inventory/manager receive 403 on operational metrics endpoint', async () => {
@@ -659,44 +697,219 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
       expect(statusRes.body.data.payment.clientSecret).toBeUndefined();
     });
 
-    test('27. Audit events exist and remain sanitized in AuditLog repository', async () => {
+    test('27. Audit events exist and remain sanitized in AuditLog repository across full lifecycle', async () => {
       const adminAuth = await createAuth('admin');
       const customer = await createAuth('customer');
-      const order = await createOrder(customer.user, { amount: 100 });
+      const order = await createOrder(customer.user, { amount: 100, currency: 'USD', country: 'United States' });
 
-      const payment = await Payment.create({
+      // 1. PAYMENT.INITIATED
+      const initRes = await request(app)
+        .post('/api/payments')
+        .set('Authorization', customer.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+      expect(initRes.status).toBe(201);
+      const paymentId = initRes.body.data.payment._id;
+
+      const initAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.INITIATED',
+        'metadata.paymentId': String(paymentId)
+      });
+      expect(initAudit).toBeTruthy();
+      expect(initAudit.status).toBe('SUCCESS');
+      expect(initAudit.metadata.provider).toBe('stripe');
+      expect(JSON.stringify(initAudit)).not.toContain('sk_test');
+      expect(JSON.stringify(initAudit)).not.toContain('secret_token');
+
+      // 2. PAYMENT.CAPTURED
+      createdIntents.set(`pi_gov_${paymentId}`, {
+        id: `pi_gov_${paymentId}`,
+        amount: 10000,
+        status: 'requires_capture'
+      });
+      await Payment.updateOne({ _id: paymentId }, {
+        $set: {
+          status: PAYMENT_STATUSES.AUTHORIZED,
+          authorizedAmount: 100,
+          providerPaymentId: `pi_gov_${paymentId}`,
+          safeProviderReference: `pi_gov_${paymentId}`
+        }
+      });
+
+      const capRes = await request(app)
+        .post(`/api/payments/${paymentId}/capture`)
+        .set('Authorization', adminAuth.authorization)
+        .send({ amount: 100 });
+      expect(capRes.status).toBe(200);
+
+      const capAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.CAPTURED',
+        'metadata.paymentId': String(paymentId)
+      });
+      expect(capAudit).toBeTruthy();
+      expect(capAudit.status).toBe('SUCCESS');
+      expect(JSON.stringify(capAudit)).not.toContain('sk_test');
+
+      // 3. PAYMENT.VOIDED
+      const voidOrder = await createOrder(customer.user, { amount: 50, currency: 'USD', country: 'United States' });
+      const voidPayment = await Payment.create({
+        user: customer.user._id,
+        order: voidOrder._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 50,
+        currency: 'USD',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 50,
+        providerPaymentId: 'pi_gov_void_test',
+        safeProviderReference: 'pi_gov_void_test',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${voidOrder._id}:${crypto.randomUUID()}`
+      });
+      createdIntents.set('pi_gov_void_test', { id: 'pi_gov_void_test', amount: 5000, status: 'requires_capture' });
+
+      await request(app)
+        .post(`/api/payments/${voidPayment._id}/void`)
+        .set('Authorization', adminAuth.authorization)
+        .send({ reason: 'Audit verification void' });
+
+      const voidAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.VOIDED',
+        'metadata.paymentId': String(voidPayment._id)
+      });
+      expect(voidAudit).toBeTruthy();
+      expect(voidAudit.status).toBe('SUCCESS');
+
+      // 4. PAYMENT.CANCELLED
+      const cancelOrder = await createOrder(customer.user, { amount: 75, currency: 'USD', country: 'United States' });
+      const cancelPayment = await Payment.create({
+        user: customer.user._id,
+        order: cancelOrder._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 75,
+        currency: 'USD',
+        status: PAYMENT_STATUSES.PROCESSING,
+        providerPaymentId: 'pi_gov_cancel_test',
+        safeProviderReference: 'pi_gov_cancel_test',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${cancelOrder._id}:${crypto.randomUUID()}`
+      });
+      createdIntents.set('pi_gov_cancel_test', { id: 'pi_gov_cancel_test', amount: 7500, status: 'requires_payment_method' });
+
+      await request(app)
+        .post(`/api/payments/${cancelPayment._id}/cancel`)
+        .set('Authorization', adminAuth.authorization)
+        .send({ reason: 'Audit verification cancel' });
+
+      const cancelAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.CANCELLED',
+        'metadata.paymentId': String(cancelPayment._id)
+      });
+      expect(cancelAudit).toBeTruthy();
+      expect(cancelAudit.status).toBe('SUCCESS');
+
+      // 5. PAYMENT.REFUNDED
+      const refundPayment = await Payment.create({
         user: customer.user._id,
         order: order._id,
         provider: 'stripe',
         providerDisplayName: 'Stripe',
         paymentType: 'automated',
         amount: 100,
-        currency: 'PKR',
-        status: PAYMENT_STATUSES.AUTHORIZED,
-        authorizedAmount: 100,
-        providerPaymentId: 'pi_gov_audit_test',
-        safeProviderReference: 'pi_gov_audit_test',
+        currency: 'USD',
+        status: PAYMENT_STATUSES.COMPLETED,
+        capturedAmount: 100,
+        refundedAmount: 0,
+        refundReservedAmount: 100,
+        refundReservedAmountExact: MoneyMapper.fromLegacy(100, 'USD'),
+        amountExact: MoneyMapper.fromLegacy(100, 'USD'),
+        providerPaymentId: 'pi_gov_ref_test',
+        safeProviderReference: 'pi_gov_ref_test',
         idempotencyKey: crypto.randomUUID(),
         requestHash: crypto.randomUUID(),
         providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
       });
-      createdIntents.set('pi_gov_audit_test', { id: 'pi_gov_audit_test', amount: 10000, status: 'requires_capture' });
 
-      await request(app)
-        .post(`/api/payments/${payment._id}/void`)
-        .set('Authorization', adminAuth.authorization)
-        .send({ reason: 'Audit verification void' });
+      const refundDoc = await Refund.create({
+        payment: refundPayment._id,
+        order: order._id,
+        customer: customer.user._id,
+        provider: 'stripe',
+        amount: 100,
+        currency: 'USD',
+        amountExact: MoneyMapper.fromLegacy(100, 'USD'),
+        status: 'Pending',
+        processingMode: 'manual',
+        reservationActive: true,
+        providerAttemptStatus: 'Ready',
+        providerOutcome: 'manual_confirmed',
+        processedBy: adminAuth.user._id,
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `prk_usd_${crypto.randomUUID()}`
+      });
 
-      const auditEntries = await AuditLog.find({ eventName: 'PAYMENT.VOIDED' });
-      expect(auditEntries.length).toBeGreaterThanOrEqual(1);
-      const lastAudit = auditEntries[auditEntries.length - 1];
-      expect(lastAudit.status).toBe('SUCCESS');
-      expect(JSON.stringify(lastAudit.metadata)).not.toContain('secret');
+      await RefundService.completeRefund(refundDoc._id, { source: 'admin' });
+
+      const refundAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.REFUNDED',
+        'metadata.refundId': String(refundDoc._id)
+      });
+      expect(refundAudit).toBeTruthy();
+      expect(refundAudit.status).toBe('SUCCESS');
+
+      // 6. PAYMENT.WEBHOOK_PROCESSED
+      const webhookPayment = await Payment.create({
+        user: customer.user._id,
+        order: order._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'USD',
+        amountExact: MoneyMapper.fromLegacy(100, 'USD'),
+        status: PAYMENT_STATUSES.PROCESSING,
+        providerPaymentId: 'pi_gov_wh_proc_test',
+        safeProviderReference: 'pi_gov_wh_proc_test',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
+      });
+
+      const hookEvent = {
+        id: 'evt_gov_wh_proc_1',
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_gov_wh_proc_test',
+            amount: 10000,
+            amount_received: 10000,
+            currency: 'usd',
+            metadata: {
+              paymentId: String(webhookPayment._id),
+              orderId: String(order._id)
+            }
+          }
+        }
+      };
+
+      await PaymentService.processVerifiedStripeEvent(hookEvent);
+
+      const whAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.WEBHOOK_PROCESSED',
+        'metadata.providerEventId': 'evt_gov_wh_proc_1'
+      });
+      expect(whAudit).toBeTruthy();
+      expect(whAudit.status).toBe('SUCCESS');
     });
 
     test('28. Stale/in-flight/dead-letter metrics are accurately aggregated', async () => {
       const customer = await createAuth('customer');
-      const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100 });
 
       // Create an in-flight claimed void payment (stale > 30s)
@@ -735,6 +948,54 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
       expect(metrics.inFlightOperationsCount).toBeGreaterThanOrEqual(1);
       expect(metrics.staleClaimsCount).toBeGreaterThanOrEqual(1);
       expect(metrics.deadLetterWebhooksCount).toBeGreaterThanOrEqual(1);
+    });
+
+    test('29. Generic Bank Transfer is country-neutral and data-driven', async () => {
+      const bankTransferProvider = require('../../modules/payments/providers/bank-transfer/BankTransferProvider');
+      const manifest = bankTransferProvider.getManifest();
+
+      // Generic adapter must not hardcode country list in manifest
+      expect(manifest.supportedCountries).toEqual([]);
+      expect(manifest.supportedCurrencies).toEqual([]);
+
+      const raastProvider = require('../../modules/payments/providers/raast/RaastProvider');
+      const raastManifest = raastProvider.getManifest();
+      // Regional providers legitimately specify their country
+      expect(raastManifest.supportedCountries).toEqual(['PK', 'PAKISTAN']);
+    });
+
+    test('30. Cash On Delivery requires domestic matching and runtime gating', async () => {
+      const { PaymentCapabilityPolicy } = require('../../services/payment/PaymentCapabilityPolicy');
+      const policy = new PaymentCapabilityPolicy();
+
+      // Domestic PK order -> Eligible
+      const pkResult = await policy.evaluateOperational('cod', {
+        merchantCountry: 'PK',
+        deliveryCountry: 'PK',
+        baseCurrency: 'PKR',
+        currency: 'PKR'
+      });
+      expect(pkResult.eligible).toBe(true);
+
+      // Cross-border order (US delivery to PK merchant) -> Ineligible
+      const crossBorderResult = await policy.evaluateOperational('cod', {
+        merchantCountry: 'PK',
+        deliveryCountry: 'US',
+        baseCurrency: 'PKR',
+        currency: 'PKR'
+      });
+      expect(crossBorderResult.eligible).toBe(false);
+      expect(crossBorderResult.reason).toBe('PAYMENT_COUNTRY_UNSUPPORTED');
+
+      // Currency mismatch -> Ineligible
+      const curMismatchResult = await policy.evaluateOperational('cod', {
+        merchantCountry: 'PK',
+        deliveryCountry: 'PK',
+        baseCurrency: 'PKR',
+        currency: 'USD'
+      });
+      expect(curMismatchResult.eligible).toBe(false);
+      expect(curMismatchResult.reason).toBe('PAYMENT_CURRENCY_UNSUPPORTED');
     });
   });
 });
