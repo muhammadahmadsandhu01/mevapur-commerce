@@ -429,6 +429,7 @@ class CountryRegistry {
     return entry;
   }
 
+
   /**
    * Check if country code exists
    * @param {string} code

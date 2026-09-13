@@ -2,8 +2,10 @@ const express = require('express');
 const { protect, admin } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const controller = require('../controllers/commercialCoreController');
+const checkoutQuoteController = require('../controllers/checkoutQuoteController');
 const ERROR_CODES = require('../constants/errorCodes');
 const { marketSchema, shippingZoneSchema, quoteSchema } = require('../validators/commercialCoreValidator');
+const { createCheckoutQuoteSchema } = require('../validators/checkoutQuoteValidator');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 
@@ -18,5 +20,9 @@ router.put('/market', protect, admin, validation(marketSchema), controller.updat
 router.post('/shipping/zones', protect, admin, validation(shippingZoneSchema), controller.createZone);
 router.put('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'params'), validation(shippingZoneSchema), controller.updateZone);
 router.delete('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'params'), controller.deleteZone);
+
+// Phase 6A: Global Checkout Eligibility & Atomic Quote Orchestration Routes
+router.post('/checkout/quote', validation(createCheckoutQuoteSchema), checkoutQuoteController.createQuote);
+router.post('/checkout/verify', checkoutQuoteController.verifyQuote);
 
 module.exports = router;
