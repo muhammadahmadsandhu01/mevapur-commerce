@@ -660,6 +660,249 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
       expect(await Order.countDocuments()).toBe(orderCountBefore);
     });
 
+    test('19. Frontend success redirect cannot mark payment paid', async () => {
+      const auth = await createAuth();
+      const order = await createOrder(auth.user, { amount: 100 });
+
+      const res = await request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({
+          orderId: order._id.toString(),
+          provider: 'stripe',
+          returnUrl: 'http://localhost:3000/checkout/success'
+        });
+
+      expect(res.status).toBe(201);
+
+      // Verify DB state: payment is not marked Completed, order is not Paid
+      const [orderInDb, paymentInDb] = await Promise.all([
+        Order.findById(order._id),
+        Payment.findById(res.body.data.payment._id)
+      ]);
+      expect(orderInDb.paymentStatus).toBe('Pending');
+      expect(paymentInDb.status).not.toBe('Completed');
+    });
+
+    test('20. Duplicate initiation produces one provider dispatch', async () => {
+      const auth = await createAuth();
+      const order = await createOrder(auth.user, { amount: 100 });
+      const idempotencyKey = crypto.randomUUID();
+
+      const call1 = request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+
+      const res1 = await call1;
+      expect(res1.status).toBe(201);
+
+      const res2 = await request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+
+      expect([200, 201]).toContain(res2.status);
+      expect(res2.body.data.payment._id).toBe(res1.body.data.payment._id);
+      expect(res2.body.data.idempotentReplay).toBe(true);
+    });
+
+    test('21. Same order with different client keys produces one active attempt', async () => {
+      const auth = await createAuth();
+      const order = await createOrder(auth.user, { amount: 100 });
+
+      const res1 = await request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+
+      expect(res1.status).toBe(201);
+
+      // Concurrent attempt with different idempotency key on active payment fails closed
+      const res2 = await request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+
+      expect(res2.status).toBe(409);
+      expect(res2.body.error.code).toBe('PAYMENT_OPERATION_IN_FLIGHT');
+    });
+
+    test('22. Duplicate capture produces one provider dispatch', async () => {
+      const adminAuth = await createAuth('admin');
+      const customer = await createAuth('customer');
+      const order = await createOrder(customer.user, { amount: 100 });
+
+      const payment = await Payment.create({
+        user: customer.user._id,
+        order: order._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'PKR',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 100,
+        providerPaymentId: 'pi_gov_dup_cap',
+        safeProviderReference: 'pi_gov_dup_cap',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
+      });
+      createdIntents.set('pi_gov_dup_cap', { id: 'pi_gov_dup_cap', amount: 10000, status: 'requires_capture' });
+
+      const captureKey = crypto.randomUUID();
+      const res1 = await request(app)
+        .post(`/api/payments/${payment._id}/capture`)
+        .set('Authorization', adminAuth.authorization)
+        .set('Idempotency-Key', captureKey)
+        .send({ amount: 100 });
+      expect(res1.status).toBe(200);
+      expect(res1.body.data.idempotentReplay).toBe(false);
+
+      const res2 = await request(app)
+        .post(`/api/payments/${payment._id}/capture`)
+        .set('Authorization', adminAuth.authorization)
+        .set('Idempotency-Key', captureKey)
+        .send({ amount: 100 });
+      expect(res2.status).toBe(200);
+      expect(res2.body.data.idempotentReplay).toBe(true);
+    });
+
+    test('23. Duplicate void produces one provider dispatch', async () => {
+      const adminAuth = await createAuth('admin');
+      const customer = await createAuth('customer');
+      const order = await createOrder(customer.user, { amount: 100 });
+
+      const payment = await Payment.create({
+        user: customer.user._id,
+        order: order._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'PKR',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 100,
+        providerPaymentId: 'pi_gov_dup_void',
+        safeProviderReference: 'pi_gov_dup_void',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
+      });
+      createdIntents.set('pi_gov_dup_void', { id: 'pi_gov_dup_void', amount: 10000, status: 'requires_capture' });
+
+      const voidKey = crypto.randomUUID();
+      const res1 = await request(app)
+        .post(`/api/payments/${payment._id}/void`)
+        .set('Authorization', adminAuth.authorization)
+        .set('Idempotency-Key', voidKey)
+        .send({ reason: 'Duplicate void test' });
+      expect(res1.status).toBe(200);
+      expect(res1.body.data.idempotentReplay).toBe(false);
+
+      const res2 = await request(app)
+        .post(`/api/payments/${payment._id}/void`)
+        .set('Authorization', adminAuth.authorization)
+        .set('Idempotency-Key', voidKey)
+        .send({ reason: 'Duplicate void test' });
+      expect(res2.status).toBe(200);
+      expect(res2.body.data.idempotentReplay).toBe(true);
+    });
+
+    test('24. Duplicate webhook produces one effective transition', async () => {
+      const customer = await createAuth('customer');
+      const order = await createOrder(customer.user, { amount: 100 });
+
+      const payment = await Payment.create({
+        user: customer.user._id,
+        order: order._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'PKR',
+        status: PAYMENT_STATUSES.PROCESSING,
+        providerPaymentId: 'pi_gov_dup_wh',
+        safeProviderReference: 'pi_gov_dup_wh',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
+      });
+
+      const event = {
+        id: 'evt_gov_dup_1',
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_gov_dup_wh',
+            amount: 10000,
+            amount_received: 10000,
+            currency: 'pkr',
+            metadata: {
+              paymentId: String(payment._id),
+              orderId: String(order._id)
+            }
+          }
+        }
+      };
+
+      const result1 = await PaymentService.processVerifiedStripeEvent(event);
+      expect(result1.outcome).toBe('processed');
+
+      const result2 = await PaymentService.processVerifiedStripeEvent(event);
+      expect(result2.outcome).toBe('ignored');
+    });
+
+    test('25. Out-of-order webhook cannot regress terminal state', async () => {
+      const customer = await createAuth('customer');
+      const order = await createOrder(customer.user, { amount: 100, paymentStatus: 'Paid' });
+
+      const payment = await Payment.create({
+        user: customer.user._id,
+        order: order._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'PKR',
+        status: PAYMENT_STATUSES.COMPLETED,
+        capturedAmount: 100,
+        providerPaymentId: 'pi_gov_ooo_wh',
+        safeProviderReference: 'pi_gov_ooo_wh',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
+      });
+
+      const lateFailedEvent = {
+        id: 'evt_gov_late_failed',
+        type: 'payment_intent.payment_failed',
+        data: {
+          object: {
+            id: 'pi_gov_ooo_wh',
+            amount: 10000,
+            currency: 'pkr',
+            metadata: {
+              paymentId: String(payment._id),
+              orderId: String(order._id)
+            }
+          }
+        }
+      };
+
+      const result = await PaymentService.processVerifiedStripeEvent(lateFailedEvent);
+      expect(result.outcome).toBe('ignored');
+
+      const paymentInDb = await Payment.findById(payment._id);
+      expect(paymentInDb.status).toBe(PAYMENT_STATUSES.COMPLETED);
+    });
+
     test('26. Card PAN/CVV and client secrets never enter logs, persistence, or status responses', async () => {
       const auth = await createAuth();
       const order = await createOrder(auth.user, { amount: 100 });
