@@ -12,7 +12,10 @@ const manifest = Object.freeze({
     createPayment: true,
     status: true,
     collect: false,
-    cancel: false,
+    cancel: true,
+    void: true,
+    capture: true,
+    partialCapture: true,
     refund: true,
     callback: true,
     customerConfirmation: false

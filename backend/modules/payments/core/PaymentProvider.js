@@ -84,8 +84,16 @@ class PaymentProvider {
     throw this.operationUnavailable('createPayment');
   }
 
+  async initiatePayment(request) {
+    return this.createPayment(request);
+  }
+
   async retrievePayment(_providerPaymentId) {
     throw this.operationUnavailable('retrievePayment');
+  }
+
+  async capturePayment(_request) {
+    throw this.operationUnavailable('capturePayment');
   }
 
   async refundPayment(_request) {
@@ -94,6 +102,10 @@ class PaymentProvider {
 
   async cancelPayment(_request) {
     throw this.operationUnavailable('cancelPayment');
+  }
+
+  async voidPayment(request) {
+    return this.cancelPayment(request);
   }
 
   verifyCallback(_rawBody, _signature) {

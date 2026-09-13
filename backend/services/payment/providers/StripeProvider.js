@@ -106,6 +106,55 @@ class StripeProvider extends PaymentProvider {
     }
   }
 
+  async capturePayment({
+    providerPaymentId,
+    amount,
+    currency = 'USD',
+    idempotencyKey
+  }) {
+    try {
+      const params = {};
+      if (amount !== undefined && amount !== null) {
+        params.amount_to_capture = toMinorUnits(amount, currency);
+      }
+      const paymentIntent = await this.stripe.paymentIntents.capture(providerPaymentId, params, {
+        idempotencyKey
+      });
+      return this.toSafePaymentResult(paymentIntent);
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw sanitizeProviderFailure();
+    }
+  }
+
+  async cancelPayment({
+    providerPaymentId,
+    reason,
+    idempotencyKey
+  }) {
+    try {
+      const params = {};
+      if (reason) {
+        params.cancellation_reason = reason;
+      }
+      const paymentIntent = await this.stripe.paymentIntents.cancel(providerPaymentId, params, {
+        idempotencyKey
+      });
+      return this.toSafePaymentResult(paymentIntent);
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw sanitizeProviderFailure();
+    }
+  }
+
+  async voidPayment(request) {
+    return this.cancelPayment(request);
+  }
+
   async refundPayment({
     providerPaymentId,
     amount,
@@ -296,7 +345,13 @@ class StripeProvider extends PaymentProvider {
       clientSecret: paymentIntent.client_secret || null,
       status: this.mapStatus(paymentIntent.status),
       amountMinor: paymentIntent.amount,
-      currency: paymentIntent.currency,
+      amountCapturableMinor: paymentIntent.amount_capturable || 0,
+      amountReceivedMinor: paymentIntent.amount_received || 0,
+      currency: typeof paymentIntent.currency === 'string' ? paymentIntent.currency.toUpperCase() : '',
+      customerAction: paymentIntent.next_action ? {
+        type: paymentIntent.next_action.type,
+        redirectToUrl: paymentIntent.next_action.redirect_to_url?.url || null
+      } : null,
       metadata: {
         paymentId: paymentIntent.metadata?.paymentId || '',
         orderId: paymentIntent.metadata?.orderId || '',
@@ -310,6 +365,7 @@ class StripeProvider extends PaymentProvider {
       requires_payment_method: PAYMENT_STATUSES.PENDING,
       requires_confirmation: PAYMENT_STATUSES.PROCESSING,
       requires_action: PAYMENT_STATUSES.PROCESSING,
+      requires_capture: PAYMENT_STATUSES.AUTHORIZED,
       processing: PAYMENT_STATUSES.PROCESSING,
       succeeded: PAYMENT_STATUSES.COMPLETED,
       canceled: PAYMENT_STATUSES.CANCELLED

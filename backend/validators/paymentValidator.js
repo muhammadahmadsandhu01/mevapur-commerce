@@ -17,6 +17,8 @@ const paymentProvider = z.enum([
 
 const paymentStatus = z.enum([
   'Pending',
+  'Authorized',
+  'RequiresCustomerAction',
   'AwaitingCustomerPayment',
   'AwaitingVerification',
   'Processing',
@@ -39,7 +41,8 @@ const idempotencyHeaderSchema = z.object({
 
 const createPaymentSchema = z.object({
   orderId: objectId,
-  provider: paymentProvider
+  provider: paymentProvider,
+  returnUrl: z.string().url().max(1000).optional()
 }).strict();
 
 const paymentReferenceSchema = z.object({
@@ -88,8 +91,16 @@ const codCollectionSchema = z.object({
 }).strict();
 
 const createRefundSchema = z.object({
-  amount: z.number().finite().positive().max(100000000),
-  reason: z.string().trim().min(3).max(200).optional()
+  amount: z.number().finite().positive().max(100000000).optional(),
+  reason: z.string().trim().max(300).optional()
+}).strict();
+
+const capturePaymentSchema = z.object({
+  amount: z.number().finite().positive().max(100000000).optional()
+}).strict();
+
+const cancelPaymentSchema = z.object({
+  reason: z.string().trim().max(200).optional()
 }).strict();
 
 const refundReferenceSchema = z.object({
@@ -112,6 +123,8 @@ const paymentListQuerySchema = z.object({
 module.exports = {
   createPaymentSchema,
   createRefundSchema,
+  capturePaymentSchema,
+  cancelPaymentSchema,
   codCollectionSchema,
   idempotencyHeaderSchema,
   manualPaymentReviewSchema,

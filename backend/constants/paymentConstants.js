@@ -12,6 +12,7 @@ const PAYMENT_STATUSES = Object.freeze({
   AWAITING_CUSTOMER_PAYMENT: 'AwaitingCustomerPayment',
   AWAITING_VERIFICATION: 'AwaitingVerification',
   PROCESSING: 'Processing',
+  AUTHORIZED: 'Authorized',
   COMPLETED: 'Completed',
   REJECTED: 'Rejected',
   FAILED: 'Failed',
@@ -19,6 +20,14 @@ const PAYMENT_STATUSES = Object.freeze({
   CANCELLED: 'Cancelled',
   PARTIALLY_REFUNDED: 'PartiallyRefunded',
   REFUNDED: 'Refunded'
+});
+
+const PAYMENT_OPERATIONS = Object.freeze({
+  INITIATE: 'initiate',
+  CAPTURE: 'capture',
+  VOID: 'void',
+  CANCEL: 'cancel',
+  REFUND: 'refund'
 });
 
 const REFUND_STATUSES = Object.freeze({
@@ -75,6 +84,7 @@ const SUPPORTED_PAYMENT_CURRENCIES = VALID_COMMERCE_CURRENCIES;
 module.exports = {
   PAYMENT_PROVIDERS,
   PAYMENT_STATUSES,
+  PAYMENT_OPERATIONS,
   REFUND_STATUSES,
   PROVIDER_ATTEMPT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES,

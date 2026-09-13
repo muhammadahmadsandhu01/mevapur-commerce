@@ -24,7 +24,9 @@ const PAYMENT_EVENT_TYPES = new Set([
   'payment_intent.processing',
   'payment_intent.succeeded',
   'payment_intent.payment_failed',
-  'payment_intent.canceled'
+  'payment_intent.canceled',
+  'payment_intent.amount_capturable_updated',
+  'payment_intent.requires_action'
 ]);
 
 const REFUND_EVENT_TYPES = new Set([
@@ -43,6 +45,26 @@ const hashValue = (value) => crypto
 const isDuplicateKey = (error) => error?.code === 11000;
 const CLAIM_LEASE_MS = 5 * 60 * 1000;
 
+const validateReturnUrl = (returnUrl) => {
+  if (!returnUrl) return true;
+  try {
+    const parsed = new URL(returnUrl);
+    const allowedOrigins = [
+      process.env.CLIENT_URL,
+      process.env.FRONTEND_URL,
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001'
+    ].filter(Boolean).map((o) => {
+      try { return new URL(o).origin; } catch { return o; }
+    });
+    return allowedOrigins.includes(parsed.origin);
+  } catch {
+    return false;
+  }
+};
+
 class PaymentService {
   getProvider(providerName, context = {}) {
     return paymentProviderRegistry.resolve(providerName, context);
@@ -60,17 +82,15 @@ class PaymentService {
     userId,
     orderId,
     provider,
+    returnUrl,
     idempotencyKey
   }) {
-    const requestHash = hashValue({ orderId, provider });
-    let payment = await this.findByIdempotency({
-      userId,
-      idempotencyKey
-    });
-
-    if (payment) {
-      this.assertIdempotencyMatch(payment, requestHash);
-      return this.resumePayment(payment, true);
+    if (returnUrl && !validateReturnUrl(returnUrl)) {
+      throw new AppError(
+        'The return URL origin is invalid or unauthorized',
+        400,
+        'PAYMENT_URL_INVALID'
+      );
     }
 
     const order = await Order.findById(orderId);
@@ -85,12 +105,30 @@ class PaymentService {
       );
     }
     if (
-      order.paymentMethod !== provider
-      || order.paymentStatus !== 'Pending'
-      || order.orderStatus === 'Cancelled'
+      order.orderStatus === 'Cancelled'
+      || order.paymentStatus === 'Paid'
+      || order.paymentMethod !== provider
     ) {
       throw new AppError(
         'The order is not eligible for this payment method',
+        409,
+        'PAYMENT_ORDER_NOT_PAYABLE'
+      );
+    }
+
+    const existingCompleted = await Payment.findOne({
+      order: order._id,
+      status: {
+        $in: [
+          PAYMENT_STATUSES.COMPLETED,
+          PAYMENT_STATUSES.PARTIALLY_REFUNDED,
+          PAYMENT_STATUSES.REFUNDED
+        ]
+      }
+    });
+    if (existingCompleted) {
+      throw new AppError(
+        'The order has already been paid and cannot be charged again',
         409,
         'PAYMENT_ORDER_NOT_PAYABLE'
       );
@@ -111,6 +149,26 @@ class PaymentService {
 
     const isProd = process.env.NODE_ENV === 'production';
     const merchantAccount = await PaymentCapabilityPolicy.getMerchantAccount(provider, isProd ? 'production' : 'sandbox');
+
+    const requestHash = hashValue({
+      operation: 'initiate',
+      orderId: String(order._id),
+      provider,
+      accountAlias: merchantAccount?.accountAlias || 'default',
+      environment: merchantAccount?.environment || (isProd ? 'production' : 'sandbox'),
+      currency: paymentCurrency,
+      amountMinor: String(amountExact.amountMinor)
+    });
+
+    let payment = await this.findByIdempotency({
+      userId,
+      idempotencyKey
+    });
+
+    if (payment) {
+      this.assertIdempotencyMatch(payment, requestHash);
+      return this.resumePayment(payment, true);
+    }
 
     try {
       payment = await Payment.create({
@@ -290,15 +348,19 @@ class PaymentService {
             paymentProviderRegistry.providerConfigs[claimed.provider] || {}
       });
 
+      const isAuthorized = providerResult.status === PAYMENT_STATUSES.AUTHORIZED;
       const persisted = await Payment.findOneAndUpdate({
         _id: claimed._id,
         providerClaimToken: claimToken
       }, {
         $set: {
-           providerPaymentId: providerResult.providerPaymentId,
-           safeProviderReference: providerResult.providerPaymentId,
-           customerAction: providerResult.customerAction || null,
-           providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.READY,
+          providerPaymentId: providerResult.providerPaymentId,
+          safeProviderReference: providerResult.providerPaymentId,
+          customerAction: providerResult.customerAction || null,
+          providerAttemptStatus: PROVIDER_ATTEMPT_STATUSES.READY,
+          authorizedAmount: isAuthorized ? (providerResult.authorizedAmount ?? claimed.amount) : null,
+          authorizedAmountExact: isAuthorized ? (claimed.amountExact || MoneyMapper.fromLegacy(claimed.amount, claimed.currency)) : null,
+          authorizationExpiresAt: providerResult.authorizationExpiresAt || null,
           failureCode: ''
         }
       }, {
@@ -445,8 +507,12 @@ class PaymentService {
       status: value.status,
       amount: value.amount,
       currency: value.currency,
+      authorizedAmount: value.authorizedAmount || null,
+      capturedAmount: value.capturedAmount || null,
       paidAmount: value.paidAmount,
       refundedAmount: value.refundedAmount,
+      authorizationExpiresAt: value.authorizationExpiresAt || null,
+      capturedAt: value.capturedAt || null,
       completedAt: value.completedAt,
       failedAt: value.failedAt,
       cancelledAt: value.cancelledAt,
@@ -459,6 +525,11 @@ class PaymentService {
     const value = payment?.toJSON ? payment.toJSON() : { ...payment };
     return {
       ...this.toPublicPayment(payment),
+      authorizedAmountExact: value.authorizedAmountExact || null,
+      capturedAmountExact: value.capturedAmountExact || null,
+      capturedBy: value.capturedBy || null,
+      cancelledBy: value.cancelledBy || null,
+      cancelReason: value.cancelReason || '',
       verificationNote: value.verificationNote || '',
       verifiedBy: value.verifiedBy || null,
       collectedBy: value.collectedBy || null
@@ -497,6 +568,45 @@ class PaymentService {
     return ['admin', 'super_admin'].includes(role)
       ? this.toAdminPayment(payment)
       : this.toPublicPayment(payment);
+  }
+
+  async getPaymentStatus({ paymentId, userId, role }) {
+    const payment = await Payment.findById(paymentId);
+    if (!payment) {
+      throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
+    }
+    const isOwner = String(payment.user) === String(userId) || ['admin', 'super_admin'].includes(role);
+    if (!isOwner) {
+      throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
+    }
+
+    const terminalFailed = [
+      PAYMENT_STATUSES.FAILED,
+      PAYMENT_STATUSES.CANCELLED,
+      PAYMENT_STATUSES.EXPIRED,
+      PAYMENT_STATUSES.REJECTED
+    ].includes(payment.status);
+
+    const requiresAction = payment.status === PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION
+      || (Boolean(payment.customerAction) && [PAYMENT_STATUSES.PENDING, PAYMENT_STATUSES.PROCESSING].includes(payment.status));
+
+    return {
+      _id: payment._id,
+      order: payment.order,
+      status: payment.status,
+      requiresAction,
+      retryEligible: terminalFailed,
+      customerAction: payment.customerAction || null,
+      amount: payment.amount,
+      currency: payment.currency,
+      authorizedAmount: payment.authorizedAmount || null,
+      capturedAmount: payment.capturedAmount || null,
+      completedAt: payment.completedAt || null,
+      failedAt: payment.failedAt || null,
+      cancelledAt: payment.cancelledAt || null,
+      createdAt: payment.createdAt,
+      updatedAt: payment.updatedAt
+    };
   }
 
   async listPayments({ page = 1, limit = 20, provider, status }) {
@@ -868,6 +978,299 @@ class PaymentService {
     return { idempotentReplay, payment: publicPayment };
   }
 
+  async capturePayment({ paymentId, adminId, amount, idempotencyKey, requestId }) {
+    const payment = await this.findInternal(paymentId);
+    if (!payment) {
+      throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
+    }
+
+    if (payment.status === PAYMENT_STATUSES.COMPLETED) {
+      if (idempotencyKey && payment.captureIdempotencyKey === idempotencyKey) {
+        return {
+          idempotentReplay: true,
+          payment: this.toAdminPayment(payment)
+        };
+      }
+      throw new AppError(
+        'Payment has already been completed and cannot be captured again',
+        409,
+        'PAYMENT_CAPTURE_NOT_ELIGIBLE'
+      );
+    }
+
+    if (payment.status !== PAYMENT_STATUSES.AUTHORIZED) {
+      throw new AppError(
+        'Only authorized payments can be captured',
+        409,
+        'PAYMENT_CAPTURE_NOT_ELIGIBLE'
+      );
+    }
+
+    if (payment.authorizationExpiresAt && new Date(payment.authorizationExpiresAt) < new Date()) {
+      throw new AppError(
+        'Payment authorization has expired and cannot be captured',
+        409,
+        'PAYMENT_CAPTURE_EXPIRED'
+      );
+    }
+
+    const providerAdapter = this.getProvider(payment.provider, {
+      currency: payment.currency,
+      amount: payment.amount,
+      country: payment.paymentType === 'automated' ? '' : 'Pakistan'
+    });
+    const capabilities = providerAdapter.getCapabilities ? providerAdapter.getCapabilities() : {};
+
+    if (!capabilities.capture) {
+      throw new AppError(
+        'Capture is not supported for this payment provider',
+        409,
+        'PAYMENT_CAPTURE_UNAVAILABLE'
+      );
+    }
+
+    const authorizedAmount = payment.authorizedAmount || payment.amount;
+    let captureAmount = authorizedAmount;
+
+    if (amount !== undefined && amount !== null) {
+      if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+        throw new AppError(
+          'Capture amount must be a positive number',
+          422,
+          'PAYMENT_CAPTURE_AMOUNT_INVALID'
+        );
+      }
+      if (amount > authorizedAmount) {
+        throw new AppError(
+          'Capture amount cannot exceed the authorized amount',
+          422,
+          'PAYMENT_CAPTURE_AMOUNT_EXCEEDED'
+        );
+      }
+      if (amount < authorizedAmount && !capabilities.partialCapture) {
+        throw new AppError(
+          'Partial capture is not supported for this payment provider',
+          409,
+          'PAYMENT_PARTIAL_CAPTURE_UNAVAILABLE'
+        );
+      }
+      captureAmount = amount;
+    }
+
+    const captureAmountExact = MoneyMapper.fromLegacy(captureAmount, payment.currency);
+    const providerCaptureIdempotencyKey = `capture:${payment._id}:${idempotencyKey || 'admin'}`;
+
+    if (payment.providerPaymentId && typeof providerAdapter.capturePayment === 'function') {
+      await providerAdapter.capturePayment({
+        paymentId: payment._id,
+        providerPaymentId: payment.providerPaymentId,
+        amount: captureAmount,
+        currency: payment.currency,
+        idempotencyKey: providerCaptureIdempotencyKey,
+        providerConfig: paymentProviderRegistry.providerConfigs[payment.provider] || {}
+      });
+    }
+
+    const session = await mongoose.startSession();
+    let updatedPayment;
+
+    try {
+      await session.withTransaction(async () => {
+        const currentPayment = await this.findInternal(payment._id, session);
+        if (currentPayment.status !== PAYMENT_STATUSES.AUTHORIZED) {
+          throw new AppError(
+            'Payment state changed concurrently during capture',
+            409,
+            'PAYMENT_CAPTURE_NOT_ELIGIBLE'
+          );
+        }
+
+        const order = await Order.findById(currentPayment.order).session(session);
+        if (!order) {
+          throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+        }
+
+        paymentStateMachine.apply(currentPayment, PAYMENT_STATUSES.COMPLETED, {
+          source: 'admin'
+        });
+
+        currentPayment.capturedAmount = captureAmount;
+        currentPayment.capturedAmountExact = captureAmountExact;
+        currentPayment.paidAmount = captureAmount;
+        currentPayment.paidAmountExact = captureAmountExact;
+        currentPayment.capturedAt = new Date();
+        currentPayment.capturedBy = adminId;
+        if (idempotencyKey) {
+          currentPayment.captureIdempotencyKey = idempotencyKey;
+        }
+
+        order.paymentStatus = 'Paid';
+        order.payment = {
+          ...(order.payment || {}),
+          provider: currentPayment.providerDisplayName || currentPayment.provider,
+          transactionId: currentPayment.safeProviderReference || String(currentPayment._id),
+          paidAt: new Date()
+        };
+
+        await Promise.all([
+          currentPayment.save({ session }),
+          order.save({ session })
+        ]);
+
+        updatedPayment = currentPayment;
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    await AuditService.log({
+      requestId,
+      userId: adminId,
+      eventName: 'PAYMENT.CAPTURED',
+      status: 'SUCCESS',
+      metadata: {
+        paymentId: String(payment._id),
+        orderId: String(payment.order),
+        amount: captureAmount,
+        currency: payment.currency
+      }
+    });
+
+    return {
+      idempotentReplay: false,
+      payment: this.toAdminPayment(updatedPayment)
+    };
+  }
+
+  async cancelPayment({ paymentId, adminId, reason = '', idempotencyKey, requestId }) {
+    const payment = await this.findInternal(paymentId);
+    if (!payment) {
+      throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
+    }
+
+    if (payment.status === PAYMENT_STATUSES.CANCELLED) {
+      return {
+        idempotentReplay: true,
+        payment: this.toAdminPayment(payment)
+      };
+    }
+
+    if (
+      [
+        PAYMENT_STATUSES.COMPLETED,
+        PAYMENT_STATUSES.PARTIALLY_REFUNDED,
+        PAYMENT_STATUSES.REFUNDED
+      ].includes(payment.status)
+    ) {
+      throw new AppError(
+        'Completed payments cannot be cancelled/voided. Use refunds instead.',
+        409,
+        'PAYMENT_CANCEL_NOT_ELIGIBLE'
+      );
+    }
+
+    if (!paymentStateMachine.canTransition(payment.status, PAYMENT_STATUSES.CANCELLED)) {
+      throw new AppError(
+        'This payment cannot be cancelled/voided in its current state',
+        409,
+        'PAYMENT_CANCEL_NOT_ELIGIBLE'
+      );
+    }
+
+    const providerAdapter = this.getProvider(payment.provider, {
+      currency: payment.currency,
+      amount: payment.amount,
+      country: payment.paymentType === 'automated' ? '' : 'Pakistan'
+    });
+    const capabilities = providerAdapter.getCapabilities ? providerAdapter.getCapabilities() : {};
+
+    if (!capabilities.cancel && !capabilities.void) {
+      throw new AppError(
+        'Cancellation/void is not supported for this payment provider',
+        409,
+        'PAYMENT_CANCEL_UNAVAILABLE'
+      );
+    }
+
+    const providerCancelIdempotencyKey = `cancel:${payment._id}:${idempotencyKey || 'admin'}`;
+
+    if (payment.providerPaymentId && typeof providerAdapter.cancelPayment === 'function') {
+      await providerAdapter.cancelPayment({
+        paymentId: payment._id,
+        providerPaymentId: payment.providerPaymentId,
+        reason: reason || 'Cancelled by administrator',
+        idempotencyKey: providerCancelIdempotencyKey,
+        providerConfig: paymentProviderRegistry.providerConfigs[payment.provider] || {}
+      });
+    }
+
+    const session = await mongoose.startSession();
+    let updatedPayment;
+
+    try {
+      await session.withTransaction(async () => {
+        const currentPayment = await this.findInternal(payment._id, session);
+        if (currentPayment.status === PAYMENT_STATUSES.CANCELLED) {
+          updatedPayment = currentPayment;
+          return;
+        }
+
+        const order = await Order.findById(currentPayment.order).session(session);
+
+        paymentStateMachine.apply(currentPayment, PAYMENT_STATUSES.CANCELLED, {
+          source: 'admin'
+        });
+
+        currentPayment.cancelledAt = new Date();
+        currentPayment.cancelledBy = adminId;
+        currentPayment.cancelReason = reason ? String(reason).trim() : 'Cancelled by administrator';
+        if (idempotencyKey) {
+          currentPayment.cancelIdempotencyKey = idempotencyKey;
+        }
+
+        if (order && ['Pending', 'Failed'].includes(order.paymentStatus)) {
+          order.paymentStatus = 'Failed';
+          order.statusTimeline.push({
+            status: order.orderStatus,
+            actor: adminId,
+            actorRole: 'admin',
+            note: 'Payment cancelled/voided by admin',
+            timestamp: new Date()
+          });
+        }
+
+        const saves = [currentPayment.save({ session })];
+        if (order) saves.push(order.save({ session }));
+        await Promise.all(saves);
+
+        updatedPayment = currentPayment;
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    await AuditService.log({
+      requestId,
+      userId: adminId,
+      eventName: 'PAYMENT.CANCELLED',
+      status: 'SUCCESS',
+      metadata: {
+        paymentId: String(payment._id),
+        orderId: String(payment.order),
+        reason: reason || 'admin_cancel'
+      }
+    });
+
+    return {
+      idempotentReplay: false,
+      payment: this.toAdminPayment(updatedPayment)
+    };
+  }
+
+  async voidPayment(params) {
+    return this.cancelPayment(params);
+  }
+
   async handleWebhook(providerName, rawBody, signature, options = {}) {
     return paymentWebhookInboxService.recordWebhook({
       provider: providerName,
@@ -941,7 +1344,9 @@ class PaymentService {
       'payment_intent.processing': PAYMENT_STATUSES.PROCESSING,
       'payment_intent.succeeded': PAYMENT_STATUSES.COMPLETED,
       'payment_intent.payment_failed': PAYMENT_STATUSES.FAILED,
-      'payment_intent.canceled': PAYMENT_STATUSES.CANCELLED
+      'payment_intent.canceled': PAYMENT_STATUSES.CANCELLED,
+      'payment_intent.amount_capturable_updated': PAYMENT_STATUSES.AUTHORIZED,
+      'payment_intent.requires_action': PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION
     };
     const nextStatus = statusByEvent[event.type];
 
@@ -980,6 +1385,11 @@ class PaymentService {
           return;
         }
 
+        if (!paymentStateMachine.canTransition(currentPayment.status, nextStatus)) {
+          outcome = 'ignored';
+          return;
+        }
+
         paymentStateMachine.apply(currentPayment, nextStatus, {
           source: 'provider',
           providerEventId: event.id,
@@ -996,6 +1406,10 @@ class PaymentService {
           order.payment.transactionId = providerPayment.id;
           order.payment.paymentIntentId = providerPayment.id;
           order.payment.paidAt = order.payment.paidAt || new Date();
+        } else if (nextStatus === PAYMENT_STATUSES.AUTHORIZED) {
+          currentPayment.authorizedAmount = currentPayment.amount;
+          currentPayment.authorizedAmountExact = currentPayment.amountExact || MoneyMapper.fromLegacy(currentPayment.amount, currentPayment.currency);
+          order.paymentStatus = 'Pending';
         } else if (nextStatus === PAYMENT_STATUSES.FAILED) {
           order.paymentStatus = 'Failed';
         } else if (nextStatus === PAYMENT_STATUSES.PROCESSING) {

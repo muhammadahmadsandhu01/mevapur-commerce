@@ -157,6 +157,33 @@ const paymentSchema = new mongoose.Schema({
   refundedAmountExact: { type: MoneySchema, default: null },
   refundReservedAmount: { type: Number, default: 0, min: 0, select: false },
   refundReservedAmountExact: { type: MoneySchema, default: null, select: false },
+  authorizedAmount: { type: Number, default: 0, min: 0 },
+  authorizedAmountExact: { type: MoneySchema, default: null },
+  capturedAmount: { type: Number, default: 0, min: 0 },
+  capturedAmountExact: { type: MoneySchema, default: null },
+  authorizationExpiresAt: { type: Date, default: null },
+  capturedAt: { type: Date, default: null },
+  capturedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  cancelledBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  cancelReason: { type: String, default: '', maxlength: 200 },
+  captureIdempotencyKey: {
+    type: String,
+    select: false,
+    maxlength: 255
+  },
+  cancelIdempotencyKey: {
+    type: String,
+    select: false,
+    maxlength: 255
+  },
   idempotencyKey: {
     type: String,
     required: true,
@@ -199,6 +226,8 @@ const paymentSchema = new mongoose.Schema({
       delete value.idempotencyKey;
       delete value.requestHash;
       delete value.providerIdempotencyKey;
+      delete value.captureIdempotencyKey;
+      delete value.cancelIdempotencyKey;
       delete value.providerAttemptStatus;
       delete value.providerClaimToken;
       delete value.providerClaimedAt;

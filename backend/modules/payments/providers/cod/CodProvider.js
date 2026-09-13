@@ -37,6 +37,10 @@ class CodProvider extends PaymentProvider {
   async retrievePayment() {
     return { status: 'Pending' };
   }
+
+  async cancelPayment() {
+    return { status: 'Cancelled' };
+  }
 }
 
 module.exports = new CodProvider();

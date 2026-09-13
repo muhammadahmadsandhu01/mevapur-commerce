@@ -33,7 +33,9 @@ const PAYMENT_EVENT_TYPES = new Set([
   'payment_intent.processing',
   'payment_intent.succeeded',
   'payment_intent.payment_failed',
-  'payment_intent.canceled'
+  'payment_intent.canceled',
+  'payment_intent.amount_capturable_updated',
+  'payment_intent.requires_action'
 ]);
 
 const REFUND_EVENT_TYPES = new Set([
@@ -544,6 +546,55 @@ class PaymentWebhookProcessor {
         });
         await order.save(session ? { session } : {});
 
+        return 'processed';
+      }
+
+      return 'ignored';
+    }
+
+    if (eventType === 'payment_intent.amount_capturable_updated') {
+      if (payment.status === PAYMENT_STATUSES.COMPLETED) {
+        return 'ignored';
+      }
+
+      if (paymentStateMachine.canTransition(payment.status, PAYMENT_STATUSES.AUTHORIZED)) {
+        paymentStateMachine.apply(payment, PAYMENT_STATUSES.AUTHORIZED, {
+          source: 'provider',
+          providerEventId,
+          at: now
+        });
+        payment.authorizedAmount = payment.amount;
+        payment.authorizedAmountExact = payment.amountExact || MoneyMapper.fromLegacy(payment.amount, payment.currency || authoritativeOrderCurrency);
+        await payment.save(session ? { session } : {});
+
+        order.paymentStatus = 'Pending';
+        order.statusTimeline.push({
+          status: order.orderStatus,
+          actor: order.user,
+          actorRole: 'system',
+          note: 'Payment authorized via provider webhook',
+          timestamp: now
+        });
+        await order.save(session ? { session } : {});
+
+        return 'processed';
+      }
+
+      return 'ignored';
+    }
+
+    if (eventType === 'payment_intent.requires_action') {
+      if (payment.status === PAYMENT_STATUSES.COMPLETED) {
+        return 'ignored';
+      }
+
+      if (paymentStateMachine.canTransition(payment.status, PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION)) {
+        paymentStateMachine.apply(payment, PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION, {
+          source: 'provider',
+          providerEventId,
+          at: now
+        });
+        await payment.save(session ? { session } : {});
         return 'processed';
       }
 

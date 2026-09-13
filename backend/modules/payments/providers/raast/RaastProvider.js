@@ -70,6 +70,10 @@ class RaastProvider extends PaymentProvider {
       customerAction: this.instructions(providerConfig)
     };
   }
+
+  async cancelPayment() {
+    return { status: 'Cancelled' };
+  }
 }
 
 module.exports = new RaastProvider();

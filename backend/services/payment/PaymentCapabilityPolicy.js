@@ -5,6 +5,9 @@ const { AppError } = require('../../common/errors/AppError');
 const normalizeCountryCode = (country) => {
   if (!country) return '';
   const cleaned = String(country).trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(cleaned)) {
+    return cleaned;
+  }
   const countryMap = {
     PAKISTAN: 'PK',
     'UNITED KINGDOM': 'GB',
@@ -15,9 +18,21 @@ const normalizeCountryCode = (country) => {
     'UNITED STATES': 'US',
     USA: 'US',
     GERMANY: 'DE',
-    DEUTSCHLAND: 'DE'
+    DEUTSCHLAND: 'DE',
+    JAPAN: 'JP',
+    KUWAIT: 'KW'
   };
-  return countryMap[cleaned] || cleaned;
+  if (countryMap[cleaned]) return countryMap[cleaned];
+  try {
+    const { CountryRegistry } = require('../../modules/commerce');
+    if (CountryRegistry && typeof CountryRegistry.resolve === 'function') {
+      const resolved = CountryRegistry.resolve(country);
+      if (resolved && resolved.alpha2) return resolved.alpha2;
+    }
+  } catch {
+    // fallback
+  }
+  return cleaned;
 };
 
 class PaymentCapabilityPolicy {
@@ -337,7 +352,7 @@ class PaymentCapabilityPolicy {
   }
 
   async assertEligibleForOrder(order, providerCode, currencyParam = null) {
-    const country = order.shippingAddress?.country || 'Pakistan';
+    const country = order.shippingAddress?.countryCode || order.shippingAddress?.country || 'Pakistan';
     const currency = currencyParam
       || order.totalAmountExact?.currency
       || order.subtotalExact?.currency

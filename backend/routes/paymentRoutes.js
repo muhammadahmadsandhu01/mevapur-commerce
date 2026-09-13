@@ -5,6 +5,8 @@ const validate = require('../middleware/validate');
 const {
   createPaymentSchema,
   createRefundSchema,
+  capturePaymentSchema,
+  cancelPaymentSchema,
   codCollectionSchema,
   idempotencyHeaderSchema,
   manualPaymentReviewSchema,
@@ -136,6 +138,58 @@ router.get(
     code: 'PAYMENT_VALIDATION_FAILED'
   }),
   paymentController.listPayments
+);
+
+router.get(
+  '/:id/status',
+  protect,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.getPaymentStatus
+);
+
+router.post(
+  '/:id/capture',
+  protect,
+  admin,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(capturePaymentSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.capturePayment
+);
+
+router.post(
+  '/:id/cancel',
+  protect,
+  admin,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(cancelPaymentSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.cancelPayment
+);
+
+router.post(
+  '/:id/void',
+  protect,
+  admin,
+  validate(paymentReferenceSchema, {
+    source: 'params',
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  validate(cancelPaymentSchema, {
+    code: 'PAYMENT_VALIDATION_FAILED'
+  }),
+  paymentController.voidPayment
 );
 
 router.get(
