@@ -321,7 +321,7 @@ class PaymentWebhookProcessor {
 
         await AuditService.log({
           eventName: 'PAYMENT.WEBHOOK_REJECTED',
-          status: 'FAILED',
+          status: 'FAILURE',
           metadata: {
             providerEventId: claimedEvent.providerEventId,
             eventType: claimedEvent.eventType,

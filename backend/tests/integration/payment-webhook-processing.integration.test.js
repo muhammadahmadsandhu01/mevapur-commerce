@@ -16,6 +16,7 @@ const Order = require('../../models/Order');
 const Refund = require('../../models/Refund');
 const Product = require('../../models/Product');
 const Session = require('../../models/Session');
+const AuditLog = require('../../models/AuditLog');
 const EmailService = require('../../services/EmailService');
 const paymentWebhookProcessor = require('../../services/payment/webhooks/PaymentWebhookProcessor');
 const {
@@ -148,7 +149,8 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       Order.syncIndexes(),
       Refund.syncIndexes(),
       Product.syncIndexes(),
-      Session.syncIndexes()
+      Session.syncIndexes(),
+      AuditLog.syncIndexes()
     ]);
   });
 
@@ -159,7 +161,8 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       Order.deleteMany({}),
       Refund.deleteMany({}),
       Product.deleteMany({}),
-      Session.deleteMany({})
+      Session.deleteMany({}),
+      AuditLog.collection.deleteMany({})
     ]);
     jest.clearAllMocks();
   });
@@ -416,6 +419,14 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       const updatedEvent = await PaymentWebhookEvent.findById(eventDoc._id);
       expect(updatedEvent.status).toBe(WEBHOOK_PROCESSING_STATUSES.DEAD_LETTER);
       expect(updatedEvent.errorCode).toBe('PAYMENT_ORDER_CURRENCY_MISMATCH');
+
+      const auditRecord = await AuditLog.findOne({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': eventDoc.providerEventId
+      });
+      expect(auditRecord).toBeTruthy();
+      expect(auditRecord.status).toBe('FAILURE');
+      expect(auditRecord.metadata.errorCode).toBe('PAYMENT_ORDER_CURRENCY_MISMATCH');
     });
 
     test('event with amount mismatch immediately transitions to dead-letter', async () => {
@@ -445,14 +456,23 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
       const updatedEvent = await PaymentWebhookEvent.findById(eventDoc._id);
       expect(updatedEvent.status).toBe(WEBHOOK_PROCESSING_STATUSES.DEAD_LETTER);
       expect(updatedEvent.errorCode).toBe('PAYMENT_AMOUNT_MISMATCH');
+
+      const auditRecord = await AuditLog.findOne({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': eventDoc.providerEventId
+      });
+      expect(auditRecord).toBeTruthy();
+      expect(auditRecord.status).toBe('FAILURE');
+      expect(auditRecord.metadata.errorCode).toBe('PAYMENT_AMOUNT_MISMATCH');
     });
 
-    test('missing payment reference schedules bounded retry until maxAttempts', async () => {
+    test('missing payment reference schedules bounded retry until maxAttempts and records sanitized audit log exactly once', async () => {
+      const providerEventId = `evt_missing_${crypto.randomUUID()}`;
       const eventDoc = await PaymentWebhookEvent.create({
         provider: 'stripe',
         accountAlias: 'default',
         environment: 'sandbox',
-        providerEventId: `evt_missing_${crypto.randomUUID()}`,
+        providerEventId,
         eventType: 'payment_intent.succeeded',
         providerPaymentId: 'pi_non_existent',
         amountMinor: 5000,
@@ -462,34 +482,102 @@ describe('Phase 5B: Payment Webhook Processor Integration Tests', () => {
         nextAttemptAt: new Date(Date.now() - 1000)
       });
 
-      // Attempt 1: retry_scheduled
+      // Attempt 1: retry_scheduled (non-terminal, no audit log emitted)
       const summary1 = await paymentWebhookProcessor.processPending({ batchSize: 10, maxAttempts: 3 });
       expect(summary1.retryScheduled).toBe(1);
 
       let updatedEvent = await PaymentWebhookEvent.findById(eventDoc._id);
       expect(updatedEvent.status).toBe(WEBHOOK_PROCESSING_STATUSES.RETRY_SCHEDULED);
       expect(updatedEvent.attemptCount).toBe(1);
+      expect(await AuditLog.countDocuments({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': providerEventId
+      })).toBe(0);
 
       // Force nextAttemptAt to past to simulate next retry
       updatedEvent.nextAttemptAt = new Date(Date.now() - 1000);
       await updatedEvent.save();
 
-      // Attempt 2: retry_scheduled
+      // Attempt 2: retry_scheduled (non-terminal, no audit log emitted)
       const summary2 = await paymentWebhookProcessor.processPending({ batchSize: 10, maxAttempts: 3 });
       expect(summary2.retryScheduled).toBe(1);
 
       updatedEvent = await PaymentWebhookEvent.findById(eventDoc._id);
       expect(updatedEvent.attemptCount).toBe(2);
+      expect(await AuditLog.countDocuments({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': providerEventId
+      })).toBe(0);
+
       updatedEvent.nextAttemptAt = new Date(Date.now() - 1000);
       await updatedEvent.save();
 
-      // Attempt 3: maxAttempts reached -> dead_letter
+      // Attempt 3: maxAttempts reached -> terminal dead_letter transition
       const summary3 = await paymentWebhookProcessor.processPending({ batchSize: 10, maxAttempts: 3 });
       expect(summary3.deadLettered).toBe(1);
 
       updatedEvent = await PaymentWebhookEvent.findById(eventDoc._id);
       expect(updatedEvent.status).toBe(WEBHOOK_PROCESSING_STATUSES.DEAD_LETTER);
       expect(updatedEvent.attemptCount).toBe(3);
+      expect(updatedEvent.errorCode).toBe('PAYMENT_NOT_FOUND');
+
+      // 5. Direct AuditLog query for PAYMENT.WEBHOOK_REJECTED
+      const auditRecords = await AuditLog.find({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': providerEventId
+      });
+
+      // 6. Assert exactly one relevant audit record exists
+      expect(auditRecords).toHaveLength(1);
+      const auditRecord = auditRecords[0];
+
+      // 7. Assert event/provider identifiers correlate with the dead-lettered inbox event
+      expect(auditRecord.status).toBe('FAILURE');
+      expect(auditRecord.metadata.providerEventId).toBe(providerEventId);
+      expect(auditRecord.metadata.eventType).toBe('payment_intent.succeeded');
+      expect(auditRecord.metadata.provider).toBe('stripe');
+
+      // 8. Assert only sanitized error code/type metadata is present
+      expect(auditRecord.metadata.errorCode).toBe('PAYMENT_NOT_FOUND');
+
+      // 9. Recursively verify the audit document does not contain secrets or sensitive tokens
+      const auditJson = JSON.stringify(auditRecord.toObject()).toLowerCase();
+      const forbiddenTokens = [
+        'whsec_',
+        'sk_test',
+        'sk_live',
+        'bearer',
+        'cvv',
+        'pan',
+        'claimtoken',
+        'leaseid',
+        'stack',
+        'signature',
+        'client_secret',
+        'authorization',
+        'rawpayload',
+        'payloadhash'
+      ];
+      for (const token of forbiddenTokens) {
+        expect(auditJson).not.toContain(token);
+      }
+
+      // 10. Re-run or re-claim the terminal event and prove no duplicate audit record or financial transition
+      const reRunSummary = await paymentWebhookProcessor.processPending({ batchSize: 10, maxAttempts: 3 });
+      expect(reRunSummary.processed).toBe(0);
+      expect(reRunSummary.deadLettered).toBe(0);
+      expect(reRunSummary.retryScheduled).toBe(0);
+
+      const auditCountAfterReRun = await AuditLog.countDocuments({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': providerEventId
+      });
+      expect(auditCountAfterReRun).toBe(1);
+
+      // Verify zero financial mutation/creation
+      expect(await Payment.countDocuments({})).toBe(0);
+      expect(await Order.countDocuments({})).toBe(0);
+      expect(await Refund.countDocuments({})).toBe(0);
     });
   });
 

@@ -1149,6 +1149,35 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
       });
       expect(whAudit).toBeTruthy();
       expect(whAudit.status).toBe('SUCCESS');
+
+      // 7. PAYMENT.WEBHOOK_REJECTED (dead-letter audit emission)
+      const deadEventDoc = await PaymentWebhookEvent.create({
+        provider: 'stripe',
+        accountAlias: 'default',
+        environment: 'sandbox',
+        providerEventId: `evt_gov_dead_${crypto.randomUUID()}`,
+        eventType: 'payment_intent.succeeded',
+        providerPaymentId: 'pi_gov_non_existent',
+        amountMinor: 5000,
+        currency: 'USD',
+        payloadHash: 'hash_gov_dead',
+        status: 'received',
+        attemptCount: 2,
+        nextAttemptAt: new Date(Date.now() - 1000)
+      });
+
+      await PaymentWebhookProcessor.processPending({ batchSize: 10, maxAttempts: 3 });
+
+      const deadWhAudit = await AuditLog.findOne({
+        eventName: 'PAYMENT.WEBHOOK_REJECTED',
+        'metadata.providerEventId': deadEventDoc.providerEventId
+      });
+      expect(deadWhAudit).toBeTruthy();
+      expect(deadWhAudit.status).toBe('FAILURE');
+      expect(deadWhAudit.metadata.provider).toBe('stripe');
+      expect(deadWhAudit.metadata.errorCode).toBe('PAYMENT_NOT_FOUND');
+      expect(JSON.stringify(deadWhAudit)).not.toContain('sk_test');
+      expect(JSON.stringify(deadWhAudit)).not.toContain('secret_token');
     });
 
     test('28. Stale/in-flight/dead-letter metrics are accurately aggregated', async () => {
