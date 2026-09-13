@@ -337,6 +337,58 @@ class CountryRegistry {
   }
 
   /**
+   * Resolve a country input string (alpha-2, alpha-3, numeric, or name/alias) to its country entry.
+   * Returns null if unresolvable.
+   * @param {string} input
+   * @returns {Object|null}
+   */
+  static resolve(input) {
+    if (!input || typeof input !== 'string') return null;
+    const normalized = input.trim().toUpperCase();
+    if (!normalized) return null;
+
+    if (COUNTRY_MAP.has(normalized)) return COUNTRY_MAP.get(normalized);
+    if (ALPHA3_MAP.has(normalized)) return ALPHA3_MAP.get(normalized);
+    if (NUMERIC_MAP.has(normalized)) return NUMERIC_MAP.get(normalized);
+
+    const nameMap = {
+      'UNITED KINGDOM': 'GB',
+      'GREAT BRITAIN': 'GB',
+      'BRITAIN': 'GB',
+      'ENGLAND': 'GB',
+      UK: 'GB',
+      'UNITED ARAB EMIRATES': 'AE',
+      UAE: 'AE',
+      'UNITED STATES': 'US',
+      'UNITED STATES OF AMERICA': 'US',
+      USA: 'US',
+      GERMANY: 'DE',
+      DEUTSCHLAND: 'DE',
+      PAKISTAN: 'PK',
+      JAPAN: 'JP',
+      KUWAIT: 'KW',
+      FRANCE: 'FR',
+      CANADA: 'CA',
+      AUSTRALIA: 'AU',
+      INDIA: 'IN',
+      CHINA: 'CN',
+      SAUDI_ARABIA: 'SA',
+      'SAUDI ARABIA': 'SA'
+    };
+    if (nameMap[normalized] && COUNTRY_MAP.has(nameMap[normalized])) {
+      return COUNTRY_MAP.get(nameMap[normalized]);
+    }
+
+    for (const entry of COUNTRY_MAP.values()) {
+      if (entry.name && entry.name.trim().toUpperCase() === normalized) {
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Check if country code exists
    * @param {string} code
    * @returns {boolean}
@@ -363,6 +415,11 @@ class CountryRegistry {
     const normalized = this.normalizeCode(code);
     if (!normalized) {
       throw CommerceError.countryUnknown(code);
+    }
+
+    const resolved = this.resolve(normalized);
+    if (resolved) {
+      return resolved;
     }
 
     const entry = COUNTRY_MAP.get(normalized) || ALPHA3_MAP.get(normalized) || NUMERIC_MAP.get(normalized);

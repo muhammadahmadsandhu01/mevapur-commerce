@@ -218,6 +218,13 @@ const paymentSchema = new mongoose.Schema({
     select: false,
     maxlength: 128
   },
+  voidAttemptStatus: {
+    type: String,
+    default: 'unclaimed',
+    select: false
+  },
+  voidClaimToken: { type: String, default: '', select: false, maxlength: 128 },
+  voidClaimedAt: { type: Date, default: null, select: false },
   idempotencyKey: {
     type: String,
     required: true,
@@ -272,6 +279,9 @@ const paymentSchema = new mongoose.Schema({
       delete value.cancelClaimedAt;
       delete value.voidIdempotencyKey;
       delete value.voidRequestHash;
+      delete value.voidAttemptStatus;
+      delete value.voidClaimToken;
+      delete value.voidClaimedAt;
       delete value.providerAttemptStatus;
       delete value.providerClaimToken;
       delete value.providerClaimedAt;
@@ -287,6 +297,25 @@ const paymentSchema = new mongoose.Schema({
 paymentSchema.index(
   { user: 1, idempotencyKey: 1 },
   { unique: true, name: 'unique_user_payment_idempotency' }
+);
+paymentSchema.index(
+  { order: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: {
+        $in: [
+          'Pending',
+          'Processing',
+          'RequiresCustomerAction',
+          'Authorized',
+          'AwaitingCustomerPayment',
+          'AwaitingVerification'
+        ]
+      }
+    },
+    name: 'unique_active_order_payment'
+  }
 );
 paymentSchema.index(
   { provider: 1, providerPaymentId: 1 },

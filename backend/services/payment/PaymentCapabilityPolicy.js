@@ -4,25 +4,6 @@ const { AppError } = require('../../common/errors/AppError');
 
 const normalizeCountryCode = (country) => {
   if (!country) return '';
-  const cleaned = String(country).trim().toUpperCase();
-  if (/^[A-Z]{2}$/.test(cleaned)) {
-    return cleaned;
-  }
-  const countryMap = {
-    PAKISTAN: 'PK',
-    'UNITED KINGDOM': 'GB',
-    'GREAT BRITAIN': 'GB',
-    UK: 'GB',
-    'UNITED ARAB EMIRATES': 'AE',
-    UAE: 'AE',
-    'UNITED STATES': 'US',
-    USA: 'US',
-    GERMANY: 'DE',
-    DEUTSCHLAND: 'DE',
-    JAPAN: 'JP',
-    KUWAIT: 'KW'
-  };
-  if (countryMap[cleaned]) return countryMap[cleaned];
   try {
     const { CountryRegistry } = require('../../modules/commerce');
     if (CountryRegistry && typeof CountryRegistry.resolve === 'function') {
@@ -32,7 +13,11 @@ const normalizeCountryCode = (country) => {
   } catch {
     // fallback
   }
-  return cleaned;
+  const cleaned = String(country).trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(cleaned)) {
+    return cleaned;
+  }
+  return '';
 };
 
 class PaymentCapabilityPolicy {
@@ -60,22 +45,35 @@ class PaymentCapabilityPolicy {
       }
     }
 
-    // Default configuration fallback from environment
+    // Default configuration fallback from environment and market
     const featureFlags = this.registry.featureFlags || {};
     const providerConfigs = this.registry.providerConfigs || {};
     const isEnabled = featureFlags[providerCode] === true;
 
     const isDomesticManual = ['cod', 'bank_transfer', 'raast'].includes(providerCode);
 
+    let fallbackMerchantCountry = '';
+    let fallbackCurrency = '';
+    try {
+      const MarketService = require('../MarketService');
+      const marketConfig = await MarketService.getConfig();
+      if (marketConfig) {
+        fallbackMerchantCountry = marketConfig.merchantCountry || marketConfig.homeCountry || '';
+        fallbackCurrency = marketConfig.baseCurrency || marketConfig.defaultCurrency || '';
+      }
+    } catch {
+      // fallback
+    }
+
     return {
       provider: providerCode,
       environment: targetEnv,
       accountAlias: 'default',
       isEnabled,
-      merchantCountry: 'PK',
-      settlementCurrency: 'PKR',
-      supportedCurrencies: ['PKR'],
-      supportedCountries: ['PK'],
+      merchantCountry: fallbackMerchantCountry || '',
+      settlementCurrency: fallbackCurrency || '',
+      supportedCurrencies: fallbackCurrency ? [fallbackCurrency] : [],
+      supportedCountries: fallbackMerchantCountry ? [fallbackMerchantCountry] : [],
       sandboxVerification: isDomesticManual
         ? 'verified'
         : (providerConfigs[providerCode]?.credentialConfigured ? 'verified' : 'unverified'),
@@ -225,21 +223,21 @@ class PaymentCapabilityPolicy {
     // COD Domestic Policy (Section 2)
     if (providerCode === 'cod' || manifest.isOfflineMethod) {
       const merchantCountry = normalizeCountryCode(
-        context.merchantCountry || account.merchantCountry || 'PK'
+        context.merchantCountry !== undefined ? context.merchantCountry : account.merchantCountry
       );
       const domesticCurrency = String(
-        context.baseCurrency || account.settlementCurrency || 'PKR'
+        context.baseCurrency !== undefined ? context.baseCurrency : (account.settlementCurrency || '')
       ).trim().toUpperCase();
 
-      if (reqCountry && reqCountry !== merchantCountry) {
+      if (!merchantCountry || !reqCountry || reqCountry !== merchantCountry) {
         eligibilityReason = 'PAYMENT_COUNTRY_UNSUPPORTED';
-      } else if (reqCurrency && reqCurrency !== domesticCurrency) {
+      } else if (reqCurrency && domesticCurrency && reqCurrency !== domesticCurrency) {
         eligibilityReason = 'PAYMENT_CURRENCY_UNSUPPORTED';
       }
     } else {
       // Generic provider country / currency check from account & adapter manifest
-      const supportedCountries = (account.supportedCountries || []).map((c) => normalizeCountryCode(c));
-      const supportedCurrencies = (account.supportedCurrencies || []).map((c) => String(c).toUpperCase());
+      const supportedCountries = (account.supportedCountries || []).map((c) => normalizeCountryCode(c)).filter(Boolean);
+      const supportedCurrencies = (account.supportedCurrencies || []).map((c) => String(c).toUpperCase()).filter(Boolean);
 
       if (reqCountry && supportedCountries.length > 0) {
         if (!supportedCountries.includes(reqCountry)) {
@@ -340,8 +338,8 @@ class PaymentCapabilityPolicy {
           webhook: evaluation.account?.webhookVerification || 'unverified'
         },
         environment: evaluation.account?.environment || 'sandbox',
-        supportedCurrencies: evaluation.account?.supportedCurrencies || ['PKR'],
-        supportedCountries: evaluation.account?.supportedCountries || ['PK'],
+        supportedCurrencies: evaluation.account?.supportedCurrencies || [],
+        supportedCountries: evaluation.account?.supportedCountries || [],
         capabilities: evaluation.capabilities,
         metadata,
         reason: evaluation.reason
@@ -352,7 +350,7 @@ class PaymentCapabilityPolicy {
   }
 
   async assertEligibleForOrder(order, providerCode, currencyParam = null) {
-    const country = order.shippingAddress?.countryCode || order.shippingAddress?.country || 'Pakistan';
+    const country = order.shippingAddress?.countryCode || order.shippingAddress?.country || null;
     const currency = currencyParam
       || order.totalAmountExact?.currency
       || order.subtotalExact?.currency

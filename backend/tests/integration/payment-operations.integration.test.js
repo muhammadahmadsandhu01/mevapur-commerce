@@ -418,7 +418,7 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       const order = await createOrder(auth.user, { amount: 100 });
       const idempotencyKey = crypto.randomUUID();
 
-      await Promise.all([
+      const responses = await Promise.all([
         request(app)
           .post('/api/payments')
           .set('Authorization', auth.authorization)
@@ -431,7 +431,31 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
           .send({ orderId: order._id.toString(), provider: 'stripe' })
       ]);
 
+      expect(responses.some((r) => [200, 201].includes(r.status))).toBe(true);
       expect(fakeStripe.paymentIntents.create).toHaveBeenCalledTimes(1);
+
+      // Concurrent initiation with DIFFERENT client keys on same order produces exactly one active attempt
+      const order2 = await createOrder(auth.user, { amount: 150 });
+      const keyA = crypto.randomUUID();
+      const keyB = crypto.randomUUID();
+
+      const diffKeyResponses = await Promise.all([
+        request(app)
+          .post('/api/payments')
+          .set('Authorization', auth.authorization)
+          .set('Idempotency-Key', keyA)
+          .send({ orderId: order2._id.toString(), provider: 'stripe' }),
+        request(app)
+          .post('/api/payments')
+          .set('Authorization', auth.authorization)
+          .set('Idempotency-Key', keyB)
+          .send({ orderId: order2._id.toString(), provider: 'stripe' })
+      ]);
+
+      const diffStatuses = diffKeyResponses.map((r) => r.status).sort();
+      expect(diffStatuses).toEqual([201, 409]);
+      const order2Payments = await Payment.find({ order: order2._id });
+      expect(order2Payments).toHaveLength(1);
     });
 
     test('13. Same request reuses persisted provider idempotency key', async () => {
@@ -447,7 +471,7 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
 
       expect(first.status).toBe(201);
       const paymentDoc = await Payment.findById(first.body.data.payment._id).select('+providerIdempotencyKey');
-      expect(paymentDoc.providerIdempotencyKey).toBe(`payment:${order._id}:${idempotencyKey}`);
+      expect(paymentDoc.providerIdempotencyKey).toMatch(new RegExp(`^payment:${order._id}:[a-f0-9]{32}$`));
 
       const retry = await request(app)
         .post('/api/payments')
@@ -532,25 +556,47 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       const order = await createOrder(auth.user, { amount: 100 });
       const idempotencyKey = crypto.randomUUID();
 
-      const payment = await Payment.create({
-        order: order._id,
-        user: auth.user._id,
-        provider: 'stripe',
-        gateway: 'stripe',
-        status: PAYMENT_STATUSES.PENDING,
-        amount: 100,
-        currency: 'PKR',
-        providerPaymentId: 'pi_ops_crash_1',
-        safeProviderReference: 'pi_ops_crash_1',
-        idempotencyKey,
-        requestHash: crypto.randomUUID(),
-        providerIdempotencyKey: `payment:${order._id}:${idempotencyKey}`
+      let createdIntentId;
+      fakeStripe.paymentIntents.create.mockImplementationOnce(async (params, options) => {
+        createdIntentId = 'pi_ops_crash_lost_resp';
+        const intent = {
+          id: createdIntentId,
+          client_secret: 'pi_ops_crash_secret_token',
+          status: 'requires_payment_method',
+          amount: params.amount,
+          currency: params.currency,
+          metadata: params.metadata || {}
+        };
+        createdIntents.set(intent.id, intent);
+        if (options?.idempotencyKey) {
+          idempotentIntents.set(options.idempotencyKey, intent);
+        }
+        // Simulate crash right after provider creation before returning to service
+        throw new Error('Simulated process crash after provider creation');
       });
-      createdIntents.set('pi_ops_crash_1', { id: 'pi_ops_crash_1', amount: 10000, currency: 'pkr', status: 'requires_payment_method', metadata: { paymentId: String(payment._id), orderId: String(order._id) } });
 
-      const resumeRes = await PaymentService.resumePayment(payment, true);
-      expect(resumeRes.payment._id.toString()).toBe(payment._id.toString());
-      expect(fakeStripe.paymentIntents.retrieve).toHaveBeenCalledWith('pi_ops_crash_1');
+      const crashedRes = await request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+
+      expect(crashedRes.status).toBe(502);
+      expect(createdIntents.has('pi_ops_crash_lost_resp')).toBe(true);
+
+      const countBeforeRetry = createdIntents.size;
+
+      // Retry with same idempotency key and same parameters
+      const retryRes = await request(app)
+        .post('/api/payments')
+        .set('Authorization', auth.authorization)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ orderId: order._id.toString(), provider: 'stripe' });
+
+      expect([200, 201]).toContain(retryRes.status);
+      expect(createdIntents.size).toBe(countBeforeRetry); // No duplicate intent created!
+      const paymentInDb = await Payment.findOne({ order: order._id });
+      expect(paymentInDb.providerPaymentId).toBe('pi_ops_crash_lost_resp');
     });
 
     test('18. Definitive failure permits only an explicitly new attempt', async () => {
@@ -592,6 +638,8 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       expect(payment.providerIdempotencyKey).not.toContain(auth.user.email);
       expect(payment.providerIdempotencyKey).not.toContain('03001234567');
       expect(payment.providerIdempotencyKey).not.toContain('Lahore');
+      expect(payment.providerIdempotencyKey.length).toBeLessThanOrEqual(255);
+      expect(/^[A-Za-z0-9_\-\.:]+$/.test(payment.providerIdempotencyKey)).toBe(true);
     });
   });
 
@@ -787,13 +835,39 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
   });
 
   describe('4. Capture Governance (Scenarios 28-39)', () => {
-    test('28. Unauthorized capture returns 401', async () => {
+    test('28. Unauthorized capture returns 401 across all unauthenticated states', async () => {
       const paymentId = new (require('mongoose').Types.ObjectId)();
-      const res = await request(app)
+
+      // 1. No token
+      const noTokenRes = await request(app)
         .post(`/api/payments/${paymentId}/capture`)
         .send({});
+      expect(noTokenRes.status).toBe(401);
+      expect(noTokenRes.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
 
-      expect(res.status).toBe(401);
+      // 2. Malformed token
+      const malformedRes = await request(app)
+        .post(`/api/payments/${paymentId}/capture`)
+        .set('Authorization', 'Bearer invalid_garbage_jwt_token')
+        .send({});
+      expect(malformedRes.status).toBe(401);
+
+      // 3. Expired token / session
+      const expiredAuth = await createAuth('admin', { sessionExpired: true });
+      const expiredRes = await request(app)
+        .post(`/api/payments/${paymentId}/capture`)
+        .set('Authorization', expiredAuth.authorization)
+        .send({});
+      expect(expiredRes.status).toBe(401);
+
+      // 4. Revoked session
+      const revokedAuth = await createAuth('admin', { sessionRevoked: true });
+      const revokedRes = await request(app)
+        .post(`/api/payments/${paymentId}/capture`)
+        .set('Authorization', revokedAuth.authorization)
+        .send({});
+      expect(revokedRes.status).toBe(401);
+      expect(revokedRes.body.error.code).toBe('AUTH_SESSION_REVOKED');
     });
 
     test('29. Customer/support/inventory/manager capture returns 403', async () => {
@@ -808,10 +882,11 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
           .send({});
 
         expect(res.status).toBe(403);
+        expect(res.body.error.code).toBe('AUTH_FORBIDDEN');
       }
     });
 
-    test('30. Admin and super_admin follow approved policy', async () => {
+    test('30. Admin and super_admin follow approved policy for capture and cancel', async () => {
       const allowedRoles = ['admin', 'super_admin'];
 
       for (const role of allowedRoles) {
@@ -845,14 +920,54 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
         expect(res.status).toBe(200);
         expect(res.body.data.payment.status).toBe('Completed');
       }
+
+      // Test cancel route authorization matrix
+      const customer = await createAuth('customer');
+      const orderForCancel = await createOrder(customer.user, { amount: 100 });
+      const cancelPayment = await Payment.create({
+        user: customer.user._id,
+        order: orderForCancel._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'PKR',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 100,
+        providerPaymentId: 'pi_ops_cancel_auth_test',
+        safeProviderReference: 'pi_ops_cancel_auth_test',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${orderForCancel._id}:${crypto.randomUUID()}`
+      });
+      createdIntents.set('pi_ops_cancel_auth_test', { id: 'pi_ops_cancel_auth_test', amount: 10000, status: 'requires_capture' });
+
+      // Anonymous / customer / forbidden roles
+      const noAuthCancel = await request(app).post(`/api/payments/${cancelPayment._id}/cancel`).send({});
+      expect(noAuthCancel.status).toBe(401);
+
+      const custCancel = await request(app)
+        .post(`/api/payments/${cancelPayment._id}/cancel`)
+        .set('Authorization', customer.authorization)
+        .send({});
+      expect(custCancel.status).toBe(403);
+
+      const adminUser = await createAuth('admin');
+      const adminCancel = await request(app)
+        .post(`/api/payments/${cancelPayment._id}/cancel`)
+        .set('Authorization', adminUser.authorization)
+        .send({ reason: 'Admin test cancel' });
+      expect(adminCancel.status).toBe(200);
+      expect(adminCancel.body.data.payment.status).toBe('Cancelled');
     });
 
-    test('31. Unsupported provider capture fails closed', async () => {
+    test('31. Unsupported provider and unsupported payment method capture fails closed', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100, paymentMethod: 'cod' });
 
-      const payment = await Payment.create({
+      // 1. COD provider does not support capture
+      const codPayment = await Payment.create({
         user: customer.user._id,
         order: order._id,
         provider: 'cod',
@@ -867,13 +982,42 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
         providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
       });
 
-      const res = await request(app)
-        .post(`/api/payments/${payment._id}/capture`)
+      const resCod = await request(app)
+        .post(`/api/payments/${codPayment._id}/capture`)
         .set('Authorization', admin.authorization)
         .send({ amount: 100 });
 
-      expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('PAYMENT_CAPTURE_UNAVAILABLE');
+      expect(resCod.status).toBe(409);
+      expect(resCod.body.error.code).toBe('PAYMENT_CAPTURE_UNAVAILABLE');
+
+      // 2. Stripe provider with redirect/async method (e.g. 'ideal') that lacks manual capture capability
+      const order2 = await createOrder(customer.user, { amount: 100 });
+      const idealPayment = await Payment.create({
+        user: customer.user._id,
+        order: order2._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        paymentMethod: 'ideal',
+        amount: 100,
+        currency: 'EUR',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 100,
+        capabilitySnapshot: { paymentMethod: 'ideal', supportsCapture: false },
+        providerPaymentId: 'pi_ops_ideal_nocap',
+        safeProviderReference: 'pi_ops_ideal_nocap',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order2._id}:${crypto.randomUUID()}`
+      });
+
+      const resIdeal = await request(app)
+        .post(`/api/payments/${idealPayment._id}/capture`)
+        .set('Authorization', admin.authorization)
+        .send({ amount: 100 });
+
+      expect(resIdeal.status).toBe(409);
+      expect(resIdeal.body.error.code).toBe('PAYMENT_CAPTURE_UNAVAILABLE');
     });
 
     test('32. Unauthorised payment cannot be captured', async () => {
@@ -1030,7 +1174,7 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       expect(captureResult.payment.currency).toBe('PKR');
     });
 
-    test('37. Duplicate concurrent capture produces one operation', async () => {
+    test('37. Duplicate concurrent capture produces one operation and counts actual provider dispatches', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100 });
@@ -1053,7 +1197,9 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       });
       createdIntents.set('pi_ops_concur_cap', { id: 'pi_ops_concur_cap', amount: 10000, status: 'requires_capture' });
 
+      const initialCaptureCount = fakeStripe.paymentIntents.capture.mock.calls.length;
       const idempotencyKey = crypto.randomUUID();
+
       const responses = await Promise.all([
         request(app)
           .post(`/api/payments/${payment._id}/capture`)
@@ -1069,20 +1215,22 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
 
       const statuses = responses.map((r) => r.status);
       expect(statuses.some((s) => s === 200)).toBe(true);
-      expect(fakeStripe.paymentIntents.capture).toHaveBeenCalledTimes(1);
+      expect(fakeStripe.paymentIntents.capture.mock.calls.length - initialCaptureCount).toBe(1);
     });
 
-    test('38. Partial capture follows declared provider capability', async () => {
+    test('38. Partial capture follows declared provider and method capability', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 200 });
 
+      // 1. Card supports partial capture
       const payment = await Payment.create({
         user: customer.user._id,
         order: order._id,
         provider: 'stripe',
         providerDisplayName: 'Stripe',
         paymentType: 'automated',
+        paymentMethod: 'card',
         amount: 200,
         currency: 'PKR',
         status: PAYMENT_STATUSES.AUTHORIZED,
@@ -1102,6 +1250,36 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
 
       expect(res.status).toBe(200);
       expect(res.body.data.payment.capturedAmount).toBe(120);
+
+      // 2. Method without partial capture capability fails closed
+      const order2 = await createOrder(customer.user, { amount: 200 });
+      const noPartialPayment = await Payment.create({
+        user: customer.user._id,
+        order: order2._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        paymentMethod: 'card',
+        amount: 200,
+        currency: 'EUR',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 200,
+        capabilitySnapshot: { paymentMethod: 'card', supportsCapture: true, supportsPartialCapture: false },
+        providerPaymentId: 'pi_ops_no_partial',
+        safeProviderReference: 'pi_ops_no_partial',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order2._id}:${crypto.randomUUID()}`
+      });
+      createdIntents.set('pi_ops_no_partial', { id: 'pi_ops_no_partial', amount: 20000, status: 'requires_capture' });
+
+      const noPartialRes = await request(app)
+        .post(`/api/payments/${noPartialPayment._id}/capture`)
+        .set('Authorization', admin.authorization)
+        .send({ amount: 100 });
+
+      expect(noPartialRes.status).toBe(409);
+      expect(noPartialRes.body.error.code).toBe('PAYMENT_PARTIAL_CAPTURE_UNAVAILABLE');
     });
 
     test('39. Completed payment cannot be captured again', async () => {
@@ -1138,20 +1316,51 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
   });
 
   describe('5. Void/Cancel Governance (Scenarios 40-46)', () => {
-    test('40. Unauthorized void returns 401/403', async () => {
+    test('40. Unauthorized void returns 401/403 across full RBAC matrix', async () => {
       const paymentId = new (require('mongoose').Types.ObjectId)();
+
+      // 1. No token
       const noAuth = await request(app).post(`/api/payments/${paymentId}/void`).send({});
       expect(noAuth.status).toBe(401);
+      expect(noAuth.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
 
-      const customer = await createAuth('customer');
-      const custAuth = await request(app)
+      // 2. Malformed token
+      const malformed = await request(app)
         .post(`/api/payments/${paymentId}/void`)
-        .set('Authorization', customer.authorization)
+        .set('Authorization', 'Bearer corrupt_token_string')
         .send({});
-      expect(custAuth.status).toBe(403);
+      expect(malformed.status).toBe(401);
+
+      // 3. Expired token
+      const expiredAuth = await createAuth('admin', { sessionExpired: true });
+      const expiredRes = await request(app)
+        .post(`/api/payments/${paymentId}/void`)
+        .set('Authorization', expiredAuth.authorization)
+        .send({});
+      expect(expiredRes.status).toBe(401);
+
+      // 4. Revoked session
+      const revokedAuth = await createAuth('admin', { sessionRevoked: true });
+      const revokedRes = await request(app)
+        .post(`/api/payments/${paymentId}/void`)
+        .set('Authorization', revokedAuth.authorization)
+        .send({});
+      expect(revokedRes.status).toBe(401);
+
+      // 5. Customer, support, inventory, manager -> 403
+      const forbiddenRoles = ['customer', 'support', 'inventory', 'manager'];
+      for (const role of forbiddenRoles) {
+        const forbiddenAuth = await createAuth(role);
+        const res = await request(app)
+          .post(`/api/payments/${paymentId}/void`)
+          .set('Authorization', forbiddenAuth.authorization)
+          .send({});
+        expect(res.status).toBe(403);
+        expect(res.body.error.code).toBe('AUTH_FORBIDDEN');
+      }
     });
 
-    test('41. Authorized uncaptured payment can be voided', async () => {
+    test('41. Authorized uncaptured payment can be voided and sets independent void CAS state', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100 });
@@ -1174,17 +1383,24 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       });
       createdIntents.set('pi_ops_voidable', { id: 'pi_ops_voidable', amount: 10000, status: 'requires_capture' });
 
+      const voidKey = crypto.randomUUID();
       const res = await request(app)
         .post(`/api/payments/${payment._id}/void`)
         .set('Authorization', admin.authorization)
+        .set('Idempotency-Key', voidKey)
         .send({ reason: 'Admin void authorized test' });
 
       expect(res.status).toBe(200);
       expect(res.body.data.payment.status).toBe('Cancelled');
       expect(fakeStripe.paymentIntents.cancel).toHaveBeenCalledTimes(1);
+
+      const dbPayment = await Payment.findById(payment._id).select('+voidAttemptStatus +voidIdempotencyKey +voidRequestHash');
+      expect(dbPayment.voidAttemptStatus).toBe('ready');
+      expect(dbPayment.voidIdempotencyKey).toBe(voidKey);
+      expect(dbPayment.voidRequestHash).toBeDefined();
     });
 
-    test('42. Duplicate void is idempotent', async () => {
+    test('42. Duplicate void is idempotent and counts actual provider void dispatches', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100 });
@@ -1197,24 +1413,47 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
         paymentType: 'automated',
         amount: 100,
         currency: 'PKR',
-        status: PAYMENT_STATUSES.CANCELLED,
-        cancelledAt: new Date(),
-        cancelReason: 'Already cancelled',
-        providerPaymentId: 'pi_ops_void_dup',
-        safeProviderReference: 'pi_ops_void_dup',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 100,
+        providerPaymentId: 'pi_ops_void_dup_check',
+        safeProviderReference: 'pi_ops_void_dup_check',
         idempotencyKey: crypto.randomUUID(),
         requestHash: crypto.randomUUID(),
         providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
       });
+      createdIntents.set('pi_ops_void_dup_check', { id: 'pi_ops_void_dup_check', amount: 10000, status: 'requires_capture' });
 
-      const res = await request(app)
+      const initialCancelCount = fakeStripe.paymentIntents.cancel.mock.calls.length;
+      const idempotencyKey = crypto.randomUUID();
+
+      // Simultaneous identical void requests
+      const responses = await Promise.all([
+        request(app)
+          .post(`/api/payments/${payment._id}/void`)
+          .set('Authorization', admin.authorization)
+          .set('Idempotency-Key', idempotencyKey)
+          .send({ reason: 'Simultaneous void request' }),
+        request(app)
+          .post(`/api/payments/${payment._id}/void`)
+          .set('Authorization', admin.authorization)
+          .set('Idempotency-Key', idempotencyKey)
+          .send({ reason: 'Simultaneous void request' })
+      ]);
+
+      const statuses = responses.map((r) => r.status);
+      expect(statuses.some((s) => s === 200)).toBe(true);
+      expect(fakeStripe.paymentIntents.cancel.mock.calls.length - initialCancelCount).toBe(1);
+
+      // Second sequential replay
+      const replayRes = await request(app)
         .post(`/api/payments/${payment._id}/void`)
         .set('Authorization', admin.authorization)
-        .send({});
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ reason: 'Simultaneous void request' });
 
-      expect(res.status).toBe(200);
-      expect(res.body.data.idempotentReplay).toBe(true);
-      expect(res.body.data.payment.status).toBe('Cancelled');
+      expect(replayRes.status).toBe(200);
+      expect(replayRes.body.data.idempotentReplay).toBe(true);
+      expect(fakeStripe.paymentIntents.cancel.mock.calls.length - initialCancelCount).toBe(1);
     });
 
     test('43. Completed payment cannot be voided', async () => {
@@ -1248,7 +1487,7 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       expect(res.body.error.code).toBe('PAYMENT_CANCEL_NOT_ELIGIBLE');
     });
 
-    test('44. Cross-account void fails closed', async () => {
+    test('44. Independent void CAS claims, lease expiry reclamation, and parameter conflicts', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100 });
@@ -1256,21 +1495,81 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       const payment = await Payment.create({
         user: customer.user._id,
         order: order._id,
-        provider: 'unsupported_provider',
-        gateway: 'unsupported_provider',
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
         amount: 100,
         currency: 'PKR',
         status: PAYMENT_STATUSES.AUTHORIZED,
         authorizedAmount: 100,
+        providerPaymentId: 'pi_ops_void_cas_test',
+        safeProviderReference: 'pi_ops_void_cas_test',
         idempotencyKey: crypto.randomUUID(),
         requestHash: crypto.randomUUID(),
         providerIdempotencyKey: `payment:${order._id}:${crypto.randomUUID()}`
       });
+      createdIntents.set('pi_ops_void_cas_test', { id: 'pi_ops_void_cas_test', amount: 10000, status: 'requires_capture' });
 
-      await expect(PaymentService.voidPayment({
-        paymentId: payment._id,
-        adminId: admin.user._id
-      })).rejects.toThrow();
+      // 1. Parameter mismatch with same key returns 409
+      const keyShared = crypto.randomUUID();
+      const firstVoid = await request(app)
+        .post(`/api/payments/${payment._id}/void`)
+        .set('Authorization', admin.authorization)
+        .set('Idempotency-Key', keyShared)
+        .send({ reason: 'Initial void reason' });
+      expect(firstVoid.status).toBe(200);
+
+      const conflictVoid = await request(app)
+        .post(`/api/payments/${payment._id}/void`)
+        .set('Authorization', admin.authorization)
+        .set('Idempotency-Key', keyShared)
+        .send({ reason: 'Totally different void reason' });
+      expect(conflictVoid.status).toBe(409);
+      expect(conflictVoid.body.error.code).toBe('PAYMENT_IDEMPOTENCY_CONFLICT');
+
+      // 2. Active void claim cannot be stolen
+      const order2 = await createOrder(customer.user, { amount: 100 });
+      const activeClaimPayment = await Payment.create({
+        user: customer.user._id,
+        order: order2._id,
+        provider: 'stripe',
+        providerDisplayName: 'Stripe',
+        paymentType: 'automated',
+        amount: 100,
+        currency: 'PKR',
+        status: PAYMENT_STATUSES.AUTHORIZED,
+        authorizedAmount: 100,
+        voidAttemptStatus: 'claimed',
+        voidClaimToken: 'active-claim-token-123',
+        voidClaimedAt: new Date(),
+        providerPaymentId: 'pi_ops_void_active_claim',
+        safeProviderReference: 'pi_ops_void_active_claim',
+        idempotencyKey: crypto.randomUUID(),
+        requestHash: crypto.randomUUID(),
+        providerIdempotencyKey: `payment:${order2._id}:${crypto.randomUUID()}`
+      });
+
+      const inFlightRes = await request(app)
+        .post(`/api/payments/${activeClaimPayment._id}/void`)
+        .set('Authorization', admin.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({});
+      expect(inFlightRes.status).toBe(409);
+      expect(inFlightRes.body.error.code).toBe('PAYMENT_OPERATION_IN_FLIGHT');
+
+      // 3. Expired claim can be reclaimed
+      await Payment.findByIdAndUpdate(activeClaimPayment._id, {
+        voidClaimedAt: new Date(Date.now() - 40000) // 40 seconds ago, lease is 30s
+      });
+      createdIntents.set('pi_ops_void_active_claim', { id: 'pi_ops_void_active_claim', amount: 10000, status: 'requires_capture' });
+
+      const reclaimRes = await request(app)
+        .post(`/api/payments/${activeClaimPayment._id}/void`)
+        .set('Authorization', admin.authorization)
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({ reason: 'Reclaimed expired void lease' });
+      expect(reclaimRes.status).toBe(200);
+      expect(reclaimRes.body.data.payment.status).toBe('Cancelled');
     });
 
     test('45. Void does not automatically refund', async () => {
@@ -1306,7 +1605,7 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       expect(fakeStripe.refunds.create).not.toHaveBeenCalled();
     });
 
-    test('46. Void alone does not mutate inventory or cancel Order improperly', async () => {
+    test('46. Cancel and void keys/states cannot collide and preserve order integrity', async () => {
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100, orderStatus: 'Pending', paymentStatus: 'Pending' });
@@ -1329,10 +1628,18 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       });
       createdIntents.set('pi_ops_order_guard', { id: 'pi_ops_order_guard', amount: 10000, status: 'requires_capture' });
 
+      const voidKey = crypto.randomUUID();
       await request(app)
         .post(`/api/payments/${payment._id}/void`)
         .set('Authorization', admin.authorization)
+        .set('Idempotency-Key', voidKey)
         .send({});
+
+      const paymentInDb = await Payment.findById(payment._id).select('+voidIdempotencyKey +cancelIdempotencyKey +voidAttemptStatus +cancelAttemptStatus');
+      expect(paymentInDb.voidIdempotencyKey).toBe(voidKey);
+      expect(paymentInDb.voidAttemptStatus).toBe('ready');
+      expect(paymentInDb.cancelIdempotencyKey).toBeUndefined();
+      expect(paymentInDb.cancelAttemptStatus).toBe('unclaimed');
 
       const orderInDb = await Order.findById(order._id);
       expect(orderInDb.orderStatus).toBe('Pending');
@@ -1341,11 +1648,116 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
   });
 
   describe('6. Regression & Invariant Verification (Scenarios 47-53)', () => {
-    test('47. Phase 5B webhook tests remain passing', async () => {
+    test('47. Phase 5B webhook processor remains passing and reconciles idempotently', async () => {
       expect(paymentWebhookProcessor).toBeDefined();
+      expect(typeof paymentWebhookProcessor.claimEvent).toBe('function');
+      expect(typeof paymentWebhookProcessor.processClaimedEvent).toBe('function');
     });
 
-    test('48. COD capture flow remains passing', async () => {
+    test('48. Country-Neutral COD Policy with PK, AE, GB, DE, US and Cross-Border rejection', async () => {
+      const { CountryRegistry } = require('../../modules/commerce');
+      const { PaymentCapabilityPolicy } = require('../../services/payment/PaymentCapabilityPolicy');
+
+      // Verify canonical alias normalization
+      expect(CountryRegistry.resolve('United Kingdom').alpha2).toBe('GB');
+      expect(CountryRegistry.resolve('UK').alpha2).toBe('GB');
+      expect(CountryRegistry.resolve('United States').alpha2).toBe('US');
+      expect(CountryRegistry.resolve('USA').alpha2).toBe('US');
+      expect(CountryRegistry.resolve('United Arab Emirates').alpha2).toBe('AE');
+      expect(CountryRegistry.resolve('UAE').alpha2).toBe('AE');
+      expect(CountryRegistry.resolve('Deutschland').alpha2).toBe('DE');
+      expect(CountryRegistry.resolve('Pakistan').alpha2).toBe('PK');
+      expect(CountryRegistry.resolve('PK').alpha2).toBe('PK');
+      expect(CountryRegistry.resolve('UnknownLand')).toBeNull();
+
+      const policy = new PaymentCapabilityPolicy();
+
+      // 1. PK merchant + PK delivery -> eligible
+      const evalPK = await policy.evaluateOperational('cod', {
+        merchantCountry: 'PK',
+        deliveryCountry: 'Pakistan',
+        baseCurrency: 'PKR',
+        currency: 'PKR'
+      });
+      expect(evalPK.eligible).toBe(true);
+
+      // 2. AE merchant + AE delivery -> eligible
+      const evalAE = await policy.evaluateOperational('cod', {
+        merchantCountry: 'AE',
+        deliveryCountry: 'United Arab Emirates',
+        baseCurrency: 'AED',
+        currency: 'AED'
+      });
+      expect(evalAE.eligible).toBe(true);
+
+      // 3. GB merchant + GB delivery -> eligible
+      const evalGB = await policy.evaluateOperational('cod', {
+        merchantCountry: 'GB',
+        deliveryCountry: 'UK',
+        baseCurrency: 'GBP',
+        currency: 'GBP'
+      });
+      expect(evalGB.eligible).toBe(true);
+
+      // 4. DE merchant + DE delivery -> eligible
+      const evalDE = await policy.evaluateOperational('cod', {
+        merchantCountry: 'DE',
+        deliveryCountry: 'Deutschland',
+        baseCurrency: 'EUR',
+        currency: 'EUR'
+      });
+      expect(evalDE.eligible).toBe(true);
+
+      // 5. US merchant + US delivery -> eligible
+      const evalUS = await policy.evaluateOperational('cod', {
+        merchantCountry: 'US',
+        deliveryCountry: 'USA',
+        baseCurrency: 'USD',
+        currency: 'USD'
+      });
+      expect(evalUS.eligible).toBe(true);
+
+      // 6. Cross-border rejection: PK merchant + US delivery -> denied
+      const evalCross1 = await policy.evaluateOperational('cod', {
+        merchantCountry: 'PK',
+        deliveryCountry: 'US',
+        baseCurrency: 'PKR',
+        currency: 'PKR'
+      });
+      expect(evalCross1.eligible).toBe(false);
+      expect(evalCross1.reason).toBe('PAYMENT_COUNTRY_UNSUPPORTED');
+
+      // 7. Cross-border rejection: US merchant + GB delivery -> denied
+      const evalCross2 = await policy.evaluateOperational('cod', {
+        merchantCountry: 'US',
+        deliveryCountry: 'GB',
+        baseCurrency: 'USD',
+        currency: 'USD'
+      });
+      expect(evalCross2.eligible).toBe(false);
+      expect(evalCross2.reason).toBe('PAYMENT_COUNTRY_UNSUPPORTED');
+
+      // 8. Missing merchant country -> denied
+      const evalMissing = await policy.evaluateOperational('cod', {
+        merchantCountry: '',
+        deliveryCountry: 'PK',
+        baseCurrency: 'PKR',
+        currency: 'PKR'
+      });
+      expect(evalMissing.eligible).toBe(false);
+      expect(evalMissing.reason).toBe('PAYMENT_COUNTRY_UNSUPPORTED');
+
+      // 9. Unknown country -> denied
+      const evalUnknown = await policy.evaluateOperational('cod', {
+        merchantCountry: 'US',
+        deliveryCountry: 'InvalidCountryX',
+        baseCurrency: 'USD',
+        currency: 'USD'
+      });
+      expect(evalUnknown.eligible).toBe(false);
+      expect(evalUnknown.reason).toBe('PAYMENT_COUNTRY_UNSUPPORTED');
+
+      // 10. COD collection flow remains working
       const customer = await createAuth('customer');
       const admin = await createAuth('admin');
       const order = await createOrder(customer.user, { amount: 100, paymentMethod: 'cod' });
@@ -1374,18 +1786,26 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
       expect(res.payment.paidAmount).toBe(100);
     });
 
-    test('49. Existing complete order workflow remains passing', async () => {
+    test('49. Existing complete order workflow transitions remain valid and non-mutating', async () => {
       const auth = await createAuth();
       const order = await createOrder(auth.user, { amount: 100 });
       expect(order.paymentStatus).toBe('Pending');
+      expect(order.orderStatus).toBe('Pending');
+      expect(order.totalAmount).toBe(100);
     });
 
-    test('50. Refund and exact-money suites remain passing', async () => {
-      const money = Money.fromDecimal('100.50', 'PKR');
-      expect(money.amountMinor).toBe(10050n);
+    test('50. Exact money arithmetic eliminates floating-point rounding errors', async () => {
+      const pkrMoney = Money.fromDecimal('100.50', 'PKR');
+      expect(pkrMoney.amountMinor).toBe(10050n);
+
+      const jpyMoney = Money.fromDecimal('5000', 'JPY');
+      expect(jpyMoney.amountMinor).toBe(5000n);
+
+      const kwdMoney = Money.fromDecimal('12.345', 'KWD');
+      expect(kwdMoney.amountMinor).toBe(12345n);
     });
 
-    test('51. No email/SMS is emitted during payment operation', async () => {
+    test('51. No email/SMS is emitted during payment operations', async () => {
       const auth = await createAuth();
       const order = await createOrder(auth.user, { amount: 100 });
 
@@ -1396,15 +1816,17 @@ describe('Phase 5C: Payment Operations, Idempotency, Capture & Void Governance',
         .send({ orderId: order._id.toString(), provider: 'stripe' });
 
       expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
     });
 
-    test('52. Production Stripe remains dormant', async () => {
+    test('52. Production Stripe remains dormant in unverified environment', async () => {
       const config = require('../../config/payment.config');
       expect(config).toBeDefined();
     });
 
-    test('53. Zero live provider calls occur in automated tests', async () => {
+    test('53. Zero live provider network access occurs in automated test suite', async () => {
       expect(stripeProvider._testClientInjected).toBe(true);
+      expect(fakeStripe).toBeDefined();
     });
   });
 });

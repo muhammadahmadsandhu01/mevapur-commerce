@@ -43,7 +43,25 @@ const hashValue = (value) => crypto
   .digest('hex');
 
 const isDuplicateKey = (error) => error?.code === 11000;
-const CLAIM_LEASE_MS = 5 * 60 * 1000;
+const CLAIM_LEASE_MS = 30 * 1000;
+
+const IDEMPOTENCY_KEY_REGEX = /^[A-Za-z0-9_\-\.:]{1,128}$/;
+
+const validateIdempotencyKey = (key) => {
+  if (key === undefined || key === null) return true;
+  if (typeof key !== 'string') return false;
+  const trimmed = key.trim();
+  if (trimmed.length < 1 || trimmed.length > 128) return false;
+  if (!IDEMPOTENCY_KEY_REGEX.test(trimmed)) return false;
+  if (/@|:\/\/|Bearer|Basic/i.test(trimmed)) return false;
+  return true;
+};
+
+const deriveProviderKey = (prefix, entityId, clientKey) => {
+  const rawKey = clientKey || crypto.randomUUID();
+  const digest = hashValue(rawKey).substring(0, 32);
+  return `${prefix}:${entityId}:${digest}`;
+};
 
 const validateReturnUrl = (returnUrl) => {
   if (!returnUrl || typeof returnUrl !== 'string') return true;
@@ -92,6 +110,14 @@ class PaymentService {
     returnUrl,
     idempotencyKey
   }) {
+    if (idempotencyKey && !validateIdempotencyKey(idempotencyKey)) {
+      throw new AppError(
+        'The Idempotency-Key header is invalid or contains prohibited characters',
+        400,
+        'PAYMENT_IDEMPOTENCY_KEY_INVALID'
+      );
+    }
+
     if (returnUrl && !validateReturnUrl(returnUrl)) {
       throw new AppError(
         'The return URL origin is invalid or unauthorized',
@@ -146,7 +172,7 @@ class PaymentService {
     await PaymentCapabilityPolicy.assertEligibleForOrder(order, provider, paymentCurrency);
 
     const providerAdapter = this.getProvider(provider, {
-      country: order.shippingAddress?.country,
+      country: order.shippingAddress?.countryCode || order.shippingAddress?.country,
       currency: paymentCurrency,
       amount: order.totalAmount
     });
@@ -167,6 +193,36 @@ class PaymentService {
       amountMinor: String(amountExact.amountMinor)
     });
 
+    const activePayment = await Payment.findOne({
+      order: order._id,
+      status: {
+        $in: [
+          PAYMENT_STATUSES.PENDING,
+          PAYMENT_STATUSES.PROCESSING,
+          PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION,
+          PAYMENT_STATUSES.AUTHORIZED,
+          PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT,
+          PAYMENT_STATUSES.AWAITING_VERIFICATION
+        ]
+      }
+    }).select(
+      '+idempotencyKey +requestHash +providerIdempotencyKey '
+      + '+providerAttemptStatus +providerClaimToken +providerClaimedAt '
+      + '+providerAttemptCount'
+    );
+
+    if (activePayment) {
+      if (activePayment.idempotencyKey === idempotencyKey && String(activePayment.user) === String(userId)) {
+        this.assertIdempotencyMatch(activePayment, requestHash);
+        return this.resumePayment(activePayment, true);
+      }
+      throw new AppError(
+        'A payment attempt is already in progress for this order',
+        409,
+        'PAYMENT_OPERATION_IN_FLIGHT'
+      );
+    }
+
     let payment = await this.findByIdempotency({
       userId,
       idempotencyKey
@@ -176,6 +232,8 @@ class PaymentService {
       this.assertIdempotencyMatch(payment, requestHash);
       return this.resumePayment(payment, true);
     }
+
+    const providerIdempotencyKey = deriveProviderKey('payment', order._id, idempotencyKey);
 
     try {
       payment = await Payment.create({
@@ -197,7 +255,7 @@ class PaymentService {
         },
         idempotencyKey,
         requestHash,
-        providerIdempotencyKey: `payment:${order._id}:${idempotencyKey}`,
+        providerIdempotencyKey,
         history: []
       });
       payment = await this.findInternal(payment._id);
@@ -205,15 +263,39 @@ class PaymentService {
       if (!isDuplicateKey(error)) {
         throw error;
       }
-      payment = await this.findByIdempotency({
-        userId,
-        idempotencyKey
-      });
-      if (!payment) {
+      const existing = await this.findByIdempotency({ userId, idempotencyKey })
+        || await Payment.findOne({
+          order: order._id,
+          status: {
+            $in: [
+              PAYMENT_STATUSES.PENDING,
+              PAYMENT_STATUSES.PROCESSING,
+              PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION,
+              PAYMENT_STATUSES.AUTHORIZED,
+              PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT,
+              PAYMENT_STATUSES.AWAITING_VERIFICATION
+            ]
+          }
+        }).select(
+          '+idempotencyKey +requestHash +providerIdempotencyKey '
+          + '+providerAttemptStatus +providerClaimToken +providerClaimedAt '
+          + '+providerAttemptCount'
+        );
+
+      if (!existing) {
         throw error;
       }
-      this.assertIdempotencyMatch(payment, requestHash);
-      return this.resumePayment(payment, true);
+
+      if (existing.idempotencyKey === idempotencyKey && String(existing.user) === String(userId)) {
+        this.assertIdempotencyMatch(existing, requestHash);
+        return this.resumePayment(existing, true);
+      }
+
+      throw new AppError(
+        'A payment attempt is already in progress for this order',
+        409,
+        'PAYMENT_OPERATION_IN_FLIGHT'
+      );
     }
 
     return this.resumePayment(payment, false);
@@ -237,7 +319,7 @@ class PaymentService {
       + '+providerAttemptCount +refundReservedAmount '
       + '+captureIdempotencyKey +captureRequestHash +captureAttemptStatus +captureClaimToken +captureClaimedAt '
       + '+cancelIdempotencyKey +cancelRequestHash +cancelAttemptStatus +cancelClaimToken +cancelClaimedAt '
-      + '+voidIdempotencyKey +voidRequestHash'
+      + '+voidIdempotencyKey +voidRequestHash +voidAttemptStatus +voidClaimToken +voidClaimedAt'
     );
     return session ? query.session(session) : query;
   }
@@ -408,7 +490,7 @@ class PaymentService {
 
       return this.toPaymentSession(persisted, {
         ...providerResult,
-        idempotentReplay
+        idempotentReplay: Boolean(idempotentReplay && claimed.providerAttemptCount > 1)
       });
     } catch (error) {
       await this.markProviderAttemptFailed(claimed._id, claimToken);
@@ -653,31 +735,31 @@ class PaymentService {
       try {
         const market = await MarketService.getConfig();
         if (!effectiveCountry) {
-          effectiveCountry = market.homeCountry === 'PK' ? 'Pakistan' : market.homeCountry;
+          effectiveCountry = market.merchantCountry || market.homeCountry || '';
         }
         if (!effectiveCurrency) {
-          effectiveCurrency = market.defaultCurrency || market.baseCurrency || 'PKR';
+          effectiveCurrency = market.defaultCurrency || market.baseCurrency || '';
         }
       } catch {
-        if (!effectiveCountry) effectiveCountry = 'Pakistan';
-        if (!effectiveCurrency) effectiveCurrency = 'PKR';
+        // no-op
       }
     }
 
-    effectiveCurrency = String(effectiveCurrency).toUpperCase();
-
-    // Verify if market enables this currency when explicit currency was supplied or resolved
-    try {
-      const isEnabled = await MarketService.isCurrencyEnabled(effectiveCurrency);
-      if (!isEnabled) {
-        throw new AppError(
-          `Currency '${effectiveCurrency}' is not enabled for this market`,
-          409,
-          'MARKET_CURRENCY_INELIGIBLE'
-        );
+    if (effectiveCurrency) {
+      effectiveCurrency = String(effectiveCurrency).toUpperCase();
+      // Verify if market enables this currency when explicit currency was supplied or resolved
+      try {
+        const isEnabled = await MarketService.isCurrencyEnabled(effectiveCurrency);
+        if (!isEnabled) {
+          throw new AppError(
+            `Currency '${effectiveCurrency}' is not enabled for this market`,
+            409,
+            'MARKET_CURRENCY_INELIGIBLE'
+          );
+        }
+      } catch (err) {
+        if (err instanceof AppError) throw err;
       }
-    } catch (err) {
-      if (err instanceof AppError) throw err;
     }
 
     const methods = await PaymentCapabilityPolicy.getPublicAvailableMethods({
@@ -704,18 +786,19 @@ class PaymentService {
       try {
         const market = await MarketService.getConfig();
         if (!effectiveCountry) {
-          effectiveCountry = market.homeCountry === 'PK' ? 'Pakistan' : market.homeCountry;
+          effectiveCountry = market.merchantCountry || market.homeCountry || '';
         }
         if (!effectiveCurrency) {
-          effectiveCurrency = market.defaultCurrency || market.baseCurrency || 'PKR';
+          effectiveCurrency = market.defaultCurrency || market.baseCurrency || '';
         }
       } catch {
-        if (!effectiveCountry) effectiveCountry = 'Pakistan';
-        if (!effectiveCurrency) effectiveCurrency = 'PKR';
+        // no-op
       }
     }
 
-    effectiveCurrency = String(effectiveCurrency).toUpperCase();
+    if (effectiveCurrency) {
+      effectiveCurrency = String(effectiveCurrency).toUpperCase();
+    }
 
     const providers = await PaymentCapabilityPolicy.getAdminProviderStatuses({
       country: effectiveCountry,
@@ -989,6 +1072,14 @@ class PaymentService {
   }
 
   async capturePayment({ paymentId, adminId, amount, idempotencyKey, requestId }) {
+    if (idempotencyKey && !validateIdempotencyKey(idempotencyKey)) {
+      throw new AppError(
+        'The Idempotency-Key header is invalid or contains prohibited characters',
+        400,
+        'PAYMENT_IDEMPOTENCY_KEY_INVALID'
+      );
+    }
+
     const payment = await this.findInternal(paymentId);
     if (!payment) {
       throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
@@ -996,14 +1087,22 @@ class PaymentService {
 
     const providerAdapter = this.getProvider(payment.provider, {
       currency: payment.currency,
-      amount: payment.amount,
-      country: payment.paymentType === 'automated' ? '' : 'Pakistan'
+      amount: payment.amount
     });
     const capabilities = providerAdapter.getCapabilities ? providerAdapter.getCapabilities() : {};
 
-    if (!capabilities.capture) {
+    const paymentMethod = payment.paymentMethod || payment.capabilitySnapshot?.paymentMethod || 'card';
+    const methodCaps = typeof providerAdapter.getMethodCapabilities === 'function'
+      ? providerAdapter.getMethodCapabilities(paymentMethod)
+      : (paymentMethod === 'card' ? { capture: true, partialCapture: true } : { capture: false, partialCapture: false });
+
+    const methodSupportsCapture = (payment.capabilitySnapshot?.supportsCapture !== undefined)
+      ? payment.capabilitySnapshot.supportsCapture
+      : (methodCaps.capture === true && capabilities.capture === true);
+
+    if (!methodSupportsCapture) {
       throw new AppError(
-        'Capture is not supported for this payment provider',
+        'Capture is not supported for this payment provider/method',
         409,
         'PAYMENT_CAPTURE_UNAVAILABLE'
       );
@@ -1027,9 +1126,13 @@ class PaymentService {
           'PAYMENT_CAPTURE_AMOUNT_EXCEEDED'
         );
       }
-      if (amount < authorizedAmount && !capabilities.partialCapture) {
+      const methodSupportsPartialCapture = (payment.capabilitySnapshot?.supportsPartialCapture !== undefined)
+        ? payment.capabilitySnapshot.supportsPartialCapture
+        : (methodCaps.partialCapture === true && capabilities.partialCapture === true);
+
+      if (amount < authorizedAmount && (!methodSupportsPartialCapture || !capabilities.partialCapture)) {
         throw new AppError(
-          'Partial capture is not supported for this payment provider',
+          'Partial capture is not supported for this payment provider/method',
           409,
           'PAYMENT_PARTIAL_CAPTURE_UNAVAILABLE'
         );
@@ -1135,7 +1238,7 @@ class PaymentService {
       );
     }
 
-    const providerCaptureIdempotencyKey = `capture:${claimed._id}:${effectiveCaptureIdempotencyKey}`;
+    const providerCaptureIdempotencyKey = deriveProviderKey('capture', claimed._id, effectiveCaptureIdempotencyKey);
 
     if (claimed.providerPaymentId && typeof providerAdapter.capturePayment === 'function') {
       try {
@@ -1227,6 +1330,14 @@ class PaymentService {
   }
 
   async cancelPayment({ paymentId, adminId, reason = '', idempotencyKey, requestId }) {
+    if (idempotencyKey && !validateIdempotencyKey(idempotencyKey)) {
+      throw new AppError(
+        'The Idempotency-Key header is invalid or contains prohibited characters',
+        400,
+        'PAYMENT_IDEMPOTENCY_KEY_INVALID'
+      );
+    }
+
     const payment = await this.findInternal(paymentId);
     if (!payment) {
       throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
@@ -1278,8 +1389,7 @@ class PaymentService {
 
     const providerAdapter = this.getProvider(payment.provider, {
       currency: payment.currency,
-      amount: payment.amount,
-      country: payment.paymentType === 'automated' ? '' : 'Pakistan'
+      amount: payment.amount
     });
     const capabilities = providerAdapter.getCapabilities ? providerAdapter.getCapabilities() : {};
 
@@ -1346,7 +1456,7 @@ class PaymentService {
       );
     }
 
-    const providerCancelIdempotencyKey = `cancel:${claimed._id}:${effectiveCancelIdempotencyKey}`;
+    const providerCancelIdempotencyKey = deriveProviderKey('cancel', claimed._id, effectiveCancelIdempotencyKey);
 
     if (claimed.providerPaymentId && typeof providerAdapter.cancelPayment === 'function') {
       try {
@@ -1429,6 +1539,14 @@ class PaymentService {
   }
 
   async voidPayment({ paymentId, adminId, reason = '', idempotencyKey, requestId }) {
+    if (idempotencyKey && !validateIdempotencyKey(idempotencyKey)) {
+      throw new AppError(
+        'The Idempotency-Key header is invalid or contains prohibited characters',
+        400,
+        'PAYMENT_IDEMPOTENCY_KEY_INVALID'
+      );
+    }
+
     const payment = await this.findInternal(paymentId);
     if (!payment) {
       throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
@@ -1480,8 +1598,7 @@ class PaymentService {
 
     const providerAdapter = this.getProvider(payment.provider, {
       currency: payment.currency,
-      amount: payment.amount,
-      country: payment.paymentType === 'automated' ? '' : 'Pakistan'
+      amount: payment.amount
     });
     const capabilities = providerAdapter.getCapabilities ? providerAdapter.getCapabilities() : {};
 
@@ -1518,27 +1635,34 @@ class PaymentService {
         ]
       },
       $or: [
-        { cancelAttemptStatus: { $in: [null, 'unclaimed', 'failed'] } },
+        { voidAttemptStatus: { $in: [null, 'unclaimed', 'failed'] } },
         {
-          cancelAttemptStatus: 'claimed',
-          cancelClaimedAt: { $lt: new Date(Date.now() - CLAIM_LEASE_MS) }
+          voidAttemptStatus: 'claimed',
+          voidClaimedAt: { $lt: new Date(Date.now() - CLAIM_LEASE_MS) }
         }
       ]
     }, {
       $set: {
-        cancelAttemptStatus: 'claimed',
-        cancelClaimToken: claimToken,
-        cancelClaimedAt: new Date(),
+        voidAttemptStatus: 'claimed',
+        voidClaimToken: claimToken,
+        voidClaimedAt: new Date(),
         voidRequestHash,
         voidIdempotencyKey: effectiveVoidIdempotencyKey
       }
     }, {
       new: true
-    }).select('+voidIdempotencyKey +voidRequestHash +cancelAttemptStatus +cancelClaimToken +cancelClaimedAt');
+    }).select('+voidIdempotencyKey +voidRequestHash +voidAttemptStatus +voidClaimToken +voidClaimedAt');
 
     if (!claimed) {
       const current = await this.findInternal(payment._id);
-      if (current.status === PAYMENT_STATUSES.CANCELLED) {
+      if (current.status === PAYMENT_STATUSES.CANCELLED && current.voidIdempotencyKey === idempotencyKey) {
+        if (current.voidRequestHash && current.voidRequestHash !== voidRequestHash) {
+          throw new AppError(
+            'Idempotency-Key was already used for a different void request',
+            409,
+            'PAYMENT_IDEMPOTENCY_CONFLICT'
+          );
+        }
         return { idempotentReplay: true, payment: this.toAdminPayment(current) };
       }
       throw new AppError(
@@ -1548,7 +1672,7 @@ class PaymentService {
       );
     }
 
-    const providerVoidIdempotencyKey = `void:${claimed._id}:${effectiveVoidIdempotencyKey}`;
+    const providerVoidIdempotencyKey = deriveProviderKey('void', claimed._id, effectiveVoidIdempotencyKey);
 
     if (claimed.providerPaymentId) {
       try {
@@ -1571,7 +1695,7 @@ class PaymentService {
         }
       } catch (err) {
         await Payment.findByIdAndUpdate(claimed._id, {
-          $set: { cancelAttemptStatus: 'failed' }
+          $set: { voidAttemptStatus: 'failed' }
         });
         throw err;
       }
@@ -1597,7 +1721,7 @@ class PaymentService {
         currentPayment.cancelledAt = new Date();
         currentPayment.cancelledBy = adminId;
         currentPayment.cancelReason = reason ? String(reason).trim() : 'Voided by administrator';
-        currentPayment.cancelAttemptStatus = 'ready';
+        currentPayment.voidAttemptStatus = 'ready';
         currentPayment.voidIdempotencyKey = effectiveVoidIdempotencyKey;
         currentPayment.voidRequestHash = voidRequestHash;
 

@@ -30,6 +30,13 @@ const manifest = Object.freeze({
 
 legacyStripeProvider.getManifest = () => manifest;
 legacyStripeProvider.getCapabilities = () => ({ ...manifest.capabilities });
+legacyStripeProvider.getMethodCapabilities = (method) => {
+  const normalized = String(method || 'card').toLowerCase();
+  if (normalized === 'card') {
+    return { capture: true, partialCapture: true, void: true, refund: true };
+  }
+  return { capture: false, partialCapture: false, void: false, refund: true };
+};
 legacyStripeProvider.validateConfig = (config = {}) => {
   const configured = config.credentialConfigured === true;
   return {
