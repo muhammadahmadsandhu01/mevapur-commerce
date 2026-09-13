@@ -101,6 +101,19 @@ exports.getProviderStatuses = async (req, res, next) => {
   }
 };
 
+exports.getOperationalMetrics = async (req, res, next) => {
+  try {
+    const result = await PaymentService.getOperationalMetrics();
+    return res.json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 exports.submitManualPayment = async (req, res, next) => {
   try {
     const result = await PaymentService.submitManualPayment({

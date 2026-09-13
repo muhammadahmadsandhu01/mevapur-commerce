@@ -811,6 +811,65 @@ class PaymentService {
     };
   }
 
+  async getOperationalMetrics() {
+    const activeStatuses = [
+      PAYMENT_STATUSES.PENDING,
+      PAYMENT_STATUSES.PROCESSING,
+      PAYMENT_STATUSES.AUTHORIZED,
+      PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT,
+      PAYMENT_STATUSES.AWAITING_MANUAL_REVIEW
+    ];
+
+    const [
+      pendingOperationsCount,
+      failedOperationsCount,
+      inFlightVoidCount,
+      inFlightCancelCount,
+      inFlightCaptureCount,
+      staleVoidCount,
+      staleCancelCount,
+      staleCaptureCount,
+      oldestPendingDoc,
+      deadLetterWebhooksCount,
+      providers
+    ] = await Promise.all([
+      Payment.countDocuments({ status: { $in: activeStatuses } }),
+      Payment.countDocuments({ status: PAYMENT_STATUSES.FAILED }),
+      Payment.countDocuments({ voidAttemptStatus: 'claimed' }),
+      Payment.countDocuments({ cancelAttemptStatus: 'claimed' }),
+      Payment.countDocuments({ captureAttemptStatus: 'claimed' }),
+      Payment.countDocuments({
+        voidAttemptStatus: 'claimed',
+        voidClaimedAt: { $lt: new Date(Date.now() - 30000) }
+      }),
+      Payment.countDocuments({
+        cancelAttemptStatus: 'claimed',
+        cancelClaimedAt: { $lt: new Date(Date.now() - 30000) }
+      }),
+      Payment.countDocuments({
+        captureAttemptStatus: 'claimed',
+        captureClaimedAt: { $lt: new Date(Date.now() - 30000) }
+      }),
+      Payment.findOne({ status: { $in: activeStatuses } }).sort({ createdAt: 1 }).select('createdAt'),
+      PaymentWebhookEvent.countDocuments({ status: 'dead_letter' }),
+      PaymentCapabilityPolicy.getAdminProviderStatuses()
+    ]);
+
+    const oldestPendingAgeSeconds = oldestPendingDoc?.createdAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(oldestPendingDoc.createdAt).getTime()) / 1000))
+      : 0;
+
+    return {
+      pendingOperationsCount,
+      inFlightOperationsCount: inFlightVoidCount + inFlightCancelCount + inFlightCaptureCount,
+      staleClaimsCount: staleVoidCount + staleCancelCount + staleCaptureCount,
+      failedOperationsCount,
+      deadLetterWebhooksCount,
+      oldestPendingAgeSeconds,
+      providers
+    };
+  }
+
   async submitManualPayment({
     paymentId,
     userId,

@@ -65,6 +65,20 @@ router.get(
   paymentController.getProviderStatuses
 );
 
+router.get(
+  '/operations/metrics',
+  protect,
+  admin,
+  paymentController.getOperationalMetrics
+);
+
+router.get(
+  '/operations/health',
+  protect,
+  admin,
+  paymentController.getOperationalMetrics
+);
+
 router.post(
   '/',
   protect,

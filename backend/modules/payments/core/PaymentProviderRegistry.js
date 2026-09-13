@@ -23,6 +23,100 @@ const REASON_TO_ERROR = Object.freeze({
   }
 });
 
+const validateManifest = (manifest) => {
+  if (!manifest || typeof manifest !== 'object') {
+    throw new AppError(
+      'Payment provider manifest must be an object',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  const {
+    code,
+    displayName,
+    paymentType,
+    contractVersion,
+    integrationVersion,
+    capabilities,
+    requiresWebhook,
+    supportsSignatureVerification,
+    isOfflineMethod
+  } = manifest;
+
+  if (typeof code !== 'string' || !/^[a-z0-9_-]+$/.test(code)) {
+    throw new AppError(
+      'Payment provider code is invalid or missing',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (typeof displayName !== 'string' || displayName.trim().length === 0) {
+    throw new AppError(
+      'Payment provider displayName is invalid or missing',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (!['automated', 'manual', 'offline'].includes(paymentType)) {
+    throw new AppError(
+      `Payment provider paymentType '${paymentType}' is invalid`,
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (contractVersion !== '1.0') {
+    throw new AppError(
+      `Payment provider contractVersion '${contractVersion}' is incompatible`,
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (typeof integrationVersion !== 'string' || integrationVersion.trim().length === 0) {
+    throw new AppError(
+      'Payment provider integrationVersion is invalid or missing',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (!capabilities || typeof capabilities !== 'object') {
+    throw new AppError(
+      'Payment provider capabilities must be an object',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (capabilities.partialCapture === true && capabilities.capture !== true) {
+    throw new AppError(
+      'Payment provider manifest is contradictory: partialCapture requires capture',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (isOfflineMethod === true && paymentType !== 'offline') {
+    throw new AppError(
+      'Payment provider manifest is contradictory: isOfflineMethod requires offline paymentType',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+
+  if (requiresWebhook === true && supportsSignatureVerification !== true && paymentType !== 'offline') {
+    throw new AppError(
+      'Payment provider manifest is contradictory: requiresWebhook requires supportsSignatureVerification',
+      500,
+      'PAYMENT_PROVIDER_MANIFEST_INVALID'
+    );
+  }
+};
+
 class PaymentProviderRegistry {
   constructor({
     providers = [],
@@ -41,13 +135,7 @@ class PaymentProviderRegistry {
 
   register(provider) {
     const manifest = provider?.getManifest?.();
-    if (!manifest?.code) {
-      throw new AppError(
-        'Payment provider manifest is invalid',
-        500,
-        'PAYMENT_PROVIDER_MANIFEST_INVALID'
-      );
-    }
+    validateManifest(manifest);
     this.providers.set(manifest.code, provider);
     return provider;
   }

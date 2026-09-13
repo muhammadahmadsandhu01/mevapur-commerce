@@ -183,7 +183,8 @@ class PaymentCapabilityPolicy {
     }
 
     // Evaluate Verification State
-    const isProduction = account.environment === 'production';
+    const runtimeIsProd = process.env.NODE_ENV === 'production';
+    const isProduction = account.environment === 'production' || runtimeIsProd;
     let verificationReason = null;
     let auditClassification = 'IMPLEMENTED';
 
@@ -193,7 +194,10 @@ class PaymentCapabilityPolicy {
 
     if (requiresMerchantUnderwriting) {
       if (isProduction) {
-        if (account.underwritingVerification !== 'verified') {
+        if (account.environment !== 'production') {
+          verificationReason = 'PAYMENT_SANDBOX_UNVERIFIED';
+          auditClassification = 'UNVERIFIED';
+        } else if (account.underwritingVerification !== 'verified') {
           verificationReason = 'PAYMENT_UNDERWRITING_UNVERIFIED';
           auditClassification = 'UNVERIFIED';
         } else if (manifest.requiresExternalCredentials && account.sandboxVerification !== 'verified') {
