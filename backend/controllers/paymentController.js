@@ -204,7 +204,7 @@ exports.capturePayment = async (req, res, next) => {
       paymentId: req.params.id,
       adminId: req.auth.userId,
       amount: req.body.amount,
-      idempotencyKey: req.headers['idempotency-key'],
+      idempotencyKey: req.headers['idempotency-key'] || req.body.idempotencyKey,
       requestId: req.requestId
     });
     return res.status(200).json({
@@ -223,7 +223,7 @@ exports.cancelPayment = async (req, res, next) => {
       paymentId: req.params.id,
       adminId: req.auth.userId,
       reason: req.body.reason,
-      idempotencyKey: req.headers['idempotency-key'],
+      idempotencyKey: req.headers['idempotency-key'] || req.body.idempotencyKey,
       requestId: req.requestId
     });
     return res.status(200).json({
@@ -236,4 +236,21 @@ exports.cancelPayment = async (req, res, next) => {
   }
 };
 
-exports.voidPayment = exports.cancelPayment;
+exports.voidPayment = async (req, res, next) => {
+  try {
+    const result = await PaymentService.voidPayment({
+      paymentId: req.params.id,
+      adminId: req.auth.userId,
+      reason: req.body.reason,
+      idempotencyKey: req.headers['idempotency-key'] || req.body.idempotencyKey,
+      requestId: req.requestId
+    });
+    return res.status(200).json({
+      success: true,
+      data: result,
+      meta: { requestId: req.requestId || 'unknown' }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};

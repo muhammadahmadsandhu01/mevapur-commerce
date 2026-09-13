@@ -46,9 +46,16 @@ const isDuplicateKey = (error) => error?.code === 11000;
 const CLAIM_LEASE_MS = 5 * 60 * 1000;
 
 const validateReturnUrl = (returnUrl) => {
-  if (!returnUrl) return true;
+  if (!returnUrl || typeof returnUrl !== 'string') return true;
+  if (/[\x00-\x1F\x7F]/.test(returnUrl)) return false;
   try {
     const parsed = new URL(returnUrl);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return false;
+    }
+    if (parsed.username || parsed.password) {
+      return false;
+    }
     const allowedOrigins = [
       process.env.CLIENT_URL,
       process.env.FRONTEND_URL,
@@ -227,7 +234,10 @@ class PaymentService {
     const query = Payment.findById(paymentId).select(
       '+idempotencyKey +requestHash +providerIdempotencyKey '
       + '+providerAttemptStatus +providerClaimToken +providerClaimedAt '
-      + '+providerAttemptCount +refundReservedAmount'
+      + '+providerAttemptCount +refundReservedAmount '
+      + '+captureIdempotencyKey +captureRequestHash +captureAttemptStatus +captureClaimToken +captureClaimedAt '
+      + '+cancelIdempotencyKey +cancelRequestHash +cancelAttemptStatus +cancelClaimToken +cancelClaimedAt '
+      + '+voidIdempotencyKey +voidRequestHash'
     );
     return session ? query.session(session) : query;
   }
@@ -984,36 +994,6 @@ class PaymentService {
       throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
     }
 
-    if (payment.status === PAYMENT_STATUSES.COMPLETED) {
-      if (idempotencyKey && payment.captureIdempotencyKey === idempotencyKey) {
-        return {
-          idempotentReplay: true,
-          payment: this.toAdminPayment(payment)
-        };
-      }
-      throw new AppError(
-        'Payment has already been completed and cannot be captured again',
-        409,
-        'PAYMENT_CAPTURE_NOT_ELIGIBLE'
-      );
-    }
-
-    if (payment.status !== PAYMENT_STATUSES.AUTHORIZED) {
-      throw new AppError(
-        'Only authorized payments can be captured',
-        409,
-        'PAYMENT_CAPTURE_NOT_ELIGIBLE'
-      );
-    }
-
-    if (payment.authorizationExpiresAt && new Date(payment.authorizationExpiresAt) < new Date()) {
-      throw new AppError(
-        'Payment authorization has expired and cannot be captured',
-        409,
-        'PAYMENT_CAPTURE_EXPIRED'
-      );
-    }
-
     const providerAdapter = this.getProvider(payment.provider, {
       currency: payment.currency,
       amount: payment.amount,
@@ -1058,17 +1038,121 @@ class PaymentService {
     }
 
     const captureAmountExact = MoneyMapper.fromLegacy(captureAmount, payment.currency);
-    const providerCaptureIdempotencyKey = `capture:${payment._id}:${idempotencyKey || 'admin'}`;
+    const captureRequestHash = hashValue({
+      operation: 'capture',
+      paymentId: String(payment._id),
+      amountMinor: String(captureAmountExact.amountMinor),
+      currency: payment.currency
+    });
 
-    if (payment.providerPaymentId && typeof providerAdapter.capturePayment === 'function') {
-      await providerAdapter.capturePayment({
-        paymentId: payment._id,
-        providerPaymentId: payment.providerPaymentId,
-        amount: captureAmount,
-        currency: payment.currency,
-        idempotencyKey: providerCaptureIdempotencyKey,
-        providerConfig: paymentProviderRegistry.providerConfigs[payment.provider] || {}
-      });
+    if (payment.status === PAYMENT_STATUSES.COMPLETED) {
+      if (idempotencyKey && payment.captureIdempotencyKey === idempotencyKey) {
+        if (payment.captureRequestHash && payment.captureRequestHash !== captureRequestHash) {
+          throw new AppError(
+            'Idempotency-Key was already used for a different capture request',
+            409,
+            'PAYMENT_IDEMPOTENCY_CONFLICT'
+          );
+        }
+        return {
+          idempotentReplay: true,
+          payment: this.toAdminPayment(payment)
+        };
+      }
+      throw new AppError(
+        'Payment has already been completed and cannot be captured again',
+        409,
+        'PAYMENT_CAPTURE_NOT_ELIGIBLE'
+      );
+    }
+
+    if (payment.status !== PAYMENT_STATUSES.AUTHORIZED) {
+      throw new AppError(
+        'Only authorized payments can be captured',
+        409,
+        'PAYMENT_CAPTURE_NOT_ELIGIBLE'
+      );
+    }
+
+    if (payment.authorizationExpiresAt && new Date(payment.authorizationExpiresAt) < new Date()) {
+      throw new AppError(
+        'Payment authorization has expired and cannot be captured',
+        409,
+        'PAYMENT_CAPTURE_EXPIRED'
+      );
+    }
+
+    if (idempotencyKey && payment.captureIdempotencyKey === idempotencyKey) {
+      if (payment.captureRequestHash && payment.captureRequestHash !== captureRequestHash) {
+        throw new AppError(
+          'Idempotency-Key was already used for a different capture request',
+          409,
+          'PAYMENT_IDEMPOTENCY_CONFLICT'
+        );
+      }
+    }
+
+    const claimToken = crypto.randomUUID();
+    const effectiveCaptureIdempotencyKey = idempotencyKey || claimToken;
+    const claimed = await Payment.findOneAndUpdate({
+      _id: payment._id,
+      status: PAYMENT_STATUSES.AUTHORIZED,
+      $or: [
+        { captureAttemptStatus: { $in: [null, 'unclaimed', 'failed'] } },
+        {
+          captureAttemptStatus: 'claimed',
+          captureClaimedAt: { $lt: new Date(Date.now() - CLAIM_LEASE_MS) }
+        }
+      ]
+    }, {
+      $set: {
+        captureAttemptStatus: 'claimed',
+        captureClaimToken: claimToken,
+        captureClaimedAt: new Date(),
+        captureRequestHash,
+        captureIdempotencyKey: effectiveCaptureIdempotencyKey
+      }
+    }, {
+      new: true
+    }).select('+captureIdempotencyKey +captureRequestHash +captureAttemptStatus +captureClaimToken +captureClaimedAt');
+
+    if (!claimed) {
+      const current = await this.findInternal(payment._id);
+      if (current.status === PAYMENT_STATUSES.COMPLETED && current.captureIdempotencyKey === idempotencyKey) {
+        if (current.captureRequestHash && current.captureRequestHash !== captureRequestHash) {
+          throw new AppError(
+            'Idempotency-Key was already used for a different capture request',
+            409,
+            'PAYMENT_IDEMPOTENCY_CONFLICT'
+          );
+        }
+        return { idempotentReplay: true, payment: this.toAdminPayment(current) };
+      }
+      throw new AppError(
+        'A capture operation is already in flight for this payment',
+        409,
+        'PAYMENT_OPERATION_IN_FLIGHT'
+      );
+    }
+
+    const providerCaptureIdempotencyKey = `capture:${claimed._id}:${effectiveCaptureIdempotencyKey}`;
+
+    if (claimed.providerPaymentId && typeof providerAdapter.capturePayment === 'function') {
+      try {
+        await providerAdapter.capturePayment({
+          paymentId: claimed._id,
+          providerPaymentId: claimed.providerPaymentId,
+          amount: captureAmount,
+          currency: claimed.currency,
+          idempotencyKey: providerCaptureIdempotencyKey,
+          providerConfig: paymentProviderRegistry.providerConfigs[claimed.provider] || {}
+        });
+      } catch (err) {
+        await Payment.findByIdAndUpdate(claimed._id, {
+          $set: { captureAttemptStatus: 'failed' }
+        });
+        throw err;
+      }
     }
 
     const session = await mongoose.startSession();
@@ -1076,7 +1160,7 @@ class PaymentService {
 
     try {
       await session.withTransaction(async () => {
-        const currentPayment = await this.findInternal(payment._id, session);
+        const currentPayment = await this.findInternal(claimed._id, session);
         if (currentPayment.status !== PAYMENT_STATUSES.AUTHORIZED) {
           throw new AppError(
             'Payment state changed concurrently during capture',
@@ -1100,9 +1184,9 @@ class PaymentService {
         currentPayment.paidAmountExact = captureAmountExact;
         currentPayment.capturedAt = new Date();
         currentPayment.capturedBy = adminId;
-        if (idempotencyKey) {
-          currentPayment.captureIdempotencyKey = idempotencyKey;
-        }
+        currentPayment.captureAttemptStatus = 'ready';
+        currentPayment.captureIdempotencyKey = effectiveCaptureIdempotencyKey;
+        currentPayment.captureRequestHash = captureRequestHash;
 
         order.paymentStatus = 'Paid';
         order.payment = {
@@ -1148,7 +1232,22 @@ class PaymentService {
       throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
     }
 
+    const cancelRequestHash = hashValue({
+      operation: 'cancel',
+      paymentId: String(payment._id),
+      reason: String(reason || '').trim()
+    });
+
     if (payment.status === PAYMENT_STATUSES.CANCELLED) {
+      if (idempotencyKey && payment.cancelIdempotencyKey === idempotencyKey) {
+        if (payment.cancelRequestHash && payment.cancelRequestHash !== cancelRequestHash) {
+          throw new AppError(
+            'Idempotency-Key was already used for a different cancellation request',
+            409,
+            'PAYMENT_IDEMPOTENCY_CONFLICT'
+          );
+        }
+      }
       return {
         idempotentReplay: true,
         payment: this.toAdminPayment(payment)
@@ -1192,16 +1291,78 @@ class PaymentService {
       );
     }
 
-    const providerCancelIdempotencyKey = `cancel:${payment._id}:${idempotencyKey || 'admin'}`;
+    if (idempotencyKey && payment.cancelIdempotencyKey === idempotencyKey) {
+      if (payment.cancelRequestHash && payment.cancelRequestHash !== cancelRequestHash) {
+        throw new AppError(
+          'Idempotency-Key was already used for a different cancellation request',
+          409,
+          'PAYMENT_IDEMPOTENCY_CONFLICT'
+        );
+      }
+    }
 
-    if (payment.providerPaymentId && typeof providerAdapter.cancelPayment === 'function') {
-      await providerAdapter.cancelPayment({
-        paymentId: payment._id,
-        providerPaymentId: payment.providerPaymentId,
-        reason: reason || 'Cancelled by administrator',
-        idempotencyKey: providerCancelIdempotencyKey,
-        providerConfig: paymentProviderRegistry.providerConfigs[payment.provider] || {}
-      });
+    const claimToken = crypto.randomUUID();
+    const effectiveCancelIdempotencyKey = idempotencyKey || claimToken;
+    const claimed = await Payment.findOneAndUpdate({
+      _id: payment._id,
+      status: {
+        $in: [
+          PAYMENT_STATUSES.PENDING,
+          PAYMENT_STATUSES.PROCESSING,
+          PAYMENT_STATUSES.AUTHORIZED,
+          PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION,
+          PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT,
+          PAYMENT_STATUSES.AWAITING_VERIFICATION
+        ]
+      },
+      $or: [
+        { cancelAttemptStatus: { $in: [null, 'unclaimed', 'failed'] } },
+        {
+          cancelAttemptStatus: 'claimed',
+          cancelClaimedAt: { $lt: new Date(Date.now() - CLAIM_LEASE_MS) }
+        }
+      ]
+    }, {
+      $set: {
+        cancelAttemptStatus: 'claimed',
+        cancelClaimToken: claimToken,
+        cancelClaimedAt: new Date(),
+        cancelRequestHash,
+        cancelIdempotencyKey: effectiveCancelIdempotencyKey
+      }
+    }, {
+      new: true
+    }).select('+cancelIdempotencyKey +cancelRequestHash +cancelAttemptStatus +cancelClaimToken +cancelClaimedAt');
+
+    if (!claimed) {
+      const current = await this.findInternal(payment._id);
+      if (current.status === PAYMENT_STATUSES.CANCELLED) {
+        return { idempotentReplay: true, payment: this.toAdminPayment(current) };
+      }
+      throw new AppError(
+        'A cancellation operation is already in flight for this payment',
+        409,
+        'PAYMENT_OPERATION_IN_FLIGHT'
+      );
+    }
+
+    const providerCancelIdempotencyKey = `cancel:${claimed._id}:${effectiveCancelIdempotencyKey}`;
+
+    if (claimed.providerPaymentId && typeof providerAdapter.cancelPayment === 'function') {
+      try {
+        await providerAdapter.cancelPayment({
+          paymentId: claimed._id,
+          providerPaymentId: claimed.providerPaymentId,
+          reason: reason || 'Cancelled by administrator',
+          idempotencyKey: providerCancelIdempotencyKey,
+          providerConfig: paymentProviderRegistry.providerConfigs[claimed.provider] || {}
+        });
+      } catch (err) {
+        await Payment.findByIdAndUpdate(claimed._id, {
+          $set: { cancelAttemptStatus: 'failed' }
+        });
+        throw err;
+      }
     }
 
     const session = await mongoose.startSession();
@@ -1209,7 +1370,7 @@ class PaymentService {
 
     try {
       await session.withTransaction(async () => {
-        const currentPayment = await this.findInternal(payment._id, session);
+        const currentPayment = await this.findInternal(claimed._id, session);
         if (currentPayment.status === PAYMENT_STATUSES.CANCELLED) {
           updatedPayment = currentPayment;
           return;
@@ -1224,9 +1385,9 @@ class PaymentService {
         currentPayment.cancelledAt = new Date();
         currentPayment.cancelledBy = adminId;
         currentPayment.cancelReason = reason ? String(reason).trim() : 'Cancelled by administrator';
-        if (idempotencyKey) {
-          currentPayment.cancelIdempotencyKey = idempotencyKey;
-        }
+        currentPayment.cancelAttemptStatus = 'ready';
+        currentPayment.cancelIdempotencyKey = effectiveCancelIdempotencyKey;
+        currentPayment.cancelRequestHash = cancelRequestHash;
 
         if (order && ['Pending', 'Failed'].includes(order.paymentStatus)) {
           order.paymentStatus = 'Failed';
@@ -1267,8 +1428,216 @@ class PaymentService {
     };
   }
 
-  async voidPayment(params) {
-    return this.cancelPayment(params);
+  async voidPayment({ paymentId, adminId, reason = '', idempotencyKey, requestId }) {
+    const payment = await this.findInternal(paymentId);
+    if (!payment) {
+      throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
+    }
+
+    const voidRequestHash = hashValue({
+      operation: 'void',
+      paymentId: String(payment._id),
+      reason: String(reason || '').trim()
+    });
+
+    if (payment.status === PAYMENT_STATUSES.CANCELLED) {
+      if (idempotencyKey && payment.voidIdempotencyKey === idempotencyKey) {
+        if (payment.voidRequestHash && payment.voidRequestHash !== voidRequestHash) {
+          throw new AppError(
+            'Idempotency-Key was already used for a different void request',
+            409,
+            'PAYMENT_IDEMPOTENCY_CONFLICT'
+          );
+        }
+      }
+      return {
+        idempotentReplay: true,
+        payment: this.toAdminPayment(payment)
+      };
+    }
+
+    if (
+      [
+        PAYMENT_STATUSES.COMPLETED,
+        PAYMENT_STATUSES.PARTIALLY_REFUNDED,
+        PAYMENT_STATUSES.REFUNDED
+      ].includes(payment.status)
+    ) {
+      throw new AppError(
+        'Completed payments cannot be cancelled/voided. Use refunds instead.',
+        409,
+        'PAYMENT_CANCEL_NOT_ELIGIBLE'
+      );
+    }
+
+    if (!paymentStateMachine.canTransition(payment.status, PAYMENT_STATUSES.CANCELLED)) {
+      throw new AppError(
+        'This payment cannot be cancelled/voided in its current state',
+        409,
+        'PAYMENT_CANCEL_NOT_ELIGIBLE'
+      );
+    }
+
+    const providerAdapter = this.getProvider(payment.provider, {
+      currency: payment.currency,
+      amount: payment.amount,
+      country: payment.paymentType === 'automated' ? '' : 'Pakistan'
+    });
+    const capabilities = providerAdapter.getCapabilities ? providerAdapter.getCapabilities() : {};
+
+    if (!capabilities.cancel && !capabilities.void) {
+      throw new AppError(
+        'Cancellation/void is not supported for this payment provider',
+        409,
+        'PAYMENT_CANCEL_UNAVAILABLE'
+      );
+    }
+
+    if (idempotencyKey && payment.voidIdempotencyKey === idempotencyKey) {
+      if (payment.voidRequestHash && payment.voidRequestHash !== voidRequestHash) {
+        throw new AppError(
+          'Idempotency-Key was already used for a different void request',
+          409,
+          'PAYMENT_IDEMPOTENCY_CONFLICT'
+        );
+      }
+    }
+
+    const claimToken = crypto.randomUUID();
+    const effectiveVoidIdempotencyKey = idempotencyKey || claimToken;
+    const claimed = await Payment.findOneAndUpdate({
+      _id: payment._id,
+      status: {
+        $in: [
+          PAYMENT_STATUSES.PENDING,
+          PAYMENT_STATUSES.PROCESSING,
+          PAYMENT_STATUSES.AUTHORIZED,
+          PAYMENT_STATUSES.REQUIRES_CUSTOMER_ACTION,
+          PAYMENT_STATUSES.AWAITING_CUSTOMER_PAYMENT,
+          PAYMENT_STATUSES.AWAITING_VERIFICATION
+        ]
+      },
+      $or: [
+        { cancelAttemptStatus: { $in: [null, 'unclaimed', 'failed'] } },
+        {
+          cancelAttemptStatus: 'claimed',
+          cancelClaimedAt: { $lt: new Date(Date.now() - CLAIM_LEASE_MS) }
+        }
+      ]
+    }, {
+      $set: {
+        cancelAttemptStatus: 'claimed',
+        cancelClaimToken: claimToken,
+        cancelClaimedAt: new Date(),
+        voidRequestHash,
+        voidIdempotencyKey: effectiveVoidIdempotencyKey
+      }
+    }, {
+      new: true
+    }).select('+voidIdempotencyKey +voidRequestHash +cancelAttemptStatus +cancelClaimToken +cancelClaimedAt');
+
+    if (!claimed) {
+      const current = await this.findInternal(payment._id);
+      if (current.status === PAYMENT_STATUSES.CANCELLED) {
+        return { idempotentReplay: true, payment: this.toAdminPayment(current) };
+      }
+      throw new AppError(
+        'A void operation is already in flight for this payment',
+        409,
+        'PAYMENT_OPERATION_IN_FLIGHT'
+      );
+    }
+
+    const providerVoidIdempotencyKey = `void:${claimed._id}:${effectiveVoidIdempotencyKey}`;
+
+    if (claimed.providerPaymentId) {
+      try {
+        if (typeof providerAdapter.voidPayment === 'function') {
+          await providerAdapter.voidPayment({
+            paymentId: claimed._id,
+            providerPaymentId: claimed.providerPaymentId,
+            reason: reason || 'Voided by administrator',
+            idempotencyKey: providerVoidIdempotencyKey,
+            providerConfig: paymentProviderRegistry.providerConfigs[claimed.provider] || {}
+          });
+        } else if (typeof providerAdapter.cancelPayment === 'function') {
+          await providerAdapter.cancelPayment({
+            paymentId: claimed._id,
+            providerPaymentId: claimed.providerPaymentId,
+            reason: reason || 'Voided by administrator',
+            idempotencyKey: providerVoidIdempotencyKey,
+            providerConfig: paymentProviderRegistry.providerConfigs[claimed.provider] || {}
+          });
+        }
+      } catch (err) {
+        await Payment.findByIdAndUpdate(claimed._id, {
+          $set: { cancelAttemptStatus: 'failed' }
+        });
+        throw err;
+      }
+    }
+
+    const session = await mongoose.startSession();
+    let updatedPayment;
+
+    try {
+      await session.withTransaction(async () => {
+        const currentPayment = await this.findInternal(claimed._id, session);
+        if (currentPayment.status === PAYMENT_STATUSES.CANCELLED) {
+          updatedPayment = currentPayment;
+          return;
+        }
+
+        const order = await Order.findById(currentPayment.order).session(session);
+
+        paymentStateMachine.apply(currentPayment, PAYMENT_STATUSES.CANCELLED, {
+          source: 'admin'
+        });
+
+        currentPayment.cancelledAt = new Date();
+        currentPayment.cancelledBy = adminId;
+        currentPayment.cancelReason = reason ? String(reason).trim() : 'Voided by administrator';
+        currentPayment.cancelAttemptStatus = 'ready';
+        currentPayment.voidIdempotencyKey = effectiveVoidIdempotencyKey;
+        currentPayment.voidRequestHash = voidRequestHash;
+
+        if (order && ['Pending', 'Failed'].includes(order.paymentStatus)) {
+          order.paymentStatus = 'Failed';
+          order.statusTimeline.push({
+            status: order.orderStatus,
+            actor: adminId,
+            actorRole: 'admin',
+            note: 'Payment voided by admin',
+            timestamp: new Date()
+          });
+        }
+
+        const saves = [currentPayment.save({ session })];
+        if (order) saves.push(order.save({ session }));
+        await Promise.all(saves);
+
+        updatedPayment = currentPayment;
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    await AuditService.log({
+      requestId,
+      userId: adminId,
+      eventName: 'PAYMENT.VOIDED',
+      status: 'SUCCESS',
+      metadata: {
+        paymentId: String(payment._id),
+        orderId: String(payment.order),
+        reason: reason || 'admin_void'
+      }
+    });
+
+    return {
+      idempotentReplay: false,
+      payment: this.toAdminPayment(updatedPayment)
+    };
   }
 
   async handleWebhook(providerName, rawBody, signature, options = {}) {
@@ -1370,7 +1739,6 @@ class PaymentService {
             PAYMENT_STATUSES.PARTIALLY_REFUNDED,
             PAYMENT_STATUSES.REFUNDED
           ].includes(currentPayment.status)
-          && nextStatus !== PAYMENT_STATUSES.COMPLETED
         ) {
           outcome = 'ignored';
           return;

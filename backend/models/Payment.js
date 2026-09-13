@@ -179,10 +179,44 @@ const paymentSchema = new mongoose.Schema({
     select: false,
     maxlength: 255
   },
+  captureRequestHash: {
+    type: String,
+    select: false,
+    maxlength: 128
+  },
+  captureAttemptStatus: {
+    type: String,
+    default: 'unclaimed',
+    select: false
+  },
+  captureClaimToken: { type: String, default: '', select: false, maxlength: 128 },
+  captureClaimedAt: { type: Date, default: null, select: false },
   cancelIdempotencyKey: {
     type: String,
     select: false,
     maxlength: 255
+  },
+  cancelRequestHash: {
+    type: String,
+    select: false,
+    maxlength: 128
+  },
+  cancelAttemptStatus: {
+    type: String,
+    default: 'unclaimed',
+    select: false
+  },
+  cancelClaimToken: { type: String, default: '', select: false, maxlength: 128 },
+  cancelClaimedAt: { type: Date, default: null, select: false },
+  voidIdempotencyKey: {
+    type: String,
+    select: false,
+    maxlength: 255
+  },
+  voidRequestHash: {
+    type: String,
+    select: false,
+    maxlength: 128
   },
   idempotencyKey: {
     type: String,
@@ -227,7 +261,17 @@ const paymentSchema = new mongoose.Schema({
       delete value.requestHash;
       delete value.providerIdempotencyKey;
       delete value.captureIdempotencyKey;
+      delete value.captureRequestHash;
+      delete value.captureAttemptStatus;
+      delete value.captureClaimToken;
+      delete value.captureClaimedAt;
       delete value.cancelIdempotencyKey;
+      delete value.cancelRequestHash;
+      delete value.cancelAttemptStatus;
+      delete value.cancelClaimToken;
+      delete value.cancelClaimedAt;
+      delete value.voidIdempotencyKey;
+      delete value.voidRequestHash;
       delete value.providerAttemptStatus;
       delete value.providerClaimToken;
       delete value.providerClaimedAt;
