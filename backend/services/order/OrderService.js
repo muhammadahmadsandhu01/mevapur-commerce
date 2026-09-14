@@ -2,6 +2,9 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Order = require('../../models/Order');
 const Product = require('../../models/Product');
+const User = require('../../models/User');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 const Payment = require('../../models/Payment');
 const CouponService = require('./CouponService');
 const ShippingService = require('./ShippingService');
@@ -91,7 +94,7 @@ class OrderService {
     return query;
   }
 
-  async resolveItems(items, session, currency = 'PKR') {
+  async resolveItems(items, session, currency = 'PKR', destinationCountry = null, merchantScopeId = 'default') {
     const resolved = [];
     const resolvedKeys = new Set();
     const activeCategoryIds = await ProductVisibilityPolicy.getActiveCategoryIds({ session });
@@ -143,21 +146,87 @@ class OrderService {
       }
       resolvedKeys.add(resolvedKey);
 
-      const rawPrice = variant
-        ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
-        : product.price;
-      const price = this.roundMoney(rawPrice);
-      if (!Number.isFinite(price) || price <= 0) {
-        throw new AppError(
-          'A selected product has an invalid price',
-          409,
-          ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE
-        );
+      let price;
+      let unitPriceExact;
+      let lineTotal;
+      let lineTotalExact;
+      let offering = null;
+      let priceBookEntry = null;
+
+      if (destinationCountry) {
+        const now = new Date();
+        offering = await ProductMarketOffering.findOne({
+          merchantScopeId,
+          productId: product._id,
+          variantId: variant ? variant._id : null,
+          marketCountry: destinationCountry,
+          status: 'active',
+          visibility: 'visible',
+          effectiveFrom: { $lte: now },
+          $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+        }).session(session);
+
+        if (!offering && variant) {
+          offering = await ProductMarketOffering.findOne({
+            merchantScopeId,
+            productId: product._id,
+            variantId: null,
+            marketCountry: destinationCountry,
+            status: 'active',
+            visibility: 'visible',
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+          }).session(session);
+        }
+
+        priceBookEntry = await MarketPriceBook.findOne({
+          merchantScopeId,
+          productId: product._id,
+          variantId: variant ? variant._id : null,
+          marketCountry: destinationCountry,
+          currency,
+          status: 'active',
+          effectiveFrom: { $lte: now },
+          $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+        }).session(session);
+
+        if (!priceBookEntry && variant) {
+          priceBookEntry = await MarketPriceBook.findOne({
+            merchantScopeId,
+            productId: product._id,
+            variantId: null,
+            marketCountry: destinationCountry,
+            currency,
+            status: 'active',
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+          }).session(session);
+        }
       }
 
-      const lineTotal = this.roundMoney(price * item.quantity);
-      const unitPriceExact = MoneyMapper.fromLegacy(price, currency);
-      const lineTotalExact = MoneyMapper.fromLegacy(lineTotal, currency);
+      if (priceBookEntry) {
+        const money = Money.fromMinor(priceBookEntry.amountMinor, currency);
+        const lineTotalMoney = money.multiplyRational(item.quantity, 1);
+        price = Number(money.toDecimalString());
+        unitPriceExact = MoneyMapper.toPersistence(money);
+        lineTotal = Number(lineTotalMoney.toDecimalString());
+        lineTotalExact = MoneyMapper.toPersistence(lineTotalMoney);
+      } else {
+        const rawPrice = variant
+          ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
+          : product.price;
+        price = this.roundMoney(rawPrice);
+        if (!Number.isFinite(price) || price <= 0) {
+          throw new AppError(
+            'A selected product has an invalid price',
+            409,
+            ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE
+          );
+        }
+        lineTotal = this.roundMoney(price * item.quantity);
+        unitPriceExact = MoneyMapper.fromLegacy(price, currency);
+        lineTotalExact = MoneyMapper.fromLegacy(lineTotal, currency);
+      }
 
       const variantLabel = variant
         ? variant.attributes
@@ -182,7 +251,13 @@ class OrderService {
           || product.images?.[0]
           || product.image
           || '',
-        categoryId: product.category || null
+        categoryId: product.category || null,
+        offeringId: offering ? offering._id : null,
+        offeringLockVersion: offering ? offering.lockVersion : null,
+        priceBookEntryId: priceBookEntry ? priceBookEntry._id : null,
+        priceBookLockVersion: priceBookEntry ? priceBookEntry.lockVersion : null,
+        priceSource: priceBookEntry ? priceBookEntry.priceSource : 'legacy',
+        fulfillmentMode: offering ? offering.fulfillmentMode : 'local'
       });
     }
 
@@ -434,8 +509,24 @@ class OrderService {
             phoneExtension
           };
 
+          // 0. Enforce Customer Profile Residence Country Completeness
+          const customerUser = await User.findById(userId).session(session);
+          if (customerUser && !customerUser.residenceCountry) {
+            throw new AppError(
+              'Customer residence country is required before completing checkout. Please complete your profile.',
+              400,
+              'RESIDENCE_COUNTRY_REQUIRED'
+            );
+          }
+
           // 3. Resolve Priced Items and assert Quote Item Hash Match
-          const pricedItems = await this.resolveItems(orderData.items, session, currency);
+          const pricedItems = await this.resolveItems(
+            orderData.items,
+            session,
+            currency,
+            destinationCountry,
+            market.merchantScopeId || 'default'
+          );
           const currentItemsHash = CheckoutQuoteService.hashItems(pricedItems);
 
           if (verifiedQuote && verifiedQuote.itemsHash !== currentItemsHash) {

@@ -10,6 +10,10 @@ const {
   adminProductQuerySchema
 } = require('../validators/productValidator');
 const {
+  offeringBodySchema,
+  priceBodySchema
+} = require('../validators/offeringValidator');
+const {
   getAdminProducts,
   getAdminProduct,
   createProduct,
@@ -17,7 +21,11 @@ const {
   publishProduct,
   unpublishProduct,
   archiveProduct,
-  deleteProduct
+  deleteProduct,
+  getProductOfferings,
+  updateProductOfferings,
+  getProductPrices,
+  updateProductPrices
 } = require('../controllers/adminProductController');
 
 // All admin product routes require authentication and staff authorization
@@ -30,6 +38,15 @@ router.use(checkRoles(
 
 router.get('/', validate(adminProductQuerySchema, { source: 'query' }), getAdminProducts);
 router.get('/:id', getAdminProduct);
+
+// Market Offering and Price Book endpoints
+router.get('/:id/offerings', getProductOfferings);
+router.put('/:id/offerings', validate(offeringBodySchema), updateProductOfferings);
+router.post('/:id/offerings', validate(offeringBodySchema), updateProductOfferings);
+
+router.get('/:id/prices', getProductPrices);
+router.put('/:id/prices', validate(priceBodySchema), updateProductPrices);
+router.post('/:id/prices', validate(priceBodySchema), updateProductPrices);
 
 // Explicit draft vs publish creation routes
 router.post('/draft', validate(draftCreateSchema), createProduct);

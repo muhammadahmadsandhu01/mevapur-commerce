@@ -40,7 +40,29 @@ const orderItemSchema = new mongoose.Schema({
   },
   lineTotal: { type: Number, required: true, min: 0 },
   lineTotalExact: { type: MoneySchema, default: null },
-  image: { type: String, default: '', maxlength: 1000 }
+  image: { type: String, default: '', maxlength: 1000 },
+  offeringId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ProductMarketOffering',
+    default: null
+  },
+  offeringLockVersion: { type: Number, default: null },
+  priceBookEntryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MarketPriceBook',
+    default: null
+  },
+  priceBookLockVersion: { type: Number, default: null },
+  priceSource: {
+    type: String,
+    enum: ['manual', 'governed_fx_snapshot', 'legacy'],
+    default: 'manual'
+  },
+  fulfillmentMode: {
+    type: String,
+    enum: ['local', 'cross_border', 'hybrid'],
+    default: 'local'
+  }
 }, { _id: false });
 
 const statusHistorySchema = new mongoose.Schema({

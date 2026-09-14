@@ -116,6 +116,8 @@ exports.archiveProduct = async (req, res, next) => {
   }
 };
 
+const ProductMarketOfferingService = require('../services/product/ProductMarketOfferingService');
+
 exports.deleteProduct = async (req, res, next) => {
   try {
     const result = await ProductCatalogService.deleteProduct({
@@ -123,6 +125,54 @@ exports.deleteProduct = async (req, res, next) => {
       userId: req.user.id
     });
     return success(res, 200, result, req.requestId);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getProductOfferings = async (req, res, next) => {
+  try {
+    const result = await ProductMarketOfferingService.getOfferingsForProduct(req.params.id, {
+      merchantScopeId: req.query.merchantScopeId || 'default'
+    });
+    return success(res, 200, result, req.requestId);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.updateProductOfferings = async (req, res, next) => {
+  try {
+    const offeringsList = Array.isArray(req.body.offerings) ? req.body.offerings : [req.body];
+    const result = await ProductMarketOfferingService.upsertOfferings(req.params.id, offeringsList, {
+      actorId: req.user.id,
+      merchantScopeId: req.body.merchantScopeId || req.query.merchantScopeId || 'default'
+    });
+    return success(res, 200, { offerings: result }, req.requestId);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getProductPrices = async (req, res, next) => {
+  try {
+    const result = await ProductMarketOfferingService.getPricesForProduct(req.params.id, {
+      merchantScopeId: req.query.merchantScopeId || 'default'
+    });
+    return success(res, 200, { prices: result }, req.requestId);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.updateProductPrices = async (req, res, next) => {
+  try {
+    const pricesList = Array.isArray(req.body.prices) ? req.body.prices : [req.body];
+    const result = await ProductMarketOfferingService.upsertPrices(req.params.id, pricesList, {
+      actorId: req.user.id,
+      merchantScopeId: req.body.merchantScopeId || req.query.merchantScopeId || 'default'
+    });
+    return success(res, 200, { prices: result }, req.requestId);
   } catch (error) {
     return next(error);
   }

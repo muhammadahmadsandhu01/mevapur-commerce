@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const Category = require('../../models/Category');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 
 const MAX_CATEGORY_HIERARCHY_DEPTH = 20;
 
@@ -12,7 +14,9 @@ const MAX_CATEGORY_HIERARCHY_DEPTH = 20;
  *    - Product is active (`isActive === true`);
  *    - Product is published (`status === 'published'`);
  *    - Primary category exists, is active, and all its ancestors are active;
- *    - Optional subcategory (if assigned) exists, is active, and all its ancestors are active.
+ *    - Optional subcategory (if assigned) exists, is active, and all its ancestors are active;
+ *    - Active ProductMarketOffering exists for the requested market and effective at query time;
+ *    - Active MarketPriceBook entry exists for the requested market and effective at query time.
  * 2. Unassigned, deleted, inactive, orphaned, or cyclic categories fail closed.
  * 3. Administrative, inventory, ledger, refund, and historical order consumers explicitly bypass this policy.
  */
@@ -84,6 +88,152 @@ class ProductVisibilityPolicy {
   }
 
   /**
+   * Resolves eligible Product ObjectIds for a given market.
+   * Requires:
+   * 1. Active ProductMarketOffering (status='active', visibility='visible', effective date valid)
+   * 2. Active MarketPriceBook entry (status='active', effective date valid)
+   *
+   * @param {object} options
+   * @param {string} options.marketCountry - Normalized ISO 3166-1 alpha-2 country code
+   * @param {string} [options.merchantScopeId='default']
+   * @param {Date} [options.atDate=new Date()]
+   * @param {mongoose.ClientSession|null} [options.session=null]
+   * @returns {Promise<mongoose.Types.ObjectId[]>}
+   */
+  async getEligibleProductIdsForMarket({
+    marketCountry,
+    merchantScopeId = 'default',
+    atDate = new Date(),
+    session = null
+  } = {}) {
+    if (!marketCountry || typeof marketCountry !== 'string') {
+      return [];
+    }
+
+    const country = marketCountry.trim().toUpperCase();
+    const now = new Date(atDate);
+
+    // 1. Query active offerings for this market
+    let offeringQuery = ProductMarketOffering.find({
+      merchantScopeId,
+      marketCountry: country,
+      status: 'active',
+      visibility: 'visible',
+      effectiveFrom: { $lte: now },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+    }, 'productId').lean();
+
+    if (session) {
+      offeringQuery = offeringQuery.session(session);
+    }
+
+    const offerings = await offeringQuery;
+    const offeringProductIds = (offerings || []).map((o) => String(o.productId));
+
+    // 2. Query active price books for this market matching offering product IDs
+    let eligibleProductIds = [];
+    if (offeringProductIds.length > 0) {
+      let priceQuery = MarketPriceBook.find({
+        merchantScopeId,
+        marketCountry: country,
+        status: 'active',
+        productId: { $in: offeringProductIds },
+        effectiveFrom: { $lte: now },
+        $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+      }, 'productId').lean();
+
+      if (session) {
+        priceQuery = priceQuery.session(session);
+      }
+
+      const priceBooks = await priceQuery;
+      if (priceBooks && priceBooks.length > 0) {
+        eligibleProductIds = Array.from(new Set(priceBooks.map((p) => String(p.productId))))
+          .map((id) => new mongoose.Types.ObjectId(id));
+      }
+    }
+
+    // 3. For home market (PK), also include legacy products that have NO offerings defined anywhere
+    if (country === 'PK') {
+      const allProductIdsWithOfferings = await ProductMarketOffering.distinct('productId', { merchantScopeId });
+      const ProductModel = mongoose.models.Product || mongoose.model('Product');
+      const legacyQuery = {
+        _id: { $nin: allProductIdsWithOfferings }
+      };
+      const legacyProducts = await ProductModel.find(legacyQuery, '_id').lean();
+      const legacyIds = legacyProducts.map((p) => p._id);
+      eligibleProductIds = eligibleProductIds.concat(legacyIds);
+    }
+
+    return eligibleProductIds;
+  }
+
+  /**
+   * Check if a product has active market offering and active market price.
+   *
+   * @param {object|mongoose.Types.ObjectId|string} productOrId
+   * @param {object} options
+   * @param {string} options.marketCountry
+   * @param {string} [options.merchantScopeId='default']
+   * @param {Date} [options.atDate=new Date()]
+   * @param {mongoose.ClientSession|null} [options.session=null]
+   * @returns {Promise<boolean>}
+   */
+  async isProductMarketEligible(productOrId, {
+    marketCountry,
+    merchantScopeId = 'default',
+    atDate = new Date(),
+    session = null
+  } = {}) {
+    if (!productOrId || !marketCountry) {
+      return false;
+    }
+
+    const productId = productOrId._id || productOrId;
+    const country = marketCountry.trim().toUpperCase();
+    const now = new Date(atDate);
+
+    let offeringQuery = ProductMarketOffering.findOne({
+      merchantScopeId,
+      productId,
+      marketCountry: country,
+      status: 'active',
+      visibility: 'visible',
+      effectiveFrom: { $lte: now },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+    }).lean();
+
+    if (session) offeringQuery = offeringQuery.session(session);
+    const offering = await offeringQuery;
+
+    if (offering) {
+      let priceQuery = MarketPriceBook.findOne({
+        merchantScopeId,
+        productId,
+        marketCountry: country,
+        status: 'active',
+        effectiveFrom: { $lte: now },
+        $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+      }).lean();
+
+      if (session) priceQuery = priceQuery.session(session);
+      const price = await priceQuery;
+      return Boolean(price);
+    }
+
+    // If no offering for this market:
+    // If it's the home market (PK) and the product has NO offerings anywhere, allow legacy fallback
+    if (country === 'PK') {
+      const hasAnyOffering = await ProductMarketOffering.exists({ merchantScopeId, productId });
+      if (!hasAnyOffering) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Build canonical MongoDB query filter for public product discovery.
    *
    * @param {object} [options={}]
@@ -91,13 +241,19 @@ class ProductVisibilityPolicy {
    * @param {mongoose.Types.ObjectId[]|null} [options.activeCategoryIds=null]
    * @param {mongoose.Types.ObjectId|string|null} [options.categoryId=null] - Pre-resolved filtered category ID.
    * @param {mongoose.Types.ObjectId|string|null} [options.subcategoryId=null] - Pre-resolved filtered subcategory ID.
+   * @param {string|null} [options.marketCountry=null] - Resolved shopping market country code.
+   * @param {string} [options.merchantScopeId='default']
+   * @param {Date} [options.atDate=new Date()]
    * @returns {Promise<object>} MongoDB filter object.
    */
   async getPublicProductQueryFilter({
     session = null,
     activeCategoryIds = null,
     categoryId = null,
-    subcategoryId = null
+    subcategoryId = null,
+    marketCountry = null,
+    merchantScopeId = 'default',
+    atDate = new Date()
   } = {}) {
     const activeIds = activeCategoryIds || await this.getActiveCategoryIds({ session });
 
@@ -144,6 +300,17 @@ class ProductVisibilityPolicy {
       } else {
         filter.subcategory = new mongoose.Types.ObjectId();
       }
+    }
+
+    // Apply market offering and price book filtering if marketCountry is provided
+    if (marketCountry) {
+      const eligibleProductIds = await this.getEligibleProductIdsForMarket({
+        marketCountry,
+        merchantScopeId,
+        atDate,
+        session
+      });
+      filter._id = { $in: eligibleProductIds };
     }
 
     return filter;
@@ -199,7 +366,7 @@ class ProductVisibilityPolicy {
   }
 
   /**
-   * Determine full public eligibility (lifecycle + category inheritance).
+   * Determine full public eligibility (lifecycle + category inheritance + optional market eligibility).
    *
    * @param {object} product
    * @param {object} [options={}]
@@ -210,7 +377,16 @@ class ProductVisibilityPolicy {
     if (product.isActive !== true || product.status !== 'published') {
       return false;
     }
-    return await this.isProductCategoryEligible(product, options);
+    const isCategoryEligible = await this.isProductCategoryEligible(product, options);
+    if (!isCategoryEligible) {
+      return false;
+    }
+
+    if (options.marketCountry) {
+      return await this.isProductMarketEligible(product, options);
+    }
+
+    return true;
   }
 }
 

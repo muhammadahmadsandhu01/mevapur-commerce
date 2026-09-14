@@ -17,13 +17,18 @@ const assertUserId = (userId) => {
   }
 };
 
-const searchPublicProducts = async ({ query }) => {
+const MarketPriceBook = require('../../../models/MarketPriceBook');
+
+const searchPublicProducts = async ({ query, marketCountry, market }) => {
+  const targetMarket = (marketCountry || market || 'PK').toUpperCase();
   const normalized = String(query || '').trim();
   if (!SAFE_SEARCH.test(normalized)) {
     throw new Error('ASSISTANT_PRODUCT_SEARCH_INVALID');
   }
   const pattern = new RegExp(safeRegex(normalized), 'i');
-  const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+  const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter({
+    marketCountry: targetMarket
+  });
   const products = await Product.find({
     ...visibilityFilter,
     $and: [
@@ -41,19 +46,39 @@ const searchPublicProducts = async ({ query }) => {
     .maxTimeMS(QUERY_TIMEOUT_MS)
     .lean();
 
-  return products.map((product) => ({
-    id: String(product._id),
-    name: product.name,
-    slug: product.slug,
-    shortDescription: product.shortDescription,
-    price: product.price,
-    inStock: Number(product.stock) > 0,
-    primaryImage: product.primaryImage,
-    rating: product.rating
-  }));
+  const now = new Date();
+  const priceDocs = await MarketPriceBook.find({
+    marketCountry: targetMarket,
+    productId: { $in: products.map((p) => p._id) },
+    status: 'active',
+    effectiveFrom: { $lte: now },
+    $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+  }).lean();
+
+  const priceMap = new Map();
+  for (const doc of priceDocs) {
+    priceMap.set(String(doc.productId), doc);
+  }
+
+  return products.map((product) => {
+    const mp = priceMap.get(String(product._id));
+    const price = mp ? (Number(mp.amountMinor) / (10 ** (mp.currencyExponent || 2))) : product.price;
+    return {
+      id: String(product._id),
+      name: product.name,
+      slug: product.slug,
+      shortDescription: product.shortDescription,
+      price,
+      currency: mp?.currency || 'PKR',
+      inStock: Number(product.stock) > 0,
+      primaryImage: product.primaryImage,
+      rating: product.rating
+    };
+  });
 };
 
-const getPublicProductDetails = async ({ productId }) => {
+const getPublicProductDetails = async ({ productId, marketCountry, market }) => {
+  const targetMarket = (marketCountry || market || 'PK').toUpperCase();
   if (!mongoose.isValidObjectId(productId)) {
     throw new Error('ASSISTANT_PRODUCT_ID_INVALID');
   }
@@ -62,14 +87,29 @@ const getPublicProductDetails = async ({ productId }) => {
     isActive: true,
     status: 'published'
   })
-    .select('name slug shortDescription description price stock primaryImage rating category subcategory')
+    .select('name slug shortDescription description price stock primaryImage rating category subcategory isActive status')
     .maxTimeMS(QUERY_TIMEOUT_MS)
     .lean();
 
   if (!product) return null;
 
-  const isEligible = await ProductVisibilityPolicy.isProductCategoryEligible(product);
+  const isEligible = await ProductVisibilityPolicy.isProductPubliclyEligible(product, {
+    marketCountry: targetMarket
+  });
   if (!isEligible) return null;
+
+  const now = new Date();
+  const marketPrice = await MarketPriceBook.findOne({
+    marketCountry: targetMarket,
+    productId: product._id,
+    status: 'active',
+    effectiveFrom: { $lte: now },
+    $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+  }).lean();
+
+  const price = marketPrice
+    ? (Number(marketPrice.amountMinor) / (10 ** (marketPrice.currencyExponent || 2)))
+    : product.price;
 
   return {
     id: String(product._id),
@@ -77,7 +117,8 @@ const getPublicProductDetails = async ({ productId }) => {
     slug: product.slug,
     shortDescription: product.shortDescription,
     description: String(product.description || '').slice(0, 500),
-    price: product.price,
+    price,
+    currency: marketPrice?.currency || 'PKR',
     inStock: Number(product.stock) > 0,
     primaryImage: product.primaryImage,
     rating: product.rating

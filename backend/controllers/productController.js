@@ -1,7 +1,9 @@
+const mongoose = require('mongoose');
 const Product = require('../models/Product');
+const MarketPriceBook = require('../models/MarketPriceBook');
 const CategoryResolver = require('../services/category/CategoryResolver');
 const ProductVisibilityPolicy = require('../services/product/ProductVisibilityPolicy');
-const mongoose = require('mongoose');
+const MarketContextResolver = require('../services/market/MarketContextResolver');
 
 /**
  * Explicit Public Product Serializer
@@ -9,15 +11,35 @@ const mongoose = require('mongoose');
  * Guarantees internal/confidential fields (costPrice, lowStockThreshold,
  * trackInventory, barcode, internal concurrency/transactions, __v) are never exposed.
  */
-function serializePublicVariant(variant) {
+function serializePublicVariant(variant, variantPrice = null) {
   if (!variant) return null;
   const v = variant.toObject ? variant.toObject() : variant;
+
+  let price = v.price;
+  let salePrice = v.salePrice;
+  let marketPriceExact = null;
+
+  if (variantPrice) {
+    const exp = Number(variantPrice.currencyExponent !== undefined ? variantPrice.currencyExponent : 2);
+    const divisor = 10 ** exp;
+    price = Number(variantPrice.amountMinor) / divisor;
+    salePrice = variantPrice.compareAtAmountMinor ? Number(variantPrice.compareAtAmountMinor) / divisor : null;
+    marketPriceExact = {
+      amountMinor: variantPrice.amountMinor,
+      compareAtAmountMinor: variantPrice.compareAtAmountMinor || null,
+      currency: variantPrice.currency,
+      exponent: exp,
+      priceSource: variantPrice.priceSource || 'manual'
+    };
+  }
+
   return {
     _id: v._id,
     sku: v.sku,
     attributes: v.attributes || [],
-    price: v.price,
-    salePrice: v.salePrice,
+    price,
+    salePrice,
+    marketPriceExact,
     stock: v.stock,
     weight: v.weight,
     images: v.images || [],
@@ -26,9 +48,36 @@ function serializePublicVariant(variant) {
   };
 }
 
-function serializePublicProduct(product) {
+function serializePublicProduct(product, marketPrice = null, variantPriceMap = null) {
   if (!product) return null;
   const p = product.toObject ? product.toObject() : product;
+
+  let price = p.price;
+  let originalPrice = p.originalPrice;
+  let salePrice = p.salePrice;
+  let currency = 'PKR';
+  let marketPriceExact = null;
+
+  if (marketPrice) {
+    const exp = Number(marketPrice.currencyExponent !== undefined ? marketPrice.currencyExponent : 2);
+    const divisor = 10 ** exp;
+    price = Number(marketPrice.amountMinor) / divisor;
+    currency = marketPrice.currency;
+    if (marketPrice.compareAtAmountMinor) {
+      originalPrice = Number(marketPrice.compareAtAmountMinor) / divisor;
+      salePrice = price;
+    } else {
+      originalPrice = price;
+      salePrice = null;
+    }
+    marketPriceExact = {
+      amountMinor: marketPrice.amountMinor,
+      compareAtAmountMinor: marketPrice.compareAtAmountMinor || null,
+      currency: marketPrice.currency,
+      exponent: exp,
+      priceSource: marketPrice.priceSource || 'manual'
+    };
+  }
 
   return {
     _id: p._id,
@@ -40,8 +89,11 @@ function serializePublicProduct(product) {
     subcategory: p.subcategory || null,
     brand: p.brand || null,
     sku: p.sku || '',
-    price: p.price,
-    originalPrice: p.originalPrice,
+    price,
+    originalPrice,
+    salePrice,
+    currency,
+    marketPriceExact,
     stock: p.stock,
     rating: p.rating,
     reviewCount: p.reviewCount,
@@ -71,7 +123,12 @@ function serializePublicProduct(product) {
     allowCOD: p.allowCOD !== false,
     relatedProducts: p.relatedProducts || [],
     attributes: p.attributes || [],
-    variants: Array.isArray(p.variants) ? p.variants.map(serializePublicVariant) : [],
+    variants: Array.isArray(p.variants)
+      ? p.variants.map((v) => {
+        const vPrice = variantPriceMap ? variantPriceMap.get(String(v._id)) : null;
+        return serializePublicVariant(v, vPrice || marketPrice);
+      })
+      : [],
     mediaAssetIds: p.mediaAssetIds || [],
     primaryMediaAssetId: p.primaryMediaAssetId || null,
     images: p.images || [],
@@ -83,6 +140,37 @@ function serializePublicProduct(product) {
     createdAt: p.createdAt,
     updatedAt: p.updatedAt
   };
+}
+
+/**
+ * Batch retrieves active market price books for products in a resolved market.
+ * @param {Array<mongoose.Types.ObjectId|string>} productIds
+ * @param {string} marketCountry
+ * @param {string} merchantScopeId
+ * @returns {Promise<Map<string, Object>>}
+ */
+async function fetchMarketPriceMap(productIds, marketCountry, merchantScopeId = 'default') {
+  if (!productIds || productIds.length === 0 || !marketCountry) {
+    return new Map();
+  }
+  const now = new Date();
+  const priceDocs = await MarketPriceBook.find({
+    merchantScopeId,
+    marketCountry,
+    productId: { $in: productIds },
+    status: 'active',
+    effectiveFrom: { $lte: now },
+    $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+  }).lean();
+
+  const priceMap = new Map();
+  for (const doc of priceDocs) {
+    const key = doc.variantId ? `${doc.productId}:${doc.variantId}` : String(doc.productId);
+    if (!priceMap.has(key)) {
+      priceMap.set(key, doc);
+    }
+  }
+  return priceMap;
 }
 
 exports.serializePublicProduct = serializePublicProduct;
@@ -99,7 +187,11 @@ exports.getProducts = async (req, res) => {
 
     const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // 1. Resolve Category Filters if supplied
+    // 1. Resolve Shopping Market Context
+    const marketContext = await MarketContextResolver.resolve(req);
+    const { marketCountry, merchantScopeId } = marketContext;
+
+    // 2. Resolve Category Filters if supplied
     let requestedCategoryId = null;
     if (req.query.category) {
       requestedCategoryId = await CategoryResolver.resolveCategoryToId(req.query.category, { requireActive: true });
@@ -116,15 +208,17 @@ exports.getProducts = async (req, res) => {
       }
     }
 
-    // 2. Canonical Visibility and Inheritance Filter
+    // 3. Canonical Visibility and Market Inheritance Filter
     const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter({
       categoryId: requestedCategoryId,
-      subcategoryId: requestedSubcategoryId
+      subcategoryId: requestedSubcategoryId,
+      marketCountry,
+      merchantScopeId
     });
 
     const query = { ...visibilityFilter };
 
-    // 3. Text Search (safely composed under $and so it does not overwrite visibility subcategory $or)
+    // 4. Text Search (safely composed under $and so it does not overwrite visibility subcategory $or)
     if (req.query.keyword) {
       query.$and = query.$and || [];
       query.$and.push({
@@ -136,31 +230,31 @@ exports.getProducts = async (req, res) => {
       });
     }
 
-    // 4. Brand Filter
+    // 5. Brand Filter
     if (req.query.brand && mongoose.Types.ObjectId.isValid(req.query.brand)) {
       query.brand = new mongoose.Types.ObjectId(req.query.brand);
     }
 
-    // 5. Price Range Filter
+    // 6. Price Range Filter
     if (req.query.minPrice || req.query.maxPrice) {
       query.price = {};
       if (req.query.minPrice) query.price.$gte = parseFloat(req.query.minPrice);
       if (req.query.maxPrice) query.price.$lte = parseFloat(req.query.maxPrice);
     }
 
-    // 6. Rating Filter
+    // 7. Rating Filter
     if (req.query.rating) {
       query.rating = { $gte: parseFloat(req.query.rating) };
     }
 
-    // 7. Stock Availability
+    // 8. Stock Availability
     if (req.query.inStock === 'true') query.stock = { $gt: 0 };
     else if (req.query.inStock === 'false') query.stock = { $lte: 0 };
 
-    // 8. Dynamic Attribute Filtering
+    // 9. Dynamic Attribute Filtering
     if (req.query.attribute && typeof req.query.attribute === 'object') {
       query.$and = query.$and || [];
-      Object.keys(req.query.attribute).forEach(key => {
+      Object.keys(req.query.attribute).forEach((key) => {
         const values = Array.isArray(req.query.attribute[key]) ? req.query.attribute[key] : [req.query.attribute[key]];
         query.$and.push({
           attributes: { $elemMatch: { name: key, value: { $in: values } } }
@@ -177,19 +271,30 @@ exports.getProducts = async (req, res) => {
         .limit(limit)
         .lean();
 
-      const formattedProducts = products.map((product) => ({
-        _id: product._id,
-        name: product.name,
-        slug: product.slug,
-        price: product.price,
-        image: product.image || product.primaryImage || '/placeholder.png',
-        category: product.category
-      }));
+      const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
 
-      return res.json({ success: true, data: formattedProducts });
+      const formattedProducts = products.map((product) => {
+        const mp = priceMap.get(String(product._id));
+        const price = mp ? (Number(mp.amountMinor) / (10 ** (mp.currencyExponent || 2))) : product.price;
+        return {
+          _id: product._id,
+          name: product.name,
+          slug: product.slug,
+          price,
+          currency: mp?.currency || 'PKR',
+          image: product.image || product.primaryImage || '/placeholder.png',
+          category: product.category
+        };
+      });
+
+      return res.json({
+        success: true,
+        data: formattedProducts,
+        meta: { marketCountry, currency: marketContext.currency }
+      });
     }
 
-    // 9. Sorting
+    // 10. Sorting
     let sortOption = {};
     if (req.query.sortBy === 'price-asc') sortOption = { price: 1, _id: -1 };
     else if (req.query.sortBy === 'price-desc') sortOption = { price: -1, _id: -1 };
@@ -208,7 +313,8 @@ exports.getProducts = async (req, res) => {
       Product.countDocuments(query)
     ]);
 
-    const serializedProducts = products.map(serializePublicProduct);
+    const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
+    const serializedProducts = products.map((p) => serializePublicProduct(p, priceMap.get(String(p._id))));
 
     res.json({
       success: true,
@@ -220,10 +326,14 @@ exports.getProducts = async (req, res) => {
         hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1,
         limit
+      },
+      meta: {
+        marketCountry,
+        currency: marketContext.currency
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -234,6 +344,10 @@ exports.getProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+
+    // 1. Resolve Shopping Market Context
+    const marketContext = await MarketContextResolver.resolve(req);
+    const { marketCountry, merchantScopeId } = marketContext;
 
     let product = null;
     if (isValidObjectId) {
@@ -248,10 +362,26 @@ exports.getProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    const isEligible = await ProductVisibilityPolicy.isProductCategoryEligible(product);
+    // 2. Assert Category and Market Eligibility (Fail closed with truthful 404 without leaking internal state)
+    const isEligible = await ProductVisibilityPolicy.isProductPubliclyEligible(product, {
+      marketCountry,
+      merchantScopeId
+    });
+
     if (!isEligible) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
+
+    // 3. Fetch exact market pricing
+    const now = new Date();
+    const marketPrice = await MarketPriceBook.findOne({
+      merchantScopeId,
+      productId: product._id,
+      marketCountry,
+      status: 'active',
+      effectiveFrom: { $lte: now },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+    }).lean();
 
     await Product.populate(product, [
       { path: 'category', select: 'name slug isActive parentId' },
@@ -259,9 +389,16 @@ exports.getProduct = async (req, res) => {
       { path: 'brand', select: 'name' }
     ]);
 
-    res.json({ success: true, data: serializePublicProduct(product) });
+    res.json({
+      success: true,
+      data: serializePublicProduct(product, marketPrice),
+      meta: {
+        marketCountry,
+        currency: marketPrice?.currency || marketContext.currency
+      }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch product details' });
+    res.status(error.statusCode || 500).json({ success: false, message: 'Failed to fetch product details' });
   }
 };
 
@@ -271,7 +408,14 @@ exports.getProduct = async (req, res) => {
 exports.getTopProducts = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 5, 20);
-    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+    const marketContext = await MarketContextResolver.resolve(req);
+    const { marketCountry, merchantScopeId } = marketContext;
+
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter({
+      marketCountry,
+      merchantScopeId
+    });
+
     const products = await Product.find(visibilityFilter)
       .sort({ rating: -1, reviewCount: -1, _id: -1 })
       .limit(limit)
@@ -279,9 +423,15 @@ exports.getTopProducts = async (req, res) => {
       .populate('brand', 'name')
       .lean();
 
-    res.json({ success: true, data: products.map(serializePublicProduct) });
+    const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
+
+    res.json({
+      success: true,
+      data: products.map((p) => serializePublicProduct(p, priceMap.get(String(p._id)))),
+      meta: { marketCountry, currency: marketContext.currency }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -291,7 +441,14 @@ exports.getTopProducts = async (req, res) => {
 exports.getRecommendedProducts = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 8, 20);
-    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+    const marketContext = await MarketContextResolver.resolve(req);
+    const { marketCountry, merchantScopeId } = marketContext;
+
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter({
+      marketCountry,
+      merchantScopeId
+    });
+
     const products = await Product.find(visibilityFilter)
       .sort({ isFeatured: -1, rating: -1, soldCount: -1, _id: -1 })
       .limit(limit)
@@ -299,9 +456,15 @@ exports.getRecommendedProducts = async (req, res) => {
       .populate('brand', 'name')
       .lean();
 
-    res.json({ success: true, data: products.map(serializePublicProduct) });
+    const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
+
+    res.json({
+      success: true,
+      data: products.map((p) => serializePublicProduct(p, priceMap.get(String(p._id)))),
+      meta: { marketCountry, currency: marketContext.currency }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -310,12 +473,19 @@ exports.getRecommendedProducts = async (req, res) => {
 // @access  Public
 exports.getRecentlyViewed = async (req, res) => {
   try {
-    const ids = req.query.ids ? req.query.ids.split(',').filter(id => mongoose.Types.ObjectId.isValid(id)) : [];
+    const ids = req.query.ids ? req.query.ids.split(',').filter((id) => mongoose.Types.ObjectId.isValid(id)) : [];
     if (ids.length === 0) {
       return res.json({ success: true, data: [] });
     }
 
-    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter();
+    const marketContext = await MarketContextResolver.resolve(req);
+    const { marketCountry, merchantScopeId } = marketContext;
+
+    const visibilityFilter = await ProductVisibilityPolicy.getPublicProductQueryFilter({
+      marketCountry,
+      merchantScopeId
+    });
+
     const query = {
       ...visibilityFilter,
       _id: { $in: ids }
@@ -326,8 +496,14 @@ exports.getRecentlyViewed = async (req, res) => {
       .populate('brand', 'name')
       .lean();
 
-    res.json({ success: true, data: products.map(serializePublicProduct) });
+    const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
+
+    res.json({
+      success: true,
+      data: products.map((p) => serializePublicProduct(p, priceMap.get(String(p._id)))),
+      meta: { marketCountry, currency: marketContext.currency }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };

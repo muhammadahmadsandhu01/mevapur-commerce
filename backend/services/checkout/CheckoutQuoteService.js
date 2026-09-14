@@ -10,6 +10,8 @@ const crypto = require('crypto');
 const MarketService = require('../MarketService');
 const CommerceConfigurationService = require('../commerce/CommerceConfigurationService');
 const Product = require('../../models/Product');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 const CouponService = require('../order/CouponService');
 const TaxDutyEngine = require('./TaxDutyEngine');
 const shippingAdapterRegistry = require('./shipping/ShippingAdapterRegistry');
@@ -173,7 +175,7 @@ class CheckoutQuoteService {
    * @param {Object} [options]
    * @returns {Promise<Array<Object>>}
    */
-  async resolvePricedItems(items, currency, { session = null } = {}) {
+  async resolvePricedItems(items, currency, { session = null, destinationCountry = null, merchantScopeId = 'default' } = {}) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new AppError('Checkout items array cannot be empty', 400, ERROR_CODES.ORDER_VALIDATION_FAILED);
     }
@@ -244,15 +246,74 @@ class CheckoutQuoteService {
         );
       }
 
-      const rawPrice = variant
-        ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
-        : product.price;
+      let unitPriceMoney;
+      let offering = null;
+      let priceBookEntry = null;
 
-      if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
-        throw new AppError(`Product '${product.name}' has an invalid price`, 409, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
+      if (destinationCountry) {
+        const now = new Date();
+        offering = await ProductMarketOffering.findOne({
+          merchantScopeId,
+          productId: product._id,
+          variantId: variant ? variant._id : null,
+          marketCountry: destinationCountry,
+          status: 'active',
+          visibility: 'visible',
+          effectiveFrom: { $lte: now },
+          $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+        }).session(session);
+
+        if (!offering && variant) {
+          offering = await ProductMarketOffering.findOne({
+            merchantScopeId,
+            productId: product._id,
+            variantId: null,
+            marketCountry: destinationCountry,
+            status: 'active',
+            visibility: 'visible',
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+          }).session(session);
+        }
+
+        priceBookEntry = await MarketPriceBook.findOne({
+          merchantScopeId,
+          productId: product._id,
+          variantId: variant ? variant._id : null,
+          marketCountry: destinationCountry,
+          currency,
+          status: 'active',
+          effectiveFrom: { $lte: now },
+          $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+        }).session(session);
+
+        if (!priceBookEntry && variant) {
+          priceBookEntry = await MarketPriceBook.findOne({
+            merchantScopeId,
+            productId: product._id,
+            variantId: null,
+            marketCountry: destinationCountry,
+            currency,
+            status: 'active',
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+          }).session(session);
+        }
       }
 
-      const unitPriceMoney = Money.fromLegacyNumber(rawPrice, currency);
+      if (priceBookEntry) {
+        unitPriceMoney = Money.fromMinor(priceBookEntry.amountMinor, currency);
+      } else {
+        const rawPrice = variant
+          ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
+          : product.price;
+
+        if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+          throw new AppError(`Product '${product.name}' has an invalid price`, 409, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
+        }
+        unitPriceMoney = Money.fromLegacyNumber(rawPrice, currency);
+      }
+
       const lineTotalMoney = unitPriceMoney.multiplyRational(quantity, 1);
 
       // Logistics & Customs Resolution
@@ -288,7 +349,13 @@ class CheckoutQuoteService {
         declaredValueEligibility,
         hsCode,
         countryOfOrigin,
-        image: variant?.images?.[0] || product.primaryImage || product.images?.[0] || product.image || ''
+        image: variant?.images?.[0] || product.primaryImage || product.images?.[0] || product.image || '',
+        offeringId: offering ? String(offering._id) : null,
+        offeringLockVersion: offering ? offering.lockVersion : null,
+        priceBookEntryId: priceBookEntry ? String(priceBookEntry._id) : null,
+        priceBookLockVersion: priceBookEntry ? priceBookEntry.lockVersion : null,
+        priceSource: priceBookEntry ? priceBookEntry.priceSource : 'legacy',
+        fulfillmentMode: offering ? offering.fulfillmentMode : 'local'
       });
     }
 
@@ -371,7 +438,10 @@ class CheckoutQuoteService {
     });
 
     // 4. Resolve Items & Subtotal
-    const pricedItems = await this.resolvePricedItems(items, targetCurrency);
+    const pricedItems = await this.resolvePricedItems(items, targetCurrency, {
+      destinationCountry,
+      merchantScopeId
+    });
 
     // Enforce Product Customs Metadata for International routes
     if (!isDomestic) {
