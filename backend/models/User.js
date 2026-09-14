@@ -48,6 +48,22 @@ const userSchema = new mongoose.Schema(
       default: ''
     },
 
+    residenceCountry: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      match: /^[A-Z]{2}$/,
+      default: null
+    },
+
+    preferredMarketCountry: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      match: /^[A-Z]{2}$/,
+      default: null
+    },
+
     addresses: [
       {
         fullName: String,

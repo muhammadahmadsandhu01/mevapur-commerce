@@ -13,6 +13,7 @@ const productQuerySchema = z.object({
   minPrice: z.coerce.number().finite().min(0).optional(), maxPrice: z.coerce.number().finite().min(0).optional(),
   rating: z.coerce.number().finite().min(0).max(5).optional(),
   inStock: z.enum(['true', 'false']).optional(), autocomplete: z.enum(['true']).optional(),
+  market: country.optional(), marketCountry: country.optional(),
   sortBy: z.enum(['price-asc', 'price-desc', 'rating', 'best-selling', 'newest']).default('newest'),
   page: z.coerce.number().int().min(1).max(100000).default(1), limit: z.coerce.number().int().min(1).max(50).default(12)
 }).strict().superRefine((value, context) => { if (value.minPrice != null && value.maxPrice != null && value.minPrice > value.maxPrice) context.addIssue({ code: 'custom', path: ['maxPrice'], message: 'Maximum price must not be lower than minimum price' }); });

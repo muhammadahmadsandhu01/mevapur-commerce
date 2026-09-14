@@ -16,8 +16,16 @@ const ERROR_CODES = require('../constants/errorCodes');
 const { Phone, CountryRegistry } = require('../modules/commerce');
 
 const customerProfile = (user) => ({
-  id: String(user._id), fullName: user.fullName, email: user.email, phone: user.phone || '',
-  avatar: user.avatar || '', isVerified: Boolean(user.isVerified), createdAt: user.createdAt
+  id: String(user._id),
+  fullName: user.fullName,
+  email: user.email,
+  phone: user.phone || '',
+  avatar: user.avatar || '',
+  residenceCountry: user.residenceCountry || null,
+  preferredMarketCountry: user.preferredMarketCountry || null,
+  isCountryComplete: Boolean(user.residenceCountry),
+  isVerified: Boolean(user.isVerified),
+  createdAt: user.createdAt
 });
 const addressView = (address) => ({
   id: String(address._id),
@@ -53,6 +61,34 @@ class CustomerCommerceService {
     if (input.fullName !== undefined) user.fullName = input.fullName;
     if (input.phone !== undefined) user.phone = input.phone;
     if (input.avatar !== undefined) user.avatar = input.avatar;
+
+    if (input.residenceCountry !== undefined) {
+      if (input.residenceCountry === null || input.residenceCountry === '') {
+        throw new AppError('Residence country cannot be empty', 400, 'INVALID_RESIDENCE_COUNTRY');
+      }
+      const normalizedResidence = input.residenceCountry.trim().toUpperCase();
+      if (!/^[A-Z]{2}$/.test(normalizedResidence) || !CountryRegistry.hasCountry(normalizedResidence)) {
+        throw new AppError(`Invalid residence country '${input.residenceCountry}'`, 400, 'INVALID_RESIDENCE_COUNTRY');
+      }
+      user.residenceCountry = normalizedResidence;
+    }
+
+    if (input.preferredMarketCountry !== undefined) {
+      if (input.preferredMarketCountry === null || input.preferredMarketCountry === '') {
+        user.preferredMarketCountry = null;
+      } else {
+        const normalizedMarket = input.preferredMarketCountry.trim().toUpperCase();
+        if (!/^[A-Z]{2}$/.test(normalizedMarket) || !CountryRegistry.hasCountry(normalizedMarket)) {
+          throw new AppError(`Invalid market country '${input.preferredMarketCountry}'`, 400, 'INVALID_MARKET_COUNTRY');
+        }
+        const isEnabled = await MarketService.isCountryEnabled(normalizedMarket);
+        if (!isEnabled) {
+          throw new AppError(`Market country '${normalizedMarket}' is not enabled for this store`, 400, 'MARKET_COUNTRY_INELIGIBLE');
+        }
+        user.preferredMarketCountry = normalizedMarket;
+      }
+    }
+
     await user.save();
     return customerProfile(user);
   }
@@ -154,9 +190,19 @@ class CustomerCommerceService {
     await user.save();
   }
 
-  async listWishlist(userId) {
+  async listWishlist(userId, options = {}) {
     const activeCategoryIds = await ProductVisibilityPolicy.getActiveCategoryIds();
     const activeCatSet = new Set(activeCategoryIds.map((id) => String(id)));
+    const marketCountry = options.marketCountry || null;
+
+    let eligibleProductIdsSet = null;
+    if (marketCountry) {
+      const eligibleIds = await ProductVisibilityPolicy.getEligibleProductIdsForMarket({
+        marketCountry,
+        merchantScopeId: options.merchantScopeId || 'default'
+      });
+      eligibleProductIdsSet = new Set(eligibleIds.map((id) => String(id)));
+    }
 
     const items = await Wishlist.find({ user: userId })
       .populate({
@@ -169,6 +215,9 @@ class CustomerCommerceService {
     return items
       .filter((item) => {
         if (!item.product) return false;
+        if (eligibleProductIdsSet && !eligibleProductIdsSet.has(String(item.product._id))) {
+          return false;
+        }
         const primaryCat = item.product.category ? String(item.product.category) : null;
         if (!primaryCat || !activeCatSet.has(primaryCat)) return false;
         if (item.product.subcategory) {
@@ -194,12 +243,12 @@ class CustomerCommerceService {
         }
       }));
   }
-  async addWishlist(userId, productId) {
+  async addWishlist(userId, productId, options = {}) {
     const product = await Product.findOne({ _id: productId, isActive: true, status: 'published' });
-    const isEligible = product && await ProductVisibilityPolicy.isProductCategoryEligible(product);
+    const isEligible = product && await ProductVisibilityPolicy.isProductPubliclyEligible(product, options);
     if (!isEligible) throw new AppError('Product is unavailable', 404, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
     try { const item = await Wishlist.findOneAndUpdate({ user: userId, product: productId }, { $setOnInsert: { user: userId, product: productId } }, { new: true, upsert: true, setDefaultsOnInsert: true }); return { id: String(item._id), product }; }
-    catch (error) { if (error?.code === 11000) return this.addWishlist(userId, productId); throw error; }
+    catch (error) { if (error?.code === 11000) return this.addWishlist(userId, productId, options); throw error; }
   }
   async removeWishlist(userId, productId) { const result = await Wishlist.deleteOne({ user: userId, product: productId }); if (!result.deletedCount) throw new AppError('Wishlist item not found', 404, ERROR_CODES.CUSTOMER_WISHLIST_NOT_FOUND); }
 

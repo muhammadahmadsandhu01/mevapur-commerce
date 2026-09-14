@@ -21,6 +21,7 @@ const validate = require('../middleware/validate');
 const ERROR_CODES = require('../constants/errorCodes');
 const {
   registerSchema,
+  customerRegisterSchema,
   loginSchema,
   verifyEmailSchema,
   resendVerificationSchema,
@@ -52,7 +53,7 @@ router.get('/csrf-token', getCsrfToken);
 router.post(
   '/register',
   registerLimiter,
-  authValidation(registerSchema),
+  authValidation(customerRegisterSchema),
   register
 );
 

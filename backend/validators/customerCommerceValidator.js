@@ -6,7 +6,13 @@ const optionalText = (max) => z.string().trim().max(max).optional();
 const country = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/);
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1), limit: z.coerce.number().int().min(1).max(50).default(12) }).strict();
 
-const profileSchema = z.object({ fullName: text(100, 3).optional(), phone: optionalText(20), avatar: z.string().trim().url().max(1000).optional() }).strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one editable profile field');
+const profileSchema = z.object({
+  fullName: text(100, 3).optional(),
+  phone: optionalText(20),
+  avatar: z.string().trim().url().max(1000).optional(),
+  residenceCountry: country.optional(),
+  preferredMarketCountry: country.optional()
+}).strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one editable profile field');
 const addressBody = z.object({ fullName: text(100), phone: text(20), address: text(300), addressLine2: optionalText(200), city: text(100), province: text(100), postalCode: optionalText(20), country, isDefault: z.boolean().optional() }).strict();
 const addressUpdateSchema = addressBody.partial().strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one address field');
 const idParam = z.object({ id: objectId }).strict();

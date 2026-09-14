@@ -15,6 +15,8 @@ const User = require('../models/User');
 const { validatePasswordStrength } = require('../utils/passwordValidator');
 const { CANONICAL_ROLES, STAFF_ROLES } = require('../constants/roleConstants');
 
+const { CountryRegistry } = require('../modules/commerce');
+
 class AuthService {
   publicUser(user) {
     const data = typeof user.toJSON === 'function'
@@ -22,6 +24,9 @@ class AuthService {
       : { ...user };
 
     data.id = String(data.id || data._id);
+    data.residenceCountry = data.residenceCountry || user.residenceCountry || null;
+    data.preferredMarketCountry = data.preferredMarketCountry || user.preferredMarketCountry || null;
+    data.isCountryComplete = Boolean(data.residenceCountry);
     delete data._id;
     delete data.password;
     delete data.loginAttempts;
@@ -97,6 +102,8 @@ class AuthService {
     fullName,
     email,
     password,
+    residenceCountry,
+    preferredMarketCountry,
     phone,
     redirect,
     deviceInfo,
@@ -122,6 +129,27 @@ class AuthService {
       );
     }
 
+    let normalizedResidenceCountry = null;
+    if (residenceCountry && typeof residenceCountry === 'string') {
+      const trimmedCountry = residenceCountry.trim().toUpperCase();
+      if (!/^[A-Z]{2}$/.test(trimmedCountry) || !CountryRegistry.hasCountry(trimmedCountry)) {
+        throw new AppError(
+          'Valid ISO 3166-1 alpha-2 residence country is required',
+          400,
+          ERROR_CODES.VALIDATION_ERROR || 'INVALID_RESIDENCE_COUNTRY'
+        );
+      }
+      normalizedResidenceCountry = trimmedCountry;
+    }
+
+    let normalizedPreferredMarket = null;
+    if (preferredMarketCountry && typeof preferredMarketCountry === 'string') {
+      const trimmedPref = preferredMarketCountry.trim().toUpperCase();
+      if (/^[A-Z]{2}$/.test(trimmedPref) && CountryRegistry.hasCountry(trimmedPref)) {
+        normalizedPreferredMarket = trimmedPref;
+      }
+    }
+
     const autoVerify = Boolean(config.email.autoVerify);
 
     let user;
@@ -130,6 +158,8 @@ class AuthService {
         fullName: (fullName || '').trim(),
         email: normalizedEmail,
         password,
+        residenceCountry: normalizedResidenceCountry,
+        preferredMarketCountry: normalizedPreferredMarket,
         phone: (phone || '').trim(),
         role: 'customer',
         isVerified: autoVerify

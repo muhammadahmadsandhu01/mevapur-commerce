@@ -1,6 +1,8 @@
 const { z } = require('zod');
 const passwordSchema = require('./passwordValidator');
 
+const { CountryRegistry } = require('../modules/commerce');
+
 // Register Schema
 const registerSchema = z.object({
   fullName: z.string()
@@ -14,9 +16,24 @@ const registerSchema = z.object({
     .trim(),
   
   password: passwordSchema,
+
+  residenceCountry: z.string()
+    .trim()
+    .toUpperCase()
+    .refine((val) => /^[A-Z]{2}$/.test(val) && CountryRegistry.hasCountry(val), {
+      message: 'Valid ISO 3166-1 alpha-2 residence country required'
+    })
+    .optional(),
+
+  preferredMarketCountry: z.string()
+    .trim()
+    .toUpperCase()
+    .refine((val) => /^[A-Z]{2}$/.test(val) && CountryRegistry.hasCountry(val), {
+      message: 'Valid ISO 3166-1 alpha-2 preferred market country required'
+    })
+    .optional(),
   
   phone: z.string()
-    .regex(/^03\d{9}$/, 'Valid Pakistani phone number required (e.g., 03001234567)')
     .optional()
     .or(z.literal('')),
 
@@ -24,6 +41,18 @@ const registerSchema = z.object({
     .max(500)
     .optional()
 }).strict();
+
+// Customer Register Schema (strict residenceCountry required for new customer registrations)
+const customerRegisterSchema = registerSchema.extend({
+  residenceCountry: z.string({
+    required_error: 'Residence country is required'
+  })
+    .trim()
+    .toUpperCase()
+    .refine((val) => /^[A-Z]{2}$/.test(val) && CountryRegistry.hasCountry(val), {
+      message: 'Valid ISO 3166-1 alpha-2 residence country required'
+    })
+});
 
 // Login Schema
 const loginSchema = z.object({
@@ -78,9 +107,24 @@ const updateProfileSchema = z.object({
     .max(100, 'Full name cannot exceed 100 characters')
     .trim()
     .optional(),
+
+  residenceCountry: z.string()
+    .trim()
+    .toUpperCase()
+    .refine((val) => /^[A-Z]{2}$/.test(val) && CountryRegistry.hasCountry(val), {
+      message: 'Valid ISO 3166-1 alpha-2 residence country required'
+    })
+    .optional(),
+
+  preferredMarketCountry: z.string()
+    .trim()
+    .toUpperCase()
+    .refine((val) => /^[A-Z]{2}$/.test(val) && CountryRegistry.hasCountry(val), {
+      message: 'Valid ISO 3166-1 alpha-2 preferred market country required'
+    })
+    .optional(),
   
   phone: z.string()
-    .regex(/^03\d{9}$/, 'Valid Pakistani phone number required')
     .optional()
     .or(z.literal('')),
   
@@ -100,6 +144,7 @@ const changePasswordSchema = z.object({
 
 module.exports = {
   registerSchema,
+  customerRegisterSchema,
   loginSchema,
   verifyEmailSchema,
   resendVerificationSchema,

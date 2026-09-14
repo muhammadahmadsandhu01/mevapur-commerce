@@ -64,7 +64,15 @@ class MarketService {
     if (isLegacyDomesticCODCompatibilityEnabled()) {
       let legacy = await MarketConfig.findOne({ key: merchantScopeId }) || await MarketConfig.findOne({ key: 'default' });
       if (!legacy && (merchantScopeId === 'default' || !merchantScopeId)) {
-        legacy = await MarketConfig.create({ key: 'default' });
+        try {
+          legacy = await MarketConfig.create({ key: 'default' });
+        } catch (err) {
+          if (err.code === 11000) {
+            legacy = await MarketConfig.findOne({ key: 'default' });
+          } else {
+            throw err;
+          }
+        }
       }
       if (legacy) {
         return {
