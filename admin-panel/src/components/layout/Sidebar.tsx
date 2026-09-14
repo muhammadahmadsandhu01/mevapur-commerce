@@ -10,40 +10,30 @@ import {
   Users,
   Settings,
   LogOut,
-  Tags,
   Percent,
   Star,
   BarChart3,
-  FileText,
   Bell,
   Shield,
   History,
   Truck,
   RotateCcw,
-  Mail,
   Image as ImageIcon,
   FolderTree,
   Building2,
   Boxes,
-  MessageSquare,
-  Gift,
   Megaphone,
-  UserCog,
   UsersRound,
   ChevronDown,
-  ChevronRight,
   DollarSign,
   X,
-  AlertCircle,
   FileSpreadsheet,
-  Globe,
-  HelpCircle
+  Globe
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { copyrightLine } from '@/config/branding';
 import { useAuthStore } from '@/store/authStore';
-import { useThemeStore } from '@/store/themeStore';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -158,7 +148,6 @@ export default function Sidebar({ isOpen, mobileOpen, onClose, hamburgerRef }: S
   const router = useRouter();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
   const logout = useAuthStore((state) => state.logout);
-  const { isDark } = useThemeStore();
 
   const handleLogout = () => {
     void logout();

@@ -25,6 +25,7 @@ import {
   detectMaterialQuoteChange,
   serializeCheckoutPayload,
 } from '../src/lib/checkoutService.ts';
+import { paymentService } from '../src/services/payment.service.ts';
 import type { AuthoritativeQuote } from '../src/types/commerce.ts';
 
 describe('Phase 6C: Storefront Global Checkout Contracts', () => {
@@ -99,6 +100,10 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
     test('fails safely for unknown currency when no explicit server exponent is supplied', () => {
       assert.throws(
         () => formatExactMoney({ amountMinor: '1000', currency: 'UNKNOWN_CURRENCY' }),
+        /Unknown currency code/
+      );
+      assert.throws(
+        () => formatExactMoney({ amountMinor: '1000', currency: '' }),
         /Unknown currency code/
       );
       assert.throws(
@@ -201,6 +206,39 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(payload.shippingAddress.country, 'United Kingdom');
       assert.equal(payload.shippingServiceLevel, 'express');
       assert.equal(payload.quoteToken, 'sample-quote-token');
+    });
+
+    test('serializes checkout address without injecting PK or PKR when unspecified', () => {
+      const payload = serializeCheckoutPayload(
+        [{ productId: '60c72b2f9b1d8b2bad000001', quantity: 1 }],
+        {
+          fullName: 'Sultan Al Qasimi',
+          phone: '+971501234567',
+          address: 'Sheikh Zayed Road',
+          city: 'Dubai',
+          province: 'Dubai',
+          country: 'United Arab Emirates',
+          countryCode: 'AE',
+        },
+        'stripe',
+        undefined,
+        'standard',
+        undefined,
+        undefined,
+        'AED'
+      );
+
+      assert.equal(payload.currency, 'AED');
+      assert.equal(payload.shippingAddress.countryCode, 'AE');
+      assert.notEqual(payload.currency, 'PKR');
+      assert.notEqual(payload.shippingAddress.countryCode, 'PK');
+    });
+
+    test('paymentService getAvailableMethods returns empty safely without making requests when country or currency is missing', async () => {
+      const res1 = await paymentService.getAvailableMethods('', 'USD');
+      assert.deepEqual(res1, []);
+      const res2 = await paymentService.getAvailableMethods('US', '');
+      assert.deepEqual(res2, []);
     });
   });
 

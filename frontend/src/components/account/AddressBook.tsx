@@ -10,13 +10,13 @@ import {
 } from '@/services/account.service';
 import { getSessionGeneration, isCurrentSessionGeneration } from '@/lib/authSession';
 
-const blankAddress = (defaultCountry = 'PK'): Omit<Address, 'id'> => ({
+const blankAddress = (defaultCountry = ''): Omit<Address, 'id'> => ({
   fullName: '',
   phone: '',
   address: '',
   addressLine2: '',
   city: '',
-  province: 'Punjab',
+  province: '',
   postalCode: '',
   country: defaultCountry,
   isDefault: false,
@@ -67,7 +67,7 @@ export default function AddressBook() {
 
   const handleStartAdd = () => {
     setEditingId(null);
-    setFormState(blankAddress(market?.homeCountry || 'PK'));
+    setFormState(blankAddress(market?.homeCountry || market?.enabledCountries?.[0] || ''));
     setShowForm(true);
     setError(null);
     setSuccess(null);
@@ -94,7 +94,7 @@ export default function AddressBook() {
   const handleCancelForm = () => {
     setShowForm(false);
     setEditingId(null);
-    setFormState(blankAddress(market?.homeCountry || 'PK'));
+    setFormState(blankAddress(market?.homeCountry || market?.enabledCountries?.[0] || ''));
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -104,8 +104,8 @@ export default function AddressBook() {
     setSuccess(null);
 
     // Validate country against authoritative market configuration
-    const enabled = market?.enabledCountries || ['PK'];
-    if (!enabled.includes(formState.country)) {
+    const enabled = market?.enabledCountries || (market?.homeCountry ? [market.homeCountry] : []);
+    if (enabled.length > 0 && !enabled.includes(formState.country)) {
       setError(`Delivery is currently only supported to: ${enabled.join(', ')}`);
       setSaving(false);
       return;
@@ -160,7 +160,7 @@ export default function AddressBook() {
     }
   };
 
-  const enabledCountries = market?.enabledCountries || ['PK'];
+  const enabledCountries = market?.enabledCountries || (market?.homeCountry ? [market.homeCountry] : []);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">

@@ -78,7 +78,7 @@ export default function CheckoutPage() {
     city: '',
     province: '',
     postalCode: '',
-    country: 'PK',
+    country: '',
     customerNote: '',
   });
 
@@ -130,10 +130,10 @@ export default function CheckoutPage() {
         setMarketConfig(config);
         setMarketError(null);
 
-        // Initialize country if current country not in enabled list
+        // Initialize country from authoritative market configuration
         setFormData((prev) => {
-          const defaultCountry = config.merchantCountry || config.homeCountry || config.enabledCountries[0] || 'PK';
-          if (!config.enabledCountries.includes(prev.country)) {
+          const defaultCountry = config.merchantCountry || config.homeCountry || config.enabledCountries?.[0] || '';
+          if (!prev.country || (config.enabledCountries && !config.enabledCountries.includes(prev.country))) {
             return { ...prev, country: defaultCountry };
           }
           return prev;
@@ -158,7 +158,7 @@ export default function CheckoutPage() {
   const availableItems = items.filter((i) => !i.isUnavailable);
 
   // Active Country Policy
-  const activeCountryCode = (formData.country || marketConfig?.merchantCountry || 'PK').toUpperCase();
+  const activeCountryCode = (formData.country || marketConfig?.merchantCountry || marketConfig?.homeCountry || marketConfig?.enabledCountries?.[0] || '').toUpperCase();
   const countryPolicy = getCountryPolicy(activeCountryCode);
   const subdivisionLabel = getSubdivisionLabel(countryPolicy);
 
@@ -193,7 +193,7 @@ export default function CheckoutPage() {
             country: countryPolicy.name,
             countryCode: activeCountryCode,
           },
-          currency: marketConfig?.defaultCurrency || 'PKR',
+          currency: quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || undefined,
           couponCode: appliedCoupon?.code || undefined,
           shippingServiceLevel,
         };
@@ -238,6 +238,7 @@ export default function CheckoutPage() {
       formData.postalCode,
       countryPolicy.name,
       activeCountryCode,
+      quote,
       marketConfig,
       appliedCoupon,
       shippingServiceLevel,
@@ -263,13 +264,15 @@ export default function CheckoutPage() {
     const controller = new AbortController();
     async function loadPaymentMethods() {
       try {
-        const currency = quote?.currency || marketConfig?.defaultCurrency || 'PKR';
-        const rawAmount = quote?.totals?.grandTotal || 0;
+        const currency = quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || '';
+        if (!activeCountryCode || !currency) {
+          setAvailableMethods([]);
+          return;
+        }
 
         const methods = await paymentService.getAvailableMethods(
           activeCountryCode,
           currency,
-          rawAmount > 0 ? rawAmount : undefined,
           controller.signal
         );
 
@@ -304,7 +307,7 @@ export default function CheckoutPage() {
     return () => {
       controller.abort();
     };
-  }, [activeCountryCode, quote, marketConfig?.defaultCurrency]);
+  }, [activeCountryCode, quote, marketConfig?.defaultCurrency, marketConfig?.baseCurrency]);
 
   const handleFieldChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -565,7 +568,7 @@ export default function CheckoutPage() {
     );
   }
 
-  const enabledCountriesList = marketConfig?.enabledCountries || ['PK'];
+  const enabledCountriesList = marketConfig?.enabledCountries || (marketConfig?.merchantCountry ? [marketConfig.merchantCountry] : []);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
@@ -1057,7 +1060,7 @@ export default function CheckoutPage() {
                     <p className="text-slate-600 font-medium">Qty: {item.quantity}</p>
                   </div>
                   <div className="font-extrabold text-slate-900 shrink-0">
-                    {marketConfig?.defaultCurrency || 'PKR'} {(item.price * item.quantity).toLocaleString()}
+                    {quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || ''} {(item.price * item.quantity).toLocaleString()}
                   </div>
                 </div>
               ))}

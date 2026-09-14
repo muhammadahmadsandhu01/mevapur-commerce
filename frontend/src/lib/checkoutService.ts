@@ -168,7 +168,7 @@ export function computeCheckoutFingerprint(
     .sort()
     .join('|');
 
-  const countryCode = (shippingAddress.countryCode || shippingAddress.country || 'PK').trim().toUpperCase();
+  const countryCode = (shippingAddress.countryCode || shippingAddress.country || '').trim().toUpperCase();
   const canonicalAddress = [
     shippingAddress.fullName?.trim() || '',
     shippingAddress.phone?.trim() || '',
@@ -386,7 +386,7 @@ export function serializeCheckoutPayload(
   shippingServiceLevel: 'standard' | 'express' = 'standard',
   couponCode?: string,
   customerNote?: string,
-  currency: string = 'PKR'
+  currency?: string
 ): CheckoutPayload {
   const cleanItems = items.map((i) => {
     const pId = String(i.productId || i.id).trim();
@@ -400,8 +400,8 @@ export function serializeCheckoutPayload(
     };
   });
 
-  const country = String(shippingAddress.country || shippingAddress.countryCode || 'PK').trim().slice(0, 100);
-  const countryCode = String(shippingAddress.countryCode || shippingAddress.country || 'PK').trim().toUpperCase().slice(0, 2);
+  const country = String(shippingAddress.country || shippingAddress.countryCode || '').trim().slice(0, 100);
+  const countryCode = String(shippingAddress.countryCode || shippingAddress.country || '').trim().toUpperCase().slice(0, 2);
 
   const cleanAddress = {
     fullName: String(shippingAddress.fullName || '').trim().slice(0, 100),
@@ -419,7 +419,7 @@ export function serializeCheckoutPayload(
     items: cleanItems,
     shippingAddress: cleanAddress,
     paymentMethod: String(paymentMethod).trim(),
-    currency: String(currency || 'PKR').trim().toUpperCase().slice(0, 3),
+    currency: currency ? String(currency).trim().toUpperCase().slice(0, 3) : undefined,
     shippingServiceLevel,
   };
 

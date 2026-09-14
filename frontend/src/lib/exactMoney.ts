@@ -123,7 +123,7 @@ export function formatExactMoney(
     return '—';
   }
 
-  const currency = (exact.currency || 'PKR').trim().toUpperCase();
+  const currency = String(exact.currency || '').trim().toUpperCase();
   const exponent = getCurrencyExponent(currency, exact.exponent);
   const minorStr = normalizeMinorString(exact.amountMinor);
 

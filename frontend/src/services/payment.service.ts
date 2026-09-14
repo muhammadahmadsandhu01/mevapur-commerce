@@ -1,4 +1,4 @@
-import api from '@/lib/api';
+import api from '../lib/api.ts';
 
 export type PaymentProvider =
   | 'cod'
@@ -117,16 +117,21 @@ export const paymentService = {
   },
 
   getAvailableMethods: async (
-    country = 'PK',
-    currency = 'PKR',
-    amount?: number,
+    country: string,
+    currency: string,
     signal?: AbortSignal
   ): Promise<AvailablePaymentMethod[]> => {
+    const cleanCountry = String(country || '').trim().toUpperCase();
+    const cleanCurrency = String(currency || '').trim().toUpperCase();
+    if (!cleanCountry || !cleanCurrency) {
+      return [];
+    }
+
     const response = await api.get('/payments/methods', {
       signal,
-      params: { country, currency, amount },
+      params: { country: cleanCountry, currency: cleanCurrency },
     });
-    return response.data.data.methods || [];
+    return response.data?.data?.methods || [];
   },
 
   submitManualPayment: async (
