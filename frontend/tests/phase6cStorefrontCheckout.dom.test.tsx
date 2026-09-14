@@ -201,7 +201,7 @@ describe('Phase 6C Storefront Real-DOM Checkout Integration', () => {
     expect(countrySelect).toHaveTextContent('Pakistan (PK)');
     expect(countrySelect).toHaveTextContent('United Arab Emirates (AE)');
     expect(countrySelect).toHaveTextContent('United Kingdom (GB)');
-    expect(countrySelect).toHaveTextContent('United States (US)');
+    expect(countrySelect).toHaveTextContent('United States of America (US)');
   });
 
   it('2. Dynamically adapts subdivision label when country changes (e.g. Emirate for AE)', async () => {
@@ -310,14 +310,19 @@ describe('Phase 6C Storefront Real-DOM Checkout Integration', () => {
     });
 
     // Fill form
+    fireEvent.change(screen.getByLabelText(/Full Name/i), { target: { value: 'Jane Smith' } });
     fireEvent.change(screen.getByLabelText(/Phone Number/i), { target: { value: '+923001234567' } });
     fireEvent.change(screen.getByLabelText(/Street Address/i), { target: { value: '123 Mall Road' } });
     fireEvent.change(screen.getByLabelText(/City/i), { target: { value: 'Lahore' } });
     fireEvent.change(screen.getByLabelText(/Province/i), { target: { value: 'Punjab' } });
+    fireEvent.change(screen.getByLabelText(/Postal Code/i), { target: { value: '54000' } });
 
     await waitFor(() => {
       expect(screen.getByText('QUO-20260914-DEMO1')).toBeInTheDocument();
     });
+
+    // Select payment method
+    fireEvent.click(screen.getByLabelText(/Cash on Delivery/i));
 
     const submitBtn = screen.getByRole('button', { name: /Place Order/i });
     expect(submitBtn).not.toBeDisabled();
@@ -333,5 +338,77 @@ describe('Phase 6C Storefront Real-DOM Checkout Integration', () => {
     expect(payload.currency).toBe('PKR');
     expect(typeof idempotencyKey).toBe('string');
     expect(idempotencyKey.length).toBeGreaterThan(8);
+  });
+
+  it('6. Detects offsetting quote changes, requires explicit customer reconfirmation before submission', async () => {
+    // Initial quote
+    vi.spyOn(checkoutService, 'fetchCheckoutQuote').mockResolvedValue({
+      success: true,
+      data: { quote: mockQuote },
+    });
+
+    const submitOrderSpy = vi.spyOn(checkoutService, 'submitOrder').mockResolvedValue({
+      order: {
+        _id: 'ord_123',
+        orderId: 'ORD-20260914-001',
+        totalAmount: 3760,
+        paymentMethod: 'cod',
+        orderStatus: 'Pending',
+        paymentStatus: 'Pending',
+        items: [],
+        shippingAddress: { fullName: 'Jane Smith', phone: '+923001234567', address: '123 Mall Road', city: 'Lahore', province: 'Punjab' },
+        createdAt: new Date().toISOString(),
+      },
+      idempotentReplay: false,
+    });
+
+    render(<CheckoutPage />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Street Address/i)).toBeInTheDocument();
+    });
+
+    // Fill form
+    fireEvent.change(screen.getByLabelText(/Full Name/i), { target: { value: 'Jane Smith' } });
+    fireEvent.change(screen.getByLabelText(/Phone Number/i), { target: { value: '+923001234567' } });
+    fireEvent.change(screen.getByLabelText(/Street Address/i), { target: { value: '123 Mall Road' } });
+    fireEvent.change(screen.getByLabelText(/City/i), { target: { value: 'Lahore' } });
+    fireEvent.change(screen.getByLabelText(/Province/i), { target: { value: 'Punjab' } });
+    fireEvent.change(screen.getByLabelText(/Postal Code/i), { target: { value: '54000' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('QUO-20260914-DEMO1')).toBeInTheDocument();
+    });
+
+    // Select payment method
+    fireEvent.click(screen.getByLabelText(/Cash on Delivery/i));
+
+    // Simulate offsetting quote change: discount increases by 100, tax increases by 100, grand total mathematically identical
+    const offsettingQuote: checkoutService.AuthoritativeQuote = {
+      ...mockQuote,
+      quoteId: 'QUO-20260914-DEMO2',
+      totals: {
+        ...mockQuote.totals,
+        discount: 100,
+        discountExact: { amountMinor: '10000', currency: 'PKR', exponent: 2 },
+        tax: 610,
+        taxExact: { amountMinor: '61000', currency: 'PKR', exponent: 2 },
+        grandTotal: 3760,
+        grandTotalExact: { amountMinor: '376000', currency: 'PKR', exponent: 2 },
+      },
+    };
+
+    // Toggle service level to trigger new quote
+    vi.spyOn(checkoutService, 'fetchCheckoutQuote').mockResolvedValue({
+      success: true,
+      data: { quote: offsettingQuote },
+    });
+
+    fireEvent.click(screen.getByLabelText(/Express Delivery/i));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Place Order/i })).toBeInTheDocument();
+      expect(submitOrderSpy).not.toHaveBeenCalled();
+    });
   });
 });

@@ -45,6 +45,25 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(formatExactMoney({ amountMinor: '75', currency: 'BHD' }), 'BHD 0.075');
     });
 
+    test('formats four-decimal currencies (CLF, UYW)', () => {
+      assert.equal(formatExactMoney({ amountMinor: '123456', currency: 'CLF' }), 'CLF 12.3456');
+      assert.equal(formatExactMoney({ amountMinor: '500', currency: 'UYW' }), 'UYW 0.0500');
+    });
+
+    test('supports locale-aware grouping and decimal separators (en-US, de-DE, en-IN)', () => {
+      // en-US: 1,234,567.89
+      const usFormatted = formatExactMoney({ amountMinor: '123456789', currency: 'USD' }, { locale: 'en-US' });
+      assert.equal(usFormatted, 'USD 1,234,567.89');
+
+      // de-DE: 1.234.567,89 (with currency placement according to German locale)
+      const deFormatted = formatExactMoney({ amountMinor: '123456789', currency: 'EUR' }, { locale: 'de-DE' });
+      assert.ok(deFormatted.includes('1.234.567,89'));
+
+      // en-IN: Lakh / Crore grouping: 12,34,567.89
+      const inFormatted = formatExactMoney({ amountMinor: '123456789', currency: 'INR' }, { locale: 'en-IN' });
+      assert.equal(inFormatted, 'INR 12,34,567.89');
+    });
+
     test('handles values beyond JavaScript Number.MAX_SAFE_INTEGER without precision loss', () => {
       const hugeMinor = '900719925474099199999'; // Far beyond 2^53 - 1
       const formatted = formatExactMoney({ amountMinor: hugeMinor, currency: 'USD' });
@@ -52,8 +71,8 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
     });
 
     test('handles negative monetary amounts safely', () => {
-      assert.equal(formatExactMoney({ amountMinor: '-5000', currency: 'USD' }), 'USD -50.00');
-      assert.equal(formatExactMoney({ amountMinor: '-5', currency: 'USD' }), 'USD -0.05');
+      assert.equal(formatExactMoney({ amountMinor: '-5000', currency: 'USD' }), '-USD 50.00');
+      assert.equal(formatExactMoney({ amountMinor: '-5', currency: 'USD' }), '-USD 0.05');
     });
 
     test('rejects malformed minor amount strings', () => {
@@ -75,7 +94,7 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
     });
   });
 
-  describe('2. Country-Aware Address Handling', () => {
+  describe('2. Country-Aware Address Handling & Full ISO-3166-1 Registry', () => {
     test('adapts subdivision labels and requirement per country policy', () => {
       const ae = getCountryPolicy('AE');
       assert.equal(ae.adminPolicy, 'required');
@@ -91,6 +110,10 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(pk.adminPolicy, 'required');
       assert.equal(pk.adminType, 'province');
       assert.equal(getSubdivisionLabel(pk), 'Province');
+
+      const de = getCountryPolicy('DE');
+      assert.equal(de.adminType, 'state');
+      assert.equal(de.callingCode, '+49');
     });
 
     test('adapts postal code policies per country policy', () => {
@@ -101,7 +124,10 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(gb.postalPolicy, 'required');
 
       const pk = getCountryPolicy('PK');
-      assert.equal(pk.postalPolicy, 'optional');
+      assert.equal(pk.postalPolicy, 'required');
+
+      const kw = getCountryPolicy('KW');
+      assert.equal(kw.postalPolicy, 'optional');
     });
 
     test('preserves calling codes and formats without fabricating', () => {
@@ -190,7 +216,7 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
     });
   });
 
-  describe('4. Material Quote Change Policy', () => {
+  describe('4. Material Quote Change Policy & Offsetting Shifts', () => {
     const baseQuote: AuthoritativeQuote = {
       kid: 'v1',
       quoteId: 'QUO-20260914-112233',
@@ -267,7 +293,21 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(result.changed, true);
     });
 
-    test('detects Incoterm modification (DAP -> DDP) as material', () => {
+    test('detects offsetting changes (tax increases by 500, discount increases by 500, grand total unchanged) as material', () => {
+      const offsettingQuote: AuthoritativeQuote = {
+        ...baseQuote,
+        totals: {
+          ...baseQuote.totals,
+          discountExact: { amountMinor: '5000', currency: 'PKR', exponent: 2 }, // Discount +50.00
+          taxExact: { amountMinor: '22000', currency: 'PKR', exponent: 2 }, // Tax +50.00 (from 17000 to 22000)
+          grandTotalExact: { amountMinor: '142000', currency: 'PKR', exponent: 2 }, // Grand Total UNCHANGED
+        },
+      };
+      const result = detectMaterialQuoteChange(baseQuote, offsettingQuote);
+      assert.equal(result.changed, true);
+    });
+
+    test('detects Incoterm modification (DOMESTIC -> DDP) as material', () => {
       const updatedQuote = {
         ...baseQuote,
         taxesAndDuties: {
@@ -288,6 +328,20 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       const result = detectMaterialQuoteChange(baseQuote, updatedQuote);
       assert.equal(result.changed, true);
       assert.match(result.reason || '', /Currency/i);
+    });
+
+    test('detects destination country change as material', () => {
+      const updatedQuote = {
+        ...baseQuote,
+        destination: {
+          ...baseQuote.destination,
+          countryCode: 'AE',
+          country: 'United Arab Emirates',
+        },
+      };
+      const result = detectMaterialQuoteChange(baseQuote, updatedQuote);
+      assert.equal(result.changed, true);
+      assert.match(result.reason || '', /country/i);
     });
   });
 });

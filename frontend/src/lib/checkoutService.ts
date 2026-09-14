@@ -11,7 +11,7 @@ import type {
   CheckoutQuoteResponse,
   MarketConfigResponse,
 } from '../types/commerce.ts';
-import { normalizeMinorString } from './exactMoney.ts';
+import { normalizeMinorString, getCurrencyExponent } from './exactMoney.ts';
 
 export interface CouponPreviewResult {
   code: string;
@@ -233,7 +233,8 @@ export function clearCheckoutAttempt(): void {
 
 /**
  * Detects whether a newly received quote materially differs from the previously confirmed quote.
- * Compares exact authoritative integer minor units, currency, Incoterm, and service level.
+ * Compares exact authoritative integer minor units, currency, exponent, breakdown components,
+ * Incoterm, duty prepaid treatment, destination country, and delivery estimates.
  */
 export function detectMaterialQuoteChange(
   previousQuote: AuthoritativeQuote | null,
@@ -243,64 +244,130 @@ export function detectMaterialQuoteChange(
     return { changed: false };
   }
 
-  if (previousQuote.currency !== newQuote.currency) {
+  // 1. Currency
+  if ((previousQuote.currency || '').trim().toUpperCase() !== (newQuote.currency || '').trim().toUpperCase()) {
     return {
       changed: true,
       reason: `Currency changed from ${previousQuote.currency} to ${newQuote.currency}`,
     };
   }
 
+  // 2. Exponent
+  const prevExp = getCurrencyExponent(previousQuote.currency, previousQuote.totals.grandTotalExact?.exponent);
+  const newExp = getCurrencyExponent(newQuote.currency, newQuote.totals.grandTotalExact?.exponent);
+  if (prevExp !== newExp) {
+    return {
+      changed: true,
+      reason: `Currency precision exponent changed from ${prevExp} to ${newExp}`,
+    };
+  }
+
+  // 3-8. Exact Breakdown & Totals (Minor-unit string comparisons)
   try {
-    const prevGrandTotalMinor = normalizeMinorString(previousQuote.totals.grandTotalExact.amountMinor);
-    const newGrandTotalMinor = normalizeMinorString(newQuote.totals.grandTotalExact.amountMinor);
-    if (prevGrandTotalMinor !== newGrandTotalMinor) {
+    const prevSubtotal = normalizeMinorString(previousQuote.totals.subtotalExact?.amountMinor);
+    const newSubtotal = normalizeMinorString(newQuote.totals.subtotalExact?.amountMinor);
+    if (prevSubtotal !== newSubtotal) {
       return {
         changed: true,
-        reason: 'The grand total payable amount has been updated by the server.',
+        reason: 'The items subtotal has been updated.',
       };
     }
 
-    const prevShippingMinor = normalizeMinorString(previousQuote.totals.shippingExact.amountMinor);
-    const newShippingMinor = normalizeMinorString(newQuote.totals.shippingExact.amountMinor);
-    if (prevShippingMinor !== newShippingMinor) {
+    const prevDiscount = normalizeMinorString(previousQuote.totals.discountExact?.amountMinor || '0');
+    const newDiscount = normalizeMinorString(newQuote.totals.discountExact?.amountMinor || '0');
+    if (prevDiscount !== newDiscount) {
+      return {
+        changed: true,
+        reason: 'The applied discount amount has been updated.',
+      };
+    }
+
+    const prevShipping = normalizeMinorString(previousQuote.totals.shippingExact?.amountMinor);
+    const newShipping = normalizeMinorString(newQuote.totals.shippingExact?.amountMinor);
+    if (prevShipping !== newShipping) {
       return {
         changed: true,
         reason: 'Shipping rates for your destination have been updated.',
       };
     }
 
-    const prevTaxMinor = normalizeMinorString(previousQuote.totals.taxExact.amountMinor);
-    const newTaxMinor = normalizeMinorString(newQuote.totals.taxExact.amountMinor);
-    if (prevTaxMinor !== newTaxMinor) {
+    const prevTax = normalizeMinorString(previousQuote.totals.taxExact?.amountMinor);
+    const newTax = normalizeMinorString(newQuote.totals.taxExact?.amountMinor);
+    if (prevTax !== newTax) {
       return {
         changed: true,
-        reason: 'Taxes or duty assessments for your destination have changed.',
+        reason: 'Taxes for your destination have changed.',
       };
     }
 
-    const prevDutiesMinor = normalizeMinorString(previousQuote.totals.dutiesExact.amountMinor);
-    const newDutiesMinor = normalizeMinorString(newQuote.totals.dutiesExact.amountMinor);
-    if (prevDutiesMinor !== newDutiesMinor) {
+    const prevDuties = normalizeMinorString(previousQuote.totals.dutiesExact?.amountMinor || '0');
+    const newDuties = normalizeMinorString(newQuote.totals.dutiesExact?.amountMinor || '0');
+    if (prevDuties !== newDuties) {
       return {
         changed: true,
-        reason: 'Customs duties or terms for your destination have changed.',
+        reason: 'Customs duties for your destination have changed.',
+      };
+    }
+
+    const prevGrandTotal = normalizeMinorString(previousQuote.totals.grandTotalExact?.amountMinor);
+    const newGrandTotal = normalizeMinorString(newQuote.totals.grandTotalExact?.amountMinor);
+    if (prevGrandTotal !== newGrandTotal) {
+      return {
+        changed: true,
+        reason: 'The grand total payable amount has been updated by the server.',
       };
     }
   } catch {
     return { changed: true, reason: 'Authoritative quote pricing terms were updated.' };
   }
 
-  if (previousQuote.taxesAndDuties.incoterm !== newQuote.taxesAndDuties.incoterm) {
+  // 9. Shipping Service Level
+  const prevService = previousQuote.shipping?.selectedOption?.serviceLevel;
+  const newService = newQuote.shipping?.selectedOption?.serviceLevel;
+  if (prevService !== newService) {
     return {
       changed: true,
-      reason: `Shipping Incoterm terms updated to ${newQuote.taxesAndDuties.incoterm}`,
+      reason: `Shipping service level changed to ${newService}`,
     };
   }
 
-  if (previousQuote.shipping.selectedOption.serviceLevel !== newQuote.shipping.selectedOption.serviceLevel) {
+  // 10. Incoterm
+  const prevIncoterm = previousQuote.taxesAndDuties?.incoterm || previousQuote.incoterm;
+  const newIncoterm = newQuote.taxesAndDuties?.incoterm || newQuote.incoterm;
+  if (prevIncoterm !== newIncoterm) {
     return {
       changed: true,
-      reason: `Shipping service level changed to ${newQuote.shipping.selectedOption.serviceLevel}`,
+      reason: `Shipping Incoterm terms updated to ${newIncoterm}`,
+    };
+  }
+
+  // 11. Duty prepaid / collection treatment
+  const prevDutyTreatment = previousQuote.taxesAndDuties?.taxType;
+  const newDutyTreatment = newQuote.taxesAndDuties?.taxType;
+  if (prevDutyTreatment !== newDutyTreatment) {
+    return {
+      changed: true,
+      reason: 'Duty collection treatment has changed.',
+    };
+  }
+
+  // 12. Destination Country
+  const prevCountry = (previousQuote.destination?.countryCode || previousQuote.destination?.country || '').trim().toUpperCase();
+  const newCountry = (newQuote.destination?.countryCode || newQuote.destination?.country || '').trim().toUpperCase();
+  if (prevCountry !== newCountry) {
+    return {
+      changed: true,
+      reason: `Destination country changed to ${newCountry}`,
+    };
+  }
+
+  // 13. Material Delivery Estimate
+  const prevEst = previousQuote.shipping?.selectedOption?.deliveryEstimate;
+  const newEst = newQuote.shipping?.selectedOption?.deliveryEstimate;
+  if (prevEst?.minDays !== newEst?.minDays || prevEst?.maxDays !== newEst?.maxDays) {
+    return {
+      changed: true,
+      reason: 'Estimated delivery timeframe has changed.',
     };
   }
 
