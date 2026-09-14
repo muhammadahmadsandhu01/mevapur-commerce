@@ -56,7 +56,7 @@ const RAW_COUNTRIES: Array<[string, string, string, string, string, string, stri
   ['BE', 'BEL', '056', 'Belgium', 'EUR', 'nl-BE', '+32', 'required', 'optional', 'province'],
   ['BF', 'BFA', '854', 'Burkina Faso', 'XOF', 'fr-BF', '+226', 'unknown', 'unknown', 'unknown'],
   ['BG', 'BGR', '100', 'Bulgaria', 'EUR', 'bg-BG', '+359', 'unknown', 'unknown', 'unknown'],
-  ['BH', 'BHR', '048', 'Bahrain', 'BHD', 'ar-BH', '+973', 'required', 'optional', 'governorate'],
+  ['BH', 'BHR', '048', 'Bahrain', 'BHD', 'ar-BH', '+973', 'required', 'optional', 'region'],
   ['BI', 'BDI', '108', 'Burundi', 'BIF', 'fr-BI', '+257', 'unknown', 'unknown', 'unknown'],
   ['BJ', 'BEN', '204', 'Benin', 'XOF', 'fr-BJ', '+229', 'unknown', 'unknown', 'unknown'],
   ['BL', 'BLM', '652', 'Saint Barthélemy', 'EUR', 'fr-BL', '+590', 'unknown', 'unknown', 'unknown'],
@@ -156,7 +156,7 @@ const RAW_COUNTRIES: Array<[string, string, string, string, string, string, stri
   ['KN', 'KNA', '659', 'Saint Kitts and Nevis', 'XCD', 'en-KN', '+1869', 'unknown', 'unknown', 'unknown'],
   ['KP', 'PRK', '408', "Korea (Democratic People's Republic of)", 'KPW', 'ko-KP', '+850', 'unknown', 'unknown', 'unknown'],
   ['KR', 'KOR', '410', 'South Korea', 'KRW', 'ko-KR', '+82', 'required', 'required', 'province'],
-  ['KW', 'KWT', '414', 'Kuwait', 'KWD', 'ar-KW', '+965', 'optional', 'required', 'governorate'],
+  ['KW', 'KWT', '414', 'Kuwait', 'KWD', 'ar-KW', '+965', 'optional', 'required', 'region'],
   ['KY', 'CYM', '136', 'Cayman Islands', 'KYD', 'en-KY', '+1345', 'unknown', 'unknown', 'unknown'],
   ['KZ', 'KAZ', '398', 'Kazakhstan', 'KZT', 'kk-KZ', '+7', 'unknown', 'unknown', 'unknown'],
   ['LA', 'LAO', '418', "Lao People's Democratic Republic", 'LAK', 'lo-LA', '+856', 'unknown', 'unknown', 'unknown'],
@@ -205,7 +205,7 @@ const RAW_COUNTRIES: Array<[string, string, string, string, string, string, stri
   ['NR', 'NRU', '520', 'Nauru', 'AUD', 'en-NR', '+674', 'unknown', 'unknown', 'unknown'],
   ['NU', 'NIU', '570', 'Niue', 'NZD', 'en-NU', '+683', 'unknown', 'unknown', 'unknown'],
   ['NZ', 'NZL', '554', 'New Zealand', 'NZD', 'en-NZ', '+64', 'required', 'optional', 'region'],
-  ['OM', 'OMN', '512', 'Oman', 'OMR', 'ar-OM', '+968', 'not_used', 'required', 'governorate'],
+  ['OM', 'OMN', '512', 'Oman', 'OMR', 'ar-OM', '+968', 'not_used', 'required', 'region'],
   ['PA', 'PAN', '591', 'Panama', 'PAB', 'es-PA', '+507', 'unknown', 'unknown', 'unknown'],
   ['PE', 'PER', '604', 'Peru', 'PEN', 'es-PE', '+51', 'required', 'required', 'region'],
   ['PF', 'PYF', '258', 'French Polynesia', 'XPF', 'fr-PF', '+689', 'unknown', 'unknown', 'unknown'],
@@ -220,7 +220,7 @@ const RAW_COUNTRIES: Array<[string, string, string, string, string, string, stri
   ['PT', 'PRT', '620', 'Portugal', 'EUR', 'pt-PT', '+351', 'required', 'optional', 'district'],
   ['PW', 'PLW', '585', 'Palau', 'USD', 'en-PW', '+680', 'unknown', 'unknown', 'unknown'],
   ['PY', 'PRY', '600', 'Paraguay', 'PYG', 'es-PY', '+595', 'unknown', 'unknown', 'unknown'],
-  ['QA', 'QAT', '634', 'Qatar', 'QAR', 'ar-QA', '+974', 'not_used', 'optional', 'municipality'],
+  ['QA', 'QAT', '634', 'Qatar', 'QAR', 'ar-QA', '+974', 'not_used', 'optional', 'region'],
   ['RE', 'REU', '638', 'Réunion', 'EUR', 'fr-RE', '+262', 'unknown', 'unknown', 'unknown'],
   ['RO', 'ROU', '642', 'Romania', 'RON', 'ro-RO', '+40', 'required', 'required', 'county'],
   ['RS', 'SRB', '688', 'Serbia', 'RSD', 'sr-RS', '+381', 'unknown', 'unknown', 'unknown'],
@@ -320,6 +320,13 @@ export function getCountryPolicy(countryCode: string): CountryPolicy {
     adminPolicy: 'optional',
     adminType: 'province',
   };
+}
+
+/**
+ * Returns all registered ISO 3166-1 alpha-2 country codes.
+ */
+export function getAllCountryCodes(): string[] {
+  return Object.keys(COUNTRY_POLICIES);
 }
 
 /**

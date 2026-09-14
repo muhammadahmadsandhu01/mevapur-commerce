@@ -12,6 +12,7 @@ import {
   isExactMoneyEqual,
   decimalToMinorString,
   formatRationalPercentage,
+  getCurrencyExponent,
 } from '../src/lib/exactMoney.ts';
 
 describe('Phase 6C: Admin Commerce Governance Contracts', () => {
@@ -73,6 +74,22 @@ describe('Phase 6C: Admin Commerce Governance Contracts', () => {
       assert.equal(isExactMoneyEqual({ amountMinor: '100', currency: 'USD' }, { amountMinor: '100', currency: 'USD' }), true);
       assert.equal(isExactMoneyEqual({ amountMinor: '100', currency: 'USD' }, { amountMinor: '101', currency: 'USD' }), false);
       assert.equal(isExactMoneyEqual({ amountMinor: '100', currency: 'USD' }, { amountMinor: '100', currency: 'PKR' }), false);
+    });
+
+    test('fails safely for unknown currency when no explicit server exponent is supplied', () => {
+      assert.throws(
+        () => formatExactMoney({ amountMinor: '1000', currency: 'UNKNOWN_CURRENCY' }),
+        /Unknown currency code/
+      );
+      assert.throws(
+        () => getCurrencyExponent('XYZ'),
+        /Unknown currency code/
+      );
+    });
+
+    test('formats unknown currency correctly when explicit server exponent is supplied', () => {
+      const formatted = formatExactMoney({ amountMinor: '1000', currency: 'XYZ', exponent: 3 });
+      assert.equal(formatted, 'XYZ 1.000');
     });
 
     test('converts decimal string inputs to exact integer minor units without float loss', () => {

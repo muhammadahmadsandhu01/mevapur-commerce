@@ -10,11 +10,14 @@ import {
   formatExactMoney,
   normalizeMinorString,
   isExactMoneyEqual,
+  getCurrencyExponent,
   type MoneyExact
 } from '../src/lib/exactMoney.ts';
 import {
   getCountryPolicy,
-  getSubdivisionLabel
+  getSubdivisionLabel,
+  getAllCountryCodes,
+  REGISTRY_PROVENANCE,
 } from '../src/lib/countryPolicy.ts';
 import {
   getOrCreateCheckoutAttempt,
@@ -92,6 +95,22 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(isExactMoneyEqual(a, c), false);
       assert.equal(isExactMoneyEqual(a, d), false);
     });
+
+    test('fails safely for unknown currency when no explicit server exponent is supplied', () => {
+      assert.throws(
+        () => formatExactMoney({ amountMinor: '1000', currency: 'UNKNOWN_CURRENCY' }),
+        /Unknown currency code/
+      );
+      assert.throws(
+        () => getCurrencyExponent('XYZ'),
+        /Unknown currency code/
+      );
+    });
+
+    test('formats unknown currency correctly when explicit server exponent is supplied', () => {
+      const formatted = formatExactMoney({ amountMinor: '1000', currency: 'XYZ', exponent: 3 });
+      assert.equal(formatted, 'XYZ 1.000');
+    });
   });
 
   describe('2. Country-Aware Address Handling & Full ISO-3166-1 Registry', () => {
@@ -137,6 +156,23 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.equal(gb.callingCode, '+44');
       const pk = getCountryPolicy('PK');
       assert.equal(pk.callingCode, '+92');
+    });
+
+    test('guarantees complete 249 ISO-3166-1 country coverage and standards metadata only', () => {
+      const allCodes = getAllCountryCodes();
+      assert.equal(allCodes.length, 249, 'Must contain exactly 249 ISO 3166-1 country records');
+      assert.equal(REGISTRY_PROVENANCE.identityStandard, 'ISO 3166-1');
+      assert.equal(REGISTRY_PROVENANCE.telecomStandard, 'ITU-T E.164');
+
+      // Verify sample coverage across regions
+      for (const code of ['PK', 'AE', 'US', 'GB', 'SA', 'DE', 'JP', 'CA', 'AU', 'BH', 'KW', 'OM', 'QA']) {
+        const p = getCountryPolicy(code);
+        assert.ok(p.code, `Missing code for ${code}`);
+        assert.ok(p.name, `Missing name for ${code}`);
+        assert.ok(p.callingCode, `Missing callingCode for ${code}`);
+        assert.ok(['required', 'optional', 'not_used', 'unknown'].includes(p.postalPolicy));
+        assert.ok(['required', 'optional', 'unknown'].includes(p.adminPolicy));
+      }
     });
 
     test('serializes checkout address without country or PKR hardcoding', () => {
@@ -342,6 +378,19 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       const result = detectMaterialQuoteChange(baseQuote, updatedQuote);
       assert.equal(result.changed, true);
       assert.match(result.reason || '', /country/i);
+    });
+
+    test('detects tax classification modification as material', () => {
+      const updatedQuote: AuthoritativeQuote = {
+        ...baseQuote,
+        taxesAndDuties: {
+          ...baseQuote.taxesAndDuties,
+          taxType: 'SALES_TAX',
+        },
+      };
+      const result = detectMaterialQuoteChange(baseQuote, updatedQuote);
+      assert.equal(result.changed, true);
+      assert.match(result.reason || '', /Tax classification/i);
     });
   });
 });

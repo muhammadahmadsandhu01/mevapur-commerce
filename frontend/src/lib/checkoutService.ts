@@ -341,13 +341,13 @@ export function detectMaterialQuoteChange(
     };
   }
 
-  // 11. Duty prepaid / collection treatment
-  const prevDutyTreatment = previousQuote.taxesAndDuties?.taxType;
-  const newDutyTreatment = newQuote.taxesAndDuties?.taxType;
-  if (prevDutyTreatment !== newDutyTreatment) {
+  // 11. Tax classification
+  const prevTaxType = previousQuote.taxesAndDuties?.taxType;
+  const newTaxType = newQuote.taxesAndDuties?.taxType;
+  if (prevTaxType !== newTaxType) {
     return {
       changed: true,
-      reason: 'Duty collection treatment has changed.',
+      reason: 'Tax classification has changed.',
     };
   }
 
