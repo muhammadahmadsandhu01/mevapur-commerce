@@ -56,6 +56,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Lint Frontend Code
+        working-directory: frontend
+        run: npm run lint
+
       - name: Run Storefront Assistant UI Component Tests (Contracts and Real DOM)
         working-directory: frontend
         run: npm run test:assistant
@@ -64,9 +68,23 @@ jobs:
         working-directory: frontend
         run: npm run test:categories
 
+      - name: Run Storefront Phase 6C Global Checkout Tests
+        working-directory: frontend
+        run: |
+          node --test tests/phase6cStorefrontCheckout.test.mts
+          npx --no-install vitest run tests/phase6cStorefrontCheckout.dom.test.tsx
+
+      - name: Build Frontend Application
+        working-directory: frontend
+        run: npm run build
+
       - name: Install Admin Panel Dependencies
         working-directory: admin-panel
         run: npm ci
+
+      - name: Lint Admin Panel Code
+        working-directory: admin-panel
+        run: npm run lint
 
       - name: Run Admin Panel Assistant UI Component Tests (Contracts and Real DOM)
         working-directory: admin-panel
@@ -75,3 +93,13 @@ jobs:
       - name: Run Admin Category Contract and DOM Tests
         working-directory: admin-panel
         run: npm run test:categories
+
+      - name: Run Admin Phase 6C Commerce Governance Tests
+        working-directory: admin-panel
+        run: |
+          node --test tests/phase6cAdminGovernance.test.mts
+          npx --no-install vitest run tests/phase6cAdminGovernance.dom.test.tsx
+
+      - name: Build Admin Panel Application
+        working-directory: admin-panel
+        run: npm run build
