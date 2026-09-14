@@ -26,6 +26,7 @@ import {
   serializeCheckoutPayload,
 } from '../src/lib/checkoutService.ts';
 import { paymentService } from '../src/services/payment.service.ts';
+import api from '../src/lib/api.ts';
 import type { AuthoritativeQuote } from '../src/types/commerce.ts';
 
 describe('Phase 6C: Storefront Global Checkout Contracts', () => {
@@ -239,6 +240,90 @@ describe('Phase 6C: Storefront Global Checkout Contracts', () => {
       assert.deepEqual(res1, []);
       const res2 = await paymentService.getAvailableMethods('US', '');
       assert.deepEqual(res2, []);
+    });
+
+    test('paymentService getAvailableMethods parses nested response.data.data.methods envelope correctly', async () => {
+      const originalGet = api.get;
+      try {
+        let requestedUrl = '';
+        let requestedParams: Record<string, string> | undefined;
+
+        (api as unknown as { get: typeof api.get }).get = (async (url: string, config?: { params?: Record<string, string> }) => {
+          requestedUrl = url;
+          requestedParams = config?.params;
+          return {
+            data: {
+              success: true,
+              data: {
+                edition: 'standard',
+                currency: 'GBP',
+                methods: [
+                  {
+                    code: 'stripe',
+                    displayName: 'Credit / Debit Card (Stripe)',
+                    paymentType: 'automated',
+                    capabilities: { card: true },
+                    metadata: { publishableKey: 'pk_live_gbp123' },
+                  },
+                ],
+              },
+              meta: { requestId: 'req-gbp-001' },
+            },
+          };
+        }) as typeof api.get;
+
+        const methods = await paymentService.getAvailableMethods('GB', 'GBP');
+
+        assert.equal(requestedUrl, '/payments/methods');
+        assert.deepEqual(requestedParams, { country: 'GB', currency: 'GBP' });
+        assert.equal(methods.length, 1);
+        assert.equal(methods[0].code, 'stripe');
+        assert.equal(methods[0].displayName, 'Credit / Debit Card (Stripe)');
+        assert.equal(methods[0].paymentType, 'automated');
+      } finally {
+        (api as unknown as { get: typeof api.get }).get = originalGet;
+      }
+    });
+
+    test('paymentService getAvailableMethods handles empty, malformed or error envelopes safely without fallback', async () => {
+      const originalGet = api.get;
+      try {
+        // 1. Empty methods array from backend
+        (api as unknown as { get: typeof api.get }).get = (async () => ({
+          data: {
+            success: true,
+            data: {
+              edition: 'standard',
+              currency: 'AED',
+              methods: [],
+            },
+          },
+        })) as typeof api.get;
+
+        const emptyRes = await paymentService.getAvailableMethods('AE', 'AED');
+        assert.deepEqual(emptyRes, []);
+
+        // 2. Malformed envelope (missing data or methods)
+        (api as unknown as { get: typeof api.get }).get = (async () => ({
+          data: {
+            success: true,
+            data: null,
+          },
+        })) as typeof api.get;
+
+        const malformedRes = await paymentService.getAvailableMethods('AE', 'AED');
+        assert.deepEqual(malformedRes, []);
+
+        // 3. Network rejection fails safely to empty array
+        (api as unknown as { get: typeof api.get }).get = (async () => {
+          throw new Error('Network timeout');
+        }) as typeof api.get;
+
+        const errorRes = await paymentService.getAvailableMethods('AE', 'AED');
+        assert.deepEqual(errorRes, []);
+      } finally {
+        (api as unknown as { get: typeof api.get }).get = originalGet;
+      }
     });
   });
 

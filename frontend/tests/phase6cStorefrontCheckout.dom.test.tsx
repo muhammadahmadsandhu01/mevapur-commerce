@@ -411,4 +411,77 @@ describe('Phase 6C Storefront Real-DOM Checkout Integration', () => {
       expect(submitOrderSpy).not.toHaveBeenCalled();
     });
   });
+
+  it('7. Discovers payment methods via realistic backend envelope and intersects with quote eligibility strictly', async () => {
+    // International quote for GB with only stripe eligible
+    const gbQuote: checkoutService.AuthoritativeQuote = {
+      ...mockQuote,
+      quoteId: 'QUO-20260914-GB01',
+      currency: 'GBP',
+      destination: { countryCode: 'GB', city: 'London' },
+      eligiblePaymentMethods: [
+        { code: 'stripe', displayName: 'Credit / Debit Card', paymentType: 'automated', isPrepaid: true },
+      ],
+    };
+
+    vi.spyOn(checkoutService, 'fetchCheckoutQuote').mockResolvedValue({
+      success: true,
+      data: { quote: gbQuote },
+    });
+
+    // Backend returns stripe and bank_transfer
+    vi.spyOn(paymentService, 'getAvailableMethods').mockResolvedValue([
+      {
+        code: 'stripe',
+        displayName: 'Credit / Debit Card (Stripe)',
+        paymentType: 'automated',
+        capabilities: { card: true },
+        metadata: { publishableKey: 'pk_live_gbp123' },
+      },
+      {
+        code: 'bank_transfer',
+        displayName: 'Direct Bank Transfer',
+        paymentType: 'manual',
+        capabilities: {},
+        metadata: {},
+      },
+    ]);
+
+    render(<CheckoutPage />);
+
+    // Wait for initial load
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Destination Market/i)).toBeInTheDocument();
+    });
+
+    const countrySelect = screen.getByLabelText(/Destination Market/i);
+    fireEvent.change(countrySelect, { target: { value: 'GB' } });
+
+    // Fill address for GB so quote is requested
+    fireEvent.change(screen.getByLabelText(/Street Address/i), { target: { value: '10 Downing St' } });
+    fireEvent.change(screen.getByLabelText(/City/i), { target: { value: 'London' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('QUO-20260914-GB01')).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      // Stripe is eligible in quote and returned by policy -> rendered
+      expect(screen.getByLabelText(/Credit \/ Debit Card/i)).toBeInTheDocument();
+      // Bank transfer is returned by policy but ineligible in quote -> excluded
+      expect(screen.queryByLabelText(/Direct Bank Transfer/i)).not.toBeInTheDocument();
+      // COD is excluded
+      expect(screen.queryByLabelText(/Cash on Delivery/i)).not.toBeInTheDocument();
+    });
+
+    // Now simulate backend policy returning empty methods array
+    vi.spyOn(paymentService, 'getAvailableMethods').mockResolvedValue([]);
+    fireEvent.change(countrySelect, { target: { value: 'AE' } });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/Cash on Delivery/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Credit \/ Debit Card/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/No eligible payment methods found/i)).toBeInTheDocument();
+    });
+  });
 });

@@ -69,6 +69,16 @@ export interface AvailablePaymentMethod {
   };
 }
 
+export interface PaymentMethodsDiscoveryResponse {
+  success: boolean;
+  data: {
+    edition: string;
+    currency: string;
+    methods: AvailablePaymentMethod[];
+  };
+  meta?: { requestId: string };
+}
+
 export interface CreatePaymentResponse {
   success: boolean;
   data: {
@@ -127,11 +137,16 @@ export const paymentService = {
       return [];
     }
 
-    const response = await api.get('/payments/methods', {
-      signal,
-      params: { country: cleanCountry, currency: cleanCurrency },
-    });
-    return response.data?.data?.methods || [];
+    try {
+      const response = await api.get<PaymentMethodsDiscoveryResponse>('/payments/methods', {
+        signal,
+        params: { country: cleanCountry, currency: cleanCurrency },
+      });
+      const methods = response.data?.data?.methods;
+      return Array.isArray(methods) ? methods : [];
+    } catch {
+      return [];
+    }
   },
 
   submitManualPayment: async (
