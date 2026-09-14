@@ -77,7 +77,7 @@ const menuItems: MenuItem[] = [
   { icon: Users, label: 'Customers', href: '/customers' },
   { icon: Star, label: 'Reviews', href: '/reviews' },
   { icon: Percent, label: 'Coupons', href: '/coupons' },
-  { icon: Gift, label: 'Promotions', href: '/promotions' },
+  { icon: Globe, label: 'Global Commerce', href: '/commerce' },
   { icon: Truck, label: 'Shipping', href: '/shipping' },
   { icon: RotateCcw, label: 'Returns', href: '/returns' },
   { icon: DollarSign, label: 'Payments & Refunds', href: '/refunds' },
