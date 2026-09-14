@@ -76,6 +76,10 @@ jobs:
 
       - name: Build Frontend Application
         working-directory: frontend
+        env:
+          NEXT_PUBLIC_SITE_NAME: 'HARZAAR'
+          NEXT_PUBLIC_SITE_URL: 'https://storefront.mevapur.test'
+          NEXT_PUBLIC_API_URL: 'https://api.mevapur.test'
         run: npm run build
 
       - name: Install Admin Panel Dependencies
@@ -102,4 +106,8 @@ jobs:
 
       - name: Build Admin Panel Application
         working-directory: admin-panel
+        env:
+          NEXT_PUBLIC_SITE_NAME: 'HARZAAR Admin'
+          NEXT_PUBLIC_ADMIN_URL: 'https://admin.mevapur.test'
+          NEXT_PUBLIC_API_URL: 'https://api.mevapur.test'
         run: npm run build
