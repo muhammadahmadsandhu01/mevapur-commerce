@@ -23,6 +23,7 @@ const register = (agent, email) => agent
     email,
     password,
     phone: '03001234567',
+    residenceCountry: 'PK',
   });
 
 describe('Auth HTTP contract', () => {
@@ -52,6 +53,7 @@ describe('Auth HTTP contract', () => {
         fullName: 'Invalid User',
         email: 'not-an-email',
         password,
+        residenceCountry: 'PK',
       });
 
     expect(response.statusCode).toBe(400);

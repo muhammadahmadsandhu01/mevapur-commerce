@@ -57,6 +57,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       password: 'StrongPassword123!',
       phone: '03001234567',
       role: 'customer',
+      residenceCountry: 'PK',
       isVerified: true
     });
 
@@ -66,6 +67,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       password: 'StrongPassword123!',
       phone: '03009999999',
       role: 'customer',
+      residenceCountry: 'PK',
       isVerified: true
     });
 

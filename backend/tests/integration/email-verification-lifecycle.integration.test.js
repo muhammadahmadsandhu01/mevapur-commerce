@@ -32,7 +32,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Short Password User',
           email: 'shortpass@example.com',
           password: 'Aa1!Short11', // 11 characters
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       expect(response.statusCode).toBe(400);
@@ -48,7 +49,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Valid Password User',
           email: 'validpass@example.com',
           password: 'Aa1!ValidPass', // 13 characters
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       expect(response.statusCode).toBe(201);
@@ -67,6 +69,7 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           email,
           password: 'Violet!9Mountain',
           phone: '03001234567',
+          residenceCountry: 'PK',
           redirect: '/checkout'
         });
 
@@ -112,7 +115,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Unverified Login User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       const loginRes = await request(app)
@@ -202,7 +206,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Verify Success User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       const token = sendVerificationSpy.mock.calls[0][2];
@@ -241,7 +246,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Single Use User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       const token = sendVerificationSpy.mock.calls[0][2];
@@ -268,7 +274,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Expired Token User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       const token = sendVerificationSpy.mock.calls[0][2];
@@ -306,7 +313,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Resend User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       const firstToken = sendVerificationSpy.mock.calls[0][2];
@@ -375,7 +383,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'Legacy Session User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       const user = await User.findOne({ email });
@@ -471,7 +480,8 @@ describe('Customer Registration & Email Verification Lifecycle', () => {
           fullName: 'SMTP Failure User',
           email,
           password: 'Violet!9Mountain',
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       // Assert non-secret, actionable response

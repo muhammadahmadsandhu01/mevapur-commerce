@@ -73,6 +73,7 @@ describe('Authentication password flows', () => {
         email: 'change@example.com',
         password,
         phone: '03001234567',
+        residenceCountry: 'PK',
       });
 
     const changed = await agent

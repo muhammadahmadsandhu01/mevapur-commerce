@@ -13,6 +13,7 @@ const register = (agent, email) => agent
     email,
     password,
     phone: '03001234567',
+    residenceCountry: 'PK',
   });
 
 describe('Authentication session lifecycle', () => {

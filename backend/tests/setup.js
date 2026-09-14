@@ -61,6 +61,7 @@ global.createTestUser = async (overrides = {}) => {
     email: `test-${userSequence}@example.com`,
     password: 'Violet!9Mountain',
     phone: '03001234567',
+    residenceCountry: 'PK',
     role: 'customer',
     isVerified: true,
     ...overrides,

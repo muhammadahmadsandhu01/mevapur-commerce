@@ -62,6 +62,7 @@ describe('Brevo HTTPS Transactional Email Integration', () => {
           email,
           password: validPassword,
           phone: '03001234567',
+          residenceCountry: 'PK',
           redirect: '/checkout'
         });
 
@@ -96,7 +97,8 @@ describe('Brevo HTTPS Transactional Email Integration', () => {
           fullName: 'Brevo Fail User',
           email,
           password: validPassword,
-          phone: '03001234567'
+          phone: '03001234567',
+          residenceCountry: 'PK'
         });
 
       expect(response.statusCode).toBe(201);
