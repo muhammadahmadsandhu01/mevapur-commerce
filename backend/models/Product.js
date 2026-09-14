@@ -178,15 +178,70 @@ if (mongoose.models.Product) {
       trim: true,
       maxlength: 200
     },
+    hsClassification: {
+      code: {
+        type: String,
+        trim: true,
+        match: [/^\d{6,10}$/, 'HS classification code must contain only 6 to 10 digits without punctuation']
+      },
+      systemVersion: {
+        type: String,
+        trim: true,
+        maxlength: 30,
+        default: 'HS_2022'
+      },
+      jurisdiction: {
+        type: String,
+        trim: true,
+        maxlength: 30,
+        default: 'WCO'
+      },
+      verificationStatus: {
+        type: String,
+        enum: ['UNVERIFIED', 'VERIFIED'],
+        default: 'UNVERIFIED'
+      },
+      sourceReference: {
+        type: String,
+        trim: true,
+        maxlength: 100
+      }
+    },
+    customsDescription: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500
+    },
     weight: {
       type: Number,
       min: 0
+    },
+    weightGrams: {
+      type: Number,
+      min: 1,
+      max: 100000000
     },
     dimensions: {
       length: { type: Number, min: 0 },
       width: { type: Number, min: 0 },
       height: { type: Number, min: 0 },
       unit: { type: String, trim: true, default: 'cm' }
+    },
+    dimensionsMm: {
+      length: { type: Number, min: 1 },
+      width: { type: Number, min: 1 },
+      height: { type: Number, min: 1 }
+    },
+    declaredValueEligibility: {
+      type: String,
+      enum: ['UNKNOWN', 'ELIGIBLE', 'INELIGIBLE'],
+      default: 'UNKNOWN'
+    },
+    dangerousGoodsClassification: {
+      type: String,
+      enum: ['UNKNOWN', 'UNCLASSIFIED', 'NOT_RESTRICTED', 'HAZMAT', 'PERISHABLE', 'FRAGILE', 'LITHIUM_BATTERY'],
+      default: 'UNKNOWN'
     },
     shippingClass: {
       type: String,
@@ -300,6 +355,51 @@ if (mongoose.models.Product) {
       weight: {
         type: Number,
         min: 0
+      },
+      weightGrams: {
+        type: Number,
+        min: 1,
+        max: 100000000
+      },
+      hsClassification: {
+        code: {
+          type: String,
+          trim: true,
+          match: [/^\d{6,10}$/, 'Variant HS classification code must contain only 6 to 10 digits without punctuation']
+        },
+        systemVersion: {
+          type: String,
+          trim: true,
+          maxlength: 30,
+          default: 'HS_2022'
+        },
+        jurisdiction: {
+          type: String,
+          trim: true,
+          maxlength: 30,
+          default: 'WCO'
+        },
+        verificationStatus: {
+          type: String,
+          enum: ['UNVERIFIED', 'VERIFIED'],
+          default: 'UNVERIFIED'
+        },
+        sourceReference: {
+          type: String,
+          trim: true,
+          maxlength: 100
+        }
+      },
+      customsDescription: {
+        type: String,
+        default: '',
+        trim: true,
+        maxlength: 500
+      },
+      dimensionsMm: {
+        length: { type: Number, min: 1 },
+        width: { type: Number, min: 1 },
+        height: { type: Number, min: 1 }
       }
     }],
     mediaAssetIds: [{
@@ -368,6 +468,25 @@ if (mongoose.models.Product) {
 
   // Lifecycle & Integrity Pre-Validation Hook
   productSchema.pre('validate', function(next) {
+    // Check root weight vs weightGrams conflict
+    if (this.weight != null && this.weightGrams != null) {
+      const convertedKgToGrams = Math.round(this.weight * 1000);
+      if (convertedKgToGrams !== this.weightGrams) {
+        return next(new Error(`Conflicting product weight (${this.weight}kg) and weightGrams (${this.weightGrams}g)`));
+      }
+    }
+
+    // Check variant weight vs weightGrams conflict
+    if (Array.isArray(this.variants)) {
+      for (const variant of this.variants) {
+        if (variant.weight != null && variant.weightGrams != null) {
+          const convertedVarKgToGrams = Math.round(variant.weight * 1000);
+          if (convertedVarKgToGrams !== variant.weightGrams) {
+            return next(new Error(`Conflicting variant weight (${variant.weight}kg) and weightGrams (${variant.weightGrams}g)`));
+          }
+        }
+      }
+    }
     // If isActive was explicitly passed as true and status was left as default draft, set status to published
     if (this.isNew && this.isActive === true && this.status === 'draft') {
       this.status = 'published';
@@ -416,6 +535,49 @@ if (mongoose.models.Product) {
 
     next();
   });
+
+  // Schema-level synchronous validators for weight vs weightGrams conflict
+  productSchema.path('weightGrams').validate(function(val) {
+    if (val != null && this.weight != null) {
+      if (Math.round(this.weight * 1000) !== val) {
+        this.invalidate('weightGrams', `Conflicting product weight (${this.weight}kg) and weightGrams (${val}g)`);
+      }
+    }
+    return true;
+  });
+
+  productSchema.path('weight').validate(function(val) {
+    if (val != null && this.weightGrams != null) {
+      if (Math.round(val * 1000) !== this.weightGrams) {
+        this.invalidate('weight', `Conflicting product weight (${val}kg) and weightGrams (${this.weightGrams}g)`);
+      }
+    }
+    return true;
+  });
+
+  const variantWeightGrams = productSchema.path('variants').schema.path('weightGrams');
+  if (variantWeightGrams) {
+    variantWeightGrams.validate(function(val) {
+      if (val != null && this.weight != null) {
+        if (Math.round(this.weight * 1000) !== val) {
+          this.invalidate('weightGrams', `Conflicting variant weight (${this.weight}kg) and weightGrams (${val}g)`);
+        }
+      }
+      return true;
+    });
+  }
+
+  const variantWeight = productSchema.path('variants').schema.path('weight');
+  if (variantWeight) {
+    variantWeight.validate(function(val) {
+      if (val != null && this.weightGrams != null) {
+        if (Math.round(val * 1000) !== this.weightGrams) {
+          this.invalidate('weight', `Conflicting variant weight (${val}kg) and weightGrams (${this.weightGrams}g)`);
+        }
+      }
+      return true;
+    });
+  }
 
   // Indexes
   productSchema.index({ slug: 1 }, { unique: true, name: 'unique_product_slug' });

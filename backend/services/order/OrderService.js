@@ -11,6 +11,7 @@ const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const MarketService = require('../MarketService');
 const AuditService = require('../AuditService');
 const CheckoutQuoteService = require('../checkout/CheckoutQuoteService');
+const CommerceConfigurationService = require('../commerce/CommerceConfigurationService');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const TaxDutyEngine = require('../checkout/TaxDutyEngine');
 const shippingAdapterRegistry = require('../checkout/shipping/ShippingAdapterRegistry');
@@ -257,26 +258,27 @@ class OrderService {
   }
 
   async waitForIdempotentOrder(userId, idempotencyKey) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       const order = await this.findIdempotentOrder(userId, idempotencyKey);
       if (order) return order;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
     return null;
   }
 
   isIdempotencyDuplicate(error) {
-    return error?.code === 11000 && (
-      error?.keyPattern?.idempotencyKey
-      || String(error.message).includes('unique_user_order_idempotency')
-      || String(error.message).includes('idempotencyKey')
+    return (error?.code === 11000 || error?.name === 'MongoServerError') && (
+      Boolean(error?.keyPattern?.idempotencyKey)
+      || String(error.message || '').includes('unique_user_order_idempotency')
+      || String(error.message || '').includes('idempotencyKey')
+      || String(error.message || '').includes('E11000')
     );
   }
 
   isOrderIdDuplicate(error) {
-    return error?.code === 11000 && (
-      error?.keyPattern?.orderId
-      || String(error.message).includes('orderId')
+    return (error?.code === 11000 || error?.name === 'MongoServerError') && (
+      Boolean(error?.keyPattern?.orderId)
+      || String(error.message || '').includes('orderId')
     );
   }
 
@@ -390,6 +392,19 @@ class OrderService {
             if (verifiedQuote.merchantCountry !== merchantCountry) {
               throw new AppError('Order merchant context does not match quote', 409, 'QUOTE_MERCHANT_MISMATCH');
             }
+            if (verifiedQuote.configVersionId && verifiedQuote.configVersionId !== 'legacy-fallback') {
+              const isAcceptable = await CommerceConfigurationService.isVersionOrderAcceptable(
+                verifiedQuote.configVersionId.replace(/^v/, ''),
+                verifiedQuote.merchantScopeId || 'default'
+              );
+              if (!isAcceptable) {
+                throw new AppError(
+                  'Checkout quote configuration version is no longer acceptable. Please refresh checkout.',
+                  409,
+                  'QUOTE_CONFIG_SUPERSEDED'
+                );
+              }
+            }
           }
 
           let phoneE164 = undefined;
@@ -450,6 +465,10 @@ class OrderService {
           );
 
           // 5. Calculate Shipping
+          const activeConfig = market.activeVersionDoc || await CommerceConfigurationService.getActiveConfiguration();
+          const shippingRules = activeConfig?.shippingRules || [];
+          const taxRules = activeConfig?.taxRules || [];
+
           const shippingServiceLevel = orderData.shippingServiceLevel || verifiedQuote?.shippingServiceLevel || 'standard';
           const shippingAdapter = shippingAdapterRegistry.get(orderData.shippingAdapter || null);
           const shippingQuote = await shippingAdapter.quote({
@@ -459,7 +478,9 @@ class OrderService {
             city: normalizedAddress.locality,
             region: normalizedAddress.administrativeArea,
             postalCode: normalizedAddress.postalCode,
-            serviceLevel: shippingServiceLevel
+            serviceLevel: shippingServiceLevel,
+            shippingRules,
+            configVersionId: activeConfig?.version ? `v${activeConfig.version}` : undefined
           });
           const shippingCost = coupon.freeShipping && shippingServiceLevel === 'standard' ? 0 : shippingQuote.shippingAmount;
 
@@ -470,7 +491,9 @@ class OrderService {
             administrativeArea: normalizedAddress.administrativeArea,
             taxableSubtotal: MoneyMapper.fromLegacy(afterDiscount, currency),
             shippingAmount: MoneyMapper.fromLegacy(shippingCost, currency),
-            currency
+            currency,
+            taxRules,
+            configVersionId: activeConfig?.version ? `v${activeConfig.version}` : undefined
           });
 
           const taxAmount = taxDutyResult.taxAmount;
@@ -570,8 +593,9 @@ class OrderService {
             subtotal,
             shippingCost,
             shippingQuote: {
-              zoneId: shippingQuote.zoneId || String(shippingQuote.zone?._id || shippingQuote.zone?.id || 'standard'),
-              zoneName: shippingQuote.zoneName || shippingQuote.zone?.name || 'Standard Delivery',
+              zoneId: (shippingQuote.zone?._id && mongoose.isValidObjectId(shippingQuote.zone._id)) ? shippingQuote.zone._id : null,
+              ruleId: shippingQuote.ruleId || null,
+              zoneName: shippingQuote.ruleName || shippingQuote.zoneName || shippingQuote.zone?.name || 'Standard Delivery',
               deliveryMinDays: shippingQuote.deliveryEstimate?.minDays || shippingQuote.deliveryMinDays || 2,
               deliveryMaxDays: shippingQuote.deliveryEstimate?.maxDays || shippingQuote.deliveryMaxDays || 5,
               remoteArea: Boolean(shippingQuote.isRemote || shippingQuote.remoteArea)

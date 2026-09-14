@@ -24,4 +24,8 @@ router.delete('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'p
 // Phase 6A: Global Checkout Eligibility & Atomic Quote Orchestration Routes
 router.post('/checkout/quote', validation(createCheckoutQuoteSchema), checkoutQuoteController.createQuote);
 
+// Phase 6B: Global Market, Shipping, Tax and Customs Configuration Governance Routes
+const commerceGovernanceRoutes = require('./commerceGovernanceRoutes');
+router.use('/admin/config', commerceGovernanceRoutes);
+
 module.exports = router;

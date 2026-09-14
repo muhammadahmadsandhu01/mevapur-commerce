@@ -1,18 +1,51 @@
 /**
  * @file ManualTableShippingAdapter.js
  * @description Deterministic Table-Driven Shipping Quote Adapter.
- * Computes exact-money rates across zones, multi-service options (Standard, Express),
- * and country eligibility.
+ * Evaluates versioned configuration shipping rules, bounded postal patterns,
+ * non-overlapping weight bands, priority ordering, and remote area surcharges with exact Money precision.
  */
 
-const ShippingZone = require('../../../models/ShippingZone');
 const { Money, MoneyMapper } = require('../../../modules/commerce');
 const { AppError } = require('../../../common/errors/AppError');
 
 class ManualTableShippingAdapter {
-  constructor() {
+  constructor(rules = null) {
     this.name = 'ManualTableShippingAdapter';
-    this.version = '1.0.0';
+    this.version = '2.0.0';
+    this.customRules = rules;
+  }
+
+  /**
+   * Evaluates bounded postal-code matching against a rule's postal patterns.
+   * Strictly avoids arbitrary regex execution.
+   * @param {Array<Object>} patterns
+   * @param {string} postalCode
+   * @returns {boolean}
+   */
+  matchesPostalPattern(patterns, postalCode) {
+    if (!patterns || patterns.length === 0) return true;
+    if (!postalCode || typeof postalCode !== 'string') return false;
+
+    const normalized = postalCode.trim().toUpperCase();
+
+    for (const pat of patterns) {
+      if (pat.type === 'exact' && pat.value && pat.value.trim().toUpperCase() === normalized) {
+        return true;
+      }
+      if (pat.type === 'prefix' && pat.value && normalized.startsWith(pat.value.trim().toUpperCase())) {
+        return true;
+      }
+      if (pat.type === 'numeric_range') {
+        const num = parseInt(normalized, 10);
+        const min = parseInt(pat.min, 10);
+        const max = parseInt(pat.max, 10);
+        if (!Number.isNaN(num) && !Number.isNaN(min) && !Number.isNaN(max)) {
+          if (num >= min && num <= max) return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -21,11 +54,14 @@ class ManualTableShippingAdapter {
    * @param {string} params.countryCode - ISO 3166-1 alpha-2
    * @param {string} [params.currency='PKR']
    * @param {Money} params.subtotalMoney
-   * @param {string} [params.city]
-   * @param {string} [params.region]
-   * @param {string} [params.postalCode]
+   * @param {string} [params.city='']
+   * @param {string} [params.region='']
+   * @param {string} [params.postalCode='']
    * @param {number} [params.weightKg=0]
+   * @param {number} [params.weightGrams=0]
    * @param {string} [params.serviceLevel='standard'] - 'standard' | 'express'
+   * @param {Array<Object>} [params.shippingRules=null]
+   * @param {string|number} [params.configVersionId=null]
    * @returns {Promise<Object>}
    */
   async quote({
@@ -36,120 +72,216 @@ class ManualTableShippingAdapter {
     region = '',
     postalCode = '',
     weightKg = 0,
-    serviceLevel = 'standard'
+    weightGrams = 0,
+    serviceLevel = 'standard',
+    shippingRules = null,
+    configVersionId = null
   }) {
+    if (!countryCode || typeof countryCode !== 'string') {
+      throw new AppError('Country code is required for shipping quote', 400, 'SHIPPING_COUNTRY_REQUIRED');
+    }
+
     const canonicalCountry = countryCode.trim().toUpperCase();
     const canonicalCurrency = currency.trim().toUpperCase();
+    const normalizedService = (serviceLevel || 'standard').trim().toLowerCase();
 
-    let zones = await ShippingZone.find({
-      enabled: true,
-      countries: canonicalCountry
-    }).sort({ priority: 1, _id: 1 });
+    // Determine weight in grams
+    const totalGrams = weightGrams > 0 ? weightGrams : Math.round((Number(weightKg) || 0) * 1000);
 
-    if (!zones || zones.length === 0) {
-      if (canonicalCountry === 'PK') {
-        const shippingService = require('../../order/ShippingService');
-        await shippingService.ensureDemoZone({ homeCountry: 'PK' });
-        zones = await ShippingZone.find({
-          enabled: true,
-          countries: canonicalCountry
-        }).sort({ priority: 1, _id: 1 });
+    const rules = shippingRules || this.customRules || [];
+
+    // Filter matching rules for destination country and service level
+    const candidates = rules.filter((r) => {
+      if (r.enabled === false) return false;
+      if (r.destinationCountry !== canonicalCountry) return false;
+
+      // Match service level if specified on rule
+      if (r.serviceCode && r.serviceCode.toLowerCase() !== normalizedService) {
+        return false;
+      }
+
+      // Subdivision filtering if specified
+      if (region && r.destinationSubdivisions && r.destinationSubdivisions.length > 0) {
+        const normRegion = region.trim().toUpperCase();
+        if (!r.destinationSubdivisions.some((s) => s.toUpperCase() === normRegion)) {
+          return false;
+        }
+      }
+
+      // Postal code range matching
+      if (postalCode && r.postalCodeRanges && r.postalCodeRanges.length > 0) {
+        if (!this.matchesPostalPattern(r.postalCodeRanges, postalCode)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    if (!candidates || candidates.length === 0) {
+      if (process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY === 'true' && canonicalCountry === 'PK') {
+        let legacyZones = [];
+        try {
+          const ShippingZone = require('../../../models/ShippingZone');
+          legacyZones = await ShippingZone.find({ enabled: true, countries: 'PK' }).sort({ priority: 1 }).lean();
+        } catch {
+          // ignore error if model not reachable
+        }
+
+        if (legacyZones && legacyZones.length > 0) {
+          const normCity = (city || '').trim().toLowerCase();
+          const matchedZone = legacyZones.find((z) => z.cities && z.cities.some((c) => c.toLowerCase() === normCity)) || legacyZones[0];
+          if (matchedZone) {
+            candidates.push({
+              ruleId: `LEGACY-${matchedZone._id}`,
+              ruleName: matchedZone.name,
+              destinationCountry: 'PK',
+              currency: matchedZone.currency || 'PKR',
+              baseRate: matchedZone.normalRate,
+              baseRateExact: matchedZone.normalRateExact,
+              freeShippingThreshold: matchedZone.freeShippingThreshold,
+              freeShippingThresholdExact: matchedZone.freeShippingThresholdExact,
+              remoteRate: matchedZone.remoteRate,
+              remoteRateExact: matchedZone.remoteRateExact,
+              remoteCities: matchedZone.remoteCities || [],
+              deliveryMinDays: matchedZone.deliveryMinDays,
+              deliveryMaxDays: matchedZone.deliveryMaxDays,
+              remoteDeliveryMinDays: matchedZone.remoteDeliveryMinDays,
+              remoteDeliveryMaxDays: matchedZone.remoteDeliveryMaxDays,
+              priority: matchedZone.priority
+            });
+          }
+        } else {
+          // Default domestic test fallback only when explicit compatibility gate is ON
+          candidates.push({
+            ruleId: 'LEGACY-DOMESTIC-DEFAULT',
+            ruleName: 'Domestic Standard Delivery (Legacy Gate)',
+            destinationCountry: 'PK',
+            currency: 'PKR',
+            baseRate: 250,
+            freeShippingThreshold: 5000,
+            deliveryMinDays: 2,
+            deliveryMaxDays: 5,
+            priority: 100
+          });
+        }
       }
     }
 
-    if (!zones || zones.length === 0) {
+    if (!candidates || candidates.length === 0) {
       throw new AppError(
-        `No shipping zones configured for destination country '${canonicalCountry}'`,
+        `No shipping rules configured for destination country '${canonicalCountry}' (${serviceLevel})`,
         409,
         'SHIPPING_ZONE_UNAVAILABLE'
       );
     }
 
-    const normalizedCity = (city || '').trim().toLowerCase();
-    const normalizedRegion = (region || '').trim().toLowerCase();
+    // Sort candidates deterministically by priority (lowest number wins) and tie-break by ruleId
+    candidates.sort((a, b) => {
+      const pA = a.priority != null ? a.priority : 100;
+      const pB = b.priority != null ? b.priority : 100;
+      if (pA !== pB) return pA - pB;
+      return String(a.ruleId || '').localeCompare(String(b.ruleId || ''));
+    });
 
-    const zone = zones.find((candidate) => (
-      candidate.cities.length === 0 || candidate.cities.some((c) => c.toLowerCase() === normalizedCity)
-    )) || zones.find((candidate) => (
-      candidate.regions.length === 0 || candidate.regions.some((r) => r.toLowerCase() === normalizedRegion)
-    )) || zones[0];
+    const rule = candidates[0];
 
-    const zoneCurrency = (zone.currency || canonicalCurrency).toUpperCase();
-    if (zoneCurrency !== canonicalCurrency) {
+    const ruleCurrency = (rule.currency || canonicalCurrency).toUpperCase();
+    if (ruleCurrency !== canonicalCurrency) {
       throw new AppError(
-        `Shipping zone currency (${zoneCurrency}) does not match order currency (${canonicalCurrency})`,
+        `Shipping rule currency (${ruleCurrency}) does not match quote currency (${canonicalCurrency})`,
         409,
         'SHIPPING_CURRENCY_MISMATCH'
       );
     }
 
-    // 1. Resolve rates into exact Money objects
-    let normalRateMoney = zone.normalRateExact && zone.normalRateExact.amountMinor
-      ? MoneyMapper.toMoney(zone.normalRateExact)
-      : Money.fromLegacyNumber(zone.normalRate != null ? zone.normalRate : 250, canonicalCurrency);
+    // 1. Resolve base rate into exact Money
+    let baseRateMoney = rule.baseRateExact && rule.baseRateExact.amountMinor !== undefined
+      ? MoneyMapper.toMoney(rule.baseRateExact)
+      : (rule.normalRateExact && rule.normalRateExact.amountMinor !== undefined
+        ? MoneyMapper.toMoney(rule.normalRateExact)
+        : Money.fromLegacyNumber(rule.baseRate || rule.normalRate || 0, canonicalCurrency));
 
-    let thresholdMoney = zone.freeShippingThresholdExact && zone.freeShippingThresholdExact.amountMinor
-      ? MoneyMapper.toMoney(zone.freeShippingThresholdExact)
-      : Money.fromLegacyNumber(zone.freeShippingThreshold != null ? zone.freeShippingThreshold : 5000, canonicalCurrency);
+    // 2. Resolve free shipping threshold
+    let thresholdMoney = null;
+    if (rule.freeShippingThresholdExact && rule.freeShippingThresholdExact.amountMinor !== undefined) {
+      thresholdMoney = MoneyMapper.toMoney(rule.freeShippingThresholdExact);
+    } else if (rule.freeShippingThreshold != null) {
+      thresholdMoney = Money.fromLegacyNumber(rule.freeShippingThreshold, canonicalCurrency);
+    }
 
-    let remoteRateMoney = zone.remoteRateExact && zone.remoteRateExact.amountMinor
-      ? MoneyMapper.toMoney(zone.remoteRateExact)
-      : (zone.remoteRate != null ? Money.fromLegacyNumber(zone.remoteRate, canonicalCurrency) : null);
-
-    const isRemote = Boolean(
+    // 3. Remote check
+    const normalizedCity = (city || '').trim().toLowerCase();
+    const normalizedPostal = (postalCode || '').trim().toUpperCase();
+    const isRemoteCity = Boolean(
       normalizedCity
-      && zone.remoteCities
-      && zone.remoteCities.some((c) => c.toLowerCase() === normalizedCity)
+      && rule.remoteCities
+      && rule.remoteCities.some((c) => c.toLowerCase() === normalizedCity)
     );
+    const isRemotePostal = Boolean(
+      normalizedPostal
+      && rule.remotePostalPrefixes
+      && rule.remotePostalPrefixes.some((p) => normalizedPostal.startsWith(p.toUpperCase()))
+    );
+    const isRemote = isRemoteCity || isRemotePostal;
 
-    const isFreeEligible = !isRemote && subtotalMoney.amountMinor >= thresholdMoney.amountMinor;
+    let remoteRateMoney = null;
+    if (rule.remoteRateExact && rule.remoteRateExact.amountMinor !== undefined) {
+      remoteRateMoney = MoneyMapper.toMoney(rule.remoteRateExact);
+    } else if (rule.remoteRate != null) {
+      remoteRateMoney = Money.fromLegacyNumber(rule.remoteRate, canonicalCurrency);
+    }
 
-    let baseRateMoney = isFreeEligible
+    // Free shipping applies only if non-remote and subtotal >= threshold
+    const isFreeEligible = !isRemote && thresholdMoney != null && subtotalMoney.amountMinor >= thresholdMoney.amountMinor;
+
+    let calculatedRateMoney = isFreeEligible
       ? Money.zero(canonicalCurrency)
-      : (isRemote && remoteRateMoney ? remoteRateMoney : normalRateMoney);
+      : (isRemote && remoteRateMoney ? remoteRateMoney : baseRateMoney);
 
-    // Apply express surcharge if requested
-    if (serviceLevel === 'express') {
-      // 50% surcharge for express shipping
-      const expressSurcharge = baseRateMoney.isZero()
-        ? normalRateMoney
-        : baseRateMoney.multiplyRational(50, 100, 'HALF_UP');
-      baseRateMoney = baseRateMoney.add(expressSurcharge);
+    // 4. Weight bands evaluation
+    if (Array.isArray(rule.weightBands) && rule.weightBands.length > 0 && totalGrams > 0) {
+      const matchingBand = rule.weightBands.find((b) => (
+        totalGrams >= (b.minWeightGrams || 0) && totalGrams < (b.maxWeightGrams || Infinity)
+      ));
+
+      if (matchingBand && matchingBand.rateExact) {
+        const bandRateMoney = MoneyMapper.toMoney(matchingBand.rateExact);
+        if (matchingBand.pricingMode === 'ADD_TO_BASE') {
+          calculatedRateMoney = calculatedRateMoney.add(bandRateMoney);
+        } else {
+          calculatedRateMoney = bandRateMoney;
+        }
+      }
     }
 
-    // Weight multiplication if weight is specified and > 1kg
-    if (weightKg > 1) {
-      const excessKg = Math.ceil(weightKg - 1);
-      const surcharge = baseRateMoney.multiplyRational(excessKg * 10, 100, 'HALF_UP');
-      baseRateMoney = baseRateMoney.add(surcharge);
-    }
+    const minDays = isRemote && rule.remoteDeliveryMinDays != null
+      ? rule.remoteDeliveryMinDays
+      : (rule.deliveryMinDays != null ? rule.deliveryMinDays : 3);
 
-    const minDays = isRemote && zone.remoteDeliveryMinDays != null
-      ? zone.remoteDeliveryMinDays
-      : (serviceLevel === 'express' ? Math.max(1, zone.deliveryMinDays - 1) : zone.deliveryMinDays);
-
-    const maxDays = isRemote && zone.remoteDeliveryMaxDays != null
-      ? zone.remoteDeliveryMaxDays
-      : (serviceLevel === 'express' ? Math.max(2, zone.deliveryMaxDays - 1) : zone.deliveryMaxDays);
+    const maxDays = isRemote && rule.remoteDeliveryMaxDays != null
+      ? rule.remoteDeliveryMaxDays
+      : (rule.deliveryMaxDays != null ? rule.deliveryMaxDays : 7);
 
     return {
       adapter: this.name,
       version: this.version,
-      serviceLevel,
-      zoneId: String(zone._id),
-      zoneName: zone.name,
+      serviceLevel: normalizedService,
+      ruleId: rule.ruleId || 'ZONE-RULE',
+      ruleName: rule.displayName || rule.name || 'Standard Delivery',
       currency: canonicalCurrency,
-      shippingAmount: Number(baseRateMoney.toDecimalString()),
-      shippingAmountExact: MoneyMapper.toPersistence(baseRateMoney),
-      freeShippingApplied: isFreeEligible && serviceLevel === 'standard',
+      shippingAmount: Number(calculatedRateMoney.toDecimalString()),
+      shippingAmountExact: MoneyMapper.toPersistence(calculatedRateMoney),
+      freeShippingApplied: isFreeEligible,
       isRemote,
       deliveryEstimate: {
         minDays,
         maxDays
       },
       provenance: {
-        source: 'ZONE_TABLE_DETERMINISTIC',
-        zoneId: String(zone._id),
+        source: 'GOVERNED_SHIPPING_TABLE',
+        configVersionId: configVersionId || rule.configVersionId || 'v-active',
+        ruleId: rule.ruleId || 'RULE-DEF',
         timestamp: new Date().toISOString()
       }
     };

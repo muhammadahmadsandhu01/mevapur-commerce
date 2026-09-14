@@ -2,11 +2,13 @@
  * @file CheckoutQuoteService.js
  * @description Canonical Global Checkout Eligibility and Quote Orchestration Service.
  * Implements atomic quote generation, seller/destination resolution, multi-service shipping,
- * exact-money tax/duties landed-cost calculation, and stale/tamper quote protection.
+ * exact-money tax/duties landed-cost calculation, and stale/tamper quote protection governed by
+ * active CommerceConfigurationVersion.
  */
 
 const crypto = require('crypto');
 const MarketService = require('../MarketService');
+const CommerceConfigurationService = require('../commerce/CommerceConfigurationService');
 const Product = require('../../models/Product');
 const CouponService = require('../order/CouponService');
 const TaxDutyEngine = require('./TaxDutyEngine');
@@ -25,7 +27,7 @@ const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
 
 const QUOTE_TTL_SECONDS = 15 * 60; // 15 minutes default quote validity
-const CURRENT_QUOTE_KEY_ID = 'v1';
+const CURRENT_QUOTE_KEY_ID = 'v2';
 
 /**
  * Resolves the authoritative dedicated signing secret for checkout quotes.
@@ -80,12 +82,14 @@ class CheckoutQuoteService {
     marketService = MarketService,
     taxEngine = TaxDutyEngine,
     shippingRegistry = shippingAdapterRegistry,
-    paymentPolicy = defaultPaymentPolicy
+    paymentPolicy = defaultPaymentPolicy,
+    commerceConfigService = CommerceConfigurationService
   } = {}) {
     this.marketService = marketService;
     this.taxEngine = taxEngine;
     this.shippingRegistry = shippingRegistry;
     this.paymentPolicy = paymentPolicy;
+    this.commerceConfigService = commerceConfigService;
   }
 
   /**
@@ -128,6 +132,8 @@ class CheckoutQuoteService {
     return {
       kid: quotePayload.kid || CURRENT_QUOTE_KEY_ID,
       quoteId: quotePayload.quoteId,
+      merchantScopeId: quotePayload.merchantScopeId || 'default',
+      configVersionId: quotePayload.configVersionId || 'v1',
       merchantCountry: quotePayload.merchantCountry,
       fulfillmentOriginCountry: quotePayload.fulfillmentOriginCountry || quotePayload.merchantCountry,
       destinationCountry,
@@ -161,7 +167,7 @@ class CheckoutQuoteService {
   }
 
   /**
-   * Resolves and validates cart items, calculating exact unit prices and line totals.
+   * Resolves and validates cart items, calculating exact unit prices, line totals, and customs metadata.
    * @param {Array<Object>} items
    * @param {string} currency
    * @param {Object} [options]
@@ -249,6 +255,21 @@ class CheckoutQuoteService {
       const unitPriceMoney = Money.fromLegacyNumber(rawPrice, currency);
       const lineTotalMoney = unitPriceMoney.multiplyRational(quantity, 1);
 
+      // Logistics & Customs Resolution
+      const weightGrams = variant?.weightGrams || product.weightGrams
+        || (variant?.weight ? Math.round(variant.weight * 1000) : (product.weight ? Math.round(product.weight * 1000) : 500));
+
+      const dangerousGoodsClassification = variant?.dangerousGoodsClassification
+        || product.dangerousGoodsClassification
+        || 'UNKNOWN';
+
+      const declaredValueEligibility = variant?.declaredValueEligibility
+        || product.declaredValueEligibility
+        || 'UNKNOWN';
+
+      const hsCode = variant?.hsClassification?.code || product.hsClassification?.code || null;
+      const countryOfOrigin = product.countryOfOrigin || 'PK';
+
       resolved.push({
         product: product._id,
         productId: String(product._id),
@@ -261,7 +282,12 @@ class CheckoutQuoteService {
         unitPriceExact: MoneyMapper.toPersistence(unitPriceMoney),
         lineTotal: Number(lineTotalMoney.toDecimalString()),
         lineTotalExact: MoneyMapper.toPersistence(lineTotalMoney),
-        weightKg: Number(product.weight || 0) * quantity,
+        weightGrams: weightGrams * quantity,
+        weightKg: (weightGrams * quantity) / 1000,
+        dangerousGoodsClassification,
+        declaredValueEligibility,
+        hsCode,
+        countryOfOrigin,
         image: variant?.images?.[0] || product.primaryImage || product.images?.[0] || product.image || ''
       });
     }
@@ -273,6 +299,7 @@ class CheckoutQuoteService {
    * Generate an Authoritative Checkout Quote.
    * @param {Object} params
    * @param {string} [params.userId]
+   * @param {string} [params.merchantScopeId='default']
    * @param {Array<Object>} params.items
    * @param {Object} params.shippingAddress
    * @param {string} [params.currency]
@@ -283,6 +310,7 @@ class CheckoutQuoteService {
    */
   async generateQuote({
     userId = null,
+    merchantScopeId = 'default',
     items,
     shippingAddress,
     currency = null,
@@ -291,11 +319,17 @@ class CheckoutQuoteService {
     shippingAdapter = null
   }) {
     // 1. Authoritative Seller & Market Context
-    const market = await this.marketService.getConfig();
+    const market = await this.marketService.getConfig({ merchantScopeId });
     if (!market || !market.isEnabled) {
       throw new AppError('Market configuration is currently disabled', 503, 'MARKET_DISABLED');
     }
 
+    if (!market.isGovernedVersion || !market.activeVersionDoc) {
+      throw new AppError('Active commerce configuration version is required for checkout quote', 503, 'MARKET_CONFIGURATION_UNAVAILABLE');
+    }
+
+    const activeConfigDoc = market.activeVersionDoc;
+    const configVersionId = market.configVersionId || 'v1';
     const merchantCountry = (market.merchantCountry || market.homeCountry || 'PK').toUpperCase();
     const fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
 
@@ -316,6 +350,7 @@ class CheckoutQuoteService {
     });
 
     const destinationCountry = normalizedAddress.countryCode;
+    const isDomestic = destinationCountry === merchantCountry;
 
     // Validate phone E.164 if provided
     let parsedPhone = null;
@@ -331,16 +366,45 @@ class CheckoutQuoteService {
     const targetCurrency = (currency || market.defaultCurrency || market.baseCurrency || 'PKR').toUpperCase();
     await this.marketService.assertEligible({
       country: destinationCountry,
-      currency: targetCurrency
+      currency: targetCurrency,
+      merchantScopeId
     });
 
     // 4. Resolve Items & Subtotal
     const pricedItems = await this.resolvePricedItems(items, targetCurrency);
+
+    // Enforce Product Customs Metadata for International routes
+    if (!isDomestic) {
+      for (const it of pricedItems) {
+        if (it.dangerousGoodsClassification === 'UNKNOWN' || it.dangerousGoodsClassification === 'UNCLASSIFIED') {
+          throw new AppError(
+            `Product '${it.name}' has unclassified dangerous goods status and cannot be quoted for international shipping`,
+            409,
+            'CUSTOMS_METADATA_INCOMPLETE'
+          );
+        }
+        if (it.declaredValueEligibility === 'UNKNOWN') {
+          throw new AppError(
+            `Product '${it.name}' declared-value eligibility is unclassified for international shipping`,
+            409,
+            'CUSTOMS_METADATA_INCOMPLETE'
+          );
+        }
+        if (!it.countryOfOrigin) {
+          throw new AppError(
+            `Product '${it.name}' is missing country of origin for international shipping`,
+            409,
+            'CUSTOMS_METADATA_INCOMPLETE'
+          );
+        }
+      }
+    }
+
     const subtotalMoney = pricedItems.reduce(
       (sum, item) => sum.add(MoneyMapper.toMoney(item.lineTotalExact)),
       Money.zero(targetCurrency)
     );
-    const totalWeightKg = pricedItems.reduce((sum, item) => sum + (item.weightKg || 0), 0);
+    const totalWeightGrams = pricedItems.reduce((sum, item) => sum + (item.weightGrams || 0), 0);
 
     // 5. Evaluate Coupon
     let discountMoney = Money.zero(targetCurrency);
@@ -375,8 +439,10 @@ class CheckoutQuoteService {
       ? subtotalMoney.subtract(discountMoney)
       : Money.zero(targetCurrency);
 
-    // 6. Multi-Service Shipping Quoting
+    // 6. Multi-Service Shipping Quoting via Active Version Rules
+    const shippingRules = activeConfigDoc?.shippingRules || null;
     const adapter = this.shippingRegistry.get(shippingAdapter);
+
     const shippingStandard = await adapter.quote({
       countryCode: destinationCountry,
       currency: targetCurrency,
@@ -384,8 +450,10 @@ class CheckoutQuoteService {
       city: normalizedAddress.locality,
       region: normalizedAddress.administrativeArea,
       postalCode: normalizedAddress.postalCode,
-      weightKg: totalWeightKg,
-      serviceLevel: 'standard'
+      weightGrams: totalWeightGrams,
+      serviceLevel: 'standard',
+      shippingRules,
+      configVersionId
     });
 
     let shippingExpress = null;
@@ -397,8 +465,10 @@ class CheckoutQuoteService {
         city: normalizedAddress.locality,
         region: normalizedAddress.administrativeArea,
         postalCode: normalizedAddress.postalCode,
-        weightKg: totalWeightKg,
-        serviceLevel: 'express'
+        weightGrams: totalWeightGrams,
+        serviceLevel: 'express',
+        shippingRules,
+        configVersionId
       });
     } catch {
       // Express might not be supported for all zones
@@ -412,14 +482,17 @@ class CheckoutQuoteService {
       ? Money.zero(targetCurrency)
       : MoneyMapper.toMoney(selectedShippingOption.shippingAmountExact);
 
-    // 7. Calculate Tax & Duties with Landed-Cost Provenance
+    // 7. Calculate Tax & Duties with Landed-Cost Provenance via Active Version Rules
+    const taxRules = activeConfigDoc?.taxRules || null;
     const taxDutyResult = this.taxEngine.calculate({
       destinationCountry,
       originCountry: fulfillmentOrigin,
       administrativeArea: normalizedAddress.administrativeArea,
       taxableSubtotal: afterDiscountMoney,
       shippingAmount: selectedShippingMoney,
-      currency: targetCurrency
+      currency: targetCurrency,
+      taxRules,
+      configVersionId
     });
 
     const taxMoney = MoneyMapper.toMoney(taxDutyResult.taxAmountExact);
@@ -436,7 +509,6 @@ class CheckoutQuoteService {
       .add(payableDutiesMoney);
 
     // 9. Payment Method Eligibility Synthesis
-    const isDomestic = destinationCountry === merchantCountry;
     const availablePaymentMethods = await this.paymentPolicy.getPublicAvailableMethods({
       country: destinationCountry,
       deliveryCountry: destinationCountry,
@@ -467,6 +539,8 @@ class CheckoutQuoteService {
     const quoteData = {
       kid: CURRENT_QUOTE_KEY_ID,
       quoteId,
+      merchantScopeId,
+      configVersionId,
       merchantCountry,
       fulfillmentOriginCountry: fulfillmentOrigin,
       isDomestic,
@@ -489,8 +563,8 @@ class CheckoutQuoteService {
       shipping: {
         selectedOption: {
           serviceLevel: selectedShippingOption.serviceLevel,
-          zoneId: selectedShippingOption.zoneId,
-          zoneName: selectedShippingOption.zoneName,
+          zoneId: selectedShippingOption.ruleId || selectedShippingOption.zoneId,
+          zoneName: selectedShippingOption.ruleName || selectedShippingOption.zoneName,
           amount: Number(selectedShippingMoney.toDecimalString()),
           amountExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(selectedShippingMoney)),
           freeShippingApplied: freeShippingCoupon || selectedShippingOption.freeShippingApplied,
@@ -592,7 +666,7 @@ class CheckoutQuoteService {
       throw new AppError('Malformed checkout quote token', 400, 'QUOTE_MALFORMED');
     }
 
-    if (envelope.kid !== CURRENT_QUOTE_KEY_ID) {
+    if (envelope.kid !== 'v1' && envelope.kid !== CURRENT_QUOTE_KEY_ID) {
       throw new AppError('Unsupported quote token key version', 409, 'QUOTE_VERSION_UNSUPPORTED');
     }
 

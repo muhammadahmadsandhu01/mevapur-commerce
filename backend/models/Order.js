@@ -103,7 +103,7 @@ const orderSchema = new mongoose.Schema({
     address: { type: String, required: true, trim: true, maxlength: 300 },
     addressLine2: { type: String, default: '', trim: true, maxlength: 200 },
     city: { type: String, required: true, trim: true, maxlength: 100 },
-    province: { type: String, required: true, trim: true, maxlength: 100 },
+    province: { type: String, default: '', trim: true, maxlength: 100 },
     postalCode: { type: String, default: '', trim: true, maxlength: 20 },
     country: {
       type: String,
@@ -175,7 +175,8 @@ const orderSchema = new mongoose.Schema({
   shippingCost: { type: Number, default: 0, min: 0 },
   shippingCostExact: { type: MoneySchema, default: null },
   shippingQuote: {
-    zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'ShippingZone', default: null },
+    zoneId: { type: mongoose.Schema.Types.Mixed, default: null },
+    ruleId: { type: String, default: null, trim: true, maxlength: 64 },
     zoneName: { type: String, default: '', maxlength: 100 },
     deliveryMinDays: { type: Number, default: null },
     deliveryMaxDays: { type: Number, default: null },
