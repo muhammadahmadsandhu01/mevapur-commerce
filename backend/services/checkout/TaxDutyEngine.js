@@ -86,13 +86,17 @@ class TaxDutyEngine {
       ? taxableSubtotal
       : (typeof taxableSubtotal === 'number'
         ? Money.fromLegacyNumber(taxableSubtotal, curr)
-        : Money.zero(curr));
+        : (taxableSubtotal && typeof taxableSubtotal === 'object' && taxableSubtotal.amountMinor !== undefined
+          ? MoneyMapper.toMoney(taxableSubtotal)
+          : Money.zero(curr)));
 
     const shippingMoney = shippingAmount instanceof Money
       ? shippingAmount
       : (typeof shippingAmount === 'number'
         ? Money.fromLegacyNumber(shippingAmount, curr)
-        : Money.zero(curr));
+        : (shippingAmount && typeof shippingAmount === 'object' && shippingAmount.amountMinor !== undefined
+          ? MoneyMapper.toMoney(shippingAmount)
+          : Money.zero(curr)));
 
     if (subtotalMoney.currency !== curr) {
       throw new AppError('Subtotal currency mismatch during tax calculation', 400, 'TAX_CURRENCY_MISMATCH');

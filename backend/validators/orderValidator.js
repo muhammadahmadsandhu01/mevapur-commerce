@@ -43,18 +43,22 @@ const createOrderSchema = z.object({
       /^\+?[0-9][0-9 -]{6,19}$/,
       'A valid phone number is required'
     ),
-    address: z.string().trim().min(10).max(300),
+    address: z.string().trim().min(5).max(300),
     addressLine2: optionalTrimmed(z.string().trim().max(200)),
-    city: z.string().trim().min(2).max(100),
-    province: z.string().trim().min(2).max(100),
+    city: z.string().trim().min(1).max(100),
+    province: optionalTrimmed(z.string().trim().max(100)),
     postalCode: optionalTrimmed(
-      z.string().trim().min(3).max(20).regex(
+      z.string().trim().min(2).max(20).regex(
         /^[A-Za-z0-9 -]+$/,
         'Postal code contains invalid characters'
       )
     ),
-    country: z.string().trim().min(2).max(100)
-  }).strict(),
+    country: optionalTrimmed(z.string().trim().min(2).max(100)),
+    countryCode: optionalTrimmed(z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/))
+  }).strict().refine(
+    (data) => Boolean(data.country || data.countryCode),
+    { message: 'Country or countryCode is required', path: ['country'] }
+  ),
   paymentMethod: z.enum(SUPPORTED_ORDER_PAYMENT_METHODS, {
     message: 'A canonical payment method is required'
   }),
@@ -62,7 +66,9 @@ const createOrderSchema = z.object({
   couponCode: optionalTrimmed(
     z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9_-]+$/)
   ),
-  customerNote: optionalTrimmed(z.string().trim().max(500))
+  customerNote: optionalTrimmed(z.string().trim().max(500)),
+  quoteToken: optionalTrimmed(z.string().trim().max(4096)),
+  shippingServiceLevel: z.enum(['standard', 'express']).default('standard')
 }).strict().superRefine((value, context) => {
   const seen = new Set();
 

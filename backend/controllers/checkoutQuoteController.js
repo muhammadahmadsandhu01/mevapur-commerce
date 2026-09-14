@@ -34,20 +34,3 @@ exports.createQuote = async (req, res, next) => {
     next(error);
   }
 };
-
-exports.verifyQuote = async (req, res, next) => {
-  try {
-    const { quote } = req.body;
-    const isValid = CheckoutQuoteService.verifyQuoteIntegrity(quote);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        valid: isValid,
-        quoteId: quote?.quoteId
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};

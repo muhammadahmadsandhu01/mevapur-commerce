@@ -10,6 +10,10 @@ const InventoryService = require('./InventoryService');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const MarketService = require('../MarketService');
 const AuditService = require('../AuditService');
+const CheckoutQuoteService = require('../checkout/CheckoutQuoteService');
+const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
+const TaxDutyEngine = require('../checkout/TaxDutyEngine');
+const shippingAdapterRegistry = require('../checkout/shipping/ShippingAdapterRegistry');
 const logger = require('../../utils/logger');
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
 const { AppError } = require('../../common/errors/AppError');
@@ -22,6 +26,7 @@ const {
 } = require('../../constants/orderConstants');
 const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
 const {
+  Money,
   MoneyMapper,
   RolloutAuthority,
   Address,
@@ -58,7 +63,8 @@ class OrderService {
       paymentMethod: orderData.paymentMethod,
       currency: orderData.currency || null,
       couponCode: orderData.couponCode || null,
-      customerNote: orderData.customerNote || null
+      customerNote: orderData.customerNote || null,
+      quoteToken: orderData.quoteToken || null
     };
 
     return crypto
@@ -84,7 +90,7 @@ class OrderService {
     return query;
   }
 
-  async resolveItems(items, session) {
+  async resolveItems(items, session, currency = 'PKR') {
     const resolved = [];
     const resolvedKeys = new Set();
     const activeCategoryIds = await ProductVisibilityPolicy.getActiveCategoryIds({ session });
@@ -136,8 +142,6 @@ class OrderService {
       }
       resolvedKeys.add(resolvedKey);
 
-const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../../modules/commerce');
-
       const rawPrice = variant
         ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
         : product.price;
@@ -151,8 +155,8 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
       }
 
       const lineTotal = this.roundMoney(price * item.quantity);
-      const unitPriceExact = MoneyMapper.fromLegacy(price, 'PKR');
-      const lineTotalExact = MoneyMapper.fromLegacy(lineTotal, 'PKR');
+      const unitPriceExact = MoneyMapper.fromLegacy(price, currency);
+      const lineTotalExact = MoneyMapper.fromLegacy(lineTotal, currency);
 
       const variantLabel = variant
         ? variant.attributes
@@ -305,17 +309,86 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
           }
 
           const market = await MarketService.getConfig();
-          const currency = orderData.currency || market.defaultCurrency;
+          if (!market || !market.isEnabled) {
+            throw new AppError('Market configuration is currently disabled', 503, 'MARKET_DISABLED');
+          }
+          const merchantCountry = (market.merchantCountry || market.homeCountry || 'PK').toUpperCase();
+          const fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
 
-          let countryCode = 'PK';
-          if (orderData.shippingAddress.country) {
-            const rawCountry = orderData.shippingAddress.country;
-            if (rawCountry.toUpperCase() === 'PAKISTAN' || rawCountry.toUpperCase() === 'PK') {
-              countryCode = 'PK';
-            } else if (CountryRegistry.has(rawCountry)) {
-              countryCode = CountryRegistry.get(rawCountry).alpha2;
-            } else {
-              countryCode = rawCountry;
+          // 1. Authoritative Address Normalization
+          let normalizedAddress = null;
+          try {
+            normalizedAddress = Address.create({
+              fullName: orderData.shippingAddress.fullName || 'Valued Customer',
+              addressLine1: orderData.shippingAddress.address || orderData.shippingAddress.addressLine1,
+              addressLine2: orderData.shippingAddress.addressLine2,
+              locality: orderData.shippingAddress.city || orderData.shippingAddress.locality,
+              administrativeArea: orderData.shippingAddress.province || orderData.shippingAddress.state || orderData.shippingAddress.administrativeArea,
+              postalCode: orderData.shippingAddress.postalCode || orderData.shippingAddress.zip,
+              countryCode: orderData.shippingAddress.countryCode || orderData.shippingAddress.country,
+              phone: orderData.shippingAddress.phone
+            });
+          } catch (addrErr) {
+            if (orderData.quoteToken) {
+              throw addrErr;
+            }
+            const rawCountry = orderData.shippingAddress.countryCode || orderData.shippingAddress.country || 'PK';
+            const resolvedCountry = CountryRegistry.resolve(rawCountry);
+            const countryCode = resolvedCountry?.alpha2 || (typeof rawCountry === 'string' && rawCountry.length === 2 ? rawCountry.toUpperCase() : 'PK');
+            normalizedAddress = {
+              fullName: orderData.shippingAddress.fullName || 'Valued Customer',
+              addressLine1: orderData.shippingAddress.address || orderData.shippingAddress.addressLine1 || '',
+              addressLine2: orderData.shippingAddress.addressLine2 || '',
+              locality: orderData.shippingAddress.city || orderData.shippingAddress.locality || '',
+              administrativeArea: orderData.shippingAddress.province || orderData.shippingAddress.state || orderData.shippingAddress.administrativeArea || '',
+              postalCode: orderData.shippingAddress.postalCode || orderData.shippingAddress.zip || '',
+              countryCode,
+              phone: orderData.shippingAddress.phone || ''
+            };
+          }
+
+          const destinationCountry = normalizedAddress.countryCode;
+          const currency = (orderData.currency || market.defaultCurrency || 'PKR').toUpperCase();
+          await MarketService.assertEligible({ country: destinationCountry, currency });
+
+          const isDomestic = destinationCountry === merchantCountry;
+          const isPrepaid = orderData.paymentMethod !== 'cod';
+
+          // 2. Authoritative Quote Enforcement Policy
+          let verifiedQuote = null;
+          if (orderData.quoteToken) {
+            verifiedQuote = CheckoutQuoteService.verifyAndDecodeQuoteToken(orderData.quoteToken);
+          } else {
+            if (!isDomestic) {
+              throw new AppError(
+                'International checkout requires an authoritative checkout quote',
+                400,
+                'QUOTE_REQUIRED'
+              );
+            }
+            if (isPrepaid) {
+              throw new AppError(
+                'Prepaid checkout requires an authoritative checkout quote',
+                400,
+                'QUOTE_REQUIRED'
+              );
+            }
+            // For domestic COD without quote, verify payment capability policy allows it
+            const isAllowedCOD = await defaultPaymentPolicy.isMethodAllowedForDelivery(destinationCountry, 'cod', merchantCountry);
+            if (!isAllowedCOD) {
+              throw new AppError('Cash on delivery is not eligible for this route', 400, ERROR_CODES.PAYMENT_PROVIDER_NOT_ELIGIBLE);
+            }
+          }
+
+          if (verifiedQuote) {
+            if (verifiedQuote.destinationCountry !== destinationCountry) {
+              throw new AppError('Order destination country does not match quote', 409, 'QUOTE_DESTINATION_MISMATCH');
+            }
+            if (verifiedQuote.currency !== currency) {
+              throw new AppError('Order currency does not match quote', 409, 'QUOTE_CURRENCY_MISMATCH');
+            }
+            if (verifiedQuote.merchantCountry !== merchantCountry) {
+              throw new AppError('Order merchant context does not match quote', 409, 'QUOTE_MERCHANT_MISMATCH');
             }
           }
 
@@ -323,7 +396,7 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
           let phoneExtension = undefined;
           if (orderData.shippingAddress.phone) {
             try {
-              const parsedPhone = Phone.parse(orderData.shippingAddress.phone, { defaultCountry: countryCode || 'PK' });
+              const parsedPhone = Phone.parse(orderData.shippingAddress.phone, { defaultCountry: destinationCountry || 'PK' });
               phoneE164 = parsedPhone.e164;
               phoneExtension = parsedPhone.extension || undefined;
             } catch {
@@ -332,19 +405,37 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
           }
 
           const shippingAddress = {
-            ...orderData.shippingAddress,
-            country: this.normalizeCountry(orderData.shippingAddress.country),
-            countryCode,
-            administrativeArea: orderData.shippingAddress.province || orderData.shippingAddress.state || '',
+            fullName: normalizedAddress.fullName,
+            address: normalizedAddress.addressLine1,
+            addressLine2: normalizedAddress.addressLine2,
+            city: normalizedAddress.locality,
+            province: normalizedAddress.administrativeArea,
+            postalCode: normalizedAddress.postalCode,
+            country: CountryRegistry.getCountry(destinationCountry).name,
+            countryCode: destinationCountry,
+            administrativeArea: normalizedAddress.administrativeArea,
+            phone: phoneE164 || orderData.shippingAddress.phone || '',
             phoneE164,
             phoneExtension
           };
-          await MarketService.assertEligible({ country: shippingAddress.country, currency });
-          const pricedItems = await this.resolveItems(orderData.items, session);
+
+          // 3. Resolve Priced Items and assert Quote Item Hash Match
+          const pricedItems = await this.resolveItems(orderData.items, session, currency);
+          const currentItemsHash = CheckoutQuoteService.hashItems(pricedItems);
+
+          if (verifiedQuote && verifiedQuote.itemsHash !== currentItemsHash) {
+            throw new AppError(
+              'Order cart items, quantities, or prices have changed since quote issuance',
+              409,
+              'QUOTE_ITEMS_MISMATCH'
+            );
+          }
+
           const subtotal = this.roundMoney(
             pricedItems.reduce((sum, item) => sum + item.lineTotal, 0)
           );
 
+          // 4. Validate Coupon
           const coupon = await CouponService.validateAndReserve({
             code: orderData.couponCode,
             subtotal,
@@ -357,28 +448,63 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
           const afterDiscount = this.roundMoney(
             Math.max(0, subtotal - coupon.discountAmount)
           );
-          const shippingQuote = await ShippingService.quote({
-            country: shippingAddress.country,
+
+          // 5. Calculate Shipping
+          const shippingServiceLevel = orderData.shippingServiceLevel || verifiedQuote?.shippingServiceLevel || 'standard';
+          const shippingAdapter = shippingAdapterRegistry.get(orderData.shippingAdapter || null);
+          const shippingQuote = await shippingAdapter.quote({
+            countryCode: destinationCountry,
             currency,
-            subtotal: afterDiscount,
-            city: orderData.shippingAddress.city,
-            region: orderData.shippingAddress.province,
-            postalCode: orderData.shippingAddress.postalCode
+            subtotalMoney: MoneyMapper.fromLegacy(afterDiscount, currency),
+            city: normalizedAddress.locality,
+            region: normalizedAddress.administrativeArea,
+            postalCode: normalizedAddress.postalCode,
+            serviceLevel: shippingServiceLevel
           });
-          const shippingCost = coupon.freeShipping ? 0 : shippingQuote.shippingAmount;
-          const taxAmount = this.roundMoney(
-            TaxService.calculate(afterDiscount, orderData.shippingAddress)
-          );
+          const shippingCost = coupon.freeShipping && shippingServiceLevel === 'standard' ? 0 : shippingQuote.shippingAmount;
+
+          // 6. Calculate Tax & Duties (Landed Cost)
+          const taxDutyResult = TaxDutyEngine.calculate({
+            destinationCountry,
+            originCountry: fulfillmentOrigin,
+            administrativeArea: normalizedAddress.administrativeArea,
+            taxableSubtotal: MoneyMapper.fromLegacy(afterDiscount, currency),
+            shippingAmount: MoneyMapper.fromLegacy(shippingCost, currency),
+            currency
+          });
+
+          const taxAmount = taxDutyResult.taxAmount;
+          const dutyAmount = taxDutyResult.incoterm === 'DDP' ? taxDutyResult.dutyAmount : 0;
           const totalAmount = this.roundMoney(
-            afterDiscount + shippingCost + taxAmount
+            afterDiscount + shippingCost + taxAmount + dutyAmount
           );
 
-          // Exact Money Persistence Snapshots
+          // 7. Exact Money Snapshots
           const subtotalExact = MoneyMapper.fromLegacy(subtotal, currency);
           const discountExact = MoneyMapper.fromLegacy(coupon.discountAmount, currency);
           const shippingCostExact = MoneyMapper.fromLegacy(shippingCost, currency);
           const taxAmountExact = MoneyMapper.fromLegacy(taxAmount, currency);
+          const dutiesExact = MoneyMapper.fromLegacy(dutyAmount, currency);
           const totalAmountExact = MoneyMapper.fromLegacy(totalAmount, currency);
+
+          // 8. Authoritatively Reconcile Exact Totals against Quote
+          if (verifiedQuote) {
+            if (verifiedQuote.grandTotalMinor !== totalAmountExact.amountMinor.toString()) {
+              throw new AppError('Order payable total does not match authoritative quote total', 409, 'QUOTE_TOTAL_MISMATCH');
+            }
+            if (verifiedQuote.subtotalMinor !== subtotalExact.amountMinor.toString()) {
+              throw new AppError('Order subtotal does not match authoritative quote subtotal', 409, 'QUOTE_SUBTOTAL_MISMATCH');
+            }
+            if (verifiedQuote.shippingMinor !== shippingCostExact.amountMinor.toString()) {
+              throw new AppError('Order shipping amount does not match authoritative quote shipping', 409, 'QUOTE_SHIPPING_MISMATCH');
+            }
+            if (verifiedQuote.taxMinor !== taxAmountExact.amountMinor.toString()) {
+              throw new AppError('Order tax amount does not match authoritative quote tax', 409, 'QUOTE_TAX_MISMATCH');
+            }
+            if (verifiedQuote.dutyMinor !== dutiesExact.amountMinor.toString()) {
+              throw new AppError('Order duty amount does not match authoritative quote duty', 409, 'QUOTE_DUTY_MISMATCH');
+            }
+          }
 
           const effectiveMode = await MarketService.getEffectiveRolloutMode();
           if (effectiveMode === 'shadow_write' || effectiveMode === 'exact_read') {
@@ -386,10 +512,24 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
             RolloutAuthority.assertWriteParity(totalAmount, totalAmountExact);
           }
 
+          // 9. Payment Provider Verification
+          const isPaymentEligible = await defaultPaymentPolicy.isMethodAllowedForDelivery(
+            destinationCountry,
+            orderData.paymentMethod,
+            merchantCountry
+          );
+          if (!isPaymentEligible) {
+            throw new AppError(
+              `Payment method '${orderData.paymentMethod}' is not eligible for delivery to ${destinationCountry}`,
+              400,
+              ERROR_CODES.PAYMENT_PROVIDER_NOT_ELIGIBLE
+            );
+          }
+
           const paymentProvider = paymentProviderRegistry.resolve(
             orderData.paymentMethod,
             {
-              country: shippingAddress.country,
+              country: destinationCountry,
               currency,
               amount: totalAmount
             }
@@ -412,7 +552,15 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
             discountExact,
             shippingCostExact,
             taxAmountExact,
+            dutiesExact,
             totalAmountExact,
+            quote: verifiedQuote ? {
+              quoteId: verifiedQuote.quoteId,
+              kid: verifiedQuote.kid,
+              incoterm: verifiedQuote.incoterm,
+              issuedAt: verifiedQuote.issuedAt,
+              expiresAt: verifiedQuote.expiresAt
+            } : undefined,
             payment: {
               provider: paymentManifest.displayName,
               currency,
@@ -422,13 +570,14 @@ const { MoneyMapper, CountryRegistry, Phone, RolloutAuthority } = require('../..
             subtotal,
             shippingCost,
             shippingQuote: {
-              zoneId: shippingQuote.zone.id,
-              zoneName: shippingQuote.zone.name,
-              deliveryMinDays: shippingQuote.deliveryMinDays,
-              deliveryMaxDays: shippingQuote.deliveryMaxDays,
-              remoteArea: shippingQuote.remoteArea
+              zoneId: shippingQuote.zoneId || String(shippingQuote.zone?._id || shippingQuote.zone?.id || 'standard'),
+              zoneName: shippingQuote.zoneName || shippingQuote.zone?.name || 'Standard Delivery',
+              deliveryMinDays: shippingQuote.deliveryEstimate?.minDays || shippingQuote.deliveryMinDays || 2,
+              deliveryMaxDays: shippingQuote.deliveryEstimate?.maxDays || shippingQuote.deliveryMaxDays || 5,
+              remoteArea: Boolean(shippingQuote.isRemote || shippingQuote.remoteArea)
             },
             taxAmount,
+            duties: dutyAmount,
             discount: coupon.discountAmount,
             totalAmount,
             customerNote: orderData.customerNote || '',

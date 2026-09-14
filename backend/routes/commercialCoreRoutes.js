@@ -23,6 +23,5 @@ router.delete('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'p
 
 // Phase 6A: Global Checkout Eligibility & Atomic Quote Orchestration Routes
 router.post('/checkout/quote', validation(createCheckoutQuoteSchema), checkoutQuoteController.createQuote);
-router.post('/checkout/verify', checkoutQuoteController.verifyQuote);
 
 module.exports = router;

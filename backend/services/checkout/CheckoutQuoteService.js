@@ -25,7 +25,55 @@ const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
 
 const QUOTE_TTL_SECONDS = 15 * 60; // 15 minutes default quote validity
-const QUOTE_SIGNING_SECRET = process.env.QUOTE_SECRET || process.env.JWT_SECRET || 'mevapur-deterministic-quote-seal-key-2026';
+const CURRENT_QUOTE_KEY_ID = 'v1';
+
+/**
+ * Resolves the authoritative dedicated signing secret for checkout quotes.
+ * Fails closed in production/staging if unconfigured or weak.
+ * @returns {string}
+ */
+function getCheckoutQuoteSecret() {
+  const secret = process.env.CHECKOUT_QUOTE_SECRET || process.env.COMMERCE_QUOTE_SECRET;
+  const env = (process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
+  const isProduction = env === 'production' || env === 'staging';
+
+  if (!secret) {
+    if (isProduction) {
+      throw new AppError(
+        'CHECKOUT_QUOTE_SECRET is strictly required in production/staging environments',
+        500,
+        ERROR_CODES.INTERNAL_SERVER_ERROR
+      );
+    }
+    return 'mevapur-dev-test-checkout-quote-signing-key-32bytes-min';
+  }
+
+  if (secret.length < 32) {
+    if (isProduction) {
+      throw new AppError(
+        'CHECKOUT_QUOTE_SECRET must be at least 32 characters in production/staging',
+        500,
+        ERROR_CODES.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  return secret;
+}
+
+/**
+ * Timing-safe HMAC signature comparison.
+ * @param {string} sigA
+ * @param {string} sigB
+ * @returns {boolean}
+ */
+function safeCompareSignatures(sigA, sigB) {
+  if (typeof sigA !== 'string' || typeof sigB !== 'string') return false;
+  const bufA = Buffer.from(sigA, 'hex');
+  const bufB = Buffer.from(sigB, 'hex');
+  if (bufA.length === 0 || bufB.length === 0 || bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 class CheckoutQuoteService {
   constructor({
@@ -62,11 +110,11 @@ class CheckoutQuoteService {
   }
 
   /**
-   * Generates a tamper-proof cryptographic signature for a quote payload.
+   * Builds canonical signable payload representation for quote signing.
    * @param {Object} quotePayload
-   * @returns {string}
+   * @returns {Object}
    */
-  signQuote(quotePayload) {
+  buildSignablePayload(quotePayload) {
     const getMinorStr = (exactObj) => {
       if (!exactObj) return '0';
       const raw = exactObj.amountMinor !== undefined ? exactObj.amountMinor : exactObj;
@@ -77,22 +125,37 @@ class CheckoutQuoteService {
 
     const destinationCountry = quotePayload.destination?.countryCode || quotePayload.destinationCountry || '';
 
-    const signable = {
+    return {
+      kid: quotePayload.kid || CURRENT_QUOTE_KEY_ID,
       quoteId: quotePayload.quoteId,
       merchantCountry: quotePayload.merchantCountry,
+      fulfillmentOriginCountry: quotePayload.fulfillmentOriginCountry || quotePayload.merchantCountry,
       destinationCountry,
       currency: quotePayload.currency,
       itemsHash: quotePayload.itemsHash,
-      grandTotalMinor: getMinorStr(quotePayload.totals?.grandTotalExact),
-      shippingAmountMinor: getMinorStr(quotePayload.totals?.shippingExact),
-      taxAmountMinor: getMinorStr(quotePayload.totals?.taxExact),
-      dutyAmountMinor: getMinorStr(quotePayload.totals?.dutiesExact),
+      subtotalMinor: quotePayload.subtotalMinor || getMinorStr(quotePayload.totals?.subtotalExact),
+      discountMinor: quotePayload.discountMinor || getMinorStr(quotePayload.totals?.discountExact),
+      shippingMinor: quotePayload.shippingMinor || getMinorStr(quotePayload.totals?.shippingExact),
+      taxMinor: quotePayload.taxMinor || getMinorStr(quotePayload.totals?.taxExact),
+      dutyMinor: quotePayload.dutyMinor || getMinorStr(quotePayload.totals?.dutiesExact),
+      grandTotalMinor: quotePayload.grandTotalMinor || getMinorStr(quotePayload.totals?.grandTotalExact),
+      incoterm: quotePayload.incoterm || 'DOMESTIC',
+      shippingServiceLevel: quotePayload.shippingServiceLevel || quotePayload.shipping?.selectedOption?.serviceLevel || 'standard',
       issuedAt: quotePayload.issuedAt,
       expiresAt: quotePayload.expiresAt
     };
+  }
+
+  /**
+   * Generates a tamper-proof cryptographic signature for a quote payload.
+   * @param {Object} quotePayload
+   * @returns {string}
+   */
+  signQuote(quotePayload) {
+    const signable = this.buildSignablePayload(quotePayload);
 
     return crypto
-      .createHmac('sha256', QUOTE_SIGNING_SECRET)
+      .createHmac('sha256', getCheckoutQuoteSecret())
       .update(JSON.stringify(signable))
       .digest('hex');
   }
@@ -363,12 +426,14 @@ class CheckoutQuoteService {
     const dutiesMoney = MoneyMapper.toMoney(taxDutyResult.dutyAmountExact);
 
     // 8. Deterministic Exact Grand Total
-    // Formula: subtotal - discount + shipping + tax + duties
+    // DDP: subtotal - discount + shipping + tax + duties (seller collects import duties)
+    // DAP / DOMESTIC: subtotal - discount + shipping + tax (duties unpaid at checkout, collected at destination)
+    const payableDutiesMoney = taxDutyResult.incoterm === 'DDP' ? dutiesMoney : Money.zero(targetCurrency);
     const grandTotalMoney = subtotalMoney
       .subtract(discountMoney)
       .add(selectedShippingMoney)
       .add(taxMoney)
-      .add(dutiesMoney);
+      .add(payableDutiesMoney);
 
     // 9. Payment Method Eligibility Synthesis
     const isDomestic = destinationCountry === merchantCountry;
@@ -400,6 +465,7 @@ class CheckoutQuoteService {
     const itemsHash = this.hashItems(pricedItems);
 
     const quoteData = {
+      kid: CURRENT_QUOTE_KEY_ID,
       quoteId,
       merchantCountry,
       fulfillmentOriginCountry: fulfillmentOrigin,
@@ -463,8 +529,8 @@ class CheckoutQuoteService {
         shippingExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(selectedShippingMoney)),
         tax: Number(taxMoney.toDecimalString()),
         taxExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(taxMoney)),
-        duties: Number(dutiesMoney.toDecimalString()),
-        dutiesExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(dutiesMoney)),
+        duties: Number(payableDutiesMoney.toDecimalString()),
+        dutiesExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(payableDutiesMoney)),
         grandTotal: Number(grandTotalMoney.toDecimalString()),
         grandTotalExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(grandTotalMoney))
       },
@@ -478,33 +544,112 @@ class CheckoutQuoteService {
       expiresAt
     };
 
-    const quoteSignature = this.signQuote(quoteData);
+    const signable = this.buildSignablePayload({
+      ...quoteData,
+      shippingServiceLevel: selectedShippingOption.serviceLevel
+    });
+
+    const quoteSignature = crypto
+      .createHmac('sha256', getCheckoutQuoteSecret())
+      .update(JSON.stringify(signable))
+      .digest('hex');
+
+    const quoteEnvelope = {
+      ...signable,
+      quoteSignature
+    };
 
     return {
       ...quoteData,
-      quoteToken: Buffer.from(JSON.stringify({
-        quoteId,
-        quoteSignature,
-        issuedAt,
-        expiresAt
-      })).toString('base64url')
+      quoteToken: Buffer.from(JSON.stringify(quoteEnvelope)).toString('base64url')
     };
   }
 
   /**
-   * Validate and verify that a quote token is genuine, non-expired, and matches current state.
+   * Authoritatively verifies and decodes a base64url signed quote token.
+   * Enforces token structure, key version, expiry, future-dated clock skew, and HMAC-SHA256 signature.
+   * @param {string} quoteToken
+   * @returns {Object} Decoded verified signable quote payload
+   */
+  verifyAndDecodeQuoteToken(quoteToken) {
+    if (!quoteToken || typeof quoteToken !== 'string') {
+      throw new AppError('Quote token is required', 400, 'QUOTE_REQUIRED');
+    }
+
+    if (quoteToken.length > 4096) {
+      throw new AppError('Quote token exceeds maximum allowed size', 400, 'QUOTE_MALFORMED');
+    }
+
+    let envelope;
+    try {
+      const decoded = Buffer.from(quoteToken, 'base64url').toString('utf8');
+      envelope = JSON.parse(decoded);
+    } catch {
+      throw new AppError('Malformed checkout quote token', 400, 'QUOTE_MALFORMED');
+    }
+
+    if (!envelope || typeof envelope !== 'object') {
+      throw new AppError('Malformed checkout quote token', 400, 'QUOTE_MALFORMED');
+    }
+
+    if (envelope.kid !== CURRENT_QUOTE_KEY_ID) {
+      throw new AppError('Unsupported quote token key version', 409, 'QUOTE_VERSION_UNSUPPORTED');
+    }
+
+    if (!envelope.quoteId || !envelope.issuedAt || !envelope.expiresAt || !envelope.quoteSignature) {
+      throw new AppError('Quote token is missing required envelope fields', 400, 'QUOTE_INVALID');
+    }
+
+    const now = Date.now();
+    const issuedTime = new Date(envelope.issuedAt).getTime();
+    const expiresTime = new Date(envelope.expiresAt).getTime();
+
+    if (Number.isNaN(issuedTime) || Number.isNaN(expiresTime)) {
+      throw new AppError('Invalid timestamp in quote token', 400, 'QUOTE_INVALID');
+    }
+
+    // Future-dated check (allow 60s clock skew)
+    if (issuedTime > now + 60000) {
+      throw new AppError('Quote token issued in future (clock skew)', 409, 'QUOTE_FUTURE_DATED');
+    }
+
+    // Expired check
+    if (now > expiresTime) {
+      throw new AppError('Checkout quote has expired. Please refresh checkout.', 409, 'QUOTE_EXPIRED');
+    }
+
+    const { quoteSignature, ...signable } = envelope;
+    const expectedSignature = crypto
+      .createHmac('sha256', getCheckoutQuoteSecret())
+      .update(JSON.stringify(signable))
+      .digest('hex');
+
+    if (!safeCompareSignatures(quoteSignature, expectedSignature)) {
+      throw new AppError('Checkout quote signature is invalid or tampered', 409, 'QUOTE_TAMPERED');
+    }
+
+    return envelope;
+  }
+
+  /**
+   * Validate and verify that a quote object and token are genuine, non-expired, and consistent.
    * @param {Object} quote
    * @returns {boolean}
    */
   verifyQuoteIntegrity(quote) {
-    if (!quote || !quote.quoteId || !quote.issuedAt || !quote.expiresAt) {
+    if (!quote || typeof quote !== 'object') {
       throw new AppError('Invalid quote format', 400, 'QUOTE_INVALID');
     }
 
-    const now = new Date();
-    const expiry = new Date(quote.expiresAt);
-    if (now > expiry) {
-      throw new AppError('Checkout quote has expired. Please refresh checkout.', 409, 'QUOTE_EXPIRED');
+    const token = quote.quoteToken;
+    if (!token) {
+      throw new AppError('Quote token is missing', 400, 'QUOTE_UNVERIFIED');
+    }
+
+    const decoded = this.verifyAndDecodeQuoteToken(token);
+
+    if (quote.quoteId && quote.quoteId !== decoded.quoteId) {
+      throw new AppError('Quote identifier mismatch between payload and signed token', 409, 'QUOTE_TAMPERED');
     }
 
     // Verify consistency between display numbers and exact minor representation
@@ -519,22 +664,9 @@ class CheckoutQuoteService {
       if (Math.abs(expectedDecimal - Number(quote.totals.grandTotal)) > 0.0001) {
         throw new AppError('Checkout quote totals mismatch exact representation', 409, 'QUOTE_TAMPERED');
       }
-    }
-
-    const expectedSignature = this.signQuote(quote);
-    if (!quote.quoteToken) {
-      throw new AppError('Quote token is missing', 400, 'QUOTE_UNVERIFIED');
-    }
-
-    let parsedToken;
-    try {
-      parsedToken = JSON.parse(Buffer.from(quote.quoteToken, 'base64url').toString('utf8'));
-    } catch {
-      throw new AppError('Malformed quote token', 400, 'QUOTE_MALFORMED');
-    }
-
-    if (parsedToken.quoteSignature !== expectedSignature || parsedToken.quoteId !== quote.quoteId) {
-      throw new AppError('Checkout quote signature is invalid or tampered', 409, 'QUOTE_TAMPERED');
+      if (decoded.grandTotalMinor !== minorStr) {
+        throw new AppError('Checkout quote grand total does not match signed token', 409, 'QUOTE_TAMPERED');
+      }
     }
 
     return true;

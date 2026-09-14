@@ -41,10 +41,21 @@ class ManualTableShippingAdapter {
     const canonicalCountry = countryCode.trim().toUpperCase();
     const canonicalCurrency = currency.trim().toUpperCase();
 
-    const zones = await ShippingZone.find({
+    let zones = await ShippingZone.find({
       enabled: true,
       countries: canonicalCountry
     }).sort({ priority: 1, _id: 1 });
+
+    if (!zones || zones.length === 0) {
+      if (canonicalCountry === 'PK') {
+        const shippingService = require('../../order/ShippingService');
+        await shippingService.ensureDemoZone({ homeCountry: 'PK' });
+        zones = await ShippingZone.find({
+          enabled: true,
+          countries: canonicalCountry
+        }).sort({ priority: 1, _id: 1 });
+      }
+    }
 
     if (!zones || zones.length === 0) {
       throw new AppError(

@@ -54,12 +54,16 @@ class PaymentCapabilityPolicy {
 
     let fallbackMerchantCountry = '';
     let fallbackCurrency = '';
+    let fallbackEnabledCountries = [];
+    let fallbackEnabledCurrencies = [];
     try {
       const MarketService = require('../MarketService');
       const marketConfig = await MarketService.getConfig();
       if (marketConfig) {
         fallbackMerchantCountry = marketConfig.merchantCountry || marketConfig.homeCountry || '';
         fallbackCurrency = marketConfig.baseCurrency || marketConfig.defaultCurrency || '';
+        fallbackEnabledCountries = marketConfig.enabledCountries || [];
+        fallbackEnabledCurrencies = marketConfig.enabledCurrencies || [];
       }
     } catch {
       // fallback
@@ -351,6 +355,34 @@ class PaymentCapabilityPolicy {
     }
 
     return results;
+  }
+
+  /**
+   * Helper to check if a given payment method is allowed for a specific delivery route
+   * @param {string} deliveryCountry
+   * @param {string} paymentMethod
+   * @param {string} [merchantCountry='PK']
+   * @returns {Promise<boolean>}
+   */
+  async isMethodAllowedForDelivery(deliveryCountry, paymentMethod, merchantCountry = null) {
+    const dest = normalizeCountryCode(deliveryCountry);
+    const merch = normalizeCountryCode(merchantCountry);
+
+    // Domestic-only offline/manual methods (COD, bank transfer, Raast)
+    if (['cod', 'bank_transfer', 'raast'].includes(paymentMethod)) {
+      return Boolean(dest && merch && dest === merch);
+    }
+
+    try {
+      const provider = this.registry.getInstalled(paymentMethod);
+      const manifest = provider.getManifest();
+      if (manifest.isOfflineMethod) {
+        return Boolean(dest && merch && dest === merch);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async assertEligibleForOrder(order, providerCode, currencyParam = null) {

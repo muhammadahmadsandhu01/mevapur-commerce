@@ -133,6 +133,13 @@ const orderSchema = new mongoose.Schema({
     enum: ['Pending', 'Paid', 'Failed', 'PartiallyRefunded', 'Refunded'],
     default: 'Pending'
   },
+  currency: {
+    type: String,
+    default: null,
+    trim: true,
+    uppercase: true,
+    match: /^[A-Z]{3}$/
+  },
   payment: {
     provider: {
       type: String,
@@ -176,6 +183,8 @@ const orderSchema = new mongoose.Schema({
   },
   taxAmount: { type: Number, default: 0, min: 0 },
   taxAmountExact: { type: MoneySchema, default: null },
+  duties: { type: Number, default: 0, min: 0 },
+  dutiesExact: { type: MoneySchema, default: null },
   discount: { type: Number, default: 0, min: 0 },
   discountExact: { type: MoneySchema, default: null },
   totalAmount: { type: Number, required: true, min: 0 },

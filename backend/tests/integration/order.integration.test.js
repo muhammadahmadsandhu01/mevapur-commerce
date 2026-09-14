@@ -214,13 +214,38 @@ describe('Order API integration', () => {
     });
     const variant = product.variants[0];
 
+    const shippingAddress = {
+      fullName: 'Order Integration',
+      phone: '03001234567',
+      address: '12 Integration Test Street',
+      city: 'Lahore',
+      province: 'Punjab',
+      postalCode: '54000',
+      country: 'PK'
+    };
+
+    const quoteRes = await request(app)
+      .post('/api/commerce/checkout/quote')
+      .send({
+        items: [{
+          productId: product._id.toString(),
+          variantId: variant._id.toString(),
+          quantity: 1
+        }],
+        shippingAddress,
+        currency: 'PKR'
+      });
+    const quoteToken = quoteRes.body.data?.quote?.quoteToken;
+
     const response = await placeOrder(auth, payloadFor(product, {
       items: [{
         productId: product._id.toString(),
         variantId: variant._id.toString(),
         quantity: 1
       }],
-      paymentMethod: 'stripe'
+      shippingAddress,
+      paymentMethod: 'stripe',
+      quoteToken
     }));
 
     expect(response.status).toBe(201);

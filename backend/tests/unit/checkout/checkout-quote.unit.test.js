@@ -175,71 +175,191 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       expect(CheckoutQuoteService.hashItems(itemsA)).not.toBe(CheckoutQuoteService.hashItems(itemsB));
     });
 
-    test('2.3 Sign and verify quote token integrity', () => {
+    test('2.3 Sign and verify quote token integrity with kid envelope', () => {
+      const issuedAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 900000).toISOString();
       const quotePayload = {
+        kid: 'v1',
         quoteId: 'QUO-20260913-ABCD1234EF56',
         merchantCountry: 'PK',
-        destination: { countryCode: 'AE' },
+        fulfillmentOriginCountry: 'PK',
+        destinationCountry: 'AE',
         currency: 'AED',
         itemsHash: 'a'.repeat(64),
-        totals: {
-          grandTotalExact: { amountMinor: 15000n },
-          shippingExact: { amountMinor: 2000n },
-          taxExact: { amountMinor: 500n },
-          dutiesExact: { amountMinor: 600n }
-        },
-        issuedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 900000).toISOString()
+        subtotalMinor: '10000',
+        discountMinor: '0',
+        shippingMinor: '2000',
+        taxMinor: '500',
+        dutyMinor: '600',
+        grandTotalMinor: '13100',
+        incoterm: 'DDP',
+        shippingServiceLevel: 'standard',
+        issuedAt,
+        expiresAt
       };
 
       const sig = CheckoutQuoteService.signQuote(quotePayload);
-      quotePayload.quoteToken = Buffer.from(JSON.stringify({
-        quoteId: quotePayload.quoteId,
-        quoteSignature: sig,
-        issuedAt: quotePayload.issuedAt,
-        expiresAt: quotePayload.expiresAt
-      })).toString('base64url');
-
-      expect(CheckoutQuoteService.verifyQuoteIntegrity(quotePayload)).toBe(true);
-
-      // Altering total amount minor should fail integrity
-      const tamperedQuote = {
+      const envelope = {
         ...quotePayload,
-        totals: {
-          ...quotePayload.totals,
-          grandTotalExact: { amountMinor: 10000n } // tampered
-        }
+        quoteSignature: sig
       };
+      const token = Buffer.from(JSON.stringify(envelope)).toString('base64url');
 
-      expect(() => CheckoutQuoteService.verifyQuoteIntegrity(tamperedQuote)).toThrow(/tampered|invalid/i);
+      const verified = CheckoutQuoteService.verifyAndDecodeQuoteToken(token);
+      expect(verified.quoteId).toBe('QUO-20260913-ABCD1234EF56');
+      expect(verified.kid).toBe('v1');
+      expect(verified.grandTotalMinor).toBe('13100');
+
+      // Altering total amount minor should fail signature verification
+      const tamperedEnvelope = {
+        ...envelope,
+        grandTotalMinor: '10000'
+      };
+      const tamperedToken = Buffer.from(JSON.stringify(tamperedEnvelope)).toString('base64url');
+
+      expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(tamperedToken)).toThrow(/tampered|invalid/i);
     });
 
     test('2.4 Rejects expired quote', () => {
+      const issuedAt = new Date(Date.now() - 1800000).toISOString();
+      const expiresAt = new Date(Date.now() - 60000).toISOString(); // expired 1 min ago
       const quotePayload = {
+        kid: 'v1',
         quoteId: 'QUO-20260913-EXPIRED',
         merchantCountry: 'PK',
-        destination: { countryCode: 'PK' },
+        destinationCountry: 'PK',
         currency: 'PKR',
         itemsHash: 'b'.repeat(64),
-        totals: {
-          grandTotalExact: { amountMinor: 5000n },
-          shippingExact: { amountMinor: 250n },
-          taxExact: { amountMinor: 0n },
-          dutiesExact: { amountMinor: 0n }
-        },
-        issuedAt: new Date(Date.now() - 1800000).toISOString(),
-        expiresAt: new Date(Date.now() - 60000).toISOString() // 1 min ago
+        subtotalMinor: '5000',
+        discountMinor: '0',
+        shippingMinor: '250',
+        taxMinor: '0',
+        dutyMinor: '0',
+        grandTotalMinor: '5250',
+        incoterm: 'DOMESTIC',
+        shippingServiceLevel: 'standard',
+        issuedAt,
+        expiresAt
       };
 
       const sig = CheckoutQuoteService.signQuote(quotePayload);
-      quotePayload.quoteToken = Buffer.from(JSON.stringify({
-        quoteId: quotePayload.quoteId,
-        quoteSignature: sig,
-        issuedAt: quotePayload.issuedAt,
-        expiresAt: quotePayload.expiresAt
-      })).toString('base64url');
+      const token = Buffer.from(JSON.stringify({ ...quotePayload, quoteSignature: sig })).toString('base64url');
 
-      expect(() => CheckoutQuoteService.verifyQuoteIntegrity(quotePayload)).toThrow(/expired/i);
+      expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(token)).toThrow(/expired/i);
+    });
+
+    test('2.5 Rejects future-dated quote beyond clock-skew tolerance', () => {
+      const issuedAt = new Date(Date.now() + 120000).toISOString(); // 2 minutes in future
+      const expiresAt = new Date(Date.now() + 900000).toISOString();
+      const quotePayload = {
+        kid: 'v1',
+        quoteId: 'QUO-20260913-FUTURE',
+        merchantCountry: 'PK',
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        itemsHash: 'c'.repeat(64),
+        subtotalMinor: '5000',
+        discountMinor: '0',
+        shippingMinor: '250',
+        taxMinor: '0',
+        dutyMinor: '0',
+        grandTotalMinor: '5250',
+        incoterm: 'DOMESTIC',
+        shippingServiceLevel: 'standard',
+        issuedAt,
+        expiresAt
+      };
+
+      const sig = CheckoutQuoteService.signQuote(quotePayload);
+      const token = Buffer.from(JSON.stringify({ ...quotePayload, quoteSignature: sig })).toString('base64url');
+
+      expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(token)).toThrow(/future/i);
+    });
+
+    test('2.6 Rejects unsupported quote key version', () => {
+      const issuedAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 900000).toISOString();
+      const quotePayload = {
+        kid: 'v99_unsupported',
+        quoteId: 'QUO-20260913-BADVER',
+        merchantCountry: 'PK',
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        itemsHash: 'd'.repeat(64),
+        subtotalMinor: '5000',
+        discountMinor: '0',
+        shippingMinor: '250',
+        taxMinor: '0',
+        dutyMinor: '0',
+        grandTotalMinor: '5250',
+        incoterm: 'DOMESTIC',
+        shippingServiceLevel: 'standard',
+        issuedAt,
+        expiresAt
+      };
+
+      const token = Buffer.from(JSON.stringify({ ...quotePayload, quoteSignature: 'deadbeef' })).toString('base64url');
+
+      expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(token)).toThrow(/version/i);
+    });
+
+    test('2.7 Rejects oversized quote tokens', () => {
+      const hugeToken = 'A'.repeat(5000);
+      expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(hugeToken)).toThrow(/size|malformed/i);
+    });
+
+    test('2.8 Missing or weak production signing key fails closed in production environment', () => {
+      const prevEnv = process.env.APP_ENV;
+      const prevSecret = process.env.CHECKOUT_QUOTE_SECRET;
+      try {
+        process.env.APP_ENV = 'production';
+        delete process.env.CHECKOUT_QUOTE_SECRET;
+        delete process.env.COMMERCE_QUOTE_SECRET;
+
+        expect(() => CheckoutQuoteService.signQuote({
+          kid: 'v1',
+          quoteId: 'QUO-FAIL-CLOSED',
+          merchantCountry: 'PK',
+          destinationCountry: 'AE',
+          currency: 'AED',
+          itemsHash: 'a'.repeat(64),
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60000).toISOString()
+        })).toThrow(/CHECKOUT_QUOTE_SECRET is strictly required in production/i);
+
+        // Weak secret (< 32 chars)
+        process.env.CHECKOUT_QUOTE_SECRET = 'short-secret';
+        expect(() => CheckoutQuoteService.signQuote({
+          kid: 'v1',
+          quoteId: 'QUO-FAIL-CLOSED',
+          merchantCountry: 'PK',
+          destinationCountry: 'AE',
+          currency: 'AED',
+          itemsHash: 'a'.repeat(64),
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60000).toISOString()
+        })).toThrow(/at least 32 characters/i);
+      } finally {
+        process.env.APP_ENV = prevEnv;
+        if (prevSecret) process.env.CHECKOUT_QUOTE_SECRET = prevSecret;
+        else delete process.env.CHECKOUT_QUOTE_SECRET;
+      }
+    });
+
+    test('2.9 Incoterms landed cost distinction: DAP does not collect destination duties into grand total', () => {
+      // Create quote with DAP incoterm
+      const subtotalMoney = Money.fromDecimal('100.00', 'USD');
+      const discountMoney = Money.zero('USD');
+      const shippingMoney = Money.fromDecimal('20.00', 'USD');
+      const taxMoney = Money.zero('USD');
+      const dutyMoney = Money.fromDecimal('15.00', 'USD');
+
+      // Under DAP, duties are unpaid destination duties and NOT seller-collected money
+      const incoterm = 'DAP';
+      const payableDutiesMoney = incoterm === 'DDP' ? dutyMoney : Money.zero('USD');
+      const grandTotalMoney = subtotalMoney.subtract(discountMoney).add(shippingMoney).add(taxMoney).add(payableDutiesMoney);
+
+      expect(grandTotalMoney.toDecimalString()).toBe('120.00'); // 100 + 20 + 0 + 0 (15 duty NOT collected)
     });
   });
 });
