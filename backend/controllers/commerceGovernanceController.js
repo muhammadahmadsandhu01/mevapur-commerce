@@ -108,7 +108,7 @@ class CommerceGovernanceController {
   async validateDraft(req, res, next) {
     try {
       const { id } = req.params;
-      const { merchantScopeId = 'default' } = req.body;
+      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || null;
       const validatorId = req.user?._id;
 
       const result = await CommerceConfigurationService.validateDraft({
@@ -126,7 +126,7 @@ class CommerceGovernanceController {
         ipAddress: req.ip || 'unknown',
         userAgent: req.headers['user-agent'] || 'unknown',
         metadata: {
-          merchantScopeId,
+          merchantScopeId: merchantScopeId || 'default',
           version: result.version,
           isValid: result.isValid,
           errorCount: (result.errors || []).length
@@ -142,7 +142,8 @@ class CommerceGovernanceController {
   async activateVersion(req, res, next) {
     try {
       const { id } = req.params;
-      const { merchantScopeId = 'default', effectiveFrom } = req.body;
+      const { effectiveFrom } = req.body || {};
+      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || null;
       const activatorId = req.user?._id;
 
       const activated = await CommerceConfigurationService.scheduleOrActivateVersion({
@@ -177,7 +178,8 @@ class CommerceGovernanceController {
   async retireVersion(req, res, next) {
     try {
       const { id } = req.params;
-      const { merchantScopeId = 'default', reason, isEmergency } = req.body;
+      const { reason, isEmergency } = req.body || {};
+      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || null;
       const retireId = req.user?._id;
 
       const retired = await CommerceConfigurationService.retireVersion({

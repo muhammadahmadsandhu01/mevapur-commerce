@@ -72,6 +72,17 @@ const TARGET_INDEXES = [
     }
   },
   {
+    modelName: 'CommerceConfigurationVersion',
+    collectionName: 'commerceconfigurationversions',
+    key: { merchantScopeId: 1 },
+    name: 'merchantScopeId_1_status_active_unique',
+    options: {
+      unique: true,
+      partialFilterExpression: { status: 'active' },
+      name: 'merchantScopeId_1_status_active_unique'
+    }
+  },
+  {
     modelName: 'CommerceConfigurationSequence',
     collectionName: 'commerceconfigurationsequences',
     key: { merchantScopeId: 1 },
@@ -86,23 +97,27 @@ const TARGET_INDEXES = [
 function findIndexMatch(existingIndexes, target) {
   const targetKeyStr = JSON.stringify(target.key);
   const targetUnique = Boolean(target.options.unique);
+  const targetPartial = JSON.stringify(target.options.partialFilterExpression || null);
 
   for (const idx of existingIndexes) {
     const idxKeyStr = JSON.stringify(idx.key);
     const idxUnique = Boolean(idx.unique);
+    const idxPartial = JSON.stringify(idx.partialFilterExpression || null);
 
     if (idxKeyStr === targetKeyStr) {
-      if (idxUnique === targetUnique) {
+      if (idxUnique === targetUnique && idxPartial === targetPartial) {
         return {
           status: idx.name === target.name ? 'EXACT_MATCH' : 'EQUIVALENT_DIFFERENT_NAME',
           existingIndex: idx
         };
       }
-      return {
-        status: 'CONFLICT',
-        existingIndex: idx,
-        reason: `Key matches but unique option differs (Existing: ${idxUnique}, Target: ${targetUnique})`
-      };
+      if (idx.name === target.name) {
+        return {
+          status: 'CONFLICT',
+          existingIndex: idx,
+          reason: `Key matches but options differ (Unique: ${idxUnique} vs ${targetUnique}, Partial: ${idxPartial} vs ${targetPartial})`
+        };
+      }
     }
 
     if (idx.name === target.name && idxKeyStr !== targetKeyStr) {

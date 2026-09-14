@@ -44,24 +44,42 @@ const shippingRuleSchema = new mongoose.Schema({
   displayName: { type: String, required: true, trim: true, maxlength: 100 },
   originCountry: { type: String, required: true, trim: true, uppercase: true, match: /^[A-Z]{2}$/ },
   destinationCountry: { type: String, required: true, trim: true, uppercase: true, match: /^[A-Z]{2}$/ },
-  destinationSubdivisions: [{ type: String, trim: true, uppercase: true, maxlength: 50 }],
-  postalCodeRanges: [postalCodeRangeSchema],
+  destinationSubdivisions: {
+    type: [{ type: String, trim: true, uppercase: true, maxlength: 50 }],
+    validate: [(val) => !val || val.length <= 100, 'destinationSubdivisions cannot exceed 100 entries']
+  },
+  postalCodeRanges: {
+    type: [postalCodeRangeSchema],
+    validate: [(val) => !val || val.length <= 100, 'postalCodeRanges cannot exceed 100 entries']
+  },
   currency: { type: String, required: true, trim: true, uppercase: true, match: /^[A-Z]{3}$/ },
   baseRateExact: { type: MoneySchema, required: true },
   freeShippingThresholdExact: { type: MoneySchema, default: null },
   remoteRateExact: { type: MoneySchema, default: null },
-  remotePostalPrefixes: [{ type: String, trim: true, maxlength: 20 }],
-  remoteCities: [{ type: String, trim: true, maxlength: 100 }],
+  remotePostalPrefixes: {
+    type: [{ type: String, trim: true, maxlength: 20 }],
+    validate: [(val) => !val || val.length <= 100, 'remotePostalPrefixes cannot exceed 100 entries']
+  },
+  remoteCities: {
+    type: [{ type: String, trim: true, maxlength: 100 }],
+    validate: [(val) => !val || val.length <= 100, 'remoteCities cannot exceed 100 entries']
+  },
   deliveryMinDays: { type: Number, required: true, min: 0, max: 120 },
   deliveryMaxDays: { type: Number, required: true, min: 0, max: 120 },
   remoteDeliveryMinDays: { type: Number, default: null, min: 0, max: 120 },
   remoteDeliveryMaxDays: { type: Number, default: null, min: 0, max: 120 },
-  weightBands: [weightBandSchema],
+  weightBands: {
+    type: [weightBandSchema],
+    validate: [(val) => !val || val.length <= 20, 'weightBands cannot exceed 20 entries']
+  },
   priority: { type: Number, default: 100, min: 0, max: 10000 },
-  supportedIncoterms: [{
-    type: String,
-    enum: ['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW']
-  }],
+  supportedIncoterms: {
+    type: [{
+      type: String,
+      enum: ['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW']
+    }],
+    validate: [(val) => !val || val.length <= 10, 'supportedIncoterms cannot exceed 10 entries']
+  },
   enabled: { type: Boolean, default: true }
 }, { _id: false });
 
@@ -147,15 +165,27 @@ const merchantProfileSchema = new mongoose.Schema({
   },
   baseCurrency: { type: String, required: true, trim: true, uppercase: true, match: /^[A-Z]{3}$/ },
   defaultCurrency: { type: String, required: true, trim: true, uppercase: true, match: /^[A-Z]{3}$/ },
-  enabledCurrencies: [{ type: String, trim: true, uppercase: true, match: /^[A-Z]{3}$/ }],
-  enabledCountries: [{ type: String, trim: true, uppercase: true, match: /^[A-Z]{2}$/ }],
+  enabledCurrencies: {
+    type: [{ type: String, trim: true, uppercase: true, match: /^[A-Z]{3}$/ }],
+    validate: [(val) => !val || val.length <= 50, 'enabledCurrencies cannot exceed 50 items']
+  },
+  enabledCountries: {
+    type: [{ type: String, trim: true, uppercase: true, match: /^[A-Z]{2}$/ }],
+    validate: [(val) => !val || val.length <= 250, 'enabledCountries cannot exceed 250 items']
+  },
   defaultLocale: { type: String, default: 'en-PK', trim: true, maxlength: 35 },
   defaultTimeZone: { type: String, default: 'Asia/Karachi', trim: true, maxlength: 60 },
-  fulfillmentOrigins: [fulfillmentOriginSchema],
-  supportedIncoterms: [{
-    type: String,
-    enum: ['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW']
-  }],
+  fulfillmentOrigins: {
+    type: [fulfillmentOriginSchema],
+    validate: [(val) => !val || val.length <= 20, 'fulfillmentOrigins cannot exceed 20 items']
+  },
+  supportedIncoterms: {
+    type: [{
+      type: String,
+      enum: ['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW']
+    }],
+    validate: [(val) => !val || val.length <= 10, 'supportedIncoterms cannot exceed 10 items']
+  },
   taxCalculationMode: {
     type: String,
     enum: ['exact_rational'],
@@ -199,8 +229,14 @@ const commerceConfigurationVersionSchema = new mongoose.Schema({
     type: merchantProfileSchema,
     required: true
   },
-  shippingRules: [shippingRuleSchema],
-  taxRules: [taxRuleSchema],
+  shippingRules: {
+    type: [shippingRuleSchema],
+    validate: [(val) => !val || val.length <= 250, 'shippingRules cannot exceed 250 entries']
+  },
+  taxRules: {
+    type: [taxRuleSchema],
+    validate: [(val) => !val || val.length <= 500, 'taxRules cannot exceed 500 entries']
+  },
   effectiveFrom: {
     type: Date,
     default: Date.now,
@@ -244,7 +280,10 @@ const commerceConfigurationVersionSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
-  validationErrors: [validationErrorSchema],
+  validationErrors: {
+    type: [validationErrorSchema],
+    validate: [(val) => !val || val.length <= 100, 'validationErrors cannot exceed 100 entries']
+  },
   activatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -306,6 +345,16 @@ commerceConfigurationVersionSchema.index(
 
 commerceConfigurationVersionSchema.index(
   { merchantScopeId: 1, status: 1, effectiveFrom: 1, effectiveTo: 1 }
+);
+
+// Database-backed invariant: At most one active configuration per merchantScopeId
+commerceConfigurationVersionSchema.index(
+  { merchantScopeId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'active' },
+    name: 'merchantScopeId_1_status_active_unique'
+  }
 );
 
 /**

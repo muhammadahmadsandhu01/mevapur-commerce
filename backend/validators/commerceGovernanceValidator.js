@@ -53,8 +53,8 @@ const merchantProfileSchema = z.object({
   enabledCountries: z.array(countryCode).min(1).max(250),
   defaultLocale: z.string().trim().min(2).max(35).optional().default('en-PK'),
   defaultTimeZone: z.string().trim().min(1).max(60).optional().default('Asia/Karachi'),
-  fulfillmentOrigins: z.array(fulfillmentOriginSchema).min(1),
-  supportedIncoterms: z.array(z.enum(['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW'])).min(1),
+  fulfillmentOrigins: z.array(fulfillmentOriginSchema).min(1).max(20),
+  supportedIncoterms: z.array(z.enum(['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW'])).min(1).max(10),
   taxCalculationMode: z.enum(['exact_rational']).optional().default('exact_rational')
 }).strict();
 
@@ -65,21 +65,21 @@ const shippingRuleSchema = z.object({
   displayName: z.string().trim().min(1).max(100),
   originCountry: countryCode,
   destinationCountry: countryCode,
-  destinationSubdivisions: z.array(z.string().trim().max(50)).optional().default([]),
-  postalCodeRanges: z.array(postalCodeRangeSchema).optional().default([]),
+  destinationSubdivisions: z.array(z.string().trim().max(50)).max(100).optional().default([]),
+  postalCodeRanges: z.array(postalCodeRangeSchema).max(100).optional().default([]),
   currency: currencyCode,
   baseRateExact: moneyExactSchema,
   freeShippingThresholdExact: moneyExactSchema.nullable().optional(),
   remoteRateExact: moneyExactSchema.nullable().optional(),
-  remotePostalPrefixes: z.array(z.string().trim().max(20)).optional().default([]),
-  remoteCities: z.array(z.string().trim().max(100)).optional().default([]),
+  remotePostalPrefixes: z.array(z.string().trim().max(20)).max(100).optional().default([]),
+  remoteCities: z.array(z.string().trim().max(100)).max(100).optional().default([]),
   deliveryMinDays: z.number().int().min(0).max(120),
   deliveryMaxDays: z.number().int().min(0).max(120),
   remoteDeliveryMinDays: z.number().int().min(0).max(120).nullable().optional(),
   remoteDeliveryMaxDays: z.number().int().min(0).max(120).nullable().optional(),
-  weightBands: z.array(weightBandSchema).optional().default([]),
+  weightBands: z.array(weightBandSchema).max(20).optional().default([]),
   priority: z.number().int().min(0).max(10000).optional().default(100),
-  supportedIncoterms: z.array(z.enum(['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW'])).optional().default(['DOMESTIC', 'DAP']),
+  supportedIncoterms: z.array(z.enum(['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW'])).max(10).optional().default(['DOMESTIC', 'DAP']),
   enabled: z.boolean().optional().default(true)
 }).strict();
 
@@ -111,8 +111,8 @@ const createDraftSchema = z.object({
   merchantScopeId: z.string().trim().max(100).optional(),
   sourceVersionId: z.string().trim().optional(),
   merchantProfile: merchantProfileSchema.optional(),
-  shippingRules: z.array(shippingRuleSchema).optional(),
-  taxRules: z.array(taxRuleSchema).optional(),
+  shippingRules: z.array(shippingRuleSchema).max(250).optional(),
+  taxRules: z.array(taxRuleSchema).max(500).optional(),
   changeNotes: z.string().trim().max(1000).optional()
 }).strict();
 
@@ -120,8 +120,8 @@ const updateDraftSchema = z.object({
   merchantScopeId: z.string().trim().max(100).optional(),
   expectedLockVersion: z.number().int().min(1).optional(),
   merchantProfile: merchantProfileSchema.optional(),
-  shippingRules: z.array(shippingRuleSchema).optional(),
-  taxRules: z.array(taxRuleSchema).optional(),
+  shippingRules: z.array(shippingRuleSchema).max(250).optional(),
+  taxRules: z.array(taxRuleSchema).max(500).optional(),
   effectiveFrom: z.coerce.date().optional(),
   effectiveTo: z.coerce.date().nullable().optional(),
   changeNotes: z.string().trim().max(1000).optional()
@@ -153,7 +153,7 @@ const previewQuoteSchema = z.object({
     price: z.number().positive(),
     quantity: z.number().int().positive(),
     weightGrams: z.number().positive().optional()
-  }).strict()).min(1),
+  }).strict()).min(1).max(100),
   currency: currencyCode.optional(),
   shippingServiceLevel: z.enum(['standard', 'express']).optional().default('standard')
 }).strict();

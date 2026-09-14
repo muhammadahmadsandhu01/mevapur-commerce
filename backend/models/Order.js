@@ -175,7 +175,11 @@ const orderSchema = new mongoose.Schema({
   shippingCost: { type: Number, default: 0, min: 0 },
   shippingCostExact: { type: MoneySchema, default: null },
   shippingQuote: {
-    zoneId: { type: mongoose.Schema.Types.Mixed, default: null },
+    zoneId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ShippingZone',
+      default: null
+    },
     ruleId: { type: String, default: null, trim: true, maxlength: 64 },
     zoneName: { type: String, default: '', maxlength: 100 },
     deliveryMinDays: { type: Number, default: null },

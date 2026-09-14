@@ -251,9 +251,8 @@ class CommerceConfigurationService {
    * @param {Object} params
    * @returns {Promise<Object>}
    */
-  async validateDraft({ id, merchantScopeId = 'default', validatorId = null }) {
-    const scope = (merchantScopeId || 'default').trim();
-    const doc = await this.getVersionById(id, { merchantScopeId: scope });
+  async validateDraft({ id, merchantScopeId = null, validatorId = null }) {
+    const doc = await this.getVersionById(id, { merchantScopeId });
 
     if (doc.status !== 'draft' && doc.status !== 'validated') {
       throw new AppError(
@@ -295,102 +294,224 @@ class CommerceConfigurationService {
 
   /**
    * Schedule or Activate a validated configuration version.
+   * Serializes activation through CAS authority document inside a MongoDB transaction.
    * Supersedes existing active version with a deterministic grace period for outstanding quotes.
    * @param {Object} params
    * @returns {Promise<CommerceConfigurationVersion>}
    */
   async scheduleOrActivateVersion({
     id,
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     activatorId = null,
     effectiveFrom = null
   }) {
-    const scope = (merchantScopeId || 'default').trim();
-    const targetDoc = await this.getVersionById(id, { merchantScopeId: scope });
+    const session = await mongoose.startSession();
 
-    if (targetDoc.status !== 'validated') {
-      throw new AppError(
-        `Configuration version v${targetDoc.version} must be validated before activation (current status: '${targetDoc.status}')`,
-        409,
-        'VERSION_NOT_VALIDATED'
-      );
-    }
+    try {
+      let result;
+      await session.withTransaction(async () => {
+        // 1. Query target version document inside the transaction
+        let query = {};
+        if (mongoose.isObjectIdOrHexString(id)) {
+          query._id = id;
+          if (merchantScopeId) {
+            query.merchantScopeId = merchantScopeId.trim();
+          }
+        } else {
+          const vNum = parseInt(id, 10);
+          if (Number.isNaN(vNum)) {
+            throw new AppError('Invalid configuration version identifier', 400, 'INVALID_VERSION_IDENTIFIER');
+          }
+          query.version = vNum;
+          query.merchantScopeId = (merchantScopeId || 'default').trim();
+        }
 
-    // Run validation again as pre-condition
-    const freshErrors = targetDoc.validateIntegrity();
-    if (freshErrors.length > 0) {
-      targetDoc.status = 'draft';
-      targetDoc.validationErrors = freshErrors;
-      await targetDoc.save();
-      throw new AppError(
-        `Configuration version v${targetDoc.version} failed integrity validation`,
-        409,
-        'VALIDATION_FAILED'
-      );
-    }
+        const targetDoc = await CommerceConfigurationVersion.findOne(query).session(session);
+        if (!targetDoc) {
+          throw new AppError('Commerce configuration version not found', 404, 'CONFIG_VERSION_NOT_FOUND');
+        }
 
-    const now = new Date();
-    const targetEffectiveFrom = effectiveFrom ? new Date(effectiveFrom) : now;
-    const isFutureScheduled = targetEffectiveFrom.getTime() > now.getTime() + 60000; // > 1 min in future
-    const targetStatus = isFutureScheduled ? 'scheduled' : 'active';
+        const scope = targetDoc.merchantScopeId;
 
-    // Supersede currently active version if activating immediately
-    if (targetStatus === 'active') {
-      const activeVersion = await CommerceConfigurationVersion.findOne({
-        merchantScopeId: scope,
-        status: 'active',
-        _id: { $ne: targetDoc._id }
+        // 2. Acquire per-scope authority revision lock inside the transaction
+        await CommerceConfigurationSequence.acquireAuthorityRevision(scope, { session });
+
+        if (targetDoc.status !== 'validated') {
+          throw new AppError(
+            `Configuration version v${targetDoc.version} must be validated before activation (current status: '${targetDoc.status}')`,
+            409,
+            'VERSION_NOT_VALIDATED'
+          );
+        }
+
+        // 3. Re-evaluate integrity validation inside transaction
+        const freshErrors = targetDoc.validateIntegrity();
+        if (freshErrors.length > 0) {
+          targetDoc.status = 'draft';
+          targetDoc.validationErrors = freshErrors;
+          await targetDoc.save({ session });
+          throw new AppError(
+            `Configuration version v${targetDoc.version} failed integrity validation`,
+            409,
+            'VALIDATION_FAILED'
+          );
+        }
+
+        const now = new Date();
+        const targetEffectiveFrom = effectiveFrom ? new Date(effectiveFrom) : now;
+        const isFutureScheduled = targetEffectiveFrom.getTime() > now.getTime() + 60000; // > 1 min in future
+        const targetStatus = isFutureScheduled ? 'scheduled' : 'active';
+        const targetEffectiveTo = targetDoc.effectiveTo ? new Date(targetDoc.effectiveTo) : null;
+
+        // 4. Query current active / scheduled versions inside transaction for overlap re-evaluation
+        const existingVersions = await CommerceConfigurationVersion.find({
+          merchantScopeId: scope,
+          status: { $in: ['active', 'scheduled'] },
+          _id: { $ne: targetDoc._id }
+        }).session(session);
+
+        if (targetStatus === 'scheduled') {
+          const tFrom = targetEffectiveFrom.getTime();
+          const tTo = targetEffectiveTo ? targetEffectiveTo.getTime() : Infinity;
+
+          for (const existing of existingVersions) {
+            if (existing.status === 'scheduled') {
+              const eFrom = new Date(existing.effectiveFrom).getTime();
+              const eTo = existing.effectiveTo ? new Date(existing.effectiveTo).getTime() : Infinity;
+              if (Math.max(eFrom, tFrom) < Math.min(eTo, tTo)) {
+                throw new AppError(
+                  `Scheduled configuration v${targetDoc.version} overlaps with scheduled configuration v${existing.version}`,
+                  409,
+                  'COMMERCE_CONFIG_SCHEDULE_CONFLICT'
+                );
+              }
+            }
+          }
+        } else {
+          // targetStatus === 'active'
+          // Atomically supersede any currently active version in the same transaction
+          for (const existing of existingVersions) {
+            if (existing.status === 'active') {
+              existing.status = 'superseded';
+              existing.supersededBy = targetDoc.version;
+              existing.supersededAt = now;
+              existing.effectiveTo = targetEffectiveFrom;
+              existing.quoteAcceptUntil = new Date(now.getTime() + DEFAULT_QUOTE_GRACE_PERIOD_MS);
+              existing.lockVersion += 1;
+              await existing.save({ session });
+            }
+          }
+
+          await CommerceConfigurationSequence.findOneAndUpdate(
+            { merchantScopeId: scope },
+            { $set: { lastActivatedVersion: targetDoc.version } },
+            { session }
+          );
+        }
+
+        targetDoc.status = targetStatus;
+        targetDoc.effectiveFrom = targetEffectiveFrom;
+        targetDoc.activatedBy = activatorId;
+        targetDoc.activatedAt = now;
+        targetDoc.lockVersion += 1;
+        await targetDoc.save({ session });
+
+        result = targetDoc;
       });
 
-      if (activeVersion) {
-        activeVersion.status = 'superseded';
-        activeVersion.supersededBy = targetDoc.version;
-        activeVersion.supersededAt = now;
-        activeVersion.effectiveTo = targetEffectiveFrom;
-        activeVersion.quoteAcceptUntil = new Date(now.getTime() + DEFAULT_QUOTE_GRACE_PERIOD_MS);
-        activeVersion.lockVersion += 1;
-        await activeVersion.save();
+      return result;
+    } catch (error) {
+      if (
+        error.code === 11000
+        || (error.name === 'MongoServerError' && error.code === 11000)
+        || error.message?.includes('E11000')
+        || error.message?.includes('WriteConflict')
+      ) {
+        throw new AppError(
+          'Concurrent activation conflict: another configuration was activated simultaneously',
+          409,
+          'COMMERCE_CONFIG_ACTIVATION_CONFLICT'
+        );
       }
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    targetDoc.status = targetStatus;
-    targetDoc.effectiveFrom = targetEffectiveFrom;
-    targetDoc.activatedBy = activatorId;
-    targetDoc.activatedAt = now;
-    targetDoc.lockVersion += 1;
-    await targetDoc.save();
-
-    return targetDoc;
   }
 
   /**
-   * Retires a configuration version. Supports emergency revocation.
+   * Retires a configuration version within a transactional boundary. Supports emergency revocation.
    * @param {Object} params
    * @returns {Promise<CommerceConfigurationVersion>}
    */
   async retireVersion({
     id,
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     retireId = null,
     reason = '',
     isEmergency = false
   }) {
-    const scope = (merchantScopeId || 'default').trim();
-    const doc = await this.getVersionById(id, { merchantScopeId: scope });
+    const session = await mongoose.startSession();
 
-    const now = new Date();
-    doc.status = 'retired';
-    doc.effectiveTo = now;
-    doc.lockVersion += 1;
+    try {
+      let result;
+      await session.withTransaction(async () => {
+        let query = {};
+        if (mongoose.isObjectIdOrHexString(id)) {
+          query._id = id;
+          if (merchantScopeId) {
+            query.merchantScopeId = merchantScopeId.trim();
+          }
+        } else {
+          const vNum = parseInt(id, 10);
+          if (Number.isNaN(vNum)) {
+            throw new AppError('Invalid configuration version identifier', 400, 'INVALID_VERSION_IDENTIFIER');
+          }
+          query.version = vNum;
+          query.merchantScopeId = (merchantScopeId || 'default').trim();
+        }
 
-    if (isEmergency) {
-      doc.revokedAt = now;
-      doc.revocationReason = reason || 'Emergency administrator revocation';
-      doc.quoteAcceptUntil = now; // Immediate expiry of quote acceptance
+        const doc = await CommerceConfigurationVersion.findOne(query).session(session);
+        if (!doc) {
+          throw new AppError('Commerce configuration version not found', 404, 'CONFIG_VERSION_NOT_FOUND');
+        }
+
+        const scope = doc.merchantScopeId;
+        await CommerceConfigurationSequence.acquireAuthorityRevision(scope, { session });
+
+        const now = new Date();
+        doc.status = 'retired';
+        doc.effectiveTo = now;
+        doc.lockVersion += 1;
+
+        if (isEmergency) {
+          doc.revokedAt = now;
+          doc.revocationReason = reason || 'Emergency administrator revocation';
+          doc.quoteAcceptUntil = now; // Immediate expiry of quote acceptance
+        }
+
+        await doc.save({ session });
+        result = doc;
+      });
+
+      return result;
+    } catch (error) {
+      if (
+        error.code === 11000
+        || (error.name === 'MongoServerError' && error.code === 11000)
+        || error.message?.includes('E11000')
+        || error.message?.includes('WriteConflict')
+      ) {
+        throw new AppError(
+          'Concurrent modification conflict during version retirement',
+          409,
+          'COMMERCE_CONFIG_CONCURRENCY_CONFLICT'
+        );
+      }
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    await doc.save();
-    return doc;
   }
 
   /**
