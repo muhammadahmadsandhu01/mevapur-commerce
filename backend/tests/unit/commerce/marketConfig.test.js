@@ -4,6 +4,14 @@ const MarketConfig = require('../../../models/MarketConfig');
 const MarketService = require('../../../services/MarketService');
 
 describe('MarketConfig & MarketService — Isolated Merchant Deployment Unit Tests', () => {
+  beforeAll(() => {
+    process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY = 'true';
+  });
+
+  afterAll(() => {
+    delete process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY;
+  });
+
   afterEach(async () => {
     await MarketConfig.deleteMany({});
   });

@@ -19,6 +19,7 @@ process.env.BANK_TRANSFER_BANK_NAME = 'Isolated Test Bank';
 process.env.BANK_TRANSFER_PUBLIC_ACCOUNT_REFERENCE = 'TEST-ACCOUNT-0001';
 process.env.RAAST_ACCOUNT_TITLE = 'MevaPur Isolated Test';
 process.env.RAAST_PUBLIC_ID = 'test-raast-id';
+process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY = 'true';
 
 const mongoose = require('mongoose');
 

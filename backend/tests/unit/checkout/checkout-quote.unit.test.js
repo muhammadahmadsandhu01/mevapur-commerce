@@ -9,14 +9,60 @@ const ManualTableShippingAdapter = require('../../../services/checkout/shipping/
 const CheckoutQuoteService = require('../../../services/checkout/CheckoutQuoteService');
 
 describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines', () => {
+  const TEST_PK_FIXTURE = [
+    {
+      ruleId: 'TAX-PK-01',
+      destinationCountry: 'PK',
+      taxType: 'GST',
+      taxTreatment: 'exclusive',
+      taxRateNumerator: 0,
+      taxRateDenominator: 100,
+      requiresTax: false,
+      incoterm: 'DOMESTIC'
+    }
+  ];
+
+  const TEST_AE_FIXTURE = [
+    {
+      ruleId: 'TAX-AE-01',
+      destinationCountry: 'AE',
+      taxType: 'VAT',
+      taxTreatment: 'exclusive',
+      taxRateNumerator: 5,
+      taxRateDenominator: 100,
+      requiresTax: true,
+      requiresDuty: true,
+      dutyRateNumerator: 5,
+      dutyRateDenominator: 100,
+      incoterm: 'DDP'
+    }
+  ];
+
+  const TEST_GB_FIXTURE = [
+    {
+      ruleId: 'TAX-GB-01',
+      destinationCountry: 'GB',
+      taxType: 'VAT',
+      taxTreatment: 'exclusive',
+      taxRateNumerator: 20,
+      taxRateDenominator: 100,
+      requiresTax: true,
+      requiresDuty: true,
+      dutyRateNumerator: 25,
+      dutyRateDenominator: 1000,
+      incoterm: 'DDP'
+    }
+  ];
+
   describe('1. TaxDutyEngine Unit Tests', () => {
-    test('1.1 Computes exact 0% tax for domestic PK route', () => {
+    test('1.1 Computes exact 0% tax for domestic PK route with test fixture', () => {
       const subtotal = Money.fromDecimal('5000.00', 'PKR');
       const result = TaxDutyEngine.calculate({
         destinationCountry: 'PK',
         originCountry: 'PK',
         taxableSubtotal: subtotal,
-        currency: 'PKR'
+        currency: 'PKR',
+        taxRules: TEST_PK_FIXTURE
       });
 
       expect(result.isDomestic).toBe(true);
@@ -28,7 +74,7 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       expect(result.incoterm).toBe('DOMESTIC');
     });
 
-    test('1.2 Computes exact 5% VAT and 5% Duty for international AE (DDP) route', () => {
+    test('1.2 Computes exact 5% VAT and 5% Duty for international AE (DDP) route with test fixture', () => {
       const subtotal = Money.fromDecimal('100.00', 'AED');
       const shipping = Money.fromDecimal('20.00', 'AED');
       const result = TaxDutyEngine.calculate({
@@ -36,7 +82,8 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
         originCountry: 'PK',
         taxableSubtotal: subtotal,
         shippingAmount: shipping,
-        currency: 'AED'
+        currency: 'AED',
+        taxRules: TEST_AE_FIXTURE
       });
 
       expect(result.isDomestic).toBe(false);
@@ -51,7 +98,7 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       expect(result.incoterm).toBe('DDP');
     });
 
-    test('1.3 Computes exact 20% VAT and 2.5% Duty for international GB (DDP) route', () => {
+    test('1.3 Computes exact 20% VAT and 2.5% Duty for international GB (DDP) route with test fixture', () => {
       const subtotal = Money.fromDecimal('200.00', 'GBP');
       const shipping = Money.fromDecimal('30.00', 'GBP');
       const result = TaxDutyEngine.calculate({
@@ -59,7 +106,8 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
         originCountry: 'PK',
         taxableSubtotal: subtotal,
         shippingAmount: shipping,
-        currency: 'GBP'
+        currency: 'GBP',
+        taxRules: TEST_GB_FIXTURE
       });
 
       expect(result.taxRatePercent).toBe(20.0);
@@ -181,6 +229,8 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       const quotePayload = {
         kid: 'v1',
         quoteId: 'QUO-20260913-ABCD1234EF56',
+        merchantScopeId: 'default',
+        configVersionId: 'v1',
         merchantCountry: 'PK',
         fulfillmentOriginCountry: 'PK',
         destinationCountry: 'AE',
@@ -198,9 +248,10 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
         expiresAt
       };
 
-      const sig = CheckoutQuoteService.signQuote(quotePayload);
+      const signable = CheckoutQuoteService.buildSignablePayload(quotePayload);
+      const sig = CheckoutQuoteService.signQuote(signable);
       const envelope = {
-        ...quotePayload,
+        ...signable,
         quoteSignature: sig
       };
       const token = Buffer.from(JSON.stringify(envelope)).toString('base64url');
@@ -226,6 +277,8 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       const quotePayload = {
         kid: 'v1',
         quoteId: 'QUO-20260913-EXPIRED',
+        merchantScopeId: 'default',
+        configVersionId: 'v1',
         merchantCountry: 'PK',
         destinationCountry: 'PK',
         currency: 'PKR',
@@ -242,8 +295,9 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
         expiresAt
       };
 
-      const sig = CheckoutQuoteService.signQuote(quotePayload);
-      const token = Buffer.from(JSON.stringify({ ...quotePayload, quoteSignature: sig })).toString('base64url');
+      const signable = CheckoutQuoteService.buildSignablePayload(quotePayload);
+      const sig = CheckoutQuoteService.signQuote(signable);
+      const token = Buffer.from(JSON.stringify({ ...signable, quoteSignature: sig })).toString('base64url');
 
       expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(token)).toThrow(/expired/i);
     });
@@ -254,6 +308,8 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       const quotePayload = {
         kid: 'v1',
         quoteId: 'QUO-20260913-FUTURE',
+        merchantScopeId: 'default',
+        configVersionId: 'v1',
         merchantCountry: 'PK',
         destinationCountry: 'PK',
         currency: 'PKR',
@@ -270,8 +326,9 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
         expiresAt
       };
 
-      const sig = CheckoutQuoteService.signQuote(quotePayload);
-      const token = Buffer.from(JSON.stringify({ ...quotePayload, quoteSignature: sig })).toString('base64url');
+      const signable = CheckoutQuoteService.buildSignablePayload(quotePayload);
+      const sig = CheckoutQuoteService.signQuote(signable);
+      const token = Buffer.from(JSON.stringify({ ...signable, quoteSignature: sig })).toString('base64url');
 
       expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(token)).toThrow(/future/i);
     });
@@ -282,6 +339,8 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       const quotePayload = {
         kid: 'v99_unsupported',
         quoteId: 'QUO-20260913-BADVER',
+        merchantScopeId: 'default',
+        configVersionId: 'v1',
         merchantCountry: 'PK',
         destinationCountry: 'PK',
         currency: 'PKR',

@@ -400,6 +400,14 @@ const MarketService = require('../../../services/MarketService');
   });
 
   describe('DEF-31: CurrencyRegistry validity is separated from MarketConfig and provider capabilities', () => {
+    beforeAll(() => {
+      process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY = 'true';
+    });
+
+    afterAll(() => {
+      delete process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY;
+    });
+
     it('distinguishes VALID_COMMERCE_CURRENCIES from provider-specific capabilities', () => {
       expect(Array.isArray(VALID_COMMERCE_CURRENCIES)).toBe(true);
       expect(VALID_COMMERCE_CURRENCIES.length).toBeGreaterThan(100);
@@ -428,35 +436,37 @@ const MarketService = require('../../../services/MarketService');
       expect(defaultMethods.currency).toBe('PKR');
 
       // 2. UAE Market configured
-      const config = await MarketService.getConfig();
-      config.baseCurrency = 'AED';
-      config.defaultCurrency = 'AED';
-      config.enabledCurrencies = ['PKR', 'AED'];
-      config.merchantCountry = 'AE';
-      config.homeCountry = 'AE';
-      await config.save();
+      await MarketService.update({
+        baseCurrency: 'AED',
+        defaultCurrency: 'AED',
+        enabledCurrencies: ['PKR', 'AED'],
+        merchantCountry: 'AE',
+        homeCountry: 'AE'
+      });
 
       const uaeMethods = await PaymentService.getAvailableMethods();
       expect(uaeMethods.currency).toBe('AED');
 
       // 3. UK Market configured
-      config.baseCurrency = 'GBP';
-      config.defaultCurrency = 'GBP';
-      config.enabledCurrencies = ['PKR', 'GBP'];
-      config.merchantCountry = 'GB';
-      config.homeCountry = 'GB';
-      await config.save();
+      await MarketService.update({
+        baseCurrency: 'GBP',
+        defaultCurrency: 'GBP',
+        enabledCurrencies: ['PKR', 'GBP'],
+        merchantCountry: 'GB',
+        homeCountry: 'GB'
+      });
 
       const ukMethods = await PaymentService.getAvailableMethods();
       expect(ukMethods.currency).toBe('GBP');
 
       // 4. Reset back to PK
-      config.baseCurrency = 'PKR';
-      config.defaultCurrency = 'PKR';
-      config.enabledCurrencies = ['PKR'];
-      config.merchantCountry = 'PK';
-      config.homeCountry = 'PK';
-      await config.save();
+      await MarketService.update({
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        enabledCurrencies: ['PKR'],
+        merchantCountry: 'PK',
+        homeCountry: 'PK'
+      });
     });
 
     it('rejects market-disabled currency during availability check', async () => {
@@ -469,31 +479,33 @@ const MarketService = require('../../../services/MarketService');
       const codAvailabilityPkr = await PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'PKR' });
       expect(codAvailabilityPkr.methods.some((m) => m.code === 'cod')).toBe(true);
 
-      const config = await MarketService.getConfig();
-      config.enabledCurrencies.push('USD');
-      await config.save();
+      await MarketService.update({
+        enabledCurrencies: ['PKR', 'USD']
+      });
 
       const codAvailabilityUsd = await PaymentService.getAvailableMethods({ country: 'Pakistan', currency: 'USD' });
       // COD is not eligible for USD
       expect(codAvailabilityUsd.methods.some((m) => m.code === 'cod')).toBe(false);
 
-      config.enabledCurrencies = ['PKR'];
-      await config.save();
+      await MarketService.update({
+        enabledCurrencies: ['PKR']
+      });
     });
 
     it('proves that unconfigured/dormant providers (Stripe) remain unavailable for checkout', async () => {
-      const config = await MarketService.getConfig();
-      config.enabledCurrencies.push('USD');
-      config.enabledCountries.push('US');
-      await config.save();
+      await MarketService.update({
+        enabledCurrencies: ['PKR', 'USD'],
+        enabledCountries: ['PK', 'US']
+      });
 
       const available = await PaymentService.getAvailableMethods({ country: 'United States', currency: 'USD' });
       // Stripe is dormant/unconfigured, so no automated provider is exposed as active
       expect(available.methods.some((m) => m.code === 'stripe')).toBe(false);
 
-      config.enabledCurrencies = ['PKR'];
-      config.enabledCountries = ['PK'];
-      await config.save();
+      await MarketService.update({
+        enabledCurrencies: ['PKR'],
+        enabledCountries: ['PK']
+      });
     });
   });
 

@@ -258,10 +258,10 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
 
   describe('Shipping Exact-Money Calculation Across Diverse Currencies', () => {
     it('calculates shipping in USD with 2 decimal precision and weight multipliers', async () => {
-      const config = await MarketService.getConfig();
-      config.enabledCountries.push('US');
-      config.enabledCurrencies.push('USD');
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK', 'US'],
+        enabledCurrencies: ['PKR', 'USD']
+      });
 
       await ShippingZone.create({
         name: 'US Standard Zone',
@@ -303,16 +303,17 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       expect(freeQuote.freeShippingApplied).toBe(true);
 
       // Clean up
-      config.enabledCountries = ['PK'];
-      config.enabledCurrencies = ['PKR'];
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR']
+      });
     });
 
     it('calculates shipping in JPY (0-decimal currency) with exact minor units', async () => {
-      const config = await MarketService.getConfig();
-      config.enabledCountries.push('JP');
-      config.enabledCurrencies.push('JPY');
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK', 'JP'],
+        enabledCurrencies: ['PKR', 'JPY']
+      });
 
       await ShippingZone.create({
         name: 'Japan Domestic Zone',
@@ -340,16 +341,17 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       expect(quote.shippingAmountExact.exponent).toBe(0);
       expect(quote.freeShippingApplied).toBe(false);
 
-      config.enabledCountries = ['PK'];
-      config.enabledCurrencies = ['PKR'];
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR']
+      });
     });
 
     it('calculates shipping in KWD (3-decimal currency) with remote area rate', async () => {
-      const config = await MarketService.getConfig();
-      config.enabledCountries.push('KW');
-      config.enabledCurrencies.push('KWD');
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK', 'KW'],
+        enabledCurrencies: ['PKR', 'KWD']
+      });
 
       await ShippingZone.create({
         name: 'Kuwait Zone',
@@ -382,16 +384,17 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       expect(remoteQuote.shippingAmountExact.exponent).toBe(3);
       expect(remoteQuote.remoteArea).toBe(true);
 
-      config.enabledCountries = ['PK'];
-      config.enabledCurrencies = ['PKR'];
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR']
+      });
     });
 
     it('rejects shipping quote when requested currency does not match shipping zone currency', async () => {
-      const config = await MarketService.getConfig();
-      config.enabledCountries.push('AE');
-      config.enabledCurrencies.push('AED', 'USD');
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK', 'AE'],
+        enabledCurrencies: ['PKR', 'AED', 'USD']
+      });
 
       await ShippingZone.create({
         name: 'UAE AED Zone',
@@ -415,9 +418,10 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
         })
       ).rejects.toThrow(/does not match order currency/);
 
-      config.enabledCountries = ['PK'];
-      config.enabledCurrencies = ['PKR'];
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR']
+      });
     });
   });
 
@@ -536,10 +540,10 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
   describe('Customer Address & Phone Route-Level Integration', () => {
     it('normalizes customer address and phone via POST /api/account/addresses', async () => {
       // Enable AE and GB in MarketConfig
-      const config = await MarketService.getConfig();
-      config.enabledCountries.push('AE', 'GB');
-      config.enabledCurrencies.push('AED', 'GBP');
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK', 'AE', 'GB'],
+        enabledCurrencies: ['PKR', 'AED', 'GBP']
+      });
 
       // 1. Pakistan legacy address normalization
       const pkRes = await request(app)
@@ -629,9 +633,10 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       expect(ineligibleRes.status).toBe(409);
 
       // Clean up
-      config.enabledCountries = ['PK'];
-      config.enabledCurrencies = ['PKR'];
-      await config.save();
+      await MarketService.update({
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR']
+      });
     });
   });
 });

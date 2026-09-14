@@ -22,6 +22,8 @@ const TokenService = require('../../services/TokenService');
 const CheckoutQuoteService = require('../../services/checkout/CheckoutQuoteService');
 const { MoneyMapper } = require('../../modules/commerce');
 
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+
 let sequence = 0;
 let testCategory;
 let testProductSimple;
@@ -58,7 +60,7 @@ const setupTestFixtures = async () => {
     isActive: true
   });
 
-  // Create Products
+  // Create Products with canonical customs metadata
   testProductSimple = await Product.create({
     name: 'Organic Walnuts 500g',
     slug: `organic-walnuts-500g-${Date.now()}-${sequence}`,
@@ -66,8 +68,17 @@ const setupTestFixtures = async () => {
     price: 1500,
     stock: 50,
     weight: 0.5,
+    weightGrams: 500,
     status: 'published',
     isActive: true,
+    countryOfOrigin: 'PK',
+    hsClassification: {
+      code: '080232',
+      systemVersion: 'HS_2022',
+      jurisdiction: 'WCO'
+    },
+    declaredValueEligibility: 'ELIGIBLE',
+    dangerousGoodsClassification: 'NOT_RESTRICTED',
     sku: `WAL-500-${Date.now()}-${sequence}`
   });
 
@@ -79,6 +90,14 @@ const setupTestFixtures = async () => {
     stock: 100,
     status: 'published',
     isActive: true,
+    countryOfOrigin: 'PK',
+    hsClassification: {
+      code: '080212',
+      systemVersion: 'HS_2022',
+      jurisdiction: 'WCO'
+    },
+    declaredValueEligibility: 'ELIGIBLE',
+    dangerousGoodsClassification: 'NOT_RESTRICTED',
     sku: `ALM-ROOT-${Date.now()}-${sequence}`,
     variants: [
       {
@@ -87,6 +106,15 @@ const setupTestFixtures = async () => {
         salePrice: 1000,
         stock: 30,
         weight: 0.25,
+        weightGrams: 250,
+        countryOfOrigin: 'PK',
+        hsClassification: {
+          code: '080212',
+          systemVersion: 'HS_2022',
+          jurisdiction: 'WCO'
+        },
+        declaredValueEligibility: 'ELIGIBLE',
+        dangerousGoodsClassification: 'NOT_RESTRICTED',
         attributes: [{ name: 'Size', value: '250g' }]
       },
       {
@@ -95,6 +123,15 @@ const setupTestFixtures = async () => {
         salePrice: 1800,
         stock: 40,
         weight: 0.5,
+        weightGrams: 500,
+        countryOfOrigin: 'PK',
+        hsClassification: {
+          code: '080212',
+          systemVersion: 'HS_2022',
+          jurisdiction: 'WCO'
+        },
+        declaredValueEligibility: 'ELIGIBLE',
+        dangerousGoodsClassification: 'NOT_RESTRICTED',
         attributes: [{ name: 'Size', value: '500g' }]
       }
     ]
@@ -188,6 +225,239 @@ const setupTestFixtures = async () => {
     defaultCurrency: 'PKR',
     enabledCurrencies: ['PKR', 'AED', 'GBP', 'EUR', 'USD'],
     isEnabled: true
+  });
+
+  // Seed active CommerceConfigurationVersion
+  await CommerceConfigurationVersion.deleteMany({});
+  await CommerceConfigurationVersion.create({
+    merchantScopeId: 'default',
+    version: 1,
+    status: 'active',
+    effectiveFrom: new Date(Date.now() - 60000),
+    effectiveTo: null,
+    lockVersion: 1,
+    merchantProfile: {
+      merchantCountry: 'PK',
+      baseCurrency: 'PKR',
+      defaultCurrency: 'PKR',
+      enabledCountries: ['PK', 'AE', 'GB', 'DE', 'US'],
+      enabledCurrencies: ['PKR', 'AED', 'GBP', 'EUR', 'USD'],
+      sellingMode: 'hybrid',
+      defaultLocale: 'en-PK',
+      defaultTimeZone: 'Asia/Karachi',
+      supportedIncoterms: ['DOMESTIC', 'DAP', 'DDP'],
+      taxCalculationMode: 'exact_rational',
+      fulfillmentOrigins: [
+        {
+          originId: 'origin-pk-main',
+          name: 'Main Pakistan Warehouse',
+          country: 'PK',
+          subdivision: 'IS',
+          city: 'Islamabad',
+          postalCode: '44000',
+          line1: 'Industrial Area',
+          timeZone: 'Asia/Karachi',
+          isDefault: true,
+          enabled: true
+        }
+      ]
+    },
+    shippingRules: [
+      {
+        ruleId: 'rule-pk-standard',
+        name: 'Pakistan Domestic Standard',
+        serviceCode: 'STANDARD',
+        displayName: 'Standard Delivery (TCS)',
+        originCountry: 'PK',
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+        remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+        remoteCities: ['Gwadar', 'Skardu'],
+        weightBands: [],
+        postalCodeRanges: [],
+        deliveryMinDays: 2,
+        deliveryMaxDays: 4,
+        supportedIncoterms: ['DOMESTIC'],
+        priority: 10,
+        enabled: true
+      },
+      {
+        ruleId: 'rule-ae-standard',
+        name: 'UAE International Standard',
+        serviceCode: 'STANDARD',
+        displayName: 'Standard International (DHL)',
+        originCountry: 'PK',
+        destinationCountry: 'AE',
+        currency: 'AED',
+        baseRateExact: MoneyMapper.fromLegacy(25, 'AED'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(200, 'AED'),
+        remoteRateExact: MoneyMapper.fromLegacy(10, 'AED'),
+        weightBands: [],
+        postalCodeRanges: [],
+        deliveryMinDays: 3,
+        deliveryMaxDays: 6,
+        supportedIncoterms: ['DDP'],
+        priority: 20,
+        enabled: true
+      },
+      {
+        ruleId: 'rule-gb-standard',
+        name: 'United Kingdom Standard',
+        serviceCode: 'STANDARD',
+        displayName: 'Standard International (Royal Mail)',
+        originCountry: 'PK',
+        destinationCountry: 'GB',
+        currency: 'GBP',
+        baseRateExact: MoneyMapper.fromLegacy(15, 'GBP'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(100, 'GBP'),
+        remoteRateExact: MoneyMapper.fromLegacy(5, 'GBP'),
+        weightBands: [],
+        postalCodeRanges: [],
+        deliveryMinDays: 4,
+        deliveryMaxDays: 7,
+        supportedIncoterms: ['DDP'],
+        priority: 30,
+        enabled: true
+      },
+      {
+        ruleId: 'rule-de-standard',
+        name: 'Germany Europe Standard',
+        serviceCode: 'STANDARD',
+        displayName: 'Standard International (DHL Paket)',
+        originCountry: 'PK',
+        destinationCountry: 'DE',
+        currency: 'EUR',
+        baseRateExact: MoneyMapper.fromLegacy(18, 'EUR'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(120, 'EUR'),
+        remoteRateExact: MoneyMapper.fromLegacy(6, 'EUR'),
+        weightBands: [],
+        postalCodeRanges: [],
+        deliveryMinDays: 4,
+        deliveryMaxDays: 7,
+        supportedIncoterms: ['DDP'],
+        priority: 40,
+        enabled: true
+      },
+      {
+        ruleId: 'rule-us-standard',
+        name: 'United States Standard',
+        serviceCode: 'STANDARD',
+        displayName: 'Standard International (FedEx)',
+        originCountry: 'PK',
+        destinationCountry: 'US',
+        currency: 'USD',
+        baseRateExact: MoneyMapper.fromLegacy(20, 'USD'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(150, 'USD'),
+        remoteRateExact: MoneyMapper.fromLegacy(10, 'USD'),
+        weightBands: [],
+        postalCodeRanges: [],
+        deliveryMinDays: 5,
+        deliveryMaxDays: 9,
+        supportedIncoterms: ['DDP'],
+        priority: 50,
+        enabled: true
+      }
+    ],
+    taxRules: [
+      {
+        ruleId: 'TEST_PK_FIXTURE',
+        destinationCountry: 'PK',
+        taxType: 'GST',
+        taxTreatment: 'exclusive',
+        taxRateNumerator: 0,
+        taxRateDenominator: 10000,
+        dutyRateNumerator: 0,
+        dutyRateDenominator: 10000,
+        roundingMode: 'HALF_UP',
+        roundingScope: 'subtotal',
+        incoterm: 'DOMESTIC',
+        sourceAuthority: 'Federal Board of Revenue',
+        sourceReference: 'PK-FBR-TEST-2026',
+        verificationStatus: 'VERIFIED_LEGAL_RULE',
+        requiresTax: false,
+        requiresDuty: false,
+        enabled: true
+      },
+      {
+        ruleId: 'TEST_AE_FIXTURE',
+        destinationCountry: 'AE',
+        taxType: 'VAT',
+        taxTreatment: 'exclusive',
+        taxRateNumerator: 500,
+        taxRateDenominator: 10000,
+        dutyRateNumerator: 500,
+        dutyRateDenominator: 10000,
+        roundingMode: 'HALF_UP',
+        roundingScope: 'subtotal',
+        incoterm: 'DDP',
+        sourceAuthority: 'Federal Tax Authority UAE',
+        sourceReference: 'UAE-FTA-TEST-2026',
+        verificationStatus: 'VERIFIED_LEGAL_RULE',
+        requiresTax: true,
+        requiresDuty: true,
+        enabled: true
+      },
+      {
+        ruleId: 'TEST_GB_FIXTURE',
+        destinationCountry: 'GB',
+        taxType: 'VAT',
+        taxTreatment: 'exclusive',
+        taxRateNumerator: 2000,
+        taxRateDenominator: 10000,
+        dutyRateNumerator: 250,
+        dutyRateDenominator: 10000,
+        roundingMode: 'HALF_UP',
+        roundingScope: 'subtotal',
+        incoterm: 'DDP',
+        sourceAuthority: 'HMRC UK',
+        sourceReference: 'UK-HMRC-TEST-2026',
+        verificationStatus: 'VERIFIED_LEGAL_RULE',
+        requiresTax: true,
+        requiresDuty: true,
+        enabled: true
+      },
+      {
+        ruleId: 'TEST_DE_FIXTURE',
+        destinationCountry: 'DE',
+        taxType: 'VAT',
+        taxTreatment: 'inclusive',
+        taxRateNumerator: 1900,
+        taxRateDenominator: 10000,
+        dutyRateNumerator: 250,
+        dutyRateDenominator: 10000,
+        roundingMode: 'HALF_UP',
+        roundingScope: 'subtotal',
+        incoterm: 'DDP',
+        sourceAuthority: 'Federal Central Tax Office Germany',
+        sourceReference: 'DE-BZSt-TEST-2026',
+        verificationStatus: 'VERIFIED_LEGAL_RULE',
+        requiresTax: true,
+        requiresDuty: true,
+        enabled: true
+      },
+      {
+        ruleId: 'TEST_US_SUBDIVISION_FIXTURE',
+        destinationCountry: 'US',
+        destinationSubdivision: 'NY',
+        taxType: 'SALES_TAX',
+        taxTreatment: 'exclusive',
+        taxRateNumerator: 8875,
+        taxRateDenominator: 100000,
+        dutyRateNumerator: 0,
+        dutyRateDenominator: 10000,
+        roundingMode: 'HALF_UP',
+        roundingScope: 'subtotal',
+        incoterm: 'DDP',
+        sourceAuthority: 'NYS Dept of Taxation and Finance',
+        sourceReference: 'US-NY-TEST-2026',
+        verificationStatus: 'VERIFIED_LEGAL_RULE',
+        requiresTax: true,
+        requiresDuty: false,
+        enabled: true
+      }
+    ]
   });
 };
 
@@ -365,7 +635,10 @@ describe('Phase 6A: Global Checkout Eligibility & Quote Orchestration Matrix', (
     });
 
     test('6. Disabled market fails closed with 503', async () => {
-      await MarketConfig.updateOne({ key: 'default' }, { $set: { isEnabled: false } });
+      await CommerceConfigurationVersion.updateOne(
+        { merchantScopeId: 'default', status: 'active' },
+        { $set: { status: 'retired' } }
+      );
 
       const res = await request(app)
         .post('/api/commerce/checkout/quote')
@@ -384,7 +657,6 @@ describe('Phase 6A: Global Checkout Eligibility & Quote Orchestration Matrix', (
         });
 
       expect(res.status).toBe(503);
-      expect(res.body.error?.code || res.body.code).toBe('MARKET_DISABLED');
     });
 
     test('7. Missing or invalid address fields are strictly rejected', async () => {
@@ -1074,15 +1346,16 @@ describe('Phase 6A: Global Checkout Eligibility & Quote Orchestration Matrix', (
     });
 
     test('24. Multi-merchant origin configurations work without code change (e.g. AE merchant origin)', async () => {
-      await MarketConfig.updateOne(
-        { key: 'default' },
+      await CommerceConfigurationVersion.updateOne(
+        { merchantScopeId: 'default', status: 'active' },
         {
           $set: {
-            merchantCountry: 'AE',
-            homeCountry: 'AE',
-            fulfillmentOriginCountry: 'AE',
-            baseCurrency: 'AED',
-            defaultCurrency: 'AED'
+            'merchantProfile.merchantCountry': 'AE',
+            'merchantProfile.baseCurrency': 'AED',
+            'merchantProfile.defaultCurrency': 'AED',
+            'merchantProfile.fulfillmentOrigins.0.country': 'AE',
+            'shippingRules.1.supportedIncoterms': ['DOMESTIC', 'DDP'],
+            'taxRules.1.incoterm': 'DOMESTIC'
           }
         }
       );

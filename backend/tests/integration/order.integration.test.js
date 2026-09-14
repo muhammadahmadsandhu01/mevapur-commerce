@@ -8,6 +8,8 @@ const Order = require('../../models/Order');
 const Session = require('../../models/Session');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const Category = require('../../models/Category');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { MoneyMapper } = require('../../modules/commerce');
 
 let sequence = 0;
 let defaultCategory = null;
@@ -70,6 +72,14 @@ const createProduct = async (overrides = {}) => {
     status: overrides.status || (overrides.isActive === false ? 'inactive' : 'published'),
     isActive: overrides.isActive !== undefined ? overrides.isActive : true,
     category: catId,
+    countryOfOrigin: 'PK',
+    hsClassification: {
+      code: '080232',
+      systemVersion: 'HS_2022',
+      jurisdiction: 'WCO'
+    },
+    declaredValueEligibility: 'ELIGIBLE',
+    dangerousGoodsClassification: 'NOT_RESTRICTED',
     ...overrides
   });
 };
@@ -120,8 +130,90 @@ describe('Order API integration', () => {
       Order.syncIndexes(),
       Product.syncIndexes(),
       Coupon.syncIndexes(),
-      InventoryTransaction.syncIndexes()
+      InventoryTransaction.syncIndexes(),
+      CommerceConfigurationVersion.syncIndexes()
     ]);
+  });
+
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      effectiveTo: null,
+      lockVersion: 1,
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR'],
+        sellingMode: 'domestic',
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-main',
+            name: 'Main Pakistan Warehouse',
+            country: 'PK',
+            subdivision: 'IS',
+            city: 'Islamabad',
+            postalCode: '44000',
+            line1: 'Industrial Area',
+            timeZone: 'Asia/Karachi',
+            isDefault: true,
+            enabled: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'rule-pk-standard',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'STANDARD',
+          displayName: 'Standard Delivery (TCS)',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          remoteCities: ['Gwadar', 'Skardu'],
+          weightBands: [],
+          postalCodeRanges: [],
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          supportedIncoterms: ['DOMESTIC'],
+          enabled: true,
+          priority: 10
+        }
+      ],
+      taxRules: [
+        {
+          ruleId: 'tax-pk-domestic',
+          name: 'PK Domestic Zero Rating',
+          destinationCountry: 'PK',
+          taxType: 'VAT',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 100,
+          roundingMode: 'HALF_EVEN',
+          roundingScope: 'subtotal',
+          incoterm: 'DOMESTIC',
+          effectiveFrom: new Date(Date.now() - 60000),
+          effectiveTo: null,
+          sourceAuthority: 'FBR SRO',
+          sourceReference: 'SRO 2026',
+          sourcePublicationDate: new Date(Date.now() - 60000),
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          enabled: true
+        }
+      ]
+    });
   });
 
   test('requires P0 authentication and the Idempotency-Key header', async () => {
