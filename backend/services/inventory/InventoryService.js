@@ -312,13 +312,13 @@ class InventoryService {
     });
   }
 
-  async updateLocation({ locationId, updateData, actorId = null, req = null }) {
+  async updateLocation({ locationId, updateData, merchantScopeId = 'default', actorId = null, req = null }) {
     if (!mongoose.isObjectIdOrHexString(locationId)) {
       throw new AppError('Invalid location ID', 400, ERROR_CODES.VALIDATION_ERROR);
     }
 
     return this.runTransaction(async (session) => {
-      const location = await FulfillmentLocation.findById(locationId).session(session);
+      const location = await FulfillmentLocation.findOne({ _id: locationId, merchantScopeId }).session(session);
       if (!location) {
         throw new AppError('Fulfillment location not found', 404, 'LOCATION_NOT_FOUND');
       }
@@ -363,7 +363,8 @@ class InventoryService {
           metadata: {
             locationId: String(location._id),
             locationCode: location.locationCode,
-            status: location.status
+            status: location.status,
+            merchantScopeId
           }
         });
       }
@@ -372,11 +373,11 @@ class InventoryService {
     });
   }
 
-  async updateLocationStatus({ locationId, status, actorId = null, req = null }) {
+  async updateLocationStatus({ locationId, status, merchantScopeId = 'default', actorId = null, req = null }) {
     if (!['draft', 'active', 'suspended', 'retired'].includes(status)) {
       throw new AppError(`Invalid status '${status}'. Must be draft, active, suspended, or retired`, 400, ERROR_CODES.VALIDATION_ERROR);
     }
-    return this.updateLocation({ locationId, updateData: { status }, actorId, req });
+    return this.updateLocation({ locationId, updateData: { status }, merchantScopeId, actorId, req });
   }
 
   // ==========================================
@@ -525,6 +526,7 @@ class InventoryService {
     reorderPoint,
     allowBackorder,
     backorderLimit,
+    merchantScopeId = 'default',
     actorId = null,
     req = null
   }) {
@@ -533,7 +535,7 @@ class InventoryService {
     }
 
     return this.runTransaction(async (session) => {
-      const position = await InventoryPosition.findById(positionId).session(session);
+      const position = await InventoryPosition.findOne({ _id: positionId, merchantScopeId }).session(session);
       if (!position) {
         throw new AppError('Inventory position not found', 404, 'INVENTORY_POSITION_NOT_FOUND');
       }
@@ -607,6 +609,7 @@ class InventoryService {
     reason,
     reference = '',
     operationKey,
+    merchantScopeId = 'default',
     actorId,
     req = null
   }) {
@@ -698,16 +701,16 @@ class InventoryService {
           }
         }
 
-        // Resolve or create Fulfillment Location
+        // Resolve or create Fulfillment Location in merchantScopeId
         if (locationId && mongoose.isObjectIdOrHexString(locationId)) {
-          let locQuery = FulfillmentLocation.findById(locationId);
+          let locQuery = FulfillmentLocation.findOne({ _id: locationId, merchantScopeId });
           if (session) locQuery = locQuery.session(session);
           targetLocation = await locQuery;
           if (!targetLocation) {
-            throw new AppError('Specified fulfillment location was not found', 404, 'LOCATION_NOT_FOUND');
+            throw new AppError('Specified fulfillment location was not found in merchant scope', 404, 'LOCATION_NOT_FOUND');
           }
         } else {
-          targetLocation = await this.getOrCreateDefaultLocation('default', session);
+          targetLocation = await this.getOrCreateDefaultLocation(merchantScopeId, session);
         }
 
         const scopeType = hasVariants ? 'variant' : 'product';
@@ -970,8 +973,13 @@ class InventoryService {
     return reservation;
   }
 
-  async releaseReservationAdmin({ reservationId, reason = 'ADMIN_MANUAL_RELEASE', actorId = null, req = null }) {
+  async releaseReservationAdmin({ reservationId, reason = 'ADMIN_MANUAL_RELEASE', merchantScopeId = 'default', actorId = null, req = null }) {
     return this.runTransaction(async (session) => {
+      const reservation = await InventoryReservation.findOne({ _id: reservationId, merchantScopeId }).session(session);
+      if (!reservation) {
+        throw new AppError('Inventory reservation not found', 404, 'RESERVATION_NOT_FOUND');
+      }
+
       const result = await InventoryReservationService.releaseReservation({
         reservationId,
         releaseReason: reason,
@@ -989,7 +997,8 @@ class InventoryService {
           userAgent: req.get('user-agent'),
           metadata: {
             reservationId: String(reservationId),
-            reason
+            reason,
+            merchantScopeId
           }
         });
       }

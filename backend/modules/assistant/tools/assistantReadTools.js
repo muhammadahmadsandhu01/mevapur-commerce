@@ -92,7 +92,7 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
       shortDescription: product.shortDescription,
       price,
       currency: mp?.currency || null,
-      inStock: avail ? Boolean(avail.isPurchasable) : Number(product.stock) > 0,
+      inStock: avail ? Boolean(avail.isPurchasable) : false,
       primaryImage: product.primaryImage,
       rating: product.rating
     };
@@ -148,7 +148,7 @@ const getPublicProductDetails = async ({ productId, marketCountry, market }) => 
     description: String(product.description || '').slice(0, 500),
     price,
     currency: marketPrice?.currency || null,
-    inStock: availability ? Boolean(availability.isPurchasable) : Number(product.stock) > 0,
+    inStock: availability ? Boolean(availability.isPurchasable) : false,
     primaryImage: product.primaryImage,
     rating: product.rating
   };

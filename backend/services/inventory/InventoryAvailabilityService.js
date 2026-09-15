@@ -82,7 +82,7 @@ class InventoryAvailabilityService {
     }
 
     // 2. Find active fulfillment locations authorized to serve target market country
-    let activeLocations = await FulfillmentLocation.find({
+    const activeLocations = await FulfillmentLocation.find({
       merchantScopeId,
       status: 'active',
       supportedMarketCountries: normCountry,
@@ -91,48 +91,12 @@ class InventoryAvailabilityService {
     });
 
     if (activeLocations.length === 0) {
-      const totalLocs = await FulfillmentLocation.countDocuments({ merchantScopeId });
-      if (totalLocs === 0) {
-        try {
-          const defaultLoc = new FulfillmentLocation({
-            merchantScopeId,
-            locationCode: 'WH-PRIMARY-01',
-            displayName: 'Primary Fulfillment Hub',
-            status: 'active',
-            countryCode: 'PK',
-            city: 'Lahore',
-            timeZone: 'Asia/Karachi',
-            priority: 10,
-            supportedMarketCountries: ['PK', 'AE', 'SA', 'GB', 'US', 'DE'],
-            supportedServiceLevels: ['standard', 'express'],
-            capabilities: ['local_delivery', 'cross_border'],
-            returnCapabilities: ['accept_returns', 'inspection', 'restock'],
-            isDefault: true
-          });
-          await defaultLoc.save();
-          if (defaultLoc.supportedMarketCountries.includes(normCountry)) {
-            activeLocations = [defaultLoc];
-          }
-        } catch (err) {
-          if (err.code === 11000) {
-            activeLocations = await FulfillmentLocation.find({
-              merchantScopeId,
-              status: 'active',
-              supportedMarketCountries: normCountry
-            });
-          } else {
-            throw err;
-          }
-        }
-      }
-    }
-
-    if (activeLocations.length === 0) {
       return {
         status: 'unavailable_in_market',
         isPurchasable: false,
         atp: 0,
-        allowBackorder: false
+        allowBackorder: false,
+        servingLocationsCount: 0
       };
     }
 
@@ -202,50 +166,13 @@ class InventoryAvailabilityService {
     const normCountry = String(marketCountry).trim().toUpperCase();
     const now = new Date();
 
-    let activeLocations = await FulfillmentLocation.find({
+    const activeLocations = await FulfillmentLocation.find({
       merchantScopeId,
       status: 'active',
       supportedMarketCountries: normCountry,
       effectiveFrom: { $lte: now },
       $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
     }).select('_id isDefault locationCode');
-
-    if (activeLocations.length === 0) {
-      const totalLocs = await FulfillmentLocation.countDocuments({ merchantScopeId });
-      if (totalLocs === 0) {
-        try {
-          const defaultLoc = new FulfillmentLocation({
-            merchantScopeId,
-            locationCode: 'WH-PRIMARY-01',
-            displayName: 'Primary Fulfillment Hub',
-            status: 'active',
-            countryCode: 'PK',
-            city: 'Lahore',
-            timeZone: 'Asia/Karachi',
-            priority: 10,
-            supportedMarketCountries: ['PK', 'AE', 'SA', 'GB', 'US', 'DE'],
-            supportedServiceLevels: ['standard', 'express'],
-            capabilities: ['local_delivery', 'cross_border'],
-            returnCapabilities: ['accept_returns', 'inspection', 'restock'],
-            isDefault: true
-          });
-          await defaultLoc.save();
-          if (defaultLoc.supportedMarketCountries.includes(normCountry)) {
-            activeLocations = [defaultLoc];
-          }
-        } catch (err) {
-          if (err.code === 11000) {
-            activeLocations = await FulfillmentLocation.find({
-              merchantScopeId,
-              status: 'active',
-              supportedMarketCountries: normCountry
-            }).select('_id isDefault locationCode');
-          } else {
-            throw err;
-          }
-        }
-      }
-    }
 
     if (activeLocations.length === 0) {
       productIds.forEach((pid) => {

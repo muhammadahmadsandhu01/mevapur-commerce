@@ -43,6 +43,14 @@ const userSchema = new mongoose.Schema(
       index: true // RBAC queries ke liye optimized
     },
 
+    merchantScopeId: {
+      type: String,
+      trim: true,
+      default: 'default',
+      maxlength: 100,
+      index: true
+    },
+
     avatar: {
       type: String,
       default: ''

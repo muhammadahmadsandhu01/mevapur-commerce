@@ -13,6 +13,22 @@ const {
 const Product = require('../models/Product');
 const InventoryTransaction = require('../models/InventoryTransaction');
 
+/**
+ * Resolves the authoritative merchant/tenant scope from authenticated request context.
+ * Strictly ignores client-supplied query/body parameters to prevent tenant impersonation.
+ * @param {Object} req
+ * @returns {string}
+ */
+function resolveMerchantScope(req) {
+  if (req.user?.merchantScopeId && typeof req.user.merchantScopeId === 'string') {
+    return req.user.merchantScopeId.trim();
+  }
+  if (req.merchantScopeId && typeof req.merchantScopeId === 'string') {
+    return req.merchantScopeId.trim();
+  }
+  return 'default';
+}
+
 // ==========================================
 // 1. FULFILLMENT LOCATIONS
 // ==========================================
@@ -23,7 +39,7 @@ const InventoryTransaction = require('../models/InventoryTransaction');
 exports.getLocations = async (req, res, next) => {
   try {
     const { status, country, page = 1, limit = 20 } = req.query;
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.getLocations({
       merchantScopeId,
@@ -49,7 +65,7 @@ exports.getLocations = async (req, res, next) => {
 exports.getLocationById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const location = await InventoryService.getLocationById(id, merchantScopeId);
 
@@ -68,9 +84,10 @@ exports.getLocationById = async (req, res, next) => {
 exports.createLocation = async (req, res, next) => {
   try {
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
     const locationData = {
       ...req.body,
-      merchantScopeId: req.merchantScopeId || req.body.merchantScopeId || 'default'
+      merchantScopeId
     };
 
     const location = await InventoryService.createLocation({
@@ -96,10 +113,12 @@ exports.updateLocation = async (req, res, next) => {
   try {
     const { id } = req.params;
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const location = await InventoryService.updateLocation({
       locationId: id,
       updateData: req.body,
+      merchantScopeId,
       actorId,
       req
     });
@@ -122,10 +141,12 @@ exports.updateLocationStatus = async (req, res, next) => {
     const { id } = req.params;
     const { status } = req.body;
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const location = await InventoryService.updateLocationStatus({
       locationId: id,
       status,
+      merchantScopeId,
       actorId,
       req
     });
@@ -158,7 +179,7 @@ exports.getPositions = async (req, res, next) => {
       page = 1,
       limit = 20
     } = req.query;
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.getPositions({
       merchantScopeId,
@@ -187,7 +208,7 @@ exports.getPositions = async (req, res, next) => {
 exports.getPositionById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const position = await InventoryService.getPositionById(id, merchantScopeId);
 
@@ -208,6 +229,7 @@ exports.updatePositionControls = async (req, res, next) => {
     const { id } = req.params;
     const { safetyStock, reorderPoint, allowBackorder, backorderLimit } = req.body;
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const position = await InventoryService.updatePositionControls({
       positionId: id,
@@ -215,6 +237,7 @@ exports.updatePositionControls = async (req, res, next) => {
       reorderPoint,
       allowBackorder,
       backorderLimit,
+      merchantScopeId,
       actorId,
       req
     });
@@ -250,6 +273,7 @@ exports.adjustStock = async (req, res, next) => {
     } = req.body;
 
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.adjustStock({
       productId,
@@ -260,6 +284,7 @@ exports.adjustStock = async (req, res, next) => {
       reason,
       reference,
       operationKey,
+      merchantScopeId,
       actorId,
       req
     });
@@ -287,11 +312,13 @@ exports.getStockHistory = async (req, res, next) => {
   try {
     const { productId } = req.params;
     const { variantId, type, page = 1, limit = 20 } = req.query;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.getStockHistory({
       productId: productId || req.query.productId,
       variantId,
       type,
+      merchantScopeId,
       page,
       limit
     });
@@ -316,7 +343,7 @@ exports.getStockHistory = async (req, res, next) => {
 exports.getReservations = async (req, res, next) => {
   try {
     const { status, orderId, page = 1, limit = 20 } = req.query;
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.getReservations({
       merchantScopeId,
@@ -342,7 +369,7 @@ exports.getReservations = async (req, res, next) => {
 exports.getReservationById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const reservation = await InventoryService.getReservationById(id, merchantScopeId);
 
@@ -363,10 +390,12 @@ exports.releaseReservation = async (req, res, next) => {
     const { id } = req.params;
     const { reason = 'ADMIN_MANUAL_RELEASE' } = req.body;
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.releaseReservationAdmin({
       reservationId: id,
       reason,
+      merchantScopeId,
       actorId,
       req
     });
@@ -392,7 +421,7 @@ exports.previewAllocation = async (req, res, next) => {
       serviceLevel = 'standard',
       allowSplit = false
     } = req.body;
-    const merchantScopeId = req.merchantScopeId || req.body.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.previewAllocation({
       items,
@@ -418,6 +447,7 @@ exports.processReturnReceipt = async (req, res, next) => {
   try {
     const { orderId, reservationId, items, locationId, reason } = req.body;
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.processReturnReceipt({
       orderId,
@@ -425,6 +455,7 @@ exports.processReturnReceipt = async (req, res, next) => {
       items,
       locationId,
       reason,
+      merchantScopeId,
       actorId,
       req
     });
@@ -446,6 +477,7 @@ exports.processReturnInspection = async (req, res, next) => {
   try {
     const { orderId, reservationId, items, decision, reason } = req.body;
     const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.processReturnInspection({
       orderId,
@@ -453,6 +485,7 @@ exports.processReturnInspection = async (req, res, next) => {
       items,
       decision,
       reason,
+      merchantScopeId,
       actorId,
       req
     });
@@ -472,7 +505,7 @@ exports.processReturnInspection = async (req, res, next) => {
 // @access  Private (admin, super_admin)
 exports.getReconciliationReport = async (req, res, next) => {
   try {
-    const merchantScopeId = req.merchantScopeId || req.query.merchantScopeId || 'default';
+    const merchantScopeId = resolveMerchantScope(req);
     const report = await InventoryService.getReconciliationReport({ merchantScopeId });
 
     return res.status(200).json({
@@ -501,8 +534,10 @@ exports.getInventory = async (req, res, next) => {
       stockStatus = 'all',
       sortBy = 'stock-asc'
     } = req.query;
+    const merchantScopeId = resolveMerchantScope(req);
 
     const result = await InventoryService.getInventoryList({
+      merchantScopeId,
       page,
       limit,
       search,

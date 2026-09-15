@@ -5,6 +5,7 @@ const MediaAsset = require('../../models/MediaAsset');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
+const InventoryLedger = require('../../models/InventoryLedger');
 const SkuRegistryService = require('./SkuRegistryService');
 const { assertProductsDeletable, assertVariantsRemovable } = require('../ProductCatalogIntegrityService');
 const { validateMergedPublishedState } = require('../../validators/productValidator');
@@ -13,18 +14,71 @@ const logger = require('../../utils/logger');
 const { MoneyMapper } = require('../../modules/commerce');
 
 class ProductCatalogService {
-  async runInTransaction(callback) {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-    try {
-      const result = await callback(session);
-      await session.commitTransaction();
-      return result;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
+  isTransientMongoError(error) {
+    if (!error) return false;
+    return Boolean(
+      error?.hasErrorLabel?.('TransientTransactionError')
+      || error?.hasErrorLabel?.('UnknownTransactionCommitResult')
+      || (Array.isArray(error?.errorLabels) && (error.errorLabels.includes('TransientTransactionError') || error.errorLabels.includes('UnknownTransactionCommitResult')))
+      || error?.name === 'VersionError'
+      || error?.name === 'MongoServerError'
+      || error?.name === 'MongoError'
+      || error?.code === 112 // WriteConflict
+      || error?.code === 11000 // DuplicateKey in race
+      || error?.codeName === 'WriteConflict'
+      || (typeof error?.message === 'string' && (
+        error.message.includes('WriteConflict')
+        || error.message.includes('No matching document found')
+        || error.message.includes('version')
+        || error.message.includes('parallel')
+        || error.message.includes('duplicate key')
+        || error.message.includes('E11000')
+      ))
+    );
+  }
+
+  async runInTransaction(callback, maxRetries = 6) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      attempt++;
+      let session = null;
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+      } catch {
+        session = null;
+      }
+
+      if (!session) {
+        try {
+          return await callback(null);
+        } catch (error) {
+          const isTransient = this.isTransientMongoError(error);
+          if (isTransient && attempt < maxRetries) {
+            await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 20) + 12 * attempt));
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      try {
+        const result = await callback(session);
+        await session.commitTransaction();
+        return result;
+      } catch (error) {
+        if (session.inTransaction()) {
+          await session.abortTransaction();
+        }
+        const isTransient = this.isTransientMongoError(error);
+        if (isTransient && attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 20) + 12 * attempt));
+          continue;
+        }
+        throw error;
+      } finally {
+        await session.endSession();
+      }
     }
   }
 
@@ -78,7 +132,7 @@ class ProductCatalogService {
     };
   }
 
-  async createProduct({ data, userId }) {
+  async createProduct({ data, userId, options = {} }) {
     return this.runInTransaction(async (session) => {
       const productId = new mongoose.Types.ObjectId();
 
@@ -216,14 +270,15 @@ class ProductCatalogService {
 
       await product.save({ session });
 
-      // 7. Initial Stock Inventory Positions & Transactions
-      let defaultLocation = await FulfillmentLocation.findOne({ merchantScopeId: 'default', isDefault: true }).session(session);
+      // 7. Initial Stock Inventory Positions, Transactions & Immutable Ledger
+      const merchantScopeId = options.merchantScopeId || 'default';
+      let defaultLocation = await FulfillmentLocation.findOne({ merchantScopeId, isDefault: true }).session(session);
       if (!defaultLocation) {
-        defaultLocation = await FulfillmentLocation.findOne({ status: 'active' }).session(session);
+        defaultLocation = await FulfillmentLocation.findOne({ merchantScopeId, status: 'active' }).session(session);
       }
       if (!defaultLocation) {
         defaultLocation = new FulfillmentLocation({
-          merchantScopeId: 'default',
+          merchantScopeId,
           locationCode: 'WH-PRIMARY-01',
           displayName: 'Primary Fulfillment Hub',
           status: 'active',
@@ -243,22 +298,32 @@ class ProductCatalogService {
       if (variants.length > 0) {
         for (const variant of variants) {
           const vStock = variant.stock || 0;
-          await InventoryPosition.create([{
-            merchantScopeId: 'default',
+          const existingPos = await InventoryPosition.findOne({
+            merchantScopeId,
             locationId: defaultLocation._id,
-            locationCode: defaultLocation.locationCode,
             productId,
-            variantId: variant._id,
             scopeType: 'variant',
-            scopeKey: String(variant._id),
-            canonicalSku: variant.sku,
-            onHand: vStock,
-            reserved: 0,
-            unavailable: 0,
-            safetyStock: 0,
-            backordered: 0,
-            reorderPoint: product.lowStockThreshold || 10
-          }], { session });
+            scopeKey: String(variant._id)
+          }).session(session);
+
+          if (!existingPos) {
+            await InventoryPosition.create([{
+              merchantScopeId,
+              locationId: defaultLocation._id,
+              locationCode: defaultLocation.locationCode,
+              productId,
+              variantId: variant._id,
+              scopeType: 'variant',
+              scopeKey: String(variant._id),
+              canonicalSku: variant.sku,
+              onHand: vStock,
+              reserved: 0,
+              unavailable: 0,
+              safetyStock: 0,
+              backordered: 0,
+              reorderPoint: product.lowStockThreshold || 10
+            }], { session });
+          }
 
           if (vStock > 0) {
             await InventoryTransaction.create([{
@@ -276,25 +341,56 @@ class ProductCatalogService {
                 isInitial: true
               }
             }], { session });
+
+            const ledgerEntry = new InventoryLedger({
+              merchantScopeId,
+              locationId: defaultLocation._id,
+              locationCode: defaultLocation.locationCode,
+              productId,
+              variantId: variant._id,
+              canonicalSku: variant.sku,
+              movementType: 'OPENING_BALANCE',
+              quantityDelta: vStock,
+              reservationDelta: 0,
+              beforeSnapshot: { onHand: 0, reserved: 0, unavailable: 0, safetyStock: 0, atp: 0 },
+              afterSnapshot: { onHand: vStock, reserved: 0, unavailable: 0, safetyStock: 0, atp: vStock },
+              reasonCode: 'VARIANT_CREATION_INITIAL_STOCK',
+              sourceType: 'adjustment',
+              sourceId: String(productId),
+              idempotencyKey: `INIT:${productId}:${variant._id}:${vStock}`,
+              actorType: 'admin',
+              actorId: userId
+            });
+            await ledgerEntry.save({ session });
           }
         }
       } else {
-        await InventoryPosition.create([{
-          merchantScopeId: 'default',
+        const existingPos = await InventoryPosition.findOne({
+          merchantScopeId,
           locationId: defaultLocation._id,
-          locationCode: defaultLocation.locationCode,
           productId,
-          variantId: null,
           scopeType: 'product',
-          scopeKey: 'product',
-          canonicalSku: product.sku || rootSku,
-          onHand: initialStock,
-          reserved: 0,
-          unavailable: 0,
-          safetyStock: 0,
-          backordered: 0,
-          reorderPoint: product.lowStockThreshold || 10
-        }], { session });
+          scopeKey: 'product'
+        }).session(session);
+
+        if (!existingPos) {
+          await InventoryPosition.create([{
+            merchantScopeId,
+            locationId: defaultLocation._id,
+            locationCode: defaultLocation.locationCode,
+            productId,
+            variantId: null,
+            scopeType: 'product',
+            scopeKey: 'product',
+            canonicalSku: product.sku || rootSku,
+            onHand: initialStock,
+            reserved: 0,
+            unavailable: 0,
+            safetyStock: 0,
+            backordered: 0,
+            reorderPoint: product.lowStockThreshold || 10
+          }], { session });
+        }
 
         if (initialStock > 0) {
           await InventoryTransaction.create([{
@@ -312,6 +408,27 @@ class ProductCatalogService {
               isInitial: true
             }
           }], { session });
+
+          const ledgerEntry = new InventoryLedger({
+            merchantScopeId,
+            locationId: defaultLocation._id,
+            locationCode: defaultLocation.locationCode,
+            productId,
+            variantId: null,
+            canonicalSku: product.sku || rootSku,
+            movementType: 'OPENING_BALANCE',
+            quantityDelta: initialStock,
+            reservationDelta: 0,
+            beforeSnapshot: { onHand: 0, reserved: 0, unavailable: 0, safetyStock: 0, atp: 0 },
+            afterSnapshot: { onHand: initialStock, reserved: 0, unavailable: 0, safetyStock: 0, atp: initialStock },
+            reasonCode: 'PRODUCT_CREATION_INITIAL_STOCK',
+            sourceType: 'adjustment',
+            sourceId: String(productId),
+            idempotencyKey: `INIT:${productId}:root:${initialStock}`,
+            actorType: 'admin',
+            actorId: userId
+          });
+          await ledgerEntry.save({ session });
         }
       }
 

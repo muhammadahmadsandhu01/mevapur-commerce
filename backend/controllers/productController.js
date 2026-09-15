@@ -72,8 +72,8 @@ function serializePublicProduct(product, marketPrice = null, variantPriceMap = n
     };
   }
 
-  const stockStatus = availability ? availability.status : (p.stock > 0 ? 'in_stock' : 'out_of_stock');
-  const isPurchasable = availability ? availability.isPurchasable : (p.stock > 0);
+  const stockStatus = availability ? availability.status : 'out_of_stock';
+  const isPurchasable = availability ? Boolean(availability.isPurchasable) : false;
   const allowBackorders = Boolean(p.allowBackorders || availability?.allowBackorder);
 
   return {
