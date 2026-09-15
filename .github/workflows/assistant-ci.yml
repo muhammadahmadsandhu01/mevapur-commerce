@@ -86,6 +86,18 @@ jobs:
           NEXT_PUBLIC_API_URL: 'https://api.mevapur.test'
         run: npm run build
 
+      - name: Install Playwright Chromium for Security Smoke Test
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Storefront Production CSP and Security Standalone Smoke Test
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_SITE_NAME: 'HARZAAR'
+          NEXT_PUBLIC_SITE_URL: 'https://storefront.mevapur.test'
+          NEXT_PUBLIC_API_URL: 'https://api.mevapur.test'
+        run: npm run test:production-csp
+
       - name: Install Admin Panel Dependencies
         working-directory: admin-panel
         run: npm ci

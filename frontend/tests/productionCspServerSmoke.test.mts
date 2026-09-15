@@ -48,6 +48,8 @@ test('Production Standalone Server Runtime Nonce-Backed CSP, Cache-Control, and 
     stdio: 'pipe',
   });
 
+  let browser: import('playwright').Browser | undefined;
+
   try {
     // Wait for server to start
     let started = false;
@@ -155,12 +157,35 @@ test('Production Standalone Server Runtime Nonce-Backed CSP, Cache-Control, and 
     }
 
     // 6. Launch Chromium and test hydration with an ACTUAL UI interaction
-    const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-    const browser = await chromium.launch({
-      executablePath: CHROME_PATH,
+    const customExecutablePath =
+      process.env.PLAYWRIGHT_CHROME_PATH ||
+      process.env.CHROME_PATH ||
+      process.env.CHROMIUM_PATH;
+
+    const launchOptions: {
+      headless: boolean;
+      args: string[];
+      executablePath?: string;
+    } = {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    };
+
+    if (customExecutablePath) {
+      launchOptions.executablePath = customExecutablePath;
+    }
+
+    try {
+      browser = await chromium.launch(launchOptions);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to launch Chromium browser for production CSP smoke test (executablePath: ${
+          customExecutablePath || 'default playwright bundled'
+        }). Ensure Playwright browser is installed via 'npx playwright install chromium': ${msg}`
+      );
+    }
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -205,14 +230,15 @@ test('Production Standalone Server Runtime Nonce-Backed CSP, Cache-Control, and 
       await page.waitForTimeout(300);
     }
 
-    await browser.close();
-
     assert.strictEqual(
       cspViolations.length,
       0,
       `CSP violations detected during browser interaction: ${JSON.stringify(cspViolations)}`
     );
   } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
     serverProcess.kill('SIGTERM');
   }
 });
