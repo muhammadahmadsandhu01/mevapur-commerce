@@ -8,6 +8,16 @@ const InventoryService = require('../../services/order/InventoryService');
 const ProductCatalogService = require('../../services/product/ProductCatalogService');
 
 describe('Product Commerce Integrity & Checkout Enforcement', () => {
+  let prevCompat;
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
+
   let customerUser;
   let adminUser;
   let testCategory;

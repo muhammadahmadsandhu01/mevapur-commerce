@@ -35,10 +35,20 @@ const getAuthToken = async (role = 'admin') => {
 };
 
 describe('Product Form Persistence & Public Allowlist Protection Integration Tests', () => {
+  let prevCompat;
   let adminToken;
   let customerToken;
   let testCategory;
   let testMediaAsset;
+
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
 
   beforeEach(async () => {
     adminToken = await getAuthToken('admin');

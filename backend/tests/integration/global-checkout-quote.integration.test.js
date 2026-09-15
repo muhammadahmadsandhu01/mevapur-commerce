@@ -462,6 +462,16 @@ const setupTestFixtures = async () => {
 };
 
 describe('Phase 6A: Global Checkout Eligibility & Quote Orchestration Matrix', () => {
+  let prevCompat;
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
+
   beforeEach(async () => {
     await setupTestFixtures();
   });

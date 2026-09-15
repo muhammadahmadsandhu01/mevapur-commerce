@@ -6,6 +6,8 @@ const Session = require('../../models/Session');
 const Product = require('../../models/Product');
 const Category = require('../../models/Category');
 const Order = require('../../models/Order');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const TokenService = require('../../services/TokenService');
 
@@ -247,6 +249,35 @@ describe('Market Customer Context Integration Tests', () => {
         category: defaultCategory._id,
         isActive: true,
         status: 'published'
+      });
+
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: product._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        eligibleFulfillmentOriginIds: ['origin-pk-1'],
+        effectiveFrom: new Date('2026-01-01'),
+        lockVersion: 1
+      });
+
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: product._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        currency: 'PKR',
+        currencyExponent: 2,
+        amountMinor: '250000',
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date('2026-01-01'),
+        lockVersion: 1
       });
 
       // Place domestic order

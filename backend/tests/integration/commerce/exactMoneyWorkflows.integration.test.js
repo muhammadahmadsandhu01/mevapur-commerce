@@ -46,8 +46,15 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
     })}`;
   };
 
+  let prevCompat;
   beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
     await MarketService.getConfig();
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
   });
 
   beforeEach(async () => {

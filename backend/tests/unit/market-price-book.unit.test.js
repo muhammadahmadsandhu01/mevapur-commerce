@@ -32,7 +32,9 @@ describe('MarketPriceBook Unit Tests', () => {
 
       const err = entry.validateSync();
       expect(err).toBeUndefined();
-      expect(entry.getDecimalAmount()).toBe(15.5);
+      expect(entry.getDecimalAmount()).toBe('15.50');
+      expect(entry.scopeType).toBe('product');
+      expect(entry.scopeKey).toBe('product');
     });
 
     it('validates zero-decimal currency (e.g. JPY 1500 -> 1500 minor)', () => {
@@ -49,7 +51,7 @@ describe('MarketPriceBook Unit Tests', () => {
 
       const err = entry.validateSync();
       expect(err).toBeUndefined();
-      expect(entry.getDecimalAmount()).toBe(1500);
+      expect(entry.getDecimalAmount()).toBe('1500');
     });
 
     it('validates 3-decimal currency (e.g. BHD 1.550 -> 1550 minor)', () => {
@@ -66,7 +68,24 @@ describe('MarketPriceBook Unit Tests', () => {
 
       const err = entry.validateSync();
       expect(err).toBeUndefined();
-      expect(entry.getDecimalAmount()).toBe(1.55);
+      expect(entry.getDecimalAmount()).toBe('1.550');
+    });
+
+    it('validates 4-decimal currency (e.g. CLF 0.0123 -> 123 minor)', () => {
+      const entry = new MarketPriceBook({
+        merchantScopeId: 'default',
+        productId: dummyProductId,
+        marketCountry: 'CL',
+        currency: 'CLF',
+        currencyExponent: 4,
+        amountMinor: '123',
+        priceSource: 'manual',
+        status: 'active'
+      });
+
+      const err = entry.validateSync();
+      expect(err).toBeUndefined();
+      expect(entry.getDecimalAmount()).toBe('0.0123');
     });
 
     it('preserves exact precision for values above MAX_SAFE_INTEGER without floating point distortion', () => {
@@ -142,6 +161,38 @@ describe('MarketPriceBook Unit Tests', () => {
       expect(entry.fxSnapshotReference.snapshotId).toBe('fx-snap-2026-09-01');
       expect(entry.priceSource).toBe('governed_fx_snapshot');
     });
+
+    it('rejects currency exponent mismatch against CurrencyRegistry', () => {
+      const entry = new MarketPriceBook({
+        merchantScopeId: 'default',
+        productId: dummyProductId,
+        marketCountry: 'GB',
+        currency: 'GBP',
+        currencyExponent: 3, // GBP is exponent 2
+        amountMinor: '1550',
+        status: 'active'
+      });
+
+      const err = entry.validateSync();
+      expect(err).toBeDefined();
+      expect(err.message).toMatch(/does not match CurrencyRegistry/i);
+    });
+
+    it('rejects unknown currency not in CurrencyRegistry', () => {
+      const entry = new MarketPriceBook({
+        merchantScopeId: 'default',
+        productId: dummyProductId,
+        marketCountry: 'GB',
+        currency: 'XYZ',
+        currencyExponent: 2,
+        amountMinor: '1550',
+        status: 'active'
+      });
+
+      const err = entry.validateSync();
+      expect(err).toBeDefined();
+      expect(err.message).toMatch(/not recognized in canonical CurrencyRegistry/i);
+    });
   });
 
   describe('ProductMarketOfferingService Pricing Operations', () => {
@@ -150,7 +201,7 @@ describe('MarketPriceBook Unit Tests', () => {
     });
 
     it('rejects currency not enabled in active configuration', async () => {
-      Product.findById.mockResolvedValue({ _id: dummyProductId, name: 'Walnuts' });
+      Product.findById.mockResolvedValue({ _id: dummyProductId, name: 'Walnuts', sku: 'WAL-001' });
       MarketService.getConfig.mockResolvedValue({
         enabledCurrencies: ['PKR', 'GBP']
       });
@@ -165,7 +216,7 @@ describe('MarketPriceBook Unit Tests', () => {
     });
 
     it('rejects invalid currency code', async () => {
-      Product.findById.mockResolvedValue({ _id: dummyProductId, name: 'Walnuts' });
+      Product.findById.mockResolvedValue({ _id: dummyProductId, name: 'Walnuts', sku: 'WAL-001' });
       MarketService.getConfig.mockResolvedValue({
         enabledCurrencies: ['PKR', 'GBP']
       });
@@ -180,17 +231,21 @@ describe('MarketPriceBook Unit Tests', () => {
     });
 
     it('detects optimistic concurrency conflicts on price updates', async () => {
-      Product.findById.mockResolvedValue({ _id: dummyProductId, name: 'Walnuts' });
+      Product.findById.mockResolvedValue({ _id: dummyProductId, name: 'Walnuts', sku: 'WAL-001' });
       MarketService.getConfig.mockResolvedValue({
         enabledCurrencies: ['PKR', 'GBP']
       });
 
-      jest.spyOn(MarketPriceBook, 'findOne').mockResolvedValue({
-        _id: new mongoose.Types.ObjectId(),
-        lockVersion: 5,
-        amountMinor: '1200',
-        save: jest.fn()
-      });
+      const mockQuery = {
+        session: jest.fn().mockResolvedValue({
+          _id: new mongoose.Types.ObjectId(),
+          lockVersion: 5,
+          version: 1,
+          amountMinor: '1200',
+          save: jest.fn()
+        })
+      };
+      jest.spyOn(MarketPriceBook, 'findOne').mockReturnValue(mockQuery);
 
       await expect(
         ProductMarketOfferingService.upsertPrices(
@@ -199,6 +254,33 @@ describe('MarketPriceBook Unit Tests', () => {
           { actorId: dummyUserId, merchantScopeId: 'default' }
         )
       ).rejects.toThrow('Optimistic concurrency conflict');
+    });
+
+    it('rejects mismatched caller-supplied SKU against canonical product variant', async () => {
+      const variantId = new mongoose.Types.ObjectId();
+      Product.findById.mockResolvedValue({
+        _id: dummyProductId,
+        name: 'Walnuts',
+        sku: 'WAL-ROOT',
+        variants: [{ _id: variantId, sku: 'WAL-500G' }]
+      });
+      MarketService.getConfig.mockResolvedValue({
+        enabledCurrencies: ['PKR', 'GBP']
+      });
+
+      await expect(
+        ProductMarketOfferingService.upsertPrices(
+          dummyProductId,
+          [{
+            marketCountry: 'GB',
+            currency: 'GBP',
+            variantId: String(variantId),
+            sku: 'WRONG-SKU',
+            amountMinor: '1400'
+          }],
+          { actorId: dummyUserId, merchantScopeId: 'default' }
+        )
+      ).rejects.toThrow('Supplied SKU \'WRONG-SKU\' does not match variant SKU \'WAL-500G\'');
     });
   });
 });

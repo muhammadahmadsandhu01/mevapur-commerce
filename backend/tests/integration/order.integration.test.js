@@ -125,7 +125,10 @@ const placeOrder = (auth, payload, key = crypto.randomUUID()) => request(app)
   .send(payload);
 
 describe('Order API integration', () => {
+  let prevCompat;
   beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
     await Promise.all([
       Order.syncIndexes(),
       Product.syncIndexes(),
@@ -133,6 +136,10 @@ describe('Order API integration', () => {
       InventoryTransaction.syncIndexes(),
       CommerceConfigurationVersion.syncIndexes()
     ]);
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
   });
 
   beforeEach(async () => {

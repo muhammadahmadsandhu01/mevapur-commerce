@@ -9,6 +9,16 @@ const { ORDER_STATUSES } = require('../../constants/orderConstants');
 const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
 
 describe('DEF-04: Enterprise Category Identity & Product/SKU Resolution Integration Tests', () => {
+  let prevCompat;
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
+
   let activeCategory1;
   let activeCategory2;
   let inactiveCategory;

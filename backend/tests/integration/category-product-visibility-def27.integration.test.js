@@ -46,7 +46,17 @@ const createAuth = async (role = 'customer') => {
   };
 };
 
-describe('DEF-27: Category-Based Product Visibility Inheritance Integration Suite', () => {
+describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
+  let prevCompat;
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
+
   let customerAuth;
   let adminAuth;
 

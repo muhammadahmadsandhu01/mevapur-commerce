@@ -64,6 +64,16 @@ function createTempManifest({
 }
 
 describe('Phase 3C-3A: Media Lifecycle, Storage Reconciliation & Irreversible Deletion Safety', () => {
+  let prevCompat;
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
+
   let mockStorage;
   let adminUser;
   let adminToken;

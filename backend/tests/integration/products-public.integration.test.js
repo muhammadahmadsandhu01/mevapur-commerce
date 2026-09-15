@@ -6,6 +6,16 @@ const Category = require('../../models/Category');
 const Brand = require('../../models/Brand');
 
 describe('Public Products Catalog Integration Tests', () => {
+  let prevCompat;
+  beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+  });
+
   let publishedProduct;
   let draftProduct;
   let inactiveProduct;

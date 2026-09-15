@@ -62,7 +62,10 @@ const createAuth = async (role = 'customer', extraUserProps = {}) => {
 };
 
 describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover Acceptance', () => {
+  let prevCompat;
   beforeAll(async () => {
+    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
     await Promise.all([
       Product.syncIndexes(),
       Order.syncIndexes(),
@@ -75,6 +78,10 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
       ShippingZone.syncIndexes(),
       MarketConfig.syncIndexes(),
     ]);
+  });
+
+  afterAll(async () => {
+    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
   });
 
   test('1. Admin publishes product -> Storefront retrieves it; Admin unpublishes -> Storefront hides it (Persisted DB State Verified)', async () => {
