@@ -1,20 +1,12 @@
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
-const MarketPriceBook = require('../models/MarketPriceBook');
 const CategoryResolver = require('../services/category/CategoryResolver');
 const ProductVisibilityPolicy = require('../services/product/ProductVisibilityPolicy');
 const MarketContextResolver = require('../services/market/MarketContextResolver');
+const MarketPriceBook = require('../models/MarketPriceBook');
 
-/**
- * Explicit Public Product Serializer
- * Strict allowlist projection for public storefront responses.
- * Guarantees internal/confidential fields (costPrice, lowStockThreshold,
- * trackInventory, barcode, internal concurrency/transactions, __v) are never exposed.
- */
-function serializePublicVariant(variant, variantPrice = null) {
-  if (!variant) return null;
-  const v = variant.toObject ? variant.toObject() : variant;
-
+function serializePublicVariant(v, variantPrice = null) {
+  if (!v) return null;
   let price = v.price;
   let salePrice = v.salePrice;
   let marketPriceExact = null;
@@ -165,7 +157,7 @@ async function fetchMarketPriceMap(productIds, marketCountry, merchantScopeId = 
 
   const priceMap = new Map();
   for (const doc of priceDocs) {
-    const key = doc.variantId ? `${doc.productId}:${doc.variantId}` : String(doc.productId);
+    const key = doc.scopeType === 'variant' && doc.variantId ? `${doc.productId}:${doc.variantId}` : String(doc.productId);
     if (!priceMap.has(key)) {
       priceMap.set(key, doc);
     }
@@ -298,34 +290,42 @@ exports.getProducts = async (req, res) => {
     let sortOption = {};
     if (req.query.sortBy === 'price-asc') sortOption = { price: 1, _id: -1 };
     else if (req.query.sortBy === 'price-desc') sortOption = { price: -1, _id: -1 };
-    else if (req.query.sortBy === 'rating') sortOption = { rating: -1, reviewCount: -1, _id: -1 };
-    else if (req.query.sortBy === 'best-selling') sortOption = { soldCount: -1, _id: -1 };
+    else if (req.query.sortBy === 'rating') sortOption = { rating: -1, _id: -1 };
+    else if (req.query.sortBy === 'newest') sortOption = { createdAt: -1, _id: -1 };
+    else if (req.query.sortBy === 'popular') sortOption = { soldCount: -1, _id: -1 };
     else sortOption = { createdAt: -1, _id: -1 };
 
     const [products, total] = await Promise.all([
       Product.find(query)
-        .sort(sortOption)
-        .limit(limit)
-        .skip(skip)
-        .populate('category', 'name slug')
+        .populate('category', 'name slug isActive parentId')
+        .populate('subcategory', 'name slug isActive parentId')
         .populate('brand', 'name')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limit)
         .lean(),
       Product.countDocuments(query)
     ]);
 
     const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
-    const serializedProducts = products.map((p) => serializePublicProduct(p, priceMap.get(String(p._id))));
+
+    const serializedProducts = products.map((product) => {
+      const mp = priceMap.get(String(product._id));
+      return serializePublicProduct(product, mp);
+    });
+
+    const pages = Math.ceil(total / limit);
 
     res.json({
       success: true,
       data: serializedProducts,
       pagination: {
         page,
-        pages: Math.ceil(total / limit) || 1,
+        limit,
         total,
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-        limit
+        pages,
+        hasNext: page < pages,
+        hasPrev: page > 1
       },
       meta: {
         marketCountry,
@@ -362,7 +362,7 @@ exports.getProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // 2. Assert Category and Market Eligibility (Fail closed with truthful 404 without leaking internal state)
+    // 2. Assert Category and Market Eligibility (Fail closed with truthful 404)
     const isEligible = await ProductVisibilityPolicy.isProductPubliclyEligible(product, {
       marketCountry,
       merchantScopeId
@@ -372,9 +372,9 @@ exports.getProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // 3. Fetch exact market pricing
+    // 3. Fetch exact market pricing (product-level and variant overrides)
     const now = new Date();
-    const marketPrice = await MarketPriceBook.findOne({
+    const priceDocs = await MarketPriceBook.find({
       merchantScopeId,
       productId: product._id,
       marketCountry,
@@ -382,6 +382,16 @@ exports.getProduct = async (req, res) => {
       effectiveFrom: { $lte: now },
       $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
     }).lean();
+
+    let productPrice = null;
+    const variantPriceMap = new Map();
+    for (const doc of priceDocs) {
+      if (doc.scopeType === 'variant' && doc.variantId) {
+        variantPriceMap.set(String(doc.variantId), doc);
+      } else {
+        productPrice = doc;
+      }
+    }
 
     await Product.populate(product, [
       { path: 'category', select: 'name slug isActive parentId' },
@@ -391,10 +401,10 @@ exports.getProduct = async (req, res) => {
 
     res.json({
       success: true,
-      data: serializePublicProduct(product, marketPrice),
+      data: serializePublicProduct(product, productPrice, variantPriceMap),
       meta: {
         marketCountry,
-        currency: marketPrice?.currency || marketContext.currency
+        currency: productPrice?.currency || priceDocs[0]?.currency || marketContext.currency
       }
     });
   } catch (error) {
@@ -420,7 +430,6 @@ exports.getTopProducts = async (req, res) => {
       .sort({ rating: -1, reviewCount: -1, _id: -1 })
       .limit(limit)
       .populate('category', 'name slug')
-      .populate('brand', 'name')
       .lean();
 
     const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
@@ -435,7 +444,7 @@ exports.getTopProducts = async (req, res) => {
   }
 };
 
-// @desc    Get recommended published products
+// @desc    Get recommended products
 // @route   GET /api/products/recommended
 // @access  Public
 exports.getRecommendedProducts = async (req, res) => {
@@ -453,7 +462,6 @@ exports.getRecommendedProducts = async (req, res) => {
       .sort({ isFeatured: -1, rating: -1, soldCount: -1, _id: -1 })
       .limit(limit)
       .populate('category', 'name slug')
-      .populate('brand', 'name')
       .lean();
 
     const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
@@ -468,13 +476,18 @@ exports.getRecommendedProducts = async (req, res) => {
   }
 };
 
-// @desc    Get recently viewed published products
+// @desc    Get recently viewed products
 // @route   GET /api/products/recently-viewed
 // @access  Public
 exports.getRecentlyViewed = async (req, res) => {
   try {
-    const ids = req.query.ids ? req.query.ids.split(',').filter((id) => mongoose.Types.ObjectId.isValid(id)) : [];
-    if (ids.length === 0) {
+    const { ids } = req.query;
+    if (!ids) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const productIds = ids.split(',').filter((id) => mongoose.Types.ObjectId.isValid(id));
+    if (productIds.length === 0) {
       return res.json({ success: true, data: [] });
     }
 
@@ -486,14 +499,11 @@ exports.getRecentlyViewed = async (req, res) => {
       merchantScopeId
     });
 
-    const query = {
+    const products = await Product.find({
       ...visibilityFilter,
-      _id: { $in: ids }
-    };
-
-    const products = await Product.find(query)
+      _id: { $in: productIds }
+    })
       .populate('category', 'name slug')
-      .populate('brand', 'name')
       .lean();
 
     const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);

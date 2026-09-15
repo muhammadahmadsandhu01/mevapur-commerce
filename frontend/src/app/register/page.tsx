@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   User,
   Phone,
+  Globe,
   CheckCircle,
   XCircle,
   Loader,
@@ -26,6 +27,7 @@ import BrandLogo from '@/components/brand/BrandLogo';
 import { branding } from '@/config/branding';
 import { validatePasswordPolicy } from '@/lib/passwordPolicy';
 import { isSafeLocalRedirect } from '@/lib/routeClassification';
+import { getAllCountryCodes, getCountryPolicy } from '@/lib/countryPolicy';
 
 function RegisterForm() {
   const router = useRouter();
@@ -38,6 +40,7 @@ function RegisterForm() {
     fullName: '',
     email: '',
     phone: '',
+    residenceCountry: '',
     password: '',
     confirmPassword: '',
     acceptTerms: false
@@ -55,9 +58,17 @@ function RegisterForm() {
   const fullNameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
+  const residenceCountryRef = useRef<HTMLSelectElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
   const termsRef = useRef<HTMLInputElement>(null);
+
+  const countryOptions = useMemo(() => {
+    return getAllCountryCodes()
+      .map((code) => getCountryPolicy(code))
+      .filter((p) => p.code !== 'UNKNOWN')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
 
   // Canonical Enterprise Password Policy Checks (12+ characters, upper, lower, number, special, no repeat, no sequence)
   const passwordPolicy = useMemo(() => validatePasswordPolicy(formData.password), [formData.password]);
@@ -77,6 +88,10 @@ function RegisterForm() {
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Please enter a valid email address';
+    }
+
+    if (!formData.residenceCountry || !formData.residenceCountry.trim()) {
+      newErrors.residenceCountry = 'Country of residence is required';
     }
 
     if (formData.phone && !/^03\d{9}$/.test(formData.phone.replace(/\s/g, ''))) {
@@ -103,6 +118,7 @@ function RegisterForm() {
 
     if (newErrors.fullName) fullNameRef.current?.focus();
     else if (newErrors.email) emailRef.current?.focus();
+    else if (newErrors.residenceCountry) residenceCountryRef.current?.focus();
     else if (newErrors.phone) phoneRef.current?.focus();
     else if (newErrors.password) passwordRef.current?.focus();
     else if (newErrors.confirmPassword) confirmPasswordRef.current?.focus();
@@ -124,6 +140,7 @@ function RegisterForm() {
         fullName: formData.fullName,
         email: formData.email,
         phone: formData.phone,
+        residenceCountry: formData.residenceCountry.trim().toUpperCase(),
         password: formData.password,
         redirect: safeRedirect !== '/' ? safeRedirect : undefined
       });
@@ -141,6 +158,9 @@ function RegisterForm() {
           setTimeout(() => router.push(loginTarget), 1500);
         }
       } else {
+        if (result.code === 'INVALID_RESIDENCE_COUNTRY') {
+          setErrors({ residenceCountry: result.message });
+        }
         setToast({ message: '❌ ' + result.message, type: 'error' });
       }
     } catch {
@@ -370,6 +390,43 @@ function RegisterForm() {
             {errors.phone && (
               <div id="reg-phone-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
                 <AlertCircle size={12} /> {errors.phone}
+              </div>
+            )}
+          </div>
+
+          {/* Country of Residence */}
+          <div>
+            <label htmlFor="reg-residenceCountry" className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Country of Residence <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <Globe size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none ${errors.residenceCountry ? 'text-red-500' : 'text-slate-400'}`} />
+              <select
+                ref={residenceCountryRef}
+                id="reg-residenceCountry"
+                aria-label="Country of Residence"
+                value={formData.residenceCountry}
+                onChange={(e) => {
+                  setFormData({ ...formData, residenceCountry: e.target.value });
+                  if (errors.residenceCountry) setErrors({ ...errors, residenceCountry: '' });
+                }}
+                aria-invalid={!!errors.residenceCountry}
+                aria-describedby={errors.residenceCountry ? 'reg-residenceCountry-error' : undefined}
+                className={`w-full pl-10 pr-8 py-2.5 rounded-xl border text-sm outline-none transition bg-slate-50 text-slate-900 appearance-none cursor-pointer ${
+                  errors.residenceCountry ? 'border-red-500 focus:ring-2 focus:ring-red-100' : 'border-slate-300 focus:border-[#ff8a00] focus:ring-2 focus:ring-orange-100'
+                }`}
+              >
+                <option value="">Select your country of residence</option>
+                {countryOptions.map((country) => (
+                  <option key={country.code} value={country.code}>
+                    {country.name} ({country.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {errors.residenceCountry && (
+              <div id="reg-residenceCountry-error" role="alert" className="flex items-center gap-1 mt-1 text-xs text-red-600 font-medium">
+                <AlertCircle size={12} /> {errors.residenceCountry}
               </div>
             )}
           </div>

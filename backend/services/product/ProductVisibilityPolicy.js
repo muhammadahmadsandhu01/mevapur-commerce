@@ -1,13 +1,6 @@
-const mongoose = require('mongoose');
-const Category = require('../../models/Category');
-const ProductMarketOffering = require('../../models/ProductMarketOffering');
-const MarketPriceBook = require('../../models/MarketPriceBook');
-
-const MAX_CATEGORY_HIERARCHY_DEPTH = 20;
-
 /**
- * ProductVisibilityPolicy
- * Canonical, centralized product visibility and eligibility enforcement policy.
+ * @file ProductVisibilityPolicy.js
+ * @description Canonical, centralized product visibility and eligibility enforcement policy.
  *
  * Rules:
  * 1. A product is publicly visible/purchasable if and only if:
@@ -19,8 +12,45 @@ const MAX_CATEGORY_HIERARCHY_DEPTH = 20;
  *    - Active MarketPriceBook entry exists for the requested market and effective at query time.
  * 2. Unassigned, deleted, inactive, orphaned, or cyclic categories fail closed.
  * 3. Administrative, inventory, ledger, refund, and historical order consumers explicitly bypass this policy.
+ * 4. Strict deny-by-default for unconfigured markets. Gated legacy home-market fallback is only enabled
+ *    under explicit operator authorization (ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY).
  */
+
+const mongoose = require('mongoose');
+const Category = require('../../models/Category');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
+const MarketService = require('../MarketService');
+const { getRuntimeConfig } = require('../../config/runtime.config');
+
+const MAX_CATEGORY_HIERARCHY_DEPTH = 20;
+
+/**
+ * Named Compatibility Gate for legacy unconfigured product offerings.
+ * Strictly defaults to false in staging/production.
+ * Removal boundary: Phase 7 / Legacy Deprecation.
+ */
+function isLegacyHomeMarketOfferingCompatibilityEnabled() {
+  if (process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY === 'true') {
+    return true;
+  }
+  try {
+    const config = getRuntimeConfig();
+    return Boolean(config?.commerce?.allowLegacyHomeMarketOfferingCompatibility);
+  } catch {
+    return false;
+  }
+}
+
 class ProductVisibilityPolicy {
+  isLegacyHomeMarketOfferingCompatibilityEnabled() {
+    return isLegacyHomeMarketOfferingCompatibilityEnabled();
+  }
+
+  static isLegacyHomeMarketOfferingCompatibilityEnabled() {
+    return isLegacyHomeMarketOfferingCompatibilityEnabled();
+  }
+
   /**
    * Resolve all category ObjectIds that are active and whose entire ancestor chain is active.
    * Uses exactly 1 bounded MongoDB query and in-memory ancestor validation.
@@ -56,14 +86,12 @@ class ProductVisibilityPolicy {
       while (current && (current.parentId || current.parentCategory)) {
         depth += 1;
         if (depth > MAX_CATEGORY_HIERARCHY_DEPTH) {
-          // Hierarchy depth exceeded - fail closed
           isValid = false;
           break;
         }
 
         const parentIdStr = String(current.parentId || current.parentCategory);
         if (visited.has(parentIdStr)) {
-          // Cycle detected in category hierarchy - fail closed
           isValid = false;
           break;
         }
@@ -71,7 +99,6 @@ class ProductVisibilityPolicy {
 
         const parent = categoryMap.get(parentIdStr);
         if (!parent || parent.isActive !== true) {
-          // Parent missing, deleted, or inactive - fail closed
           isValid = false;
           break;
         }
@@ -153,16 +180,26 @@ class ProductVisibilityPolicy {
       }
     }
 
-    // 3. For home market (PK), also include legacy products that have NO offerings defined anywhere
-    if (country === 'PK') {
-      const allProductIdsWithOfferings = await ProductMarketOffering.distinct('productId', { merchantScopeId });
-      const ProductModel = mongoose.models.Product || mongoose.model('Product');
-      const legacyQuery = {
-        _id: { $nin: allProductIdsWithOfferings }
-      };
-      const legacyProducts = await ProductModel.find(legacyQuery, '_id').lean();
-      const legacyIds = legacyProducts.map((p) => p._id);
-      eligibleProductIds = eligibleProductIds.concat(legacyIds);
+    // 3. Optional Gated Legacy Home-Market Fallback (Strictly disabled by default)
+    if (isLegacyHomeMarketOfferingCompatibilityEnabled()) {
+      try {
+        const config = await MarketService.getConfig({ merchantScopeId });
+        const homeCountry = (config.merchantCountry || config.homeCountry || '').toUpperCase();
+
+        if (country === homeCountry) {
+          const allProductIdsWithOfferings = await ProductMarketOffering.distinct('productId', { merchantScopeId });
+          const ProductModel = mongoose.models.Product || mongoose.model('Product');
+          let legacyQuery = ProductModel.find({
+            _id: { $nin: allProductIdsWithOfferings }
+          }, '_id').lean();
+          if (session) legacyQuery = legacyQuery.session(session);
+          const legacyProducts = await legacyQuery;
+          const legacyIds = legacyProducts.map((p) => p._id);
+          eligibleProductIds = eligibleProductIds.concat(legacyIds);
+        }
+      } catch {
+        // Fail closed if config unavailable
+      }
     }
 
     return eligibleProductIds;
@@ -174,6 +211,7 @@ class ProductVisibilityPolicy {
    * @param {object|mongoose.Types.ObjectId|string} productOrId
    * @param {object} options
    * @param {string} options.marketCountry
+   * @param {mongoose.Types.ObjectId|string|null} [options.variantId=null]
    * @param {string} [options.merchantScopeId='default']
    * @param {Date} [options.atDate=new Date()]
    * @param {mongoose.ClientSession|null} [options.session=null]
@@ -181,6 +219,7 @@ class ProductVisibilityPolicy {
    */
   async isProductMarketEligible(productOrId, {
     marketCountry,
+    variantId = null,
     merchantScopeId = 'default',
     atDate = new Date(),
     session = null
@@ -193,9 +232,51 @@ class ProductVisibilityPolicy {
     const country = marketCountry.trim().toUpperCase();
     const now = new Date(atDate);
 
+    // 1. Check for variant-specific offering first if variantId provided
+    if (variantId) {
+      const variantIdStr = String(variantId);
+      let variantOfferingQuery = ProductMarketOffering.findOne({
+        merchantScopeId,
+        productId,
+        scopeType: 'variant',
+        scopeKey: variantIdStr,
+        marketCountry: country,
+        status: 'active',
+        visibility: 'visible',
+        effectiveFrom: { $lte: now },
+        $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+      }).lean();
+
+      if (session) variantOfferingQuery = variantOfferingQuery.session(session);
+      const variantOffering = await variantOfferingQuery;
+
+      if (variantOffering) {
+        let variantPriceQuery = MarketPriceBook.findOne({
+          merchantScopeId,
+          productId,
+          scopeType: 'variant',
+          scopeKey: variantIdStr,
+          marketCountry: country,
+          status: 'active',
+          effectiveFrom: { $lte: now },
+          $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+        }).lean();
+
+        if (session) variantPriceQuery = variantPriceQuery.session(session);
+        const variantPrice = await variantPriceQuery;
+        if (variantPrice) return true;
+
+        if (variantOffering.pricingPolicy === 'variant_override_required') {
+          return false;
+        }
+      }
+    }
+
+    // 2. Check product-level offering
     let offeringQuery = ProductMarketOffering.findOne({
       merchantScopeId,
       productId,
+      scopeType: 'product',
       marketCountry: country,
       status: 'active',
       visibility: 'visible',
@@ -210,6 +291,7 @@ class ProductVisibilityPolicy {
       let priceQuery = MarketPriceBook.findOne({
         merchantScopeId,
         productId,
+        scopeType: 'product',
         marketCountry: country,
         status: 'active',
         effectiveFrom: { $lte: now },
@@ -221,12 +303,20 @@ class ProductVisibilityPolicy {
       return Boolean(price);
     }
 
-    // If no offering for this market:
-    // If it's the home market (PK) and the product has NO offerings anywhere, allow legacy fallback
-    if (country === 'PK') {
-      const hasAnyOffering = await ProductMarketOffering.exists({ merchantScopeId, productId });
-      if (!hasAnyOffering) {
-        return true;
+    // 3. Optional Gated Legacy Home-Market Fallback (Strictly disabled by default)
+    if (isLegacyHomeMarketOfferingCompatibilityEnabled()) {
+      try {
+        const config = await MarketService.getConfig({ merchantScopeId });
+        const homeCountry = (config.merchantCountry || config.homeCountry || '').toUpperCase();
+
+        if (country === homeCountry) {
+          const hasAnyOffering = await ProductMarketOffering.exists({ merchantScopeId, productId });
+          if (!hasAnyOffering) {
+            return true;
+          }
+        }
+      } catch {
+        // Fail closed
       }
     }
 
@@ -239,9 +329,9 @@ class ProductVisibilityPolicy {
    * @param {object} [options={}]
    * @param {mongoose.ClientSession|null} [options.session=null]
    * @param {mongoose.Types.ObjectId[]|null} [options.activeCategoryIds=null]
-   * @param {mongoose.Types.ObjectId|string|null} [options.categoryId=null] - Pre-resolved filtered category ID.
-   * @param {mongoose.Types.ObjectId|string|null} [options.subcategoryId=null] - Pre-resolved filtered subcategory ID.
-   * @param {string|null} [options.marketCountry=null] - Resolved shopping market country code.
+   * @param {mongoose.Types.ObjectId|string|null} [options.categoryId=null]
+   * @param {mongoose.Types.ObjectId|string|null} [options.subcategoryId=null]
+   * @param {string|null} [options.marketCountry=null]
    * @param {string} [options.merchantScopeId='default']
    * @param {Date} [options.atDate=new Date()]
    * @returns {Promise<object>} MongoDB filter object.
@@ -284,7 +374,6 @@ class ProductVisibilityPolicy {
           ? new mongoose.Types.ObjectId(catIdStr)
           : categoryId;
       } else {
-        // Requested category is inactive, unknown, or has inactive ancestor -> fail closed
         filter.category = new mongoose.Types.ObjectId();
       }
     } else {
@@ -302,7 +391,6 @@ class ProductVisibilityPolicy {
       }
     }
 
-    // Apply market offering and price book filtering if marketCountry is provided
     if (marketCountry) {
       const eligibleProductIds = await this.getEligibleProductIdsForMarket({
         marketCountry,
@@ -323,7 +411,7 @@ class ProductVisibilityPolicy {
    * @param {object} [options={}]
    * @param {mongoose.ClientSession|null} [options.session=null]
    * @param {mongoose.Types.ObjectId[]|Set<string>|null} [options.activeCategoryIds=null]
-   * @returns {Promise<boolean>} True if product category and optional subcategory are fully eligible.
+   * @returns {Promise<boolean>}
    */
   async isProductCategoryEligible(product, { session = null, activeCategoryIds = null } = {}) {
     if (!product || !product.category) {
@@ -388,6 +476,19 @@ class ProductVisibilityPolicy {
 
     return true;
   }
+
+  /**
+   * Returns count of legacy products lacking any market offerings.
+   * @param {object} [options]
+   * @param {string} [options.merchantScopeId='default']
+   * @returns {Promise<number>}
+   */
+  async getUnmigratedProductsCount({ merchantScopeId = 'default' } = {}) {
+    const allProductIdsWithOfferings = await ProductMarketOffering.distinct('productId', { merchantScopeId });
+    const ProductModel = mongoose.models.Product || mongoose.model('Product');
+    return ProductModel.countDocuments({ _id: { $nin: allProductIdsWithOfferings } });
+  }
 }
 
 module.exports = new ProductVisibilityPolicy();
+module.exports.ProductVisibilityPolicy = ProductVisibilityPolicy;

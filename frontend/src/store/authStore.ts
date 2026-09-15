@@ -17,6 +17,9 @@ export interface User {
   phone?: string;
   role?: string;
   isVerified: boolean;
+  residenceCountry?: string | null;
+  preferredMarketCountry?: string | null;
+  isCountryComplete?: boolean;
   createdAt?: string;
 }
 
@@ -44,6 +47,8 @@ interface AuthState {
     email: string;
     phone?: string;
     password: string;
+    residenceCountry: string;
+    preferredMarketCountry?: string;
     redirect?: string;
   }) => Promise<AuthResult>;
   verifyEmail: (token: string) => Promise<AuthResult>;

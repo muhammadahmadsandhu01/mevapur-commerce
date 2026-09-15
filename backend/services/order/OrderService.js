@@ -152,13 +152,30 @@ class OrderService {
       let lineTotalExact;
       let offering = null;
       let priceBookEntry = null;
+      let pricingPolicy = 'variant_override_optional';
+      let pricingPolicyApplied = 'legacy_home_fallback';
 
       if (destinationCountry) {
         const now = new Date();
-        offering = await ProductMarketOffering.findOne({
+        const activeScopeOffering = variant
+          ? await ProductMarketOffering.findOne({
+              merchantScopeId,
+              productId: product._id,
+              scopeType: 'variant',
+              scopeKey: String(variant._id),
+              marketCountry: destinationCountry,
+              status: 'active',
+              visibility: 'visible',
+              effectiveFrom: { $lte: now },
+              $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+            }).session(session)
+          : null;
+
+        const activeProductOffering = await ProductMarketOffering.findOne({
           merchantScopeId,
           productId: product._id,
-          variantId: variant ? variant._id : null,
+          scopeType: 'product',
+          scopeKey: 'product',
           marketCountry: destinationCountry,
           status: 'active',
           visibility: 'visible',
@@ -166,41 +183,73 @@ class OrderService {
           $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
         }).session(session);
 
-        if (!offering && variant) {
-          offering = await ProductMarketOffering.findOne({
+        offering = activeScopeOffering || activeProductOffering;
+        pricingPolicy = activeScopeOffering?.pricingPolicy
+          || activeProductOffering?.pricingPolicy
+          || (variant ? 'variant_override_optional' : 'inherit_product_price');
+
+        if (variant) {
+          // 1. Check dedicated variant price
+          const variantPrice = await MarketPriceBook.findOne({
             merchantScopeId,
             productId: product._id,
-            variantId: null,
-            marketCountry: destinationCountry,
-            status: 'active',
-            visibility: 'visible',
-            effectiveFrom: { $lte: now },
-            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
-          }).session(session);
-        }
-
-        priceBookEntry = await MarketPriceBook.findOne({
-          merchantScopeId,
-          productId: product._id,
-          variantId: variant ? variant._id : null,
-          marketCountry: destinationCountry,
-          currency,
-          status: 'active',
-          effectiveFrom: { $lte: now },
-          $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
-        }).session(session);
-
-        if (!priceBookEntry && variant) {
-          priceBookEntry = await MarketPriceBook.findOne({
-            merchantScopeId,
-            productId: product._id,
-            variantId: null,
+            scopeType: 'variant',
+            scopeKey: String(variant._id),
             marketCountry: destinationCountry,
             currency,
             status: 'active',
             effectiveFrom: { $lte: now },
             $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
           }).session(session);
+
+          if (variantPrice) {
+            priceBookEntry = variantPrice;
+            pricingPolicyApplied = 'variant_override';
+          } else {
+            // Check inheritance policy
+            if (pricingPolicy === 'variant_override_required') {
+              throw new AppError(
+                `Variant '${variant.sku || variant._id}' requires a dedicated variant price in market '${destinationCountry}' currency '${currency}'`,
+                409,
+                'VARIANT_PRICE_REQUIRED'
+              );
+            }
+
+            const productPrice = await MarketPriceBook.findOne({
+              merchantScopeId,
+              productId: product._id,
+              scopeType: 'product',
+              scopeKey: 'product',
+              marketCountry: destinationCountry,
+              currency,
+              status: 'active',
+              effectiveFrom: { $lte: now },
+              $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+            }).session(session);
+
+            if (productPrice) {
+              priceBookEntry = productPrice;
+              pricingPolicyApplied = 'inherit_product_price';
+            }
+          }
+        } else {
+          // Product-level pricing
+          const productPrice = await MarketPriceBook.findOne({
+            merchantScopeId,
+            productId: product._id,
+            scopeType: 'product',
+            scopeKey: 'product',
+            marketCountry: destinationCountry,
+            currency,
+            status: 'active',
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+          }).session(session);
+
+          if (productPrice) {
+            priceBookEntry = productPrice;
+            pricingPolicyApplied = 'product_price';
+          }
         }
       }
 
@@ -212,6 +261,16 @@ class OrderService {
         lineTotal = Number(lineTotalMoney.toDecimalString());
         lineTotalExact = MoneyMapper.toPersistence(lineTotalMoney);
       } else {
+        const isLegacyCompatibility = ProductVisibilityPolicy.isLegacyHomeMarketOfferingCompatibilityEnabled();
+
+        if (!isLegacyCompatibility) {
+          throw new AppError(
+            `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
+            409,
+            'PRICE_NOT_FOUND'
+          );
+        }
+
         const rawPrice = variant
           ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
           : product.price;
@@ -223,9 +282,13 @@ class OrderService {
             ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE
           );
         }
-        lineTotal = this.roundMoney(price * item.quantity);
-        unitPriceExact = MoneyMapper.fromLegacy(price, currency);
-        lineTotalExact = MoneyMapper.fromLegacy(lineTotal, currency);
+        const unitPriceMoney = Money.fromLegacyNumber(rawPrice, currency);
+        const lineTotalMoney = unitPriceMoney.multiplyRational(item.quantity, 1);
+        price = Number(unitPriceMoney.toDecimalString());
+        lineTotal = Number(lineTotalMoney.toDecimalString());
+        unitPriceExact = MoneyMapper.toPersistence(unitPriceMoney);
+        lineTotalExact = MoneyMapper.toPersistence(lineTotalMoney);
+        pricingPolicyApplied = 'legacy_home_fallback';
       }
 
       const variantLabel = variant
@@ -254,8 +317,12 @@ class OrderService {
         categoryId: product.category || null,
         offeringId: offering ? offering._id : null,
         offeringLockVersion: offering ? offering.lockVersion : null,
+        offeringVersion: offering ? offering.version : null,
         priceBookEntryId: priceBookEntry ? priceBookEntry._id : null,
         priceBookLockVersion: priceBookEntry ? priceBookEntry.lockVersion : null,
+        priceBookVersion: priceBookEntry ? priceBookEntry.version : null,
+        pricingPolicy,
+        pricingPolicyApplied,
         priceSource: priceBookEntry ? priceBookEntry.priceSource : 'legacy',
         fulfillmentMode: offering ? offering.fulfillmentMode : 'local'
       });

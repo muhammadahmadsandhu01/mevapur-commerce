@@ -48,7 +48,9 @@ exports.createOrder = async (req, res, next) => {
     logger.warn('Order creation rejected', {
       requestId: req.requestId,
       userId: req.user?.id,
-      errorCode: error.code || 'ORDER_CREATE_FAILED'
+      errorCode: error.code || 'ORDER_CREATE_FAILED',
+      errorMessage: error.message,
+      stack: error.stack
     });
     return next(error);
   }

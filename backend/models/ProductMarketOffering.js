@@ -3,6 +3,7 @@
  * @description Market-Specific Product Offering Model.
  * Governs product availability, lifecycle status, visibility, fulfillment mode,
  * and eligible origin routing per merchant shopping/delivery market.
+ * Implements immutable versioning and active authority CAS indices.
  */
 
 const mongoose = require('mongoose');
@@ -35,6 +36,19 @@ const productMarketOfferingSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  scopeType: {
+    type: String,
+    enum: ['product', 'variant'],
+    default: 'product',
+    required: true
+  },
+  scopeKey: {
+    type: String,
+    required: true,
+    trim: true,
+    default: 'product',
+    maxlength: 100
+  },
   variantId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
@@ -53,9 +67,21 @@ const productMarketOfferingSchema = new mongoose.Schema({
     match: /^[A-Z]{2}$/,
     index: true
   },
+  pricingPolicy: {
+    type: String,
+    enum: ['inherit_product_price', 'variant_override_optional', 'variant_override_required'],
+    default: 'variant_override_optional',
+    required: true
+  },
+  version: {
+    type: Number,
+    default: 1,
+    min: 1,
+    required: true
+  },
   status: {
     type: String,
-    enum: ['draft', 'active', 'suspended', 'retired'],
+    enum: ['draft', 'scheduled', 'active', 'superseded', 'suspended', 'retired'],
     default: 'draft',
     required: true,
     index: true
@@ -115,22 +141,63 @@ const productMarketOfferingSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Scoped Unique Index for Product + Variant + Market
+// A. Immutable version identity index
 productMarketOfferingSchema.index(
-  { merchantScopeId: 1, productId: 1, variantId: 1, marketCountry: 1 },
-  { unique: true, name: 'unique_merchant_product_variant_market_offering' }
+  {
+    merchantScopeId: 1,
+    productId: 1,
+    scopeType: 1,
+    scopeKey: 1,
+    marketCountry: 1,
+    version: 1
+  },
+  {
+    unique: true,
+    name: 'merchantScopeId_1_productId_1_scopeType_1_scopeKey_1_marketCountry_1_version_1'
+  }
 );
 
-// Catalog Query Optimization Indexes
+// B. One currently active authority index
+productMarketOfferingSchema.index(
+  {
+    merchantScopeId: 1,
+    productId: 1,
+    scopeType: 1,
+    scopeKey: 1,
+    marketCountry: 1
+  },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'active' },
+    name: 'merchantScopeId_1_productId_1_scopeType_1_scopeKey_1_marketCountry_1_status_active_unique'
+  }
+);
+
+// C. Catalog Query Optimization Indexes
 productMarketOfferingSchema.index(
   { merchantScopeId: 1, marketCountry: 1, status: 1, visibility: 1, effectiveFrom: 1, effectiveTo: 1 },
-  { name: 'market_active_catalog_offering_idx' }
+  { name: 'merchantScopeId_1_marketCountry_1_status_1_visibility_1_effectiveFrom_1_effectiveTo_1' }
 );
 
 productMarketOfferingSchema.index(
   { merchantScopeId: 1, productId: 1, marketCountry: 1, status: 1 },
-  { name: 'merchant_product_market_status_idx' }
+  { name: 'merchantScopeId_1_productId_1_marketCountry_1_status_1' }
 );
+
+/**
+ * Pre-validation hook to align scopeKey and scopeType deterministically.
+ */
+productMarketOfferingSchema.pre('validate', function syncScope(next) {
+  if (this.variantId) {
+    this.scopeType = 'variant';
+    this.scopeKey = String(this.variantId);
+  } else {
+    this.scopeType = 'product';
+    this.scopeKey = 'product';
+    this.variantId = null;
+  }
+  next();
+});
 
 /**
  * Checks if the offering is currently effective and active.

@@ -4,6 +4,8 @@ const Order = require('../../../models/Order');
 const Payment = require('../../../models/Payment');
 const Refund = require('../../../models/Refund');
 const ProductVisibilityPolicy = require('../../../services/product/ProductVisibilityPolicy');
+const MarketService = require('../../../services/MarketService');
+const MarketPriceBook = require('../../../models/MarketPriceBook');
 
 const MAX_RESULT_ITEMS = 5;
 const QUERY_TIMEOUT_MS = 2500;
@@ -17,10 +19,21 @@ const assertUserId = (userId) => {
   }
 };
 
-const MarketPriceBook = require('../../../models/MarketPriceBook');
+const resolveTargetMarket = async (marketCountry, market) => {
+  const explicit = (marketCountry || market || '').trim().toUpperCase();
+  if (explicit && /^[A-Z]{2}$/.test(explicit)) {
+    return explicit;
+  }
+  try {
+    const config = await MarketService.getConfig();
+    return (config.merchantCountry || config.homeCountry || 'PK').toUpperCase();
+  } catch {
+    return 'PK';
+  }
+};
 
 const searchPublicProducts = async ({ query, marketCountry, market }) => {
-  const targetMarket = (marketCountry || market || 'PK').toUpperCase();
+  const targetMarket = await resolveTargetMarket(marketCountry, market);
   const normalized = String(query || '').trim();
   if (!SAFE_SEARCH.test(normalized)) {
     throw new Error('ASSISTANT_PRODUCT_SEARCH_INVALID');
@@ -50,6 +63,7 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
   const priceDocs = await MarketPriceBook.find({
     marketCountry: targetMarket,
     productId: { $in: products.map((p) => p._id) },
+    scopeType: 'product',
     status: 'active',
     effectiveFrom: { $lte: now },
     $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
@@ -78,7 +92,7 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
 };
 
 const getPublicProductDetails = async ({ productId, marketCountry, market }) => {
-  const targetMarket = (marketCountry || market || 'PK').toUpperCase();
+  const targetMarket = await resolveTargetMarket(marketCountry, market);
   if (!mongoose.isValidObjectId(productId)) {
     throw new Error('ASSISTANT_PRODUCT_ID_INVALID');
   }
@@ -102,6 +116,7 @@ const getPublicProductDetails = async ({ productId, marketCountry, market }) => 
   const marketPrice = await MarketPriceBook.findOne({
     marketCountry: targetMarket,
     productId: product._id,
+    scopeType: 'product',
     status: 'active',
     effectiveFrom: { $lte: now },
     $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
@@ -138,13 +153,37 @@ const getCurrentCustomerOrders = async ({ userId }) => {
 const getCurrentCustomerOrderStatus = async ({ userId, orderId }) => {
   assertUserId(userId);
   const normalizedOrderId = String(orderId || '').trim();
-  if (!/^ORD-[A-Z0-9-]{8,40}$/.test(normalizedOrderId)) {
-    throw new Error('ASSISTANT_ORDER_ID_INVALID');
+  if (!normalizedOrderId) {
+    throw new Error('ASSISTANT_ORDER_ID_REQUIRED');
   }
-  return Order.findOne({ user: userId, orderId: normalizedOrderId })
-    .select('orderId orderStatus paymentStatus paymentMethod totalAmount trackingNumber courierCompany createdAt')
+
+  const query = { user: userId };
+  if (mongoose.isValidObjectId(normalizedOrderId)) {
+    query.$or = [{ _id: normalizedOrderId }, { orderId: normalizedOrderId }];
+  } else {
+    query.orderId = normalizedOrderId;
+  }
+
+  const order = await Order.findOne(query)
+    .select('orderId orderStatus paymentStatus paymentMethod totalAmount shippingAddress trackingNumber estimatedDelivery createdAt')
     .maxTimeMS(QUERY_TIMEOUT_MS)
     .lean();
+
+  if (!order) {
+    return null;
+  }
+
+  return {
+    id: String(order._id),
+    orderId: order.orderId,
+    orderStatus: order.orderStatus,
+    paymentStatus: order.paymentStatus,
+    paymentMethod: order.paymentMethod,
+    totalAmount: order.totalAmount,
+    trackingNumber: order.trackingNumber || null,
+    estimatedDelivery: order.estimatedDelivery || null,
+    createdAt: order.createdAt
+  };
 };
 
 const getCurrentCustomerPaymentStatus = async ({ userId }) => {
@@ -251,6 +290,42 @@ const getProviderAvailabilitySummary = async () => {
   };
 };
 
+const getCustomerReturnEligibleOrders = async ({ userId }) => {
+  assertUserId(userId);
+  return Order.find({
+    user: userId,
+    orderStatus: 'delivered'
+  })
+    .select('orderId totalAmount items createdAt')
+    .sort({ createdAt: -1 })
+    .limit(MAX_RESULT_ITEMS)
+    .maxTimeMS(QUERY_TIMEOUT_MS)
+    .lean();
+};
+
+const getCustomerPaymentAuditSummary = async ({ userId }) => {
+  assertUserId(userId);
+  const [payments, refunds] = await Promise.all([
+    Payment.find({ user: userId })
+      .select('orderId paymentMethod amount currency status createdAt')
+      .sort({ createdAt: -1 })
+      .limit(MAX_RESULT_ITEMS)
+      .maxTimeMS(QUERY_TIMEOUT_MS)
+      .lean(),
+    Refund.find({ user: userId })
+      .select('refundNumber amount currency status reason createdAt')
+      .sort({ createdAt: -1 })
+      .limit(MAX_RESULT_ITEMS)
+      .maxTimeMS(QUERY_TIMEOUT_MS)
+      .lean()
+  ]);
+
+  return {
+    recentPayments: payments,
+    recentRefunds: refunds
+  };
+};
+
 const TOOL_DEFINITIONS = Object.freeze({
   searchPublicProducts: Object.freeze({
     audience: ['anonymous', 'customer', 'admin'],
@@ -339,5 +414,7 @@ module.exports = {
   getPaymentStatusSummary,
   getManualPaymentQueueSummary,
   getRefundSummary,
-  getProviderAvailabilitySummary
+  getProviderAvailabilitySummary,
+  getCustomerReturnEligibleOrders,
+  getCustomerPaymentAuditSummary
 };

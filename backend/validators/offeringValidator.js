@@ -23,7 +23,10 @@ const integerMinorString = z.string().trim().regex(/^\d+$/, 'Amount must be an e
 
 const singleOfferingSchema = z.object({
   marketCountry: countryCode,
-  status: z.enum(['draft', 'active', 'suspended', 'retired']).default('active'),
+  variantId: objectId.nullable().optional(),
+  sku: z.string().trim().max(100).optional(),
+  pricingPolicy: z.enum(['inherit_product_price', 'variant_override_optional', 'variant_override_required']).optional(),
+  status: z.enum(['draft', 'scheduled', 'active', 'superseded', 'suspended', 'retired']).default('active'),
   visibility: z.enum(['visible', 'hidden']).default('visible'),
   fulfillmentMode: z.enum(['local', 'cross_border', 'hybrid']).default('local'),
   eligibleFulfillmentOriginIds: z.array(z.string().trim().max(64)).max(50).default([]),
@@ -55,20 +58,24 @@ const singlePriceBookEntrySchema = z.object({
   marketCountry: countryCode,
   currency: currencyCode,
   currencyExponent: z.number().int().min(0).max(4).optional(),
+  variantId: objectId.nullable().optional(),
+  sku: z.string().trim().max(100).optional(),
   amountMinor: integerMinorString,
   compareAtAmountMinor: integerMinorString.nullable().optional(),
-  priceSource: z.enum(['manual', 'governed_fx_snapshot']).default('manual'),
+  priceSource: z.enum(['manual', 'governed_fx_snapshot', 'custom_rule']).default('manual'),
+  roundingPolicy: z.enum(['HALF_EVEN', 'HALF_UP', 'DOWN', 'UP', 'NONE']).optional(),
   fxSnapshotReference: z.object({
     snapshotId: z.string().trim().max(64),
     baseCurrency: currencyCode,
     targetCurrency: currencyCode,
     rateNumerator: z.number().int().min(1),
     rateDenominator: z.number().int().min(1).default(10000),
+    roundingPolicy: z.enum(['HALF_EVEN', 'HALF_UP', 'DOWN', 'UP', 'NONE']).optional(),
     capturedAt: z.coerce.date().optional()
   }).nullable().optional(),
   effectiveFrom: z.coerce.date().optional(),
   effectiveTo: z.coerce.date().nullable().optional(),
-  status: z.enum(['draft', 'active', 'superseded', 'retired']).default('active'),
+  status: z.enum(['draft', 'scheduled', 'active', 'superseded', 'retired']).default('active'),
   lockVersion: z.number().int().min(1).optional()
 }).strict().superRefine((val, ctx) => {
   if (val.effectiveFrom && val.effectiveTo && val.effectiveTo < val.effectiveFrom) {
@@ -77,6 +84,20 @@ const singlePriceBookEntrySchema = z.object({
       path: ['effectiveTo'],
       message: 'effectiveTo must not be earlier than effectiveFrom'
     });
+  }
+  if (val.currency) {
+    try {
+      const meta = CurrencyRegistry.get(val.currency);
+      if (meta && meta.exponent !== null && val.currencyExponent !== undefined && val.currencyExponent !== meta.exponent) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['currencyExponent'],
+          message: `currencyExponent ${val.currencyExponent} does not match CurrencyRegistry exponent ${meta.exponent} for ${val.currency}`
+        });
+      }
+    } catch {
+      // currencyCode refinement already handles unrecognized currencies
+    }
   }
   if (val.compareAtAmountMinor && BigInt(val.compareAtAmountMinor) < BigInt(val.amountMinor)) {
     ctx.addIssue({

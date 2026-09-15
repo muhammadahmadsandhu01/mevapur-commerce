@@ -457,6 +457,23 @@ const createRuntimeConfig = (environment = process.env) => {
     'COMMERCE_EXACT_READ_READY',
     false
   );
+  const allowLegacyOfferingsRaw = parseBoolean(
+    environment,
+    'ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY',
+    false
+  );
+  if (isDeployed && allowLegacyOfferingsRaw) {
+    const emergencyOverride = parseBoolean(
+      environment,
+      'EMERGENCY_ALLOW_LEGACY_OFFERINGS_IN_PROD',
+      false
+    );
+    if (!emergencyOverride) {
+      throw new RuntimeConfigurationError(
+        'ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY is forbidden in staging and production'
+      );
+    }
+  }
 
   return Object.freeze({
     initialized: true,
@@ -464,7 +481,8 @@ const createRuntimeConfig = (environment = process.env) => {
     isDeployed,
     commerce: Object.freeze({
       moneyMode: commerceMoneyMode,
-      exactReadReady: commerceExactReadReady
+      exactReadReady: commerceExactReadReady,
+      allowLegacyHomeMarketOfferingCompatibility: allowLegacyOfferingsRaw
     }),
     origins: Object.freeze({
       storefront,

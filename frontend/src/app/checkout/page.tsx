@@ -591,6 +591,27 @@ export default function CheckoutPage() {
         </div>
       </div>
 
+      {/* Profile Country Incompletion Warning */}
+      {isAuthenticated && user && (!user.residenceCountry || user.isCountryComplete === false) && (
+        <div className="mb-6 p-4 bg-orange-50 border-2 border-[#ff8a00] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-[#9a3412] shrink-0 mt-0.5" size={20} />
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Residence Country Required</h3>
+              <p className="text-xs text-slate-700 mt-0.5">
+                Please complete your verified country of residence in your profile before submitting your order.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/account?tab=profile&redirect=/checkout"
+            className="px-4 py-2 bg-[#0b132b] hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition shrink-0 inline-flex items-center justify-center"
+          >
+            Complete Profile
+          </Link>
+        </div>
+      )}
+
       {/* Material Change Reconfirmation Alert */}
       {materialChangeNotice && (
         <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">

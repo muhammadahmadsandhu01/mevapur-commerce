@@ -47,12 +47,24 @@ const orderItemSchema = new mongoose.Schema({
     default: null
   },
   offeringLockVersion: { type: Number, default: null },
+  offeringVersion: { type: Number, default: null },
   priceBookEntryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'MarketPriceBook',
     default: null
   },
   priceBookLockVersion: { type: Number, default: null },
+  priceBookVersion: { type: Number, default: null },
+  pricingPolicy: {
+    type: String,
+    enum: ['inherit_product_price', 'variant_override_optional', 'variant_override_required', 'legacy'],
+    default: 'legacy'
+  },
+  pricingPolicyApplied: {
+    type: String,
+    enum: ['variant_override', 'inherit_product_price', 'product_price', 'legacy_home_fallback'],
+    default: 'legacy_home_fallback'
+  },
   priceSource: {
     type: String,
     enum: ['manual', 'governed_fx_snapshot', 'legacy'],

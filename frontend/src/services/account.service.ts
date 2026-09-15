@@ -2,7 +2,17 @@ import { isAxiosError } from 'axios';
 import api from '../lib/api.ts';
 
 export type Address = { id: string; fullName: string; phone: string; address: string; addressLine2?: string; city: string; province: string; postalCode?: string; country: string; isDefault: boolean };
-export type AccountProfile = { id: string; fullName: string; email: string; phone?: string; avatar?: string; isVerified: boolean };
+export type AccountProfile = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  avatar?: string;
+  residenceCountry?: string | null;
+  preferredMarketCountry?: string | null;
+  isCountryComplete?: boolean;
+  isVerified: boolean;
+};
 export type ReturnReason = 'damaged' | 'wrong_item' | 'not_as_described'
   | 'not_satisfied' | 'duplicate' | 'other';
 export type AccountReturnStatus = 'pending' | 'approved' | 'received' | 'inspected'
@@ -140,7 +150,7 @@ export interface MarketCapability {
 
 export const accountService = {
   profile: () => api.get('/account/profile').then(data<{ profile: AccountProfile }>),
-  updateProfile: (payload: Partial<Pick<AccountProfile, 'fullName' | 'phone' | 'avatar'>>) => api.patch('/account/profile', payload).then(data<{ profile: AccountProfile }>),
+  updateProfile: (payload: Partial<Pick<AccountProfile, 'fullName' | 'phone' | 'avatar' | 'residenceCountry' | 'preferredMarketCountry'>>) => api.patch('/account/profile', payload).then(data<{ profile: AccountProfile }>),
   addresses: () => api.get('/account/addresses').then(data<{ addresses: Address[] }>),
   addAddress: (payload: Omit<Address, 'id'>) => api.post('/account/addresses', payload).then(data<{ address: Address }>),
   updateAddress: (id: string, payload: Partial<Omit<Address, 'id'>>) => api.patch(`/account/addresses/${id}`, payload).then(data<{ address: Address }>),

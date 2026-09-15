@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { type FormEvent, useCallback, useEffect, useState, Suspense } from 'react';
+import { type FormEvent, useCallback, useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -12,7 +12,9 @@ import {
   Bell,
   Loader2,
   ShieldCheck,
-  MessageSquare
+  MessageSquare,
+  Globe,
+  AlertCircle
 } from 'lucide-react';
 import ReturnRequestForm from '@/components/account/ReturnRequestForm';
 import AddressBook from '@/components/account/AddressBook';
@@ -30,6 +32,7 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { formatMoney } from '@/lib/money';
 import { getSessionGeneration, isCurrentSessionGeneration } from '@/lib/authSession';
+import { getAllCountryCodes, getCountryPolicy } from '@/lib/countryPolicy';
 import Toast from '@/components/Toast';
 
 type AccountTab = 'profile' | 'addresses' | 'orders' | 'reviews' | 'security' | 'notifications';
@@ -44,11 +47,20 @@ function AccountPageContent() {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [avatar, setAvatar] = useState('');
+  const [residenceCountry, setResidenceCountry] = useState('');
+  const [preferredMarketCountry, setPreferredMarketCountry] = useState('');
   const [returns, setReturns] = useState<AccountReturnSummary[]>([]);
   const [refunds, setRefunds] = useState<AccountRefundSummary[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const countryOptions = useMemo(() => {
+    return getAllCountryCodes()
+      .map((code) => getCountryPolicy(code))
+      .filter((p) => p.code !== 'UNKNOWN')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
 
   useEffect(() => {
     void bootstrap();
@@ -85,6 +97,8 @@ function AccountPageContent() {
         setFullName(profileResult.profile.fullName || '');
         setPhone(profileResult.profile.phone || '');
         setAvatar(profileResult.profile.avatar || '');
+        setResidenceCountry(profileResult.profile.residenceCountry || '');
+        setPreferredMarketCountry(profileResult.profile.preferredMarketCountry || '');
         setReturns(returnResult.returns || []);
         setRefunds(refundResult.refunds || []);
       }
@@ -121,10 +135,12 @@ function AccountPageContent() {
 
     setSavingProfile(true);
     try {
-      const payload: Partial<Pick<AccountProfile, 'fullName' | 'phone' | 'avatar'>> = {
+      const payload: Partial<Pick<AccountProfile, 'fullName' | 'phone' | 'avatar' | 'residenceCountry' | 'preferredMarketCountry'>> = {
         fullName: fullName.trim(),
         phone: phone.trim(),
-        ...(avatar.trim() ? { avatar: avatar.trim() } : { avatar: '' })
+        ...(avatar.trim() ? { avatar: avatar.trim() } : { avatar: '' }),
+        ...(residenceCountry.trim() ? { residenceCountry: residenceCountry.trim().toUpperCase() } : {}),
+        ...(preferredMarketCountry.trim() ? { preferredMarketCountry: preferredMarketCountry.trim().toUpperCase() } : { preferredMarketCountry: null })
       };
       const result = await accountService.updateProfile(payload);
       setProfile(result.profile);
@@ -271,10 +287,20 @@ function AccountPageContent() {
               <div>
                 <h2 className="text-lg font-bold text-[#0b132b]">Personal Details</h2>
                 <p className="text-xs text-slate-500">
-                  Update your contact information and public account details.
+                  Update your contact information, verified residence country, and shopping preferences.
                 </p>
               </div>
             </div>
+
+            {profile && (!profile.isCountryComplete || !profile.residenceCountry) && (
+              <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-start gap-3">
+                <AlertCircle className="text-amber-700 shrink-0 mt-0.5" size={18} />
+                <div className="text-xs text-amber-900">
+                  <span className="font-bold">Profile Incomplete: </span>
+                  Please select and save your <span className="font-bold">Country of Residence</span> below to enable checkout and place orders.
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSaveProfile} className="mt-6 max-w-xl space-y-4">
               <div>
@@ -316,6 +342,61 @@ function AccountPageContent() {
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0b132b] focus:outline-none"
                   placeholder="03001234567"
                 />
+              </div>
+
+              {/* Country of Residence */}
+              <div>
+                <label htmlFor="prof-residenceCountry" className="block text-xs font-semibold text-slate-700">
+                  Country of Residence <span className="text-red-500">*</span>
+                </label>
+                <div className="relative mt-1">
+                  <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <select
+                    id="prof-residenceCountry"
+                    aria-label="Country of Residence"
+                    required
+                    value={residenceCountry}
+                    onChange={(e) => setResidenceCountry(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-900 focus:border-[#0b132b] focus:outline-none appearance-none cursor-pointer"
+                  >
+                    <option value="">Select your country of residence</option>
+                    {countryOptions.map((country) => (
+                      <option key={country.code} value={country.code}>
+                        {country.name} ({country.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Used for tax authority assessment and customer commerce eligibility.
+                </p>
+              </div>
+
+              {/* Preferred Shopping Market */}
+              <div>
+                <label htmlFor="prof-preferredMarket" className="block text-xs font-semibold text-slate-700">
+                  Preferred Shopping Market <span className="text-slate-500 font-normal">(Optional)</span>
+                </label>
+                <div className="relative mt-1">
+                  <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <select
+                    id="prof-preferredMarket"
+                    aria-label="Preferred Shopping Market"
+                    value={preferredMarketCountry}
+                    onChange={(e) => setPreferredMarketCountry(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-900 focus:border-[#0b132b] focus:outline-none appearance-none cursor-pointer"
+                  >
+                    <option value="">Default Store Market (Automatic)</option>
+                    {countryOptions.map((country) => (
+                      <option key={country.code} value={country.code}>
+                        {country.name} ({country.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Overrides default browsing market when logged in.
+                </p>
               </div>
 
               <div>
