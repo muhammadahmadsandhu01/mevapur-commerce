@@ -509,6 +509,13 @@ class PaymentWebhookProcessor {
         });
         await order.save(session ? { session } : {});
 
+        try {
+          const InventoryReservationService = require('../../inventory/InventoryReservationService');
+          await InventoryReservationService.confirmReservation({ orderId: order.orderId, session });
+        } catch (_resvErr) {
+          // Safe fallback if order used legacy inventory or already confirmed
+        }
+
         return 'processed';
       }
 
@@ -541,6 +548,17 @@ class PaymentWebhookProcessor {
         });
         await order.save(session ? { session } : {});
 
+        try {
+          const InventoryReservationService = require('../../inventory/InventoryReservationService');
+          await InventoryReservationService.releaseReservation({
+            orderId: order.orderId,
+            releaseReason: 'PAYMENT_FAILED_RELEASE',
+            session
+          });
+        } catch (_resvErr) {
+          // Safe fallback if order used legacy inventory
+        }
+
         return 'processed';
       }
 
@@ -568,6 +586,18 @@ class PaymentWebhookProcessor {
           note: 'Order payment cancelled via provider webhook',
           timestamp: now
         });
+        await order.save(session ? { session } : {});
+
+        try {
+          const InventoryReservationService = require('../../inventory/InventoryReservationService');
+          await InventoryReservationService.releaseReservation({
+            orderId: order.orderId,
+            releaseReason: 'PAYMENT_FAILED_RELEASE',
+            session
+          });
+        } catch (_resvErr) {
+          // Safe fallback if order used legacy inventory
+        }
         await order.save(session ? { session } : {});
 
         return 'processed';

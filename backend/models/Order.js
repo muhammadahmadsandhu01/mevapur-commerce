@@ -74,6 +74,29 @@ const orderItemSchema = new mongoose.Schema({
     type: String,
     enum: ['local', 'cross_border', 'hybrid'],
     default: 'local'
+  },
+  fulfillmentLocationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FulfillmentLocation',
+    default: null
+  },
+  locationCode: { type: String, default: '', trim: true, uppercase: true, maxlength: 50 },
+  originCountry: { type: String, default: '', trim: true, uppercase: true, maxlength: 2 },
+  shipmentGroup: { type: String, default: 'group_1', trim: true, maxlength: 50 },
+  inventoryReservationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'InventoryReservation',
+    default: null
+  },
+  inventoryPositionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'InventoryPosition',
+    default: null
+  },
+  returnLocationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FulfillmentLocation',
+    default: null
   }
 }, { _id: false });
 
@@ -249,6 +272,11 @@ const orderSchema = new mongoose.Schema({
   cancelReason: { type: String, default: '', maxlength: 500 },
   inventoryRestoredAt: { type: Date, default: null },
   couponRestoredAt: { type: Date, default: null },
+  inventoryReservationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'InventoryReservation',
+    default: null
+  },
   returnReservationVersion: { type: Number, default: 0, select: false }
 }, {
   timestamps: true,

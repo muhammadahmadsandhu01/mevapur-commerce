@@ -776,12 +776,38 @@ class OrderService {
             });
           }
 
-          await InventoryService.reserve(persistedItems, {
+          const reservationResult = await InventoryService.reserve(persistedItems, {
             session,
             orderId,
             orderObjectId,
-            userId
+            userId,
+            destinationCountry,
+            merchantScopeId: market.merchantScopeId || 'default',
+            idempotencyKey,
+            isInstantConfirm: orderData.paymentMethod === 'cod'
           });
+
+          if (reservationResult?.reservation) {
+            order.inventoryReservationId = reservationResult.reservation._id;
+            if (Array.isArray(reservationResult.allocations)) {
+              order.items.forEach((item) => {
+                const alloc = reservationResult.allocations.find((a) =>
+                  String(a.productId) === String(item.product) &&
+                  String(a.variantId || '') === String(item.variantId || '')
+                );
+                if (alloc) {
+                  item.fulfillmentLocationId = alloc.locationId;
+                  item.locationCode = alloc.locationCode;
+                  item.originCountry = alloc.originCountry;
+                  item.shipmentGroup = alloc.shipmentGroup;
+                  item.inventoryReservationId = reservationResult.reservation._id;
+                  item.inventoryPositionId = alloc.inventoryPositionId;
+                  item.fulfillmentMode = alloc.fulfillmentMode;
+                }
+              });
+            }
+            await order.save({ session });
+          }
 
           return { order, isReplay: false };
         });
@@ -1048,6 +1074,18 @@ class OrderService {
           note: adminNote,
           addedBy: actor.id
         });
+      }
+      if (orderStatus === ORDER_STATUSES.SHIPPED) {
+        try {
+          const InventoryReservationService = require('../inventory/InventoryReservationService');
+          await InventoryReservationService.consumeShipment({
+            order,
+            session,
+            userId: actor.id
+          });
+        } catch (_consumeErr) {
+          // Safe fallback for legacy orders
+        }
       }
       if (orderStatus === ORDER_STATUSES.DELIVERED) {
         order.deliveredAt = new Date();
