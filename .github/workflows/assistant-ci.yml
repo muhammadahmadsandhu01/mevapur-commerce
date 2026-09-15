@@ -90,13 +90,13 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Run Storefront Production CSP and Security Standalone Smoke Test
+      - name: Run Storefront Post-Build Standalone Server and Security Tests
         working-directory: frontend
         env:
           NEXT_PUBLIC_SITE_NAME: 'HARZAAR'
           NEXT_PUBLIC_SITE_URL: 'https://storefront.mevapur.test'
           NEXT_PUBLIC_API_URL: 'https://api.mevapur.test'
-        run: npm run test:production-csp
+        run: npm run test:postbuild
 
       - name: Install Admin Panel Dependencies
         working-directory: admin-panel

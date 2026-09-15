@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test, { describe } from 'node:test';
 import http from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -149,6 +150,12 @@ describe('CMS Storefront Document-Level HTTP Semantics & Isolation (Unmocked E2E
 
     // 3. Start Production Next.js Standalone Server
     const standaloneServerPath = path.resolve(process.cwd(), '.next', 'standalone', 'server.js');
+    if (!existsSync(standaloneServerPath)) {
+      throw new Error(
+        `Next.js standalone server binary not found at expected path: ${standaloneServerPath}. Run 'npm run build' before executing this post-build integration test.`
+      );
+    }
+
     nextProcess = spawn(process.execPath, [standaloneServerPath], {
       cwd: path.resolve(process.cwd(), '.next', 'standalone'),
       env: {
@@ -164,13 +171,22 @@ describe('CMS Storefront Document-Level HTTP Semantics & Isolation (Unmocked E2E
     });
 
     // Wait for Next.js server to respond
+    let started = false;
     for (let i = 0; i < 40; i++) {
       try {
         const res = await fetch(`${FRONTEND_URL}/healthz`);
-        if (res.status === 200) break;
+        if (res.status === 200 || res.status === 404 || res.ok) {
+          started = true;
+          break;
+        }
       } catch {
         await new Promise((r) => setTimeout(r, 250));
       }
+    }
+    if (!started) {
+      throw new Error(
+        `Production Next.js standalone server at ${FRONTEND_URL} failed to respond to /healthz within 10s timeout.`
+      );
     }
   });
 
