@@ -131,7 +131,14 @@ class ProductMarketOfferingService {
     }
 
     const config = await MarketService.getConfig({ merchantScopeId });
-    const enabledCountries = config.enabledCountries || [config.merchantCountry || 'PK'];
+    if (!config || !Array.isArray(config.enabledCountries) || config.enabledCountries.length === 0) {
+      throw new AppError(
+        `Governed store configuration for scope '${merchantScopeId}' is missing enabledCountries`,
+        503,
+        'MARKET_CONFIGURATION_UNAVAILABLE'
+      );
+    }
+    const enabledCountries = config.enabledCountries;
 
     const executeUpsert = async (sess) => {
       const results = [];
@@ -277,7 +284,14 @@ class ProductMarketOfferingService {
     }
 
     const config = await MarketService.getConfig({ merchantScopeId });
-    const enabledCurrencies = config.enabledCurrencies || [config.defaultCurrency || config.baseCurrency || 'PKR'];
+    if (!config || !Array.isArray(config.enabledCurrencies) || config.enabledCurrencies.length === 0) {
+      throw new AppError(
+        `Governed store configuration for scope '${merchantScopeId}' is missing enabledCurrencies`,
+        503,
+        'MARKET_CONFIGURATION_UNAVAILABLE'
+      );
+    }
+    const enabledCurrencies = config.enabledCurrencies;
 
     const executePriceUpsert = async (sess) => {
       const results = [];

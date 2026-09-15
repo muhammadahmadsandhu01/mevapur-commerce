@@ -233,6 +233,76 @@ async function setupCartCheckoutApiMocks(page: Page, authenticated = true) {
       });
     }
 
+    // Market Config
+    if (url.includes('/market/config')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            configVersionId: 'cfg-test-01',
+            homeCountry: 'PK',
+            merchantCountry: 'PK',
+            baseCurrency: 'PKR',
+            defaultCurrency: 'PKR',
+            enabledCountries: ['PK'],
+            enabledCurrencies: ['PKR'],
+            isEnabled: true,
+          },
+        }),
+      });
+    }
+
+    // Payment Methods
+    if (url.includes('/payments/methods')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            methods: [
+              { id: 'cod', name: 'Cash on Delivery', description: 'Pay upon delivery', type: 'offline', enabled: true },
+            ],
+          },
+        }),
+      });
+    }
+
+    // Checkout Quote
+    if (url.includes('/checkout/quote')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            quoteToken: 'mock-quote-token-cart-acceptance',
+            currency: 'PKR',
+            subtotalExact: { amountMinor: '300000', currency: 'PKR' },
+            discountExact: { amountMinor: '30000', currency: 'PKR' },
+            shippingCostExact: { amountMinor: '0', currency: 'PKR' },
+            taxExact: { amountMinor: '0', currency: 'PKR' },
+            totalAmountExact: { amountMinor: '270000', currency: 'PKR' },
+            appliedCoupon: { code: 'SAVE10', estimatedDiscountExact: { amountMinor: '30000', currency: 'PKR' } },
+            shippingAddress: { country: 'PK', countryCode: 'PK' },
+            items: [
+              {
+                productId: 'prod-almonds',
+                variantId: 'var-alm-500g',
+                name: 'Premium California Almonds',
+                sku: 'ALM-CAL-500',
+                quantity: 2,
+                unitPriceExact: { amountMinor: '150000', currency: 'PKR' },
+                lineTotalExact: { amountMinor: '300000', currency: 'PKR' },
+              },
+            ],
+          },
+        }),
+      });
+    }
+
     // Order Creation
     if (url.endsWith('/orders') && route.request().method() === 'POST') {
       const idempotencyKey = route.request().headers()['idempotency-key'];

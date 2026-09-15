@@ -15,6 +15,9 @@ const Return = require('../../models/Return');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const ShippingZone = require('../../models/ShippingZone');
 const MarketConfig = require('../../models/MarketConfig');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
+const { MoneyMapper } = require('../../modules/commerce');
 
 /**
  * STOREFRONT PHASE 10 — FULL-STACK E2E ACCEPTANCE SUITE
@@ -29,6 +32,79 @@ const MarketConfig = require('../../models/MarketConfig');
  */
 
 let sequence = 0;
+
+const seedOfferingAndPrice = async (product, options = {}) => {
+  const country = options.marketCountry || 'PK';
+  const currency = options.currency || 'PKR';
+  const priceNum = options.price !== undefined ? options.price : (product.price || 100);
+
+  await ProductMarketOffering.create({
+    merchantScopeId: 'default',
+    productId: product._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: country,
+    status: 'active',
+    visibility: 'visible',
+    fulfillmentMode: 'local',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  await MarketPriceBook.create({
+    merchantScopeId: 'default',
+    productId: product._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: country,
+    currency,
+    currencyExponent: 2,
+    amountMinor: MoneyMapper.fromLegacy(priceNum, currency).amountMinor.toString(),
+    priceSource: 'manual',
+    status: 'active',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  if (product.variants && product.variants.length > 0) {
+    for (const v of product.variants) {
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: product._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: country,
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      const varPrice = v.salePrice > 0 ? v.salePrice : (v.price || priceNum);
+      const compareAtPrice = v.salePrice > 0 && v.price ? v.price : undefined;
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: product._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: country,
+        currency,
+        currencyExponent: 2,
+        amountMinor: MoneyMapper.fromLegacy(varPrice, currency).amountMinor.toString(),
+        compareAtAmountMinor: compareAtPrice ? MoneyMapper.fromLegacy(compareAtPrice, currency).amountMinor.toString() : undefined,
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+    }
+  }
+};
 
 const createAuth = async (role = 'customer', extraUserProps = {}) => {
   sequence += 1;
@@ -77,6 +153,8 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
       InventoryTransaction.syncIndexes(),
       ShippingZone.syncIndexes(),
       MarketConfig.syncIndexes(),
+      ProductMarketOffering.syncIndexes(),
+      MarketPriceBook.syncIndexes(),
     ]);
   });
 
@@ -191,6 +269,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
         },
       ],
     });
+    await seedOfferingAndPrice(product);
 
     const idempotencyKey = crypto.randomUUID();
 
@@ -258,6 +337,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
       status: 'published',
       isActive: true,
     });
+    await seedOfferingAndPrice(product);
 
     const fixedIdempotencyKey = crypto.randomUUID();
 

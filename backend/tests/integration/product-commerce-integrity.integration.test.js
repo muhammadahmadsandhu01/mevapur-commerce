@@ -3,15 +3,100 @@ const mongoose = require('mongoose');
 const Product = require('../../models/Product');
 const Order = require('../../models/Order');
 const Category = require('../../models/Category');
+const InventoryTransaction = require('../../models/InventoryTransaction');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
+const { MoneyMapper } = require('../../modules/commerce');
 const OrderService = require('../../services/order/OrderService');
 const InventoryService = require('../../services/order/InventoryService');
 const ProductCatalogService = require('../../services/product/ProductCatalogService');
+
+const seedOfferingAndPrice = async (product, options = {}) => {
+  const country = options.marketCountry || 'PK';
+  const currency = options.currency || 'PKR';
+  const priceNum = options.price !== undefined ? options.price : (product.price || 100);
+
+  await ProductMarketOffering.create({
+    merchantScopeId: 'default',
+    productId: product._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: country,
+    status: 'active',
+    visibility: 'visible',
+    fulfillmentMode: 'local',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  await MarketPriceBook.create({
+    merchantScopeId: 'default',
+    productId: product._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: country,
+    currency,
+    currencyExponent: 2,
+    amountMinor: MoneyMapper.fromLegacy(priceNum, currency).amountMinor.toString(),
+    priceSource: 'manual',
+    status: 'active',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  if (product.variants && product.variants.length > 0) {
+    for (const v of product.variants) {
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: product._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: country,
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      const varPrice = v.salePrice > 0 ? v.salePrice : (v.price || priceNum);
+      const compareAtPrice = v.salePrice > 0 && v.price ? v.price : undefined;
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: product._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: country,
+        currency,
+        currencyExponent: 2,
+        amountMinor: MoneyMapper.fromLegacy(varPrice, currency).amountMinor.toString(),
+        compareAtAmountMinor: compareAtPrice ? MoneyMapper.fromLegacy(compareAtPrice, currency).amountMinor.toString() : undefined,
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+    }
+  }
+};
 
 describe('Product Commerce Integrity & Checkout Enforcement', () => {
   let prevCompat;
   beforeAll(async () => {
     prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
+    await Promise.all([
+      Product.syncIndexes(),
+      Order.syncIndexes(),
+      Category.syncIndexes(),
+      InventoryTransaction.syncIndexes(),
+      ProductMarketOffering.syncIndexes(),
+      MarketPriceBook.syncIndexes()
+    ]);
   });
 
   afterAll(async () => {
@@ -140,6 +225,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       },
       userId: adminUser._id
     });
+    await seedOfferingAndPrice(product);
 
     const orderPayload = {
       items: [{ productId: product._id.toString(), variantId: variantId.toString(), quantity: 10 }], // requesting 10 but stock is 2
@@ -167,6 +253,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       },
       userId: adminUser._id
     });
+    await seedOfferingAndPrice(product, { price: 2500 });
 
     const orderPayload = {
       items: [{ productId: product._id.toString(), price: 1, quantity: 1 }], // client attempts to spoof price as Rs.1
@@ -268,6 +355,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       },
       userId: adminUser._id
     });
+    await seedOfferingAndPrice(product);
 
     // 1. Order regular variant with client spoofed price
     const order1 = await OrderService.createOrder({

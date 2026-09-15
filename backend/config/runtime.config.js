@@ -463,16 +463,9 @@ const createRuntimeConfig = (environment = process.env) => {
     false
   );
   if (isDeployed && allowLegacyOfferingsRaw) {
-    const emergencyOverride = parseBoolean(
-      environment,
-      'EMERGENCY_ALLOW_LEGACY_OFFERINGS_IN_PROD',
-      false
+    throw new RuntimeConfigurationError(
+      'ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY is forbidden in staging and production'
     );
-    if (!emergencyOverride) {
-      throw new RuntimeConfigurationError(
-        'ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY is forbidden in staging and production'
-      );
-    }
   }
 
   return Object.freeze({

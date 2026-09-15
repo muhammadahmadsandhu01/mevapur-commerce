@@ -45,8 +45,13 @@ class OrderService {
   }
 
   normalizeCountry(value) {
-    const normalized = String(value || '').trim().toUpperCase();
-    return normalized === 'PAKISTAN' ? 'PK' : normalized;
+    if (!value || typeof value !== 'string') return '';
+    const trimmed = value.trim().toUpperCase();
+    if (CountryRegistry.hasCountry(trimmed)) {
+      return trimmed;
+    }
+    const resolved = CountryRegistry.resolve(trimmed);
+    return resolved ? resolved.alpha2 : trimmed;
   }
 
   hashRequest(orderData) {
@@ -253,43 +258,20 @@ class OrderService {
         }
       }
 
-      if (priceBookEntry) {
-        const money = Money.fromMinor(priceBookEntry.amountMinor, currency);
-        const lineTotalMoney = money.multiplyRational(item.quantity, 1);
-        price = Number(money.toDecimalString());
-        unitPriceExact = MoneyMapper.toPersistence(money);
-        lineTotal = Number(lineTotalMoney.toDecimalString());
-        lineTotalExact = MoneyMapper.toPersistence(lineTotalMoney);
-      } else {
-        const isLegacyCompatibility = ProductVisibilityPolicy.isLegacyHomeMarketOfferingCompatibilityEnabled();
-
-        if (!isLegacyCompatibility) {
-          throw new AppError(
-            `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
-            409,
-            'PRICE_NOT_FOUND'
-          );
-        }
-
-        const rawPrice = variant
-          ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
-          : product.price;
-        price = this.roundMoney(rawPrice);
-        if (!Number.isFinite(price) || price <= 0) {
-          throw new AppError(
-            'A selected product has an invalid price',
-            409,
-            ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE
-          );
-        }
-        const unitPriceMoney = Money.fromLegacyNumber(rawPrice, currency);
-        const lineTotalMoney = unitPriceMoney.multiplyRational(item.quantity, 1);
-        price = Number(unitPriceMoney.toDecimalString());
-        lineTotal = Number(lineTotalMoney.toDecimalString());
-        unitPriceExact = MoneyMapper.toPersistence(unitPriceMoney);
-        lineTotalExact = MoneyMapper.toPersistence(lineTotalMoney);
-        pricingPolicyApplied = 'legacy_home_fallback';
+      if (!priceBookEntry) {
+        throw new AppError(
+          `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
+          409,
+          'PRICE_NOT_FOUND'
+        );
       }
+
+      const money = Money.fromMinor(priceBookEntry.amountMinor, currency);
+      const lineTotalMoney = money.multiplyRational(item.quantity, 1);
+      price = Number(money.toDecimalString());
+      unitPriceExact = MoneyMapper.toPersistence(money);
+      lineTotal = Number(lineTotalMoney.toDecimalString());
+      lineTotalExact = MoneyMapper.toPersistence(lineTotalMoney);
 
       const variantLabel = variant
         ? variant.attributes
@@ -456,7 +438,10 @@ class OrderService {
           if (!market || !market.isEnabled) {
             throw new AppError('Market configuration is currently disabled', 503, 'MARKET_DISABLED');
           }
-          const merchantCountry = (market.merchantCountry || market.homeCountry || 'PK').toUpperCase();
+          const merchantCountry = (market.merchantCountry || market.homeCountry);
+          if (!merchantCountry) {
+            throw new AppError('Market configuration missing merchant country', 503, 'MARKET_CONFIGURATION_UNAVAILABLE');
+          }
           const fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
 
           // 1. Authoritative Address Normalization
@@ -476,9 +461,15 @@ class OrderService {
             if (orderData.quoteToken) {
               throw addrErr;
             }
-            const rawCountry = orderData.shippingAddress.countryCode || orderData.shippingAddress.country || 'PK';
+            const rawCountry = orderData.shippingAddress.countryCode || orderData.shippingAddress.country;
+            if (!rawCountry) {
+              throw new AppError('Shipping country is required', 400, 'INVALID_SHIPPING_COUNTRY');
+            }
             const resolvedCountry = CountryRegistry.resolve(rawCountry);
-            const countryCode = resolvedCountry?.alpha2 || (typeof rawCountry === 'string' && rawCountry.length === 2 ? rawCountry.toUpperCase() : 'PK');
+            const countryCode = resolvedCountry?.alpha2 || (typeof rawCountry === 'string' && rawCountry.length === 2 ? rawCountry.toUpperCase() : null);
+            if (!countryCode) {
+              throw new AppError('Invalid shipping country code', 400, 'INVALID_SHIPPING_COUNTRY');
+            }
             normalizedAddress = {
               fullName: orderData.shippingAddress.fullName || 'Valued Customer',
               addressLine1: orderData.shippingAddress.address || orderData.shippingAddress.addressLine1 || '',
@@ -492,8 +483,12 @@ class OrderService {
           }
 
           const destinationCountry = normalizedAddress.countryCode;
-          const currency = (orderData.currency || market.defaultCurrency || 'PKR').toUpperCase();
-          await MarketService.assertEligible({ country: destinationCountry, currency });
+          const currency = (orderData.currency || market.defaultCurrency || market.baseCurrency);
+          if (!currency) {
+            throw new AppError('Currency is required', 400, 'CURRENCY_REQUIRED');
+          }
+          const normalizedCurrency = currency.toUpperCase();
+          await MarketService.assertEligible({ country: destinationCountry, currency: normalizedCurrency });
 
           const isDomestic = destinationCountry === merchantCountry;
           const isPrepaid = orderData.paymentMethod !== 'cod';
@@ -553,7 +548,8 @@ class OrderService {
           let phoneExtension = undefined;
           if (orderData.shippingAddress.phone) {
             try {
-              const parsedPhone = Phone.parse(orderData.shippingAddress.phone, { defaultCountry: destinationCountry || 'PK' });
+              const parseOptions = destinationCountry ? { defaultCountry: destinationCountry } : {};
+              const parsedPhone = Phone.parse(orderData.shippingAddress.phone, parseOptions);
               phoneE164 = parsedPhone.e164;
               phoneExtension = parsedPhone.extension || undefined;
             } catch {

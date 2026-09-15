@@ -9,6 +9,9 @@ const InventoryTransaction = require('../../models/InventoryTransaction');
 const MarketConfig = require('../../models/MarketConfig');
 const ShippingZone = require('../../models/ShippingZone');
 const Category = require('../../models/Category');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
+const { MoneyMapper } = require('../../modules/commerce');
 
 let sequence = 0;
 let defaultCategory = null;
@@ -41,7 +44,7 @@ const product = async (overrides = {}) => {
     });
     catId = cat._id;
   }
-  return Product.create({
+  const prod = await Product.create({
     name: `Core Product ${sequence}`,
     slug: `core-product-${sequence}`,
     description: 'Commercial core integration product',
@@ -53,6 +56,74 @@ const product = async (overrides = {}) => {
     category: catId,
     ...overrides
   });
+
+  const priceNum = prod.price !== undefined ? prod.price : 100;
+  await ProductMarketOffering.create({
+    merchantScopeId: 'default',
+    productId: prod._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: 'PK',
+    status: 'active',
+    visibility: 'visible',
+    fulfillmentMode: 'local',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  await MarketPriceBook.create({
+    merchantScopeId: 'default',
+    productId: prod._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: 'PK',
+    currency: 'PKR',
+    currencyExponent: 2,
+    amountMinor: MoneyMapper.fromLegacy(priceNum, 'PKR').amountMinor.toString(),
+    priceSource: 'manual',
+    status: 'active',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  if (prod.variants && prod.variants.length > 0) {
+    for (const v of prod.variants) {
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: prod._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: 'PK',
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      const varPrice = v.salePrice > 0 ? v.salePrice : (v.price || priceNum);
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: prod._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: 'PK',
+        currency: 'PKR',
+        currencyExponent: 2,
+        amountMinor: MoneyMapper.fromLegacy(varPrice, 'PKR').amountMinor.toString(),
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+    }
+  }
+
+  return prod;
 };
 const orderPayload = (item) => ({
   items: [{ productId: String(item._id), quantity: 1 }],

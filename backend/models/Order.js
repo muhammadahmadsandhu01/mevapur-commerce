@@ -184,7 +184,7 @@ const orderSchema = new mongoose.Schema({
     transactionId: { type: String, default: '' },
     paymentIntentId: { type: String, default: '' },
     clientSecret: { type: String, default: '', select: false },
-    currency: { type: String, default: 'PKR', trim: true, uppercase: true, match: /^[A-Z]{3}$/ },
+    currency: { type: String, default: null, trim: true, uppercase: true, match: /^[A-Z]{3}$/ },
     paidAt: { type: Date, default: null },
     gatewayResponse: {
       type: mongoose.Schema.Types.Mixed,

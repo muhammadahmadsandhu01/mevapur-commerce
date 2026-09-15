@@ -13,6 +13,8 @@ const ShippingZone = require('../../../models/ShippingZone');
 const User = require('../../../models/User');
 const Session = require('../../../models/Session');
 const Category = require('../../../models/Category');
+const ProductMarketOffering = require('../../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../../models/MarketPriceBook');
 const OrderService = require('../../../services/order/OrderService');
 const ShippingService = require('../../../services/order/ShippingService');
 const ProductCatalogService = require('../../../services/product/ProductCatalogService');
@@ -44,6 +46,33 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       sessionId: session._id,
       tokenVersion: user.tokenVersion || 0
     })}`;
+  };
+
+  const seedOfferingAndPrice = async (product, priceNumeric, currency = 'PKR', marketCountry = 'PK') => {
+    const moneyExact = MoneyMapper.fromLegacy(priceNumeric, currency);
+    await ProductMarketOffering.create({
+      merchantScopeId: 'default',
+      productId: product._id,
+      marketCountry,
+      status: 'active',
+      visibility: 'visible',
+      fulfillmentMode: 'local',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
+
+    await MarketPriceBook.create({
+      merchantScopeId: 'default',
+      productId: product._id,
+      marketCountry,
+      currency,
+      currencyExponent: moneyExact.exponent,
+      amountMinor: moneyExact.amountMinor.toString(),
+      priceSource: 'manual',
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
   };
 
   let prevCompat;
@@ -101,6 +130,8 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
   afterEach(async () => {
     await Order.deleteMany({});
     await Product.deleteMany({});
+    await ProductMarketOffering.deleteMany({});
+    await MarketPriceBook.deleteMany({});
     await Payment.deleteMany({});
     await Refund.deleteMany({});
     await Coupon.deleteMany({});
@@ -167,6 +198,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
         },
         userId: adminUser._id
       });
+      await seedOfferingAndPrice(product, 1200);
 
       const orderData = {
         items: [{ productId: String(product._id), quantity: 2 }],
@@ -239,6 +271,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
         },
         userId: adminUser._id
       });
+      await seedOfferingAndPrice(product, 2000);
 
       const orderData = {
         items: [{ productId: String(product._id), quantity: 1 }],
@@ -448,6 +481,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
         },
         userId: adminUser._id
       });
+      await seedOfferingAndPrice(product, 3000);
 
       const orderData = {
         items: [{ productId: String(product._id), quantity: 1 }],

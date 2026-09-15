@@ -27,7 +27,6 @@ class MarketContextResolver {
     if (!input || typeof input !== 'string') return null;
     const trimmed = input.trim().toUpperCase();
 
-    if (trimmed === 'PAKISTAN') return 'PK';
     if (/^[A-Z]{2}$/.test(trimmed) && CountryRegistry.hasCountry(trimmed)) {
       return trimmed;
     }
@@ -83,7 +82,8 @@ class MarketContextResolver {
    */
   async resolve(req = {}, { merchantScopeId = 'default', user = null } = {}) {
     const config = await MarketService.getConfig({ merchantScopeId });
-    const enabledCountries = config.enabledCountries || [config.merchantCountry || 'PK'];
+    const merchantHome = config.merchantCountry || config.homeCountry;
+    const enabledCountries = config.enabledCountries || (merchantHome ? [merchantHome] : []);
     const authUser = user || req.user || null;
 
     // 1. Explicit request candidate
@@ -112,7 +112,7 @@ class MarketContextResolver {
         merchantScopeId,
         configVersionId: config.configVersionId,
         isCustomerSelected: true,
-        homeCountry: config.merchantCountry || 'PK'
+        homeCountry: merchantHome || null
       };
     }
 
@@ -127,7 +127,7 @@ class MarketContextResolver {
           merchantScopeId,
           configVersionId: config.configVersionId,
           isCustomerSelected: true,
-          homeCountry: config.merchantCountry || 'PK'
+          homeCountry: merchantHome || null
         };
       }
     }
@@ -143,13 +143,13 @@ class MarketContextResolver {
           merchantScopeId,
           configVersionId: config.configVersionId,
           isCustomerSelected: false,
-          homeCountry: config.merchantCountry || 'PK'
+          homeCountry: merchantHome || null
         };
       }
     }
 
     // 4. Merchant default / home market
-    const defaultMarket = this.normalizeCountryCode(config.merchantCountry || config.homeCountry || 'PK');
+    const defaultMarket = merchantHome ? this.normalizeCountryCode(merchantHome) : null;
     if (defaultMarket && enabledCountries.includes(defaultMarket)) {
       return {
         marketCountry: defaultMarket,
@@ -158,7 +158,7 @@ class MarketContextResolver {
         merchantScopeId,
         configVersionId: config.configVersionId,
         isCustomerSelected: false,
-        homeCountry: config.merchantCountry || 'PK'
+        homeCountry: merchantHome || null
       };
     }
 
@@ -172,7 +172,7 @@ class MarketContextResolver {
         merchantScopeId,
         configVersionId: config.configVersionId,
         isCustomerSelected: false,
-        homeCountry: config.merchantCountry || 'PK'
+        homeCountry: merchantHome || null
       };
     }
 
@@ -193,13 +193,21 @@ class MarketContextResolver {
   resolveMarketCurrency(marketCountry, config) {
     const countryData = CountryRegistry.getCountry(marketCountry);
     const candidateCurrency = countryData?.defaultCurrency;
-    const enabledCurrencies = config.enabledCurrencies || [config.defaultCurrency || config.baseCurrency || 'PKR'];
+    const enabledCurrencies = config.enabledCurrencies || (config.defaultCurrency || config.baseCurrency ? [config.defaultCurrency || config.baseCurrency] : []);
 
     if (candidateCurrency && enabledCurrencies.includes(candidateCurrency)) {
       return candidateCurrency;
     }
 
-    return config.defaultCurrency || config.baseCurrency || enabledCurrencies[0] || 'PKR';
+    const fallbackCurrency = config.defaultCurrency || config.baseCurrency || enabledCurrencies[0];
+    if (!fallbackCurrency) {
+      throw new AppError(
+        'Market configuration is missing currency configuration',
+        503,
+        'MARKET_CONFIGURATION_UNAVAILABLE'
+      );
+    }
+    return fallbackCurrency;
   }
 
   /**
@@ -212,7 +220,10 @@ class MarketContextResolver {
    */
   getCachePartitionKey({ merchantScopeId = 'default', marketCountry, entity = 'catalog' }) {
     const scope = (merchantScopeId || 'default').trim();
-    const market = (marketCountry || 'PK').trim().toUpperCase();
+    if (!marketCountry) {
+      throw new AppError('Market country is required for cache partition key', 400, 'MARKET_REQUIRED');
+    }
+    const market = marketCountry.trim().toUpperCase();
     return `${entity}:${scope}:${market}`;
   }
 }

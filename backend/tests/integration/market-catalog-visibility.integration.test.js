@@ -220,10 +220,10 @@ describe('Market Catalog Visibility & Search Integration Tests', () => {
       expect(res.body.success).toBe(true);
       const items = res.body.data.products || res.body.data.items || res.body.data;
       expect(Array.isArray(items)).toBe(true);
-      
+
       // Should include globalProduct and gbOnlyProduct (2 items), NOT suspended or price-missing
       expect(items.length).toBe(2);
-      
+
       const p1 = items.find(p => String(p._id) === String(globalProduct._id));
       expect(p1).toBeDefined();
       expect(p1.currency).toBe('GBP');

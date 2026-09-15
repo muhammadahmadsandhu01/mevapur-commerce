@@ -16,7 +16,7 @@ import { accountService } from '../src/services/account.service';
 // Mock next/navigation
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
-const mockSearchParams = new URLSearchParams();
+let mockSearchParams = new URLSearchParams();
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -35,7 +35,7 @@ vi.mock('next/image', () => ({
 // Mock authStore
 const mockRegister = vi.fn();
 const mockUpdateUser = vi.fn();
-const mockAuthState = {
+let mockAuthState = {
   isAuthenticated: false,
   isInitialized: true,
   user: null as User | null,

@@ -47,7 +47,7 @@ function serializePublicProduct(product, marketPrice = null, variantPriceMap = n
   let price = p.price;
   let originalPrice = p.originalPrice;
   let salePrice = p.salePrice;
-  let currency = 'PKR';
+  let currency = marketPrice?.currency || null;
   let marketPriceExact = null;
 
   if (marketPrice) {
@@ -273,7 +273,7 @@ exports.getProducts = async (req, res) => {
           name: product.name,
           slug: product.slug,
           price,
-          currency: mp?.currency || 'PKR',
+          currency: mp?.currency || marketContext.currency,
           image: product.image || product.primaryImage || '/placeholder.png',
           category: product.category
         };

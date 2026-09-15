@@ -382,12 +382,31 @@ export function serializeCheckoutPayload(
   items: CartItem[],
   shippingAddress: ShippingAddressInput,
   paymentMethod: string,
-  quoteToken?: string,
-  shippingServiceLevel: 'standard' | 'express' = 'standard',
+  quoteTokenOrCouponCode?: string,
+  shippingServiceLevelOrCustomerNote: string = 'standard',
   couponCode?: string,
   customerNote?: string,
   currency?: string
 ): CheckoutPayload {
+  let effectiveQuoteToken: string | undefined = undefined;
+  let effectiveServiceLevel: 'standard' | 'express' = 'standard';
+  let effectiveCouponCode: string | undefined = couponCode;
+  let effectiveCustomerNote: string | undefined = customerNote;
+
+  if (
+    shippingServiceLevelOrCustomerNote !== 'standard' &&
+    shippingServiceLevelOrCustomerNote !== 'express'
+  ) {
+    // Legacy signature: (items, address, paymentMethod, couponCode, customerNote)
+    effectiveCouponCode = quoteTokenOrCouponCode;
+    effectiveCustomerNote = shippingServiceLevelOrCustomerNote;
+    effectiveQuoteToken = undefined;
+    effectiveServiceLevel = 'standard';
+  } else {
+    effectiveQuoteToken = quoteTokenOrCouponCode;
+    effectiveServiceLevel = shippingServiceLevelOrCustomerNote as 'standard' | 'express';
+  }
+
   const cleanItems = items.map((i) => {
     const pId = String(i.productId || i.id).trim();
     const vId = i.variantId ? String(i.variantId).trim() : undefined;
@@ -420,19 +439,19 @@ export function serializeCheckoutPayload(
     shippingAddress: cleanAddress,
     paymentMethod: String(paymentMethod).trim(),
     currency: currency ? String(currency).trim().toUpperCase().slice(0, 3) : undefined,
-    shippingServiceLevel,
+    shippingServiceLevel: effectiveServiceLevel,
   };
 
-  if (quoteToken && typeof quoteToken === 'string' && quoteToken.trim()) {
-    payload.quoteToken = quoteToken.trim().slice(0, 4096);
+  if (effectiveQuoteToken && typeof effectiveQuoteToken === 'string' && effectiveQuoteToken.trim()) {
+    payload.quoteToken = effectiveQuoteToken.trim().slice(0, 4096);
   }
 
-  if (couponCode && couponCode.trim()) {
-    payload.couponCode = couponCode.trim().toUpperCase().slice(0, 50);
+  if (effectiveCouponCode && effectiveCouponCode.trim()) {
+    payload.couponCode = effectiveCouponCode.trim().toUpperCase().slice(0, 50);
   }
 
-  if (customerNote && customerNote.trim()) {
-    payload.customerNote = customerNote.trim().slice(0, 500);
+  if (effectiveCustomerNote && effectiveCustomerNote.trim()) {
+    payload.customerNote = effectiveCustomerNote.trim().slice(0, 500);
   }
 
   return payload;

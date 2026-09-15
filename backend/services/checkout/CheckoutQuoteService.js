@@ -350,29 +350,15 @@ class CheckoutQuoteService {
         }
       }
 
-      if (priceBookEntry) {
-        unitPriceMoney = Money.fromMinor(priceBookEntry.amountMinor, currency);
-      } else {
-        const isLegacyCompatibility = ProductVisibilityPolicy.isLegacyHomeMarketOfferingCompatibilityEnabled();
-
-        if (!isLegacyCompatibility) {
-          throw new AppError(
-            `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
-            409,
-            'PRICE_NOT_FOUND'
-          );
-        }
-
-        const rawPrice = variant
-          ? (variant.salePrice > 0 ? variant.salePrice : variant.price)
-          : product.price;
-
-        if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
-          throw new AppError(`Product '${product.name}' has an invalid price`, 409, ERROR_CODES.ORDER_PRODUCT_UNAVAILABLE);
-        }
-        unitPriceMoney = Money.fromLegacyNumber(rawPrice, currency);
-        pricingPolicyApplied = 'legacy_home_fallback';
+      if (!priceBookEntry) {
+        throw new AppError(
+          `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
+          409,
+          'PRICE_NOT_FOUND'
+        );
       }
+
+      unitPriceMoney = Money.fromMinor(priceBookEntry.amountMinor, currency);
 
       const lineTotalMoney = unitPriceMoney.multiplyRational(quantity, 1);
 
@@ -389,7 +375,7 @@ class CheckoutQuoteService {
         || 'UNKNOWN';
 
       const hsCode = variant?.hsClassification?.code || product.hsClassification?.code || null;
-      const countryOfOrigin = product.countryOfOrigin || 'PK';
+      const countryOfOrigin = product.countryOfOrigin || null;
 
       resolved.push({
         product: product._id,
@@ -461,7 +447,11 @@ class CheckoutQuoteService {
 
     const activeConfigDoc = market.activeVersionDoc;
     const configVersionId = market.configVersionId || 'v1';
-    const merchantCountry = (market.merchantCountry || market.homeCountry || 'PK').toUpperCase();
+    const rawMerchantCountry = market.merchantCountry || market.homeCountry;
+    if (!rawMerchantCountry) {
+      throw new AppError('Governed merchantCountry is missing in active configuration', 503, 'MARKET_CONFIGURATION_UNAVAILABLE');
+    }
+    const merchantCountry = rawMerchantCountry.toUpperCase();
     const fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
 
     // 2. Validate and Normalize Destination Address
@@ -494,7 +484,11 @@ class CheckoutQuoteService {
     }
 
     // 3. Resolve & Verify Currency
-    const targetCurrency = (currency || market.defaultCurrency || market.baseCurrency || 'PKR').toUpperCase();
+    const rawCurrency = currency || market.defaultCurrency || market.baseCurrency;
+    if (!rawCurrency) {
+      throw new AppError('Currency is missing in active configuration', 503, 'MARKET_CONFIGURATION_UNAVAILABLE');
+    }
+    const targetCurrency = rawCurrency.toUpperCase();
     await this.marketService.assertEligible({
       country: destinationCountry,
       currency: targetCurrency,

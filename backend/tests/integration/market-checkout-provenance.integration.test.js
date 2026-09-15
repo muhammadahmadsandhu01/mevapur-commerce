@@ -269,7 +269,7 @@ describe('Market Checkout & Provenance Integration Tests', () => {
       expect(quote).toBeDefined();
       expect(quote.currency).toBe('GBP');
       expect(quote.items.length).toBe(1);
-      
+
       const item = quote.items[0];
       expect(item.offeringId).toBe(String(gbOffering._id));
       expect(item.offeringLockVersion).toBe(1);

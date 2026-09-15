@@ -23,6 +23,8 @@ const CheckoutQuoteService = require('../../services/checkout/CheckoutQuoteServi
 const { MoneyMapper } = require('../../modules/commerce');
 
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 
 let sequence = 0;
 let testCategory;
@@ -459,6 +461,110 @@ const setupTestFixtures = async () => {
       }
     ]
   });
+
+  await ProductMarketOffering.deleteMany({});
+  await MarketPriceBook.deleteMany({});
+
+  const markets = [
+    { country: 'PK', currency: 'PKR', exp: 2 },
+    { country: 'AE', currency: 'AED', exp: 2 },
+    { country: 'GB', currency: 'GBP', exp: 2 },
+    { country: 'DE', currency: 'EUR', exp: 2 },
+    { country: 'US', currency: 'USD', exp: 2 }
+  ];
+
+  for (const m of markets) {
+    await ProductMarketOffering.create({
+      merchantScopeId: 'default',
+      productId: testProductSimple._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: m.country,
+      status: 'active',
+      visibility: 'visible',
+      fulfillmentMode: m.country === 'PK' ? 'local' : 'cross_border',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
+
+    await MarketPriceBook.create({
+      merchantScopeId: 'default',
+      productId: testProductSimple._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: m.country,
+      currency: m.currency,
+      currencyExponent: m.exp,
+      amountMinor: MoneyMapper.fromLegacy(testProductSimple.price, m.currency).amountMinor.toString(),
+      priceSource: 'manual',
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
+
+    await ProductMarketOffering.create({
+      merchantScopeId: 'default',
+      productId: testProductVariable._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: m.country,
+      status: 'active',
+      visibility: 'visible',
+      fulfillmentMode: m.country === 'PK' ? 'local' : 'cross_border',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
+
+    await MarketPriceBook.create({
+      merchantScopeId: 'default',
+      productId: testProductVariable._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: m.country,
+      currency: m.currency,
+      currencyExponent: m.exp,
+      amountMinor: MoneyMapper.fromLegacy(testProductVariable.price, m.currency).amountMinor.toString(),
+      priceSource: 'manual',
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
+
+    for (const v of testProductVariable.variants) {
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: testProductVariable._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: m.country,
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: m.country === 'PK' ? 'local' : 'cross_border',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      const variantPrice = v.salePrice > 0 ? v.salePrice : v.price;
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: testProductVariable._id,
+        variantId: v._id,
+        sku: v.sku,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        marketCountry: m.country,
+        currency: m.currency,
+        currencyExponent: m.exp,
+        amountMinor: MoneyMapper.fromLegacy(variantPrice, m.currency).amountMinor.toString(),
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+    }
+  }
 };
 
 describe('Phase 6A: Global Checkout Eligibility & Quote Orchestration Matrix', () => {

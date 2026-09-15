@@ -74,6 +74,10 @@ jobs:
           node --test tests/phase6cStorefrontCheckout.test.mts
           npx --no-install vitest run tests/phase6cStorefrontCheckout.dom.test.tsx
 
+      - name: Run Storefront Phase 6D-1 Registration and Full Aggregate Test Suite
+        working-directory: frontend
+        run: npm test
+
       - name: Build Frontend Application
         working-directory: frontend
         env:

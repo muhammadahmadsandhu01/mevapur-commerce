@@ -9,6 +9,8 @@ const Session = require('../../models/Session');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const Category = require('../../models/Category');
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 const { MoneyMapper } = require('../../modules/commerce');
 
 let sequence = 0;
@@ -62,7 +64,7 @@ const createProduct = async (overrides = {}) => {
     });
     catId = cat._id;
   }
-  return Product.create({
+  const prod = await Product.create({
     name: `Order Product ${sequence}`,
     slug: `order-product-${sequence}`,
     description: 'Product used by the isolated order integration tests',
@@ -82,6 +84,37 @@ const createProduct = async (overrides = {}) => {
     dangerousGoodsClassification: 'NOT_RESTRICTED',
     ...overrides
   });
+
+  const priceNum = prod.price !== undefined ? prod.price : 125;
+  await ProductMarketOffering.create({
+    merchantScopeId: 'default',
+    productId: prod._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: 'PK',
+    status: 'active',
+    visibility: 'visible',
+    fulfillmentMode: 'local',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  await MarketPriceBook.create({
+    merchantScopeId: 'default',
+    productId: prod._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    marketCountry: 'PK',
+    currency: 'PKR',
+    currencyExponent: 2,
+    amountMinor: MoneyMapper.fromLegacy(priceNum, 'PKR').amountMinor.toString(),
+    priceSource: 'manual',
+    status: 'active',
+    effectiveFrom: new Date(Date.now() - 60000),
+    lockVersion: 1
+  });
+
+  return prod;
 };
 
 const createCoupon = async (overrides = {}) => {

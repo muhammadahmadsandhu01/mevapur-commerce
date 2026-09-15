@@ -24,12 +24,12 @@ const resolveTargetMarket = async (marketCountry, market) => {
   if (explicit && /^[A-Z]{2}$/.test(explicit)) {
     return explicit;
   }
-  try {
-    const config = await MarketService.getConfig();
-    return (config.merchantCountry || config.homeCountry || 'PK').toUpperCase();
-  } catch {
-    return 'PK';
+  const config = await MarketService.getConfig();
+  const country = config?.merchantCountry || config?.homeCountry;
+  if (!country) {
+    throw new Error('MARKET_CONFIGURATION_UNAVAILABLE');
   }
+  return country.toUpperCase();
 };
 
 const searchPublicProducts = async ({ query, marketCountry, market }) => {
@@ -83,7 +83,7 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
       slug: product.slug,
       shortDescription: product.shortDescription,
       price,
-      currency: mp?.currency || 'PKR',
+      currency: mp?.currency || null,
       inStock: Number(product.stock) > 0,
       primaryImage: product.primaryImage,
       rating: product.rating
@@ -133,7 +133,7 @@ const getPublicProductDetails = async ({ productId, marketCountry, market }) => 
     shortDescription: product.shortDescription,
     description: String(product.description || '').slice(0, 500),
     price,
-    currency: marketPrice?.currency || 'PKR',
+    currency: marketPrice?.currency || null,
     inStock: Number(product.stock) > 0,
     primaryImage: product.primaryImage,
     rating: product.rating

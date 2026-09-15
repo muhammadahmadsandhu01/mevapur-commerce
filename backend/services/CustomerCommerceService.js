@@ -40,7 +40,7 @@ const addressView = (address) => ({
   administrativeArea: address.administrativeArea || address.state || address.province || '',
   postalCode: address.postalCode || '',
   country: address.country,
-  countryCode: address.countryCode || (address.country === 'Pakistan' ? 'PK' : address.country),
+  countryCode: address.countryCode || (address.country ? (CountryRegistry.resolve(address.country)?.alpha2 || (typeof address.country === 'string' && address.country.length === 2 ? address.country.toUpperCase() : null)) : null),
   isDefault: Boolean(address.isDefault)
 });
 const returnView = (entry) => ({ id: String(entry._id), returnNumber: entry.returnNumber, order: entry.order, items: entry.items.map((item) => ({ product: item.product, name: item.name, quantity: item.quantity, price: item.price, reason: item.reason, reasonDetails: item.reasonDetails || '' })), status: entry.status, refundMethod: entry.refundMethod, refundAmount: entry.refundAmount, customerNotes: entry.customerNotes || '', rejectedReason: entry.rejectedReason || '', createdAt: entry.createdAt, approvedAt: entry.approvedAt || null, refundedAt: entry.refundedAt || null });
@@ -58,34 +58,34 @@ class CustomerCommerceService {
   async updateProfile(userId, input) {
     const user = await User.findById(userId);
     if (!user) throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
+
     if (input.fullName !== undefined) user.fullName = input.fullName;
     if (input.phone !== undefined) user.phone = input.phone;
     if (input.avatar !== undefined) user.avatar = input.avatar;
-
     if (input.residenceCountry !== undefined) {
       if (input.residenceCountry === null || input.residenceCountry === '') {
-        throw new AppError('Residence country cannot be empty', 400, 'INVALID_RESIDENCE_COUNTRY');
+        user.residenceCountry = null;
+      } else {
+        const country = CountryRegistry.resolve(input.residenceCountry);
+        if (!country) {
+          throw new AppError(`Invalid residence country '${input.residenceCountry}'`, 400, 'INVALID_RESIDENCE_COUNTRY');
+        }
+        user.residenceCountry = country.alpha2;
       }
-      const normalizedResidence = input.residenceCountry.trim().toUpperCase();
-      if (!/^[A-Z]{2}$/.test(normalizedResidence) || !CountryRegistry.hasCountry(normalizedResidence)) {
-        throw new AppError(`Invalid residence country '${input.residenceCountry}'`, 400, 'INVALID_RESIDENCE_COUNTRY');
-      }
-      user.residenceCountry = normalizedResidence;
     }
-
     if (input.preferredMarketCountry !== undefined) {
       if (input.preferredMarketCountry === null || input.preferredMarketCountry === '') {
         user.preferredMarketCountry = null;
       } else {
-        const normalizedMarket = input.preferredMarketCountry.trim().toUpperCase();
-        if (!/^[A-Z]{2}$/.test(normalizedMarket) || !CountryRegistry.hasCountry(normalizedMarket)) {
+        const country = CountryRegistry.resolve(input.preferredMarketCountry);
+        if (!country) {
           throw new AppError(`Invalid market country '${input.preferredMarketCountry}'`, 400, 'INVALID_MARKET_COUNTRY');
         }
-        const isEnabled = await MarketService.isCountryEnabled(normalizedMarket);
+        const isEnabled = await MarketService.isCountryEnabled(country.alpha2);
         if (!isEnabled) {
-          throw new AppError(`Market country '${normalizedMarket}' is not enabled for this store`, 400, 'MARKET_COUNTRY_INELIGIBLE');
+          throw new AppError(`Market country '${country.alpha2}' is not enabled for this store`, 400, 'MARKET_COUNTRY_INELIGIBLE');
         }
-        user.preferredMarketCountry = normalizedMarket;
+        user.preferredMarketCountry = country.alpha2;
       }
     }
 
@@ -100,22 +100,17 @@ class CustomerCommerceService {
     const user = await User.findById(userId);
     if (!user) throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
 
-    let countryCode = 'PK';
+    let countryCode = null;
     if (input.country) {
-      if (input.country.toUpperCase() === 'PAKISTAN' || input.country.toUpperCase() === 'PK') {
-        countryCode = 'PK';
-      } else if (CountryRegistry.has(input.country)) {
-        countryCode = CountryRegistry.get(input.country).alpha2;
-      } else {
-        countryCode = input.country;
-      }
+      const resolved = CountryRegistry.resolve(input.country);
+      countryCode = resolved ? resolved.alpha2 : (typeof input.country === 'string' && input.country.length === 2 ? input.country.toUpperCase() : input.country);
     }
 
     let phoneE164 = undefined;
     let phoneExtension = undefined;
     if (input.phone) {
       try {
-        const parsedPhone = Phone.parse(input.phone, { defaultCountry: countryCode || 'PK' });
+        const parsedPhone = countryCode ? Phone.parse(input.phone, { defaultCountry: countryCode }) : Phone.parse(input.phone);
         phoneE164 = parsedPhone.e164;
         phoneExtension = parsedPhone.extension || undefined;
       } catch {
@@ -146,22 +141,17 @@ class CustomerCommerceService {
     const user = await User.findById(userId); const address = user?.addresses.id(addressId);
     if (!address) throw new AppError('Address not found', 404, ERROR_CODES.CUSTOMER_ADDRESS_NOT_FOUND);
 
-    let countryCode = address.countryCode || 'PK';
+    let countryCode = address.countryCode || null;
     if (input.country) {
-      if (input.country.toUpperCase() === 'PAKISTAN' || input.country.toUpperCase() === 'PK') {
-        countryCode = 'PK';
-      } else if (CountryRegistry.has(input.country)) {
-        countryCode = CountryRegistry.get(input.country).alpha2;
-      } else {
-        countryCode = input.country;
-      }
+      const resolved = CountryRegistry.resolve(input.country);
+      countryCode = resolved ? resolved.alpha2 : (typeof input.country === 'string' && input.country.length === 2 ? input.country.toUpperCase() : input.country);
     }
 
     let phoneE164 = address.phoneE164;
     let phoneExtension = address.phoneExtension;
     if (input.phone) {
       try {
-        const parsedPhone = Phone.parse(input.phone, { defaultCountry: countryCode || 'PK' });
+        const parsedPhone = countryCode ? Phone.parse(input.phone, { defaultCountry: countryCode }) : Phone.parse(input.phone);
         phoneE164 = parsedPhone.e164;
         phoneExtension = parsedPhone.extension || undefined;
       } catch {

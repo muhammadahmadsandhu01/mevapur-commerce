@@ -10,6 +10,8 @@ const Session = require('../../models/Session');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const Wishlist = require('../../models/Wishlist');
 const Coupon = require('../../models/Coupon');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 const { searchPublicProducts, getPublicProductDetails } = require('../../modules/assistant/tools/assistantReadTools');
 const CouponService = require('../../services/order/CouponService');
 const { CANONICAL_ROLES } = require('../../constants/roleConstants');
@@ -218,6 +220,44 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       status: 'published',
       isActive: true
     });
+
+    const allProds = [
+      visibleProduct,
+      inactiveCatProduct,
+      inactiveSubCatProduct,
+      inactiveAncestorProduct,
+      draftProduct,
+      inactiveStatusProduct,
+      unassignedCategoryProduct
+    ];
+    await ProductMarketOffering.create(
+      allProds.map((p) => ({
+        merchantScopeId: 'default',
+        productId: p._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        status: 'active',
+        visibility: 'visible',
+        pricingPolicy: 'inherit_product_price',
+        effectiveFrom: new Date(Date.now() - 60000)
+      }))
+    );
+    await MarketPriceBook.create(
+      allProds.map((p) => ({
+        merchantScopeId: 'default',
+        productId: p._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        currency: 'PKR',
+        amountMinor: String((p.price || 1000) * 100),
+        exponent: 2,
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000)
+      }))
+    );
   });
 
   // Minimum Test 1: Active/published product with active category is publicly visible
