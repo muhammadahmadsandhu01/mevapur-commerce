@@ -11,6 +11,10 @@ const Category = require('../../models/Category');
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
+const InventoryLedger = require('../../models/InventoryLedger');
+const InventoryReservation = require('../../models/InventoryReservation');
 const { MoneyMapper } = require('../../modules/commerce');
 
 let sequence = 0;
@@ -114,6 +118,62 @@ const createProduct = async (overrides = {}) => {
     lockVersion: 1
   });
 
+  let defaultLocation = await FulfillmentLocation.findOne({ merchantScopeId: 'default', isDefault: true });
+  if (!defaultLocation) {
+    defaultLocation = await FulfillmentLocation.create({
+      merchantScopeId: 'default',
+      locationCode: 'WH-PRIMARY-01',
+      displayName: 'Primary Fulfillment Hub',
+      status: 'active',
+      countryCode: 'PK',
+      city: 'Karachi',
+      timeZone: 'Asia/Karachi',
+      priority: 100,
+      supportedMarketCountries: ['PK', 'GB', 'AE', 'US', 'DE'],
+      supportedServiceLevels: ['standard', 'express'],
+      capabilities: ['local_delivery', 'cross_border'],
+      returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+      isDefault: true
+    });
+  }
+
+  if (Array.isArray(prod.variants) && prod.variants.length > 0) {
+    for (const v of prod.variants) {
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: defaultLocation._id,
+        locationCode: defaultLocation.locationCode,
+        productId: prod._id,
+        variantId: v._id,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        canonicalSku: v.sku || `VAR-${v._id}`,
+        onHand: v.stock !== undefined ? v.stock : 10,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        backordered: 0,
+        reorderPoint: 5
+      });
+    }
+  } else {
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: prod._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      canonicalSku: prod.sku,
+      onHand: prod.stock !== undefined ? prod.stock : 10,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: 5
+    });
+  }
+
   return prod;
 };
 
@@ -176,6 +236,19 @@ describe('Order API integration', () => {
   });
 
   beforeEach(async () => {
+    await Product.deleteMany({});
+    await Coupon.deleteMany({});
+    await Order.deleteMany({});
+    await Session.deleteMany({});
+    await InventoryTransaction.deleteMany({});
+    await FulfillmentLocation.deleteMany({});
+    await InventoryPosition.deleteMany({});
+    await InventoryLedger.deleteMany({});
+    await InventoryReservation.deleteMany({});
+    await CommerceConfigurationVersion.deleteMany({});
+    await ProductMarketOffering.deleteMany({});
+    await MarketPriceBook.deleteMany({});
+
     await CommerceConfigurationVersion.create({
       merchantScopeId: 'default',
       version: 1,
@@ -312,8 +385,7 @@ describe('Order API integration', () => {
       lineTotal: 500
     });
     expect(response.body.data.order.idempotencyKey).toBeUndefined();
-    expect((await Product.findById(product._id)).stock).toBe(1);
-    expect(await InventoryTransaction.countDocuments({ type: 'sale' })).toBe(1);
+    expect(await InventoryLedger.countDocuments({ movementType: 'RESERVATION_CREATED' })).toBe(1);
   });
 
   test('rejects client monetary totals before business logic', async () => {
@@ -390,9 +462,9 @@ describe('Order API integration', () => {
       sku: variant.sku
     });
 
-    const updated = await Product.findById(product._id);
-    expect(updated.variants.id(variant._id).stock).toBe(1);
-    expect(updated.stock).toBe(1);
+    const pos = await InventoryPosition.findOne({ productId: product._id, variantId: variant._id });
+    expect(pos.reserved).toBe(1);
+    expect(pos.onHand).toBe(2);
   });
 
   test('does not drive mirrored root stock negative for a default variant', async () => {
@@ -402,15 +474,11 @@ describe('Order API integration', () => {
         sku: `VAR-GUARD-${sequence}`,
         attributes: [{ name: 'Weight', value: '2kg' }],
         price: 500,
-        stock: 2,
+        stock: 0,
         isDefault: true,
         images: []
       }]
     });
-    await Product.updateOne(
-      { _id: product._id },
-      { $set: { stock: 0 } }
-    );
 
     const response = await placeOrder(auth, payloadFor(product, {
       items: [{
@@ -423,8 +491,7 @@ describe('Order API integration', () => {
     expect(response.status).toBe(409);
     expect(response.body.error.code).toBe('ORDER_OUT_OF_STOCK');
     const unchanged = await Product.findById(product._id);
-    expect(unchanged.stock).toBe(0);
-    expect(unchanged.variants[0].stock).toBe(2);
+    expect(unchanged.variants[0].stock).toBe(0);
     expect(await Order.countDocuments()).toBe(0);
   });
 
@@ -460,8 +527,7 @@ describe('Order API integration', () => {
     expect(replay.body.data.idempotentReplay).toBe(true);
     expect(replay.body.data.order._id).toBe(first.body.data.order._id);
     expect(await Order.countDocuments()).toBe(1);
-    expect((await Product.findById(product._id)).stock).toBe(2);
-    expect(await InventoryTransaction.countDocuments({ type: 'sale' })).toBe(1);
+    expect(await InventoryLedger.countDocuments({ movementType: 'RESERVATION_CREATED' })).toBe(1);
 
     const conflict = await placeOrder(auth, payloadFor(product, {
       customerNote: 'materially different'
@@ -483,8 +549,7 @@ describe('Order API integration', () => {
 
     expect(responses.map((response) => response.status).sort()).toEqual([200, 201]);
     expect(await Order.countDocuments()).toBe(1);
-    expect((await Product.findById(product._id)).stock).toBe(0);
-    expect(await InventoryTransaction.countDocuments({ type: 'sale' })).toBe(1);
+    expect(await InventoryLedger.countDocuments({ movementType: 'RESERVATION_CREATED' })).toBe(1);
   });
 
   test('two customers cannot oversell one stock unit', async () => {
@@ -504,8 +569,7 @@ describe('Order API integration', () => {
     expect(statuses.filter((status) => status === 201)).toHaveLength(1);
     expect(statuses.filter((status) => status === 409)).toHaveLength(1);
     expect(await Order.countDocuments()).toBe(1);
-    expect((await Product.findById(product._id)).stock).toBe(0);
-    expect(await InventoryTransaction.countDocuments({ type: 'sale' })).toBe(1);
+    expect(await InventoryLedger.countDocuments({ movementType: 'RESERVATION_CREATED' })).toBe(1);
   });
 
   test('coupon global limit cannot be exceeded concurrently', async () => {
@@ -526,7 +590,8 @@ describe('Order API integration', () => {
     expect(responses.filter((response) => response.status === 409)).toHaveLength(1);
     expect((await Coupon.findById(coupon._id)).usedCount).toBe(1);
     expect(await Order.countDocuments()).toBe(1);
-    expect((await Product.findById(product._id)).stock).toBe(1);
+    const pos = await InventoryPosition.findOne({ productId: product._id });
+    expect(pos.reserved).toBe(1);
   });
 
   test('rejects an invalid supplied coupon without changing order or stock', async () => {
@@ -540,25 +605,29 @@ describe('Order API integration', () => {
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('ORDER_COUPON_INVALID');
     expect(await Order.countDocuments()).toBe(0);
-    expect((await Product.findById(product._id)).stock).toBe(2);
+    const pos = await InventoryPosition.findOne({ productId: product._id });
+    expect(pos.reserved).toBe(0);
   });
 
   test('transaction failure rolls back coupon, stock, journal, and order', async () => {
     const auth = await createAuth();
     const product = await createProduct({ price: 1000, stock: 2 });
     const coupon = await createCoupon({ usageLimit: 1 });
-    jest.spyOn(InventoryTransaction, 'create')
-      .mockRejectedValueOnce(new Error('journal unavailable'));
+    const saveSpy = jest.spyOn(Order.prototype, 'save')
+      .mockImplementationOnce(() => {
+        throw new Error('database write failure');
+      });
 
     const response = await placeOrder(auth, payloadFor(product, {
       couponCode: coupon.code
     }));
 
+    saveSpy.mockRestore();
+
     expect(response.status).toBe(500);
     expect(await Order.countDocuments()).toBe(0);
-    expect((await Product.findById(product._id)).stock).toBe(2);
     expect((await Coupon.findById(coupon._id)).usedCount).toBe(0);
-    expect(await InventoryTransaction.countDocuments()).toBe(0);
+    expect(await InventoryLedger.countDocuments({ movementType: 'RESERVATION_CREATED' })).toBe(0);
   });
 
   test('cancellation restores inventory and coupon at most once', async () => {
@@ -587,11 +656,10 @@ describe('Order API integration', () => {
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
     expect(replay.body.data.idempotentReplay).toBe(true);
-    expect((await Product.findById(product._id)).stock).toBe(2);
     const restoredCoupon = await Coupon.findById(coupon._id);
     expect(restoredCoupon.usedCount).toBe(0);
     expect(restoredCoupon.redemptions[0].count).toBe(0);
-    expect(await InventoryTransaction.countDocuments()).toBe(2);
+    expect(await InventoryLedger.countDocuments({ movementType: 'ORDER_CANCELLED_RELEASE' })).toBe(1);
   });
 
   test('enforces ownership, pagination, admin role, and valid transitions', async () => {

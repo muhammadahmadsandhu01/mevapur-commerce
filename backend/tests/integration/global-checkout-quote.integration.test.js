@@ -25,6 +25,10 @@ const { MoneyMapper } = require('../../modules/commerce');
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
+const InventoryLedger = require('../../models/InventoryLedger');
+const InventoryReservation = require('../../models/InventoryReservation');
 
 let sequence = 0;
 let testCategory;
@@ -138,6 +142,63 @@ const setupTestFixtures = async () => {
       }
     ]
   });
+
+  // Clean up existing inventory records
+  await FulfillmentLocation.deleteMany({});
+  await InventoryPosition.deleteMany({});
+  await InventoryLedger.deleteMany({});
+  await InventoryReservation.deleteMany({});
+
+  const defaultLocation = await FulfillmentLocation.create({
+    merchantScopeId: 'default',
+    locationCode: 'WH-PRIMARY-01',
+    displayName: 'Primary Fulfillment Hub',
+    status: 'active',
+    countryCode: 'PK',
+    city: 'Karachi',
+    timeZone: 'Asia/Karachi',
+    priority: 100,
+    supportedMarketCountries: ['PK', 'AE', 'GB', 'DE', 'US', 'SA'],
+    supportedServiceLevels: ['standard', 'express'],
+    capabilities: ['local_delivery', 'cross_border'],
+    returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+    isDefault: true
+  });
+
+  await InventoryPosition.create({
+    merchantScopeId: 'default',
+    locationId: defaultLocation._id,
+    locationCode: defaultLocation.locationCode,
+    productId: testProductSimple._id,
+    scopeType: 'product',
+    scopeKey: 'product',
+    canonicalSku: testProductSimple.sku,
+    onHand: 50,
+    reserved: 0,
+    unavailable: 0,
+    safetyStock: 0,
+    backordered: 0,
+    reorderPoint: 5
+  });
+
+  for (const v of testProductVariable.variants) {
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: testProductVariable._id,
+      variantId: v._id,
+      scopeType: 'variant',
+      scopeKey: String(v._id),
+      canonicalSku: v.sku,
+      onHand: v.stock || 50,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: 5
+    });
+  }
 
   // Create Shipping Zones
   await ShippingZone.deleteMany({});

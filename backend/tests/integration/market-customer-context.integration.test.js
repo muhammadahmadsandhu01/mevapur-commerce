@@ -10,6 +10,8 @@ const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const TokenService = require('../../services/TokenService');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
 
 const createAuthToken = async (user) => {
   const session = await Session.create({
@@ -41,6 +43,8 @@ describe('Market Customer Context Integration Tests', () => {
     await Category.deleteMany({});
     await Order.deleteMany({});
     await CommerceConfigurationVersion.deleteMany({});
+    await FulfillmentLocation.deleteMany({});
+    await InventoryPosition.deleteMany({});
 
     defaultCategory = await Category.create({
       name: 'Dry Fruits',
@@ -278,6 +282,38 @@ describe('Market Customer Context Integration Tests', () => {
         status: 'active',
         effectiveFrom: new Date('2026-01-01'),
         lockVersion: 1
+      });
+
+      const defaultLocation = await FulfillmentLocation.create({
+        merchantScopeId: 'default',
+        locationCode: 'WH-PRIMARY-01',
+        displayName: 'Primary Fulfillment Hub',
+        status: 'active',
+        countryCode: 'PK',
+        city: 'Karachi',
+        timeZone: 'Asia/Karachi',
+        priority: 100,
+        supportedMarketCountries: ['PK', 'GB', 'AE', 'US', 'DE'],
+        supportedServiceLevels: ['standard', 'express'],
+        capabilities: ['local_delivery', 'cross_border'],
+        returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+        isDefault: true
+      });
+
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: defaultLocation._id,
+        locationCode: defaultLocation.locationCode,
+        productId: product._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: 'PISTACHIO-500G',
+        onHand: 30,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        backordered: 0,
+        reorderPoint: 10
       });
 
       // Place domestic order

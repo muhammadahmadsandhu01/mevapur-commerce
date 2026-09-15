@@ -232,4 +232,149 @@ describe('Phase 6D-2: Inventory Concurrency & Race Proof Integration Tests', () 
       expect(reservations.length).toBe(0);
     });
   });
+
+  describe('Backorder Concurrency Race Proof & Bounded Capacity (§4)', () => {
+    it('allows exactly 5 of 10 concurrent requests when physical ATP is 0 and backorder limit is 5', async () => {
+      const backorderProduct = await Product.create({
+        name: `Backorder Product ${Date.now()}`,
+        slug: `backorder-product-${Date.now()}`,
+        sku: `BO-${Date.now().toString().slice(-4)}`,
+        status: 'published',
+        isActive: true,
+        price: 3000,
+        stock: 0
+      });
+
+      const boPosition = await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: location._id,
+        locationCode: location.locationCode,
+        productId: backorderProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: backorderProduct.sku,
+        onHand: 0,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        backordered: 0,
+        allowBackorder: true,
+        backorderLimit: 5,
+        lockVersion: 1
+      });
+
+      expect(boPosition.getPhysicalATP()).toBe(0);
+      expect(boPosition.getBackorderATP()).toBe(5);
+      expect(boPosition.calculateATP()).toBe(5);
+
+      const attempts = 10;
+      const promises = [];
+
+      for (let i = 0; i < attempts; i++) {
+        const orderId = `ORD-BO-${Date.now()}-${i}`;
+        const idempotencyKey = `idemp-bo-${Date.now()}-${i}`;
+
+        const task = (async () => {
+          try {
+            const res = await InventoryReservationService.createReservation({
+              orderId,
+              orderObjectId: new mongoose.Types.ObjectId(),
+              items: [{
+                product: backorderProduct._id,
+                productId: String(backorderProduct._id),
+                quantity: 1,
+                sku: backorderProduct.sku
+              }],
+              destinationCountry: 'PK',
+              merchantScopeId: 'default',
+              idempotencyKey
+            });
+            return { success: true, res, orderId, idempotencyKey };
+          } catch (err) {
+            return { success: false, error: err.message, code: err.code, orderId, idempotencyKey };
+          }
+        })();
+
+        promises.push(task);
+      }
+
+      const results = await Promise.all(promises);
+      const successes = results.filter((r) => r.success);
+      const failures = results.filter((r) => !r.success);
+
+      // Invariants:
+      // Exactly 5 succeeded, exactly 5 failed
+      expect(successes.length).toBe(5);
+      expect(failures.length).toBe(5);
+
+      // Verify position counters:
+      // onHand: 0, physical reserved: 0 (NO physical reserved fabricated), backordered: 5
+      const updatedPos = await InventoryPosition.findById(boPosition._id);
+      expect(updatedPos.onHand).toBe(0);
+      expect(updatedPos.reserved).toBe(0);
+      expect(updatedPos.backordered).toBe(5);
+      expect(updatedPos.getPhysicalATP()).toBe(0);
+      expect(updatedPos.getBackorderATP()).toBe(0);
+      expect(updatedPos.calculateATP()).toBe(0);
+
+      // Verify allocations recorded backorderedQuantity
+      for (const s of successes) {
+        const alloc = s.res.reservation.allocations[0];
+        expect(alloc.physicalReservedQuantity).toBe(0);
+        expect(alloc.backorderedQuantity).toBe(1);
+      }
+
+      // Replay of a successful reservation does not increment backordered
+      const firstSuccess = successes[0];
+      const replayRes = await InventoryReservationService.createReservation({
+        orderId: firstSuccess.orderId,
+        orderObjectId: firstSuccess.res.reservation.orderObjectId,
+        items: [{
+          product: backorderProduct._id,
+          productId: String(backorderProduct._id),
+          quantity: 1,
+          sku: backorderProduct.sku
+        }],
+        destinationCountry: 'PK',
+        merchantScopeId: 'default',
+        idempotencyKey: firstSuccess.idempotencyKey
+      });
+
+      expect(replayRes.isReplay).toBe(true);
+      const posAfterReplay = await InventoryPosition.findById(boPosition._id);
+      expect(posAfterReplay.backordered).toBe(5);
+
+      // Cancellation of one reservation restores backorder capacity
+      await InventoryReservationService.releaseReservation({
+        orderId: firstSuccess.orderId,
+        releaseReason: 'ORDER_CANCELLED',
+        merchantScopeId: 'default'
+      });
+
+      const posAfterRelease = await InventoryPosition.findById(boPosition._id);
+      expect(posAfterRelease.backordered).toBe(4);
+      expect(posAfterRelease.getBackorderATP()).toBe(1);
+      expect(posAfterRelease.calculateATP()).toBe(1);
+
+      // New request can now claim the released backorder slot
+      const newClaimRes = await InventoryReservationService.createReservation({
+        orderId: `ORD-BO-NEW-${Date.now()}`,
+        orderObjectId: new mongoose.Types.ObjectId(),
+        items: [{
+          product: backorderProduct._id,
+          productId: String(backorderProduct._id),
+          quantity: 1,
+          sku: backorderProduct.sku
+        }],
+        destinationCountry: 'PK',
+        merchantScopeId: 'default',
+        idempotencyKey: `idemp-bo-new-${Date.now()}`
+      });
+
+      expect(newClaimRes.reservation.status).toBe('pending');
+      const finalPos = await InventoryPosition.findById(boPosition._id);
+      expect(finalPos.backordered).toBe(5);
+      expect(finalPos.calculateATP()).toBe(0);
+    });
+  });
 });

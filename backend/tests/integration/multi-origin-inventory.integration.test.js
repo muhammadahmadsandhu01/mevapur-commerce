@@ -11,10 +11,14 @@ const app = require('../../app');
 const TokenService = require('../../services/TokenService');
 const Session = require('../../models/Session');
 const Product = require('../../models/Product');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
+const Category = require('../../models/Category');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
 const InventoryLedger = require('../../models/InventoryLedger');
 const InventoryTransaction = require('../../models/InventoryTransaction');
+const { MoneyMapper } = require('../../modules/commerce');
 
 let userSeq = 0;
 
@@ -248,6 +252,224 @@ describe('Phase 6D-2: Multi-Origin Inventory Integration Tests', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.status).toBe('HEALTHY');
       expect(res.body.data.aggregateCounters).toBeDefined();
+    });
+  });
+
+  describe('Public Catalog & Storefront Truthful ATP (§3)', () => {
+    it('returns truthful stock status and isPurchasable based on canonical ATP, keeping exact stock private', async () => {
+      const cat = await Category.create({
+        name: 'Test Category',
+        slug: `test-cat-${Date.now()}`,
+        isActive: true
+      });
+
+      const loc = await FulfillmentLocation.create({
+        merchantScopeId: 'default',
+        locationCode: `WH-PUB-${Date.now().toString().slice(-4)}`,
+        displayName: 'Public Store Hub',
+        status: 'active',
+        countryCode: 'PK',
+        city: 'Lahore',
+        timeZone: 'Asia/Karachi',
+        supportedMarketCountries: ['PK'],
+        isDefault: true
+      });
+
+      // In-stock product
+      const inStockProd = await Product.create({
+        name: `In Stock Product ${Date.now()}`,
+        slug: `in-stock-${Date.now()}`,
+        sku: `IN-${Date.now().toString().slice(-4)}`,
+        status: 'published',
+        isActive: true,
+        category: cat._id,
+        price: 1200,
+        stock: 10
+      });
+
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: inStockProd._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: inStockProd._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        currency: 'PKR',
+        currencyExponent: 2,
+        amountMinor: MoneyMapper.fromLegacy(1200, 'PKR').amountMinor.toString(),
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: loc._id,
+        locationCode: loc.locationCode,
+        productId: inStockProd._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: inStockProd.sku,
+        onHand: 10,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0
+      });
+
+      // Out-of-stock product
+      const oosProd = await Product.create({
+        name: `OOS Product ${Date.now()}`,
+        slug: `oos-prod-${Date.now()}`,
+        sku: `OOS-${Date.now().toString().slice(-4)}`,
+        status: 'published',
+        isActive: true,
+        category: cat._id,
+        price: 1200,
+        stock: 0
+      });
+
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: oosProd._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: oosProd._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        currency: 'PKR',
+        currencyExponent: 2,
+        amountMinor: MoneyMapper.fromLegacy(1200, 'PKR').amountMinor.toString(),
+        priceSource: 'manual',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000),
+        lockVersion: 1
+      });
+
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: loc._id,
+        locationCode: loc.locationCode,
+        productId: oosProd._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: oosProd.sku,
+        onHand: 0,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0
+      });
+
+      // Public product detail
+      const resInStock = await request(app).get(`/api/products/${inStockProd._id}`);
+      expect(resInStock.status).toBe(200);
+      expect(resInStock.body.data.stockStatus).toBe('in_stock');
+      expect(resInStock.body.data.isPurchasable).toBe(true);
+      // Ensure exact internal quantities are NOT leaked
+      expect(resInStock.body.data.exactStock).toBeUndefined();
+
+      const resOos = await request(app).get(`/api/products/${oosProd._id}`);
+      expect(resOos.status).toBe(200);
+      expect(resOos.body.data.stockStatus).toBe('out_of_stock');
+      expect(resOos.body.data.isPurchasable).toBe(false);
+    });
+  });
+
+  describe('Fulfillment Location Default Lifecycle Handover (§13)', () => {
+    it('demotes previous active default safely when a new default location is promoted', async () => {
+      const locA = await FulfillmentLocation.create({
+        merchantScopeId: 'default',
+        locationCode: `WH-DEF-A-${Date.now().toString().slice(-4)}`,
+        displayName: 'Old Default Hub',
+        status: 'active',
+        countryCode: 'PK',
+        city: 'Lahore',
+        timeZone: 'Asia/Karachi',
+        isDefault: true
+      });
+
+      expect(locA.isDefault).toBe(true);
+
+      const res = await request(app)
+        .post('/api/inventory/locations')
+        .set('Authorization', adminAuth.token)
+        .send({
+          locationCode: `WH-DEF-B-${Date.now().toString().slice(-4)}`,
+          displayName: 'New Default Hub',
+          status: 'active',
+          countryCode: 'PK',
+          city: 'Karachi',
+          timeZone: 'Asia/Karachi',
+          isDefault: true
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.isDefault).toBe(true);
+
+      const oldLoc = await FulfillmentLocation.findById(locA._id);
+      expect(oldLoc.isDefault).toBe(false);
+
+      // Verify only one active default exists
+      const activeDefaults = await FulfillmentLocation.find({
+        merchantScopeId: 'default',
+        isDefault: true,
+        status: 'active'
+      });
+      expect(activeDefaults.length).toBe(1);
+    });
+  });
+
+  describe('RBAC & Zod Schema Validation (§10)', () => {
+    it('rejects invalid ObjectId and malformed fields with Zod validation errors', async () => {
+      const res = await request(app)
+        .post('/api/inventory/adjust')
+        .set('Authorization', adminAuth.token)
+        .send({
+          productId: 'invalid-object-id',
+          type: 'in',
+          quantity: -5,
+          reason: 'ab',
+          operationKey: 'not-a-uuid'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects allocation preview with negative quantities or missing destination country', async () => {
+      const res = await request(app)
+        .post('/api/inventory/allocations/preview')
+        .set('Authorization', adminAuth.token)
+        .send({
+          items: [{ productId: String(testProduct._id), quantity: -1 }],
+          destinationCountry: 'INVALID'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 });

@@ -17,6 +17,8 @@ const ShippingZone = require('../../models/ShippingZone');
 const MarketConfig = require('../../models/MarketConfig');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
 const { MoneyMapper } = require('../../modules/commerce');
 
 /**
@@ -103,6 +105,62 @@ const seedOfferingAndPrice = async (product, options = {}) => {
         lockVersion: 1
       });
     }
+  }
+
+  let defaultLocation = await FulfillmentLocation.findOne({ merchantScopeId: 'default', isDefault: true });
+  if (!defaultLocation) {
+    defaultLocation = await FulfillmentLocation.create({
+      merchantScopeId: 'default',
+      locationCode: 'WH-PRIMARY-01',
+      displayName: 'Primary Fulfillment Hub',
+      status: 'active',
+      countryCode: 'PK',
+      city: 'Karachi',
+      timeZone: 'Asia/Karachi',
+      priority: 100,
+      supportedMarketCountries: ['PK', 'GB', 'AE', 'US', 'DE'],
+      supportedServiceLevels: ['standard', 'express'],
+      capabilities: ['local_delivery', 'cross_border'],
+      returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+      isDefault: true
+    });
+  }
+
+  if (product.variants && product.variants.length > 0) {
+    for (const v of product.variants) {
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: defaultLocation._id,
+        locationCode: defaultLocation.locationCode,
+        productId: product._id,
+        variantId: v._id,
+        scopeType: 'variant',
+        scopeKey: String(v._id),
+        canonicalSku: v.sku,
+        onHand: v.stock !== undefined ? v.stock : 15,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        backordered: 0,
+        reorderPoint: 5
+      });
+    }
+  } else {
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: product._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      canonicalSku: product.sku,
+      onHand: product.stock !== undefined ? product.stock : 15,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: 5
+    });
   }
 };
 
@@ -310,11 +368,11 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
     expect(dbOrder.items[0].quantity).toBe(2);
     expect(dbOrder.items[0].lineTotal).toBe(2400);
 
-    // Direct MongoDB verification of variant and root stock decrements
-    const updatedProduct = await Product.findById(product._id);
-    const updatedVariant = updatedProduct.variants.id(variantId);
-    expect(updatedVariant.stock).toBe(13); // 15 - 2 = 13
-    expect(updatedProduct.stock).toBe(13); // Root stock equals sum of variant stocks
+    // Direct MongoDB verification of variant and root stock reservations
+    const pos = await InventoryPosition.findOne({ productId: product._id, variantId });
+    expect(pos.reserved).toBe(2);
+    expect(pos.onHand).toBe(15);
+    expect(pos.calculateATP()).toBe(13);
   });
 
   test('3. Duplicate checkout attempts with the same Idempotency-Key produce exactly ONE order and ONE stock mutation', async () => {
@@ -380,9 +438,11 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
     const matchingOrders = await Order.find({ idempotencyKey: fixedIdempotencyKey });
     expect(matchingOrders).toHaveLength(1);
 
-    // Direct MongoDB assertions: Stock was mutated exactly once (20 - 3 = 17)
-    const dbProduct = await Product.findById(product._id);
-    expect(dbProduct.stock).toBe(17);
+    // Direct MongoDB assertions: Stock reservation was made exactly once (20 - 3 = 17 ATP)
+    const pos = await InventoryPosition.findOne({ productId: product._id });
+    expect(pos.reserved).toBe(3);
+    expect(pos.onHand).toBe(20);
+    expect(pos.calculateATP()).toBe(17);
   });
 
   test('4. Cross-account order privacy: Customer A accesses own order, Customer B is strictly barred', async () => {

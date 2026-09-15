@@ -6,6 +6,7 @@ const Category = require('../../models/Category');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
+const InventoryPosition = require('../../models/InventoryPosition');
 const { MoneyMapper } = require('../../modules/commerce');
 const OrderService = require('../../services/order/OrderService');
 const InventoryService = require('../../services/order/InventoryService');
@@ -163,10 +164,10 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       userId: customerUser._id
     });
 
-    const productAfterSale = await Product.findById(product._id);
-    const var2After = productAfterSale.variants.id(variant2Id);
-    expect(var2After.stock).toBe(10); // 15 - 5
-    expect(productAfterSale.stock).toBe(30); // 35 - 5 (Synchronized root stock!)
+    const pos2After = await InventoryPosition.findOne({ productId: product._id, variantId: variant2Id });
+    expect(pos2After.reserved).toBe(5);
+    expect(pos2After.onHand).toBe(15);
+    expect(pos2After.calculateATP()).toBe(10);
 
     // 2. Restore cancelled order
     await InventoryService.restore({
@@ -184,9 +185,10 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       userId: adminUser._id
     });
 
-    const productAfterRestore = await Product.findById(product._id);
-    expect(productAfterRestore.variants.id(variant2Id).stock).toBe(15);
-    expect(productAfterRestore.stock).toBe(35);
+    const pos2Restored = await InventoryPosition.findOne({ productId: product._id, variantId: variant2Id });
+    expect(pos2Restored.reserved).toBe(0);
+    expect(pos2Restored.onHand).toBe(15);
+    expect(pos2Restored.calculateATP()).toBe(15);
   });
 
   it('rejects order creation for draft, inactive, or archived products (409)', async () => {

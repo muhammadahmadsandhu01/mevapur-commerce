@@ -6,6 +6,9 @@ const User = require('../../models/User');
 const Session = require('../../models/Session');
 const Product = require('../../models/Product');
 const InventoryTransaction = require('../../models/InventoryTransaction');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
+const InventoryLedger = require('../../models/InventoryLedger');
 const AuditLog = require('../../models/AuditLog');
 const TokenService = require('../../services/TokenService');
 const InventoryService = require('../../services/inventory/InventoryService');
@@ -54,6 +57,9 @@ describe('Phase 3 — Inventory Single Writer and Integrity', () => {
     await Session.deleteMany({});
     await Product.deleteMany({});
     await InventoryTransaction.deleteMany({});
+    await InventoryPosition.deleteMany({});
+    await FulfillmentLocation.deleteMany({});
+    await InventoryLedger.deleteMany({});
     try { await AuditLog.collection.deleteMany({}); } catch { /* ignore */ }
 
     superAdminUser = await User.create({
@@ -154,6 +160,72 @@ describe('Phase 3 — Inventory Single Writer and Integrity', () => {
           attributes: [{ name: 'Weight', value: '500g' }]
         }
       ]
+    });
+
+    const defaultLocation = await FulfillmentLocation.create({
+      merchantScopeId: 'default',
+      locationCode: 'WH-PRIMARY-01',
+      displayName: 'Primary Fulfillment Hub',
+      status: 'active',
+      countryCode: 'PK',
+      city: 'Lahore',
+      timeZone: 'Asia/Karachi',
+      priority: 100,
+      supportedMarketCountries: ['PK', 'US'],
+      supportedServiceLevels: ['standard', 'express'],
+      capabilities: ['local_delivery', 'cross_border'],
+      returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+      isDefault: true
+    });
+
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: simpleProduct._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      canonicalSku: simpleProduct.sku,
+      onHand: 50,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: simpleProduct.lowStockThreshold || 15
+    });
+
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: variableProduct._id,
+      variantId: variant1Id,
+      scopeType: 'variant',
+      scopeKey: variant1Id.toString(),
+      canonicalSku: 'ALM-250G',
+      onHand: 20,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: variableProduct.lowStockThreshold || 10
+    });
+
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: variableProduct._id,
+      variantId: variant2Id,
+      scopeType: 'variant',
+      scopeKey: variant2Id.toString(),
+      canonicalSku: 'ALM-500G',
+      onHand: 30,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: variableProduct.lowStockThreshold || 10
     });
   });
 

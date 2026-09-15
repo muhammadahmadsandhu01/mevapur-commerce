@@ -247,5 +247,93 @@ describe('Phase 6D-2: Inventory Payment Lifecycle Integration Tests', () => {
       expect(ledgerEntry.quantityDelta).toBe(-2);
       expect(ledgerEntry.reservationDelta).toBe(-2);
     });
+
+    it('releases COD confirmed reservation exactly once upon pre-shipment cancellation', async () => {
+      const orderId = `ORD-COD-CANC-${Date.now()}`;
+      const idempotencyKey = `idemp-cod-canc-${Date.now()}`;
+
+      await InventoryReservationService.createReservation({
+        orderId,
+        orderObjectId: new mongoose.Types.ObjectId(),
+        items: [{
+          product: product._id,
+          productId: String(product._id),
+          quantity: 3,
+          sku: product.sku
+        }],
+        destinationCountry: 'PK',
+        merchantScopeId: 'default',
+        idempotencyKey,
+        isInstantConfirm: true
+      });
+
+      let pos = await InventoryPosition.findById(position._id);
+      expect(pos.reserved).toBe(3);
+
+      const releaseResult = await InventoryReservationService.releaseReservation({
+        orderId,
+        releaseReason: 'COD_ORDER_CANCELLED_PRE_SHIP',
+        merchantScopeId: 'default'
+      });
+
+      expect(releaseResult.reservation.status).toBe('released');
+
+      pos = await InventoryPosition.findById(position._id);
+      expect(pos.reserved).toBe(0);
+      expect(pos.onHand).toBe(20);
+      expect(pos.calculateATP()).toBe(18);
+
+      // Duplicate cancellation is idempotent
+      const dupRelease = await InventoryReservationService.releaseReservation({
+        orderId,
+        releaseReason: 'COD_ORDER_CANCELLED_PRE_SHIP',
+        merchantScopeId: 'default'
+      });
+
+      expect(dupRelease.isReplay).toBe(true);
+      pos = await InventoryPosition.findById(position._id);
+      expect(pos.reserved).toBe(0);
+    });
+  });
+
+  describe('Late Success and Reconciliation Guards (§8)', () => {
+    it('refuses to oversell and requires manual review when payment succeeds late on expired reservation', async () => {
+      const orderId = `ORD-LATE-SUCC-${Date.now()}`;
+      const idempotencyKey = `idemp-late-${Date.now()}`;
+
+      const resvResult = await InventoryReservationService.createReservation({
+        orderId,
+        orderObjectId: new mongoose.Types.ObjectId(),
+        items: [{
+          product: product._id,
+          productId: String(product._id),
+          quantity: 4,
+          sku: product.sku
+        }],
+        destinationCountry: 'PK',
+        merchantScopeId: 'default',
+        idempotencyKey,
+        isInstantConfirm: false
+      });
+
+      // Release reservation due to TTL expiry
+      await InventoryReservationService.releaseReservation({
+        orderId,
+        releaseReason: 'EXPIRED_UNPAID',
+        merchantScopeId: 'default'
+      });
+
+      // Confirm reservation fails with INVALID_RESERVATION_STATE because status is expired
+      await expect(
+        InventoryReservationService.confirmReservation({
+          orderId,
+          merchantScopeId: 'default'
+        })
+      ).rejects.toThrow('Cannot confirm reservation');
+
+      // Does not re-reserve or fabricate stock
+      const pos = await InventoryPosition.findById(position._id);
+      expect(pos.reserved).toBe(0);
+    });
   });
 });

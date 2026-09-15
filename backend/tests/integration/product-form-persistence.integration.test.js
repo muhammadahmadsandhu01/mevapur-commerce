@@ -15,7 +15,7 @@ let sequence = 0;
 const getAuthToken = async (role = 'admin') => {
   sequence += 1;
   const user = await global.createTestUser({
-    email: `product-persist-${sequence}-${Date.now()}@example.test`,
+    email: `product-persist-${sequence}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}@example.test`,
     role
   });
   const session = await Session.create({
@@ -60,7 +60,7 @@ describe('Product Form Persistence & Public Allowlist Protection Integration Tes
     });
 
     const user = await global.createTestUser({
-      email: `uploader-persist-${Date.now()}@example.test`,
+      email: `uploader-persist-${Date.now()}-${Math.random().toString(36).substring(2, 7)}@example.test`,
       role: 'admin'
     });
 
@@ -81,10 +81,10 @@ describe('Product Form Persistence & Public Allowlist Protection Integration Tes
 
   describe('1. Full Round-Trip Field Persistence', () => {
     it('creates draft product with all 24+ UI fields and hydrates correctly on getAdminProduct', async () => {
-      const explicitSku = `EXP-SKU-${Date.now()}`;
+      const explicitSku = `EXP-SKU-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`.toUpperCase();
       const payload = {
         name: 'Organic Raw Almonds',
-        slug: `organic-raw-almonds-${Date.now()}`,
+        slug: `organic-raw-almonds-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         shortDescription: 'Fresh California almonds.',
         description: 'Premium batch harvested raw organic almonds.',
         category: testCategory._id.toString(),

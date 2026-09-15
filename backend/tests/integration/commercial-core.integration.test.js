@@ -6,6 +6,8 @@ const Session = require('../../models/Session');
 const Product = require('../../models/Product');
 const Order = require('../../models/Order');
 const InventoryTransaction = require('../../models/InventoryTransaction');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
 const MarketConfig = require('../../models/MarketConfig');
 const ShippingZone = require('../../models/ShippingZone');
 const Category = require('../../models/Category');
@@ -86,6 +88,28 @@ const product = async (overrides = {}) => {
     lockVersion: 1
   });
 
+  const defaultLocation = await FulfillmentLocation.findOneAndUpdate(
+    { merchantScopeId: 'default', locationCode: 'WH-PRIMARY-01' },
+    {
+      $set: {
+        merchantScopeId: 'default',
+        locationCode: 'WH-PRIMARY-01',
+        displayName: 'Primary Fulfillment Hub',
+        status: 'active',
+        countryCode: 'PK',
+        city: 'Lahore',
+        timeZone: 'Asia/Karachi',
+        priority: 100,
+        supportedMarketCountries: ['PK', 'US'],
+        supportedServiceLevels: ['standard', 'express'],
+        capabilities: ['local_delivery', 'cross_border'],
+        returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+        isDefault: true
+      }
+    },
+    { upsert: true, new: true }
+  );
+
   if (prod.variants && prod.variants.length > 0) {
     for (const v of prod.variants) {
       await ProductMarketOffering.create({
@@ -120,7 +144,65 @@ const product = async (overrides = {}) => {
         effectiveFrom: new Date(Date.now() - 60000),
         lockVersion: 1
       });
+
+      await InventoryPosition.findOneAndUpdate(
+        {
+          merchantScopeId: 'default',
+          locationId: defaultLocation._id,
+          productId: prod._id,
+          variantId: v._id,
+          scopeType: 'variant',
+          scopeKey: String(v._id)
+        },
+        {
+          $set: {
+            merchantScopeId: 'default',
+            locationId: defaultLocation._id,
+            locationCode: defaultLocation.locationCode,
+            productId: prod._id,
+            variantId: v._id,
+            scopeType: 'variant',
+            scopeKey: String(v._id),
+            canonicalSku: v.sku || `SKU-${v._id}`,
+            onHand: v.stock !== undefined ? v.stock : 10,
+            reserved: 0,
+            unavailable: 0,
+            safetyStock: 0,
+            backordered: 0,
+            reorderPoint: 5
+          }
+        },
+        { upsert: true, new: true }
+      );
     }
+  } else {
+    await InventoryPosition.findOneAndUpdate(
+      {
+        merchantScopeId: 'default',
+        locationId: defaultLocation._id,
+        productId: prod._id,
+        scopeType: 'product',
+        scopeKey: 'product'
+      },
+      {
+        $set: {
+          merchantScopeId: 'default',
+          locationId: defaultLocation._id,
+          locationCode: defaultLocation.locationCode,
+          productId: prod._id,
+          scopeType: 'product',
+          scopeKey: 'product',
+          canonicalSku: prod.sku,
+          onHand: prod.stock !== undefined ? prod.stock : 10,
+          reserved: 0,
+          unavailable: 0,
+          safetyStock: 0,
+          backordered: 0,
+          reorderPoint: 5
+        }
+      },
+      { upsert: true, new: true }
+    );
   }
 
   return prod;
@@ -136,7 +218,7 @@ describe('P6A commercial core contracts', () => {
   beforeAll(async () => {
     prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
-    await Promise.all([Product.syncIndexes(), Order.syncIndexes(), InventoryTransaction.syncIndexes(), MarketConfig.syncIndexes(), ShippingZone.syncIndexes()]);
+    await Promise.all([Product.syncIndexes(), Order.syncIndexes(), InventoryTransaction.syncIndexes(), MarketConfig.syncIndexes(), ShippingZone.syncIndexes(), FulfillmentLocation.syncIndexes(), InventoryPosition.syncIndexes()]);
   });
 
   afterAll(async () => {

@@ -14,6 +14,8 @@ const MarketPriceBook = require('../../models/MarketPriceBook');
 const TokenService = require('../../services/TokenService');
 const CheckoutQuoteService = require('../../services/checkout/CheckoutQuoteService');
 const { MoneyMapper } = require('../../modules/commerce');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
 
 const createAuthToken = async (user) => {
   const session = await Session.create({
@@ -55,6 +57,8 @@ describe('Market Checkout & Provenance Integration Tests', () => {
     await CommerceConfigurationVersion.deleteMany({});
     await ProductMarketOffering.deleteMany({});
     await MarketPriceBook.deleteMany({});
+    await FulfillmentLocation.deleteMany({});
+    await InventoryPosition.deleteMany({});
 
     defaultCategory = await Category.create({
       name: 'Dry Fruits & Nuts',
@@ -245,6 +249,54 @@ describe('Market Checkout & Provenance Integration Tests', () => {
       status: 'active',
       effectiveFrom: new Date(Date.now() - 60000),
       lockVersion: 1
+    });
+
+    const defaultLocation = await FulfillmentLocation.create({
+      merchantScopeId: 'default',
+      locationCode: 'WH-PRIMARY-01',
+      displayName: 'Primary Fulfillment Hub',
+      status: 'active',
+      countryCode: 'PK',
+      city: 'Karachi',
+      timeZone: 'Asia/Karachi',
+      priority: 100,
+      supportedMarketCountries: ['PK', 'GB', 'AE', 'US', 'DE'],
+      supportedServiceLevels: ['standard', 'express'],
+      capabilities: ['local_delivery', 'cross_border'],
+      returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+      isDefault: true
+    });
+
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: gbProduct._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      canonicalSku: 'GB-APRICOT-500G',
+      onHand: 50,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: 10
+    });
+
+    await InventoryPosition.create({
+      merchantScopeId: 'default',
+      locationId: defaultLocation._id,
+      locationCode: defaultLocation.locationCode,
+      productId: pkProduct._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      canonicalSku: 'PK-WALNUT-500G',
+      onHand: 40,
+      reserved: 0,
+      unavailable: 0,
+      safetyStock: 0,
+      backordered: 0,
+      reorderPoint: 10
     });
   });
 
