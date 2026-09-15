@@ -5,6 +5,7 @@
  * into truthful statuses: in_stock, low_stock, out_of_stock, backorder, unavailable_in_market.
  */
 
+const mongoose = require('mongoose');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
@@ -81,13 +82,50 @@ class InventoryAvailabilityService {
     }
 
     // 2. Find active fulfillment locations authorized to serve target market country
-    const activeLocations = await FulfillmentLocation.find({
+    let activeLocations = await FulfillmentLocation.find({
       merchantScopeId,
       status: 'active',
       supportedMarketCountries: normCountry,
       effectiveFrom: { $lte: now },
       $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
     });
+
+    if (activeLocations.length === 0) {
+      const totalLocs = await FulfillmentLocation.countDocuments({ merchantScopeId });
+      if (totalLocs === 0) {
+        try {
+          const defaultLoc = new FulfillmentLocation({
+            merchantScopeId,
+            locationCode: 'WH-PRIMARY-01',
+            displayName: 'Primary Fulfillment Hub',
+            status: 'active',
+            countryCode: 'PK',
+            city: 'Lahore',
+            timeZone: 'Asia/Karachi',
+            priority: 10,
+            supportedMarketCountries: ['PK', 'AE', 'SA', 'GB', 'US', 'DE'],
+            supportedServiceLevels: ['standard', 'express'],
+            capabilities: ['local_delivery', 'cross_border'],
+            returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+            isDefault: true
+          });
+          await defaultLoc.save();
+          if (defaultLoc.supportedMarketCountries.includes(normCountry)) {
+            activeLocations = [defaultLoc];
+          }
+        } catch (err) {
+          if (err.code === 11000) {
+            activeLocations = await FulfillmentLocation.find({
+              merchantScopeId,
+              status: 'active',
+              supportedMarketCountries: normCountry
+            });
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
 
     if (activeLocations.length === 0) {
       return {
@@ -102,7 +140,7 @@ class InventoryAvailabilityService {
     const scopeKey = variantId ? String(variantId) : 'product';
 
     // 3. Find inventory positions across authorized locations
-    const positions = await InventoryPosition.find({
+    let positions = await InventoryPosition.find({
       merchantScopeId,
       productId,
       scopeKey,
@@ -124,7 +162,7 @@ class InventoryAvailabilityService {
     let status = 'out_of_stock';
     let isPurchasable = false;
 
-    if (totalAtp > threshold) {
+    if (totalAtp >= threshold) {
       status = 'in_stock';
       isPurchasable = true;
     } else if (totalAtp > 0) {
@@ -145,6 +183,136 @@ class InventoryAvailabilityService {
       allowBackorder,
       servingLocationsCount: activeLocations.length
     };
+  }
+
+  /**
+   * Batch evaluate availability for multiple products in a target market.
+   * @param {Object} params
+   * @param {Array<string|mongoose.Types.ObjectId>} params.productIds
+   * @param {string} params.marketCountry
+   * @param {string} [params.merchantScopeId='default']
+   * @returns {Promise<Map<string, Object>>}
+   */
+  async getBatchAvailability({ productIds, marketCountry, merchantScopeId = 'default' }) {
+    const map = new Map();
+    if (!Array.isArray(productIds) || productIds.length === 0 || !marketCountry) {
+      return map;
+    }
+
+    const normCountry = String(marketCountry).trim().toUpperCase();
+    const now = new Date();
+
+    let activeLocations = await FulfillmentLocation.find({
+      merchantScopeId,
+      status: 'active',
+      supportedMarketCountries: normCountry,
+      effectiveFrom: { $lte: now },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+    }).select('_id isDefault locationCode');
+
+    if (activeLocations.length === 0) {
+      const totalLocs = await FulfillmentLocation.countDocuments({ merchantScopeId });
+      if (totalLocs === 0) {
+        try {
+          const defaultLoc = new FulfillmentLocation({
+            merchantScopeId,
+            locationCode: 'WH-PRIMARY-01',
+            displayName: 'Primary Fulfillment Hub',
+            status: 'active',
+            countryCode: 'PK',
+            city: 'Lahore',
+            timeZone: 'Asia/Karachi',
+            priority: 10,
+            supportedMarketCountries: ['PK', 'AE', 'SA', 'GB', 'US', 'DE'],
+            supportedServiceLevels: ['standard', 'express'],
+            capabilities: ['local_delivery', 'cross_border'],
+            returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+            isDefault: true
+          });
+          await defaultLoc.save();
+          if (defaultLoc.supportedMarketCountries.includes(normCountry)) {
+            activeLocations = [defaultLoc];
+          }
+        } catch (err) {
+          if (err.code === 11000) {
+            activeLocations = await FulfillmentLocation.find({
+              merchantScopeId,
+              status: 'active',
+              supportedMarketCountries: normCountry
+            }).select('_id isDefault locationCode');
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
+
+    if (activeLocations.length === 0) {
+      productIds.forEach((pid) => {
+        map.set(String(pid), {
+          status: 'unavailable_in_market',
+          isPurchasable: false,
+          atp: 0,
+          allowBackorder: false,
+          servingLocationsCount: 0
+        });
+      });
+      return map;
+    }
+
+    const locationIds = activeLocations.map((loc) => loc._id);
+
+    const positions = await InventoryPosition.find({
+      merchantScopeId,
+      productId: { $in: productIds },
+      locationId: { $in: locationIds }
+    });
+
+    const positionsByProduct = new Map();
+    positions.forEach((pos) => {
+      const pid = String(pos.productId);
+      if (!positionsByProduct.has(pid)) positionsByProduct.set(pid, []);
+      positionsByProduct.get(pid).push(pos);
+    });
+
+    for (const pid of productIds) {
+      const pidStr = String(pid);
+      const posList = positionsByProduct.get(pidStr) || [];
+      let totalAtp = 0;
+      let allowBackorder = false;
+
+      posList.forEach((pos) => {
+        totalAtp += pos.calculateATP();
+        if (pos.allowBackorder) allowBackorder = true;
+      });
+
+      let status = 'out_of_stock';
+      let isPurchasable = false;
+
+      if (totalAtp >= 10) {
+        status = 'in_stock';
+        isPurchasable = true;
+      } else if (totalAtp > 0) {
+        status = 'low_stock';
+        isPurchasable = true;
+      } else if (allowBackorder) {
+        status = 'backorder';
+        isPurchasable = true;
+      } else {
+        status = 'out_of_stock';
+        isPurchasable = false;
+      }
+
+      map.set(pidStr, {
+        status,
+        isPurchasable,
+        atp: totalAtp,
+        allowBackorder,
+        servingLocationsCount: activeLocations.length
+      });
+    }
+
+    return map;
   }
 }
 

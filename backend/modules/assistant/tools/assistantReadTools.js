@@ -6,6 +6,7 @@ const Refund = require('../../../models/Refund');
 const ProductVisibilityPolicy = require('../../../services/product/ProductVisibilityPolicy');
 const MarketService = require('../../../services/MarketService');
 const MarketPriceBook = require('../../../models/MarketPriceBook');
+const InventoryAvailabilityService = require('../../../services/inventory/InventoryAvailabilityService');
 
 const MAX_RESULT_ITEMS = 5;
 const QUERY_TIMEOUT_MS = 2500;
@@ -60,14 +61,20 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
     .lean();
 
   const now = new Date();
-  const priceDocs = await MarketPriceBook.find({
-    marketCountry: targetMarket,
-    productId: { $in: products.map((p) => p._id) },
-    scopeType: 'product',
-    status: 'active',
-    effectiveFrom: { $lte: now },
-    $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
-  }).lean();
+  const [priceDocs, availabilityMap] = await Promise.all([
+    MarketPriceBook.find({
+      marketCountry: targetMarket,
+      productId: { $in: products.map((p) => p._id) },
+      scopeType: 'product',
+      status: 'active',
+      effectiveFrom: { $lte: now },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+    }).lean(),
+    InventoryAvailabilityService.getBatchAvailability({
+      productIds: products.map((p) => p._id),
+      marketCountry: targetMarket
+    })
+  ]);
 
   const priceMap = new Map();
   for (const doc of priceDocs) {
@@ -77,6 +84,7 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
   return products.map((product) => {
     const mp = priceMap.get(String(product._id));
     const price = mp ? (Number(mp.amountMinor) / (10 ** (mp.currencyExponent || 2))) : product.price;
+    const avail = availabilityMap.get(String(product._id));
     return {
       id: String(product._id),
       name: product.name,
@@ -84,7 +92,7 @@ const searchPublicProducts = async ({ query, marketCountry, market }) => {
       shortDescription: product.shortDescription,
       price,
       currency: mp?.currency || null,
-      inStock: Number(product.stock) > 0,
+      inStock: avail ? Boolean(avail.isPurchasable) : Number(product.stock) > 0,
       primaryImage: product.primaryImage,
       rating: product.rating
     };
@@ -113,14 +121,20 @@ const getPublicProductDetails = async ({ productId, marketCountry, market }) => 
   if (!isEligible) return null;
 
   const now = new Date();
-  const marketPrice = await MarketPriceBook.findOne({
-    marketCountry: targetMarket,
-    productId: product._id,
-    scopeType: 'product',
-    status: 'active',
-    effectiveFrom: { $lte: now },
-    $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
-  }).lean();
+  const [marketPrice, availability] = await Promise.all([
+    MarketPriceBook.findOne({
+      marketCountry: targetMarket,
+      productId: product._id,
+      scopeType: 'product',
+      status: 'active',
+      effectiveFrom: { $lte: now },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }]
+    }).lean(),
+    InventoryAvailabilityService.getAvailability({
+      productId: product._id,
+      marketCountry: targetMarket
+    })
+  ]);
 
   const price = marketPrice
     ? (Number(marketPrice.amountMinor) / (10 ** (marketPrice.currencyExponent || 2)))
@@ -134,7 +148,7 @@ const getPublicProductDetails = async ({ productId, marketCountry, market }) => 
     description: String(product.description || '').slice(0, 500),
     price,
     currency: marketPrice?.currency || null,
-    inStock: Number(product.stock) > 0,
+    inStock: availability ? Boolean(availability.isPurchasable) : Number(product.stock) > 0,
     primaryImage: product.primaryImage,
     rating: product.rating
   };

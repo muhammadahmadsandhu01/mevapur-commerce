@@ -17,6 +17,8 @@ const TaxDutyEngine = require('./TaxDutyEngine');
 const shippingAdapterRegistry = require('./shipping/ShippingAdapterRegistry');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
+const InventoryAvailabilityService = require('../inventory/InventoryAvailabilityService');
+const InventoryAllocationService = require('../inventory/InventoryAllocationService');
 const {
   Money,
   MoneyMapper,
@@ -236,11 +238,17 @@ class CheckoutQuoteService {
         throw new AppError('Item quantity must be a positive integer', 400, ERROR_CODES.ORDER_VALIDATION_FAILED);
       }
 
-      // Check stock availability
-      const availableStock = variant ? variant.stock : product.stock;
-      if (availableStock < quantity) {
+      // Check market-scoped ATP availability
+      const availability = await InventoryAvailabilityService.getAvailability({
+        productId: product._id,
+        variantId: variant?._id || null,
+        marketCountry: destinationCountry || 'PK',
+        merchantScopeId: merchantScopeId || 'default'
+      });
+
+      if (!availability.isPurchasable || availability.atp < quantity) {
         throw new AppError(
-          `Insufficient stock for '${product.name}${variant ? ` (${variant.sku || 'variant'})` : ''}'. Requested: ${quantity}, Available: ${availableStock}`,
+          `Insufficient stock for '${product.name}${variant ? ` (${variant.sku || 'variant'})` : ''}'. Requested: ${quantity}, Available: ${availability.atp}`,
           409,
           'INSUFFICIENT_STOCK'
         );

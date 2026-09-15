@@ -4,6 +4,7 @@ const CategoryResolver = require('../services/category/CategoryResolver');
 const ProductVisibilityPolicy = require('../services/product/ProductVisibilityPolicy');
 const MarketContextResolver = require('../services/market/MarketContextResolver');
 const MarketPriceBook = require('../models/MarketPriceBook');
+const InventoryAvailabilityService = require('../services/inventory/InventoryAvailabilityService');
 
 function serializePublicVariant(v, variantPrice = null) {
   if (!v) return null;
@@ -40,12 +41,12 @@ function serializePublicVariant(v, variantPrice = null) {
   };
 }
 
-function serializePublicProduct(product, marketPrice = null, variantPriceMap = null) {
+function serializePublicProduct(product, marketPrice = null, variantPriceMap = null, availability = null) {
   if (!product) return null;
   const p = product.toObject ? product.toObject() : product;
 
   let price = p.price;
-  let originalPrice = p.originalPrice;
+  let originalPrice = p.originalPrice !== undefined ? p.originalPrice : p.price;
   let salePrice = p.salePrice;
   let currency = marketPrice?.currency || null;
   let marketPriceExact = null;
@@ -71,6 +72,10 @@ function serializePublicProduct(product, marketPrice = null, variantPriceMap = n
     };
   }
 
+  const stockStatus = availability ? availability.status : (p.stock > 0 ? 'in_stock' : 'out_of_stock');
+  const isPurchasable = availability ? availability.isPurchasable : (p.stock > 0);
+  const allowBackorders = Boolean(p.allowBackorders || availability?.allowBackorder);
+
   return {
     _id: p._id,
     name: p.name,
@@ -87,6 +92,8 @@ function serializePublicProduct(product, marketPrice = null, variantPriceMap = n
     currency,
     marketPriceExact,
     stock: p.stock,
+    stockStatus,
+    isPurchasable,
     rating: p.rating,
     reviewCount: p.reviewCount,
     soldCount: p.soldCount,
@@ -96,7 +103,7 @@ function serializePublicProduct(product, marketPrice = null, variantPriceMap = n
     isNewArrival: Boolean(p.isNewArrival),
     isBestSeller: Boolean(p.isBestSeller),
     isTrending: Boolean(p.isTrending),
-    allowBackorders: Boolean(p.allowBackorders),
+    allowBackorders,
     tags: Array.isArray(p.tags) ? p.tags : [],
     ingredients: p.ingredients || '',
     nutritionalFacts: p.nutritionalFacts || '',
@@ -307,11 +314,15 @@ exports.getProducts = async (req, res) => {
       Product.countDocuments(query)
     ]);
 
-    const priceMap = await fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId);
+    const [priceMap, availabilityMap] = await Promise.all([
+      fetchMarketPriceMap(products.map((p) => p._id), marketCountry, merchantScopeId),
+      InventoryAvailabilityService.getBatchAvailability({ productIds: products.map((p) => p._id), marketCountry, merchantScopeId })
+    ]);
 
     const serializedProducts = products.map((product) => {
       const mp = priceMap.get(String(product._id));
-      return serializePublicProduct(product, mp);
+      const avail = availabilityMap.get(String(product._id));
+      return serializePublicProduct(product, mp, null, avail);
     });
 
     const pages = Math.ceil(total / limit);
@@ -393,15 +404,22 @@ exports.getProduct = async (req, res) => {
       }
     }
 
-    await Product.populate(product, [
-      { path: 'category', select: 'name slug isActive parentId' },
-      { path: 'subcategory', select: 'name slug isActive parentId' },
-      { path: 'brand', select: 'name' }
+    const [availability] = await Promise.all([
+      InventoryAvailabilityService.getAvailability({
+        productId: product._id,
+        marketCountry,
+        merchantScopeId
+      }),
+      Product.populate(product, [
+        { path: 'category', select: 'name slug isActive parentId' },
+        { path: 'subcategory', select: 'name slug isActive parentId' },
+        { path: 'brand', select: 'name' }
+      ])
     ]);
 
     res.json({
       success: true,
-      data: serializePublicProduct(product, productPrice, variantPriceMap),
+      data: serializePublicProduct(product, productPrice, variantPriceMap, availability),
       meta: {
         marketCountry,
         currency: productPrice?.currency || priceDocs[0]?.currency || marketContext.currency

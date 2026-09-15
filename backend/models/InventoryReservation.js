@@ -52,6 +52,91 @@ const allocationItemSchema = new mongoose.Schema({
       message: 'Quantity must be an integer'
     }
   },
+  physicalReservedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'physicalReservedQuantity must be a non-negative integer'
+    }
+  },
+  backorderedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'backorderedQuantity must be a non-negative integer'
+    }
+  },
+  consumedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'consumedQuantity must be a non-negative integer'
+    }
+  },
+  releasedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'releasedQuantity must be a non-negative integer'
+    }
+  },
+  returnedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'returnedQuantity must be a non-negative integer'
+    }
+  },
+  inspectionPendingQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'inspectionPendingQuantity must be a non-negative integer'
+    }
+  },
+  restockedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'restockedQuantity must be a non-negative integer'
+    }
+  },
+  disposedQuantity: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'disposedQuantity must be a non-negative integer'
+    }
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'confirmed', 'partially_consumed', 'consumed', 'released', 'expired', 'cancelled'],
+    default: 'pending'
+  },
   inventoryPositionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'InventoryPosition',

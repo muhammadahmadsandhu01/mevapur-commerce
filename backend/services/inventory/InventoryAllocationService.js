@@ -5,8 +5,10 @@
  * implements deterministic tie-breaking, and provides zero-side-effect quote allocation preview.
  */
 
+const mongoose = require('mongoose');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
+const Product = require('../../models/Product');
 const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
 
@@ -95,7 +97,38 @@ class InventoryAllocationService {
 
     let locQuery = FulfillmentLocation.find(locationQuery);
     if (session) locQuery = locQuery.session(session);
-    const activeLocations = await locQuery;
+    let activeLocations = await locQuery;
+
+    if (activeLocations.length === 0) {
+      let countQuery = FulfillmentLocation.countDocuments({ merchantScopeId });
+      if (session) countQuery = countQuery.session(session);
+      const totalLocs = await countQuery;
+      if (totalLocs === 0) {
+        const defaultLoc = new FulfillmentLocation({
+          merchantScopeId,
+          locationCode: 'WH-PRIMARY-01',
+          displayName: 'Primary Fulfillment Hub',
+          status: 'active',
+          countryCode: 'PK',
+          city: 'Lahore',
+          timeZone: 'Asia/Karachi',
+          priority: 10,
+          supportedMarketCountries: ['PK', 'AE', 'SA', 'GB', 'US'],
+          supportedServiceLevels: ['standard', 'express'],
+          capabilities: ['local_delivery', 'cross_border'],
+          returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+          isDefault: true
+        });
+        if (session) {
+          await defaultLoc.save({ session });
+        } else {
+          await defaultLoc.save();
+        }
+        if (defaultLoc.supportedMarketCountries.includes(normDestCountry)) {
+          activeLocations = [defaultLoc];
+        }
+      }
+    }
 
     if (activeLocations.length === 0) {
       return {

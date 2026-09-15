@@ -3,6 +3,8 @@ const slugify = require('slugify');
 const Product = require('../../models/Product');
 const MediaAsset = require('../../models/MediaAsset');
 const InventoryTransaction = require('../../models/InventoryTransaction');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const InventoryPosition = require('../../models/InventoryPosition');
 const SkuRegistryService = require('./SkuRegistryService');
 const { assertProductsDeletable, assertVariantsRemovable } = require('../ProductCatalogIntegrityService');
 const { validateMergedPublishedState } = require('../../validators/productValidator');
@@ -214,17 +216,58 @@ class ProductCatalogService {
 
       await product.save({ session });
 
-      // 7. Initial Stock Inventory Transactions (Zero-Quantity Rule: only if quantity > 0)
+      // 7. Initial Stock Inventory Positions & Transactions
+      let defaultLocation = await FulfillmentLocation.findOne({ merchantScopeId: 'default', isDefault: true }).session(session);
+      if (!defaultLocation) {
+        defaultLocation = await FulfillmentLocation.findOne({ status: 'active' }).session(session);
+      }
+      if (!defaultLocation) {
+        defaultLocation = new FulfillmentLocation({
+          merchantScopeId: 'default',
+          locationCode: 'WH-PRIMARY-01',
+          displayName: 'Primary Fulfillment Hub',
+          status: 'active',
+          countryCode: 'PK',
+          city: 'Karachi',
+          timeZone: 'Asia/Karachi',
+          priority: 100,
+          supportedMarketCountries: ['PK', 'GB', 'AE', 'US', 'DE'],
+          supportedServiceLevels: ['standard', 'express'],
+          capabilities: ['local_delivery', 'cross_border'],
+          returnCapabilities: ['accept_returns', 'inspection', 'restock'],
+          isDefault: true
+        });
+        await defaultLocation.save({ session });
+      }
+
       if (variants.length > 0) {
         for (const variant of variants) {
-          if (variant.stock > 0) {
+          const vStock = variant.stock || 0;
+          await InventoryPosition.create([{
+            merchantScopeId: 'default',
+            locationId: defaultLocation._id,
+            locationCode: defaultLocation.locationCode,
+            productId,
+            variantId: variant._id,
+            scopeType: 'variant',
+            scopeKey: String(variant._id),
+            canonicalSku: variant.sku,
+            onHand: vStock,
+            reserved: 0,
+            unavailable: 0,
+            safetyStock: 0,
+            backordered: 0,
+            reorderPoint: product.lowStockThreshold || 10
+          }], { session });
+
+          if (vStock > 0) {
             await InventoryTransaction.create([{
               product: productId,
               variantId: variant._id,
               type: 'in',
-              quantity: variant.stock,
+              quantity: vStock,
               previousStock: 0,
-              newStock: variant.stock,
+              newStock: vStock,
               reason: 'Initial stock on variant creation',
               reference: `INIT-${product.slug}-${variant.sku}`,
               performedBy: userId,
@@ -235,22 +278,41 @@ class ProductCatalogService {
             }], { session });
           }
         }
-      } else if (initialStock > 0) {
-        await InventoryTransaction.create([{
-          product: productId,
+      } else {
+        await InventoryPosition.create([{
+          merchantScopeId: 'default',
+          locationId: defaultLocation._id,
+          locationCode: defaultLocation.locationCode,
+          productId,
           variantId: null,
-          type: 'in',
-          quantity: initialStock,
-          previousStock: 0,
-          newStock: initialStock,
-          reason: 'Initial stock on product creation',
-          reference: `INIT-${product.slug}`,
-          performedBy: userId,
-          metadata: {
-            sku: product.sku || '',
-            isInitial: true
-          }
+          scopeType: 'product',
+          scopeKey: 'product',
+          canonicalSku: product.sku || rootSku,
+          onHand: initialStock,
+          reserved: 0,
+          unavailable: 0,
+          safetyStock: 0,
+          backordered: 0,
+          reorderPoint: product.lowStockThreshold || 10
         }], { session });
+
+        if (initialStock > 0) {
+          await InventoryTransaction.create([{
+            product: productId,
+            variantId: null,
+            type: 'in',
+            quantity: initialStock,
+            previousStock: 0,
+            newStock: initialStock,
+            reason: 'Initial stock on product creation',
+            reference: `INIT-${product.slug}`,
+            performedBy: userId,
+            metadata: {
+              sku: product.sku || '',
+              isInitial: true
+            }
+          }], { session });
+        }
       }
 
       logger.info('Product created successfully', {

@@ -411,6 +411,62 @@ exports.previewAllocation = async (req, res, next) => {
   }
 };
 
+// @desc    Process return receipt into quarantine
+// @route   POST /api/inventory/returns/receipt
+// @access  Private (inventory, manager, admin, super_admin)
+exports.processReturnReceipt = async (req, res, next) => {
+  try {
+    const { orderId, reservationId, items, locationId, reason } = req.body;
+    const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+
+    const result = await InventoryService.processReturnReceipt({
+      orderId,
+      reservationId,
+      items,
+      locationId,
+      reason,
+      actorId,
+      req
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Return received into inventory quarantine successfully',
+      data: result
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// @desc    Process return inspection decision (restock, quarantine, dispose)
+// @route   POST /api/inventory/returns/inspection
+// @access  Private (admin, super_admin)
+exports.processReturnInspection = async (req, res, next) => {
+  try {
+    const { orderId, reservationId, items, decision, reason } = req.body;
+    const actorId = req.user?.id || req.user?._id || req.auth?.userId;
+
+    const result = await InventoryService.processReturnInspection({
+      orderId,
+      reservationId,
+      items,
+      decision,
+      reason,
+      actorId,
+      req
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Return inspection completed with decision '${decision}'`,
+      data: result
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 // @desc    Get inventory reconciliation readiness report
 // @route   GET /api/inventory/reconciliation
 // @access  Private (admin, super_admin)

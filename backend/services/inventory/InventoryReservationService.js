@@ -2,7 +2,8 @@
  * @file InventoryReservationService.js
  * @description Durable reservation state machine and atomic execution engine for Phase 6D-2.
  * Coordinates multi-origin allocation, atomic MongoDB transaction reservation, payment confirmation/compensation,
- * shipment physical stock consumption, cancellation releases, and explicit TTL expiry reconciliation.
+ * shipment physical stock consumption, cancellation releases, return quarantine/restock conservation,
+ * and explicit TTL expiry reconciliation.
  */
 
 const mongoose = require('mongoose');
@@ -10,6 +11,7 @@ const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
 const InventoryLedger = require('../../models/InventoryLedger');
 const InventoryReservation = require('../../models/InventoryReservation');
+const Product = require('../../models/Product');
 const InventoryAllocationService = require('./InventoryAllocationService');
 const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
@@ -73,17 +75,19 @@ class InventoryReservationService {
 
     if (!allocationResult.success) {
       throw new AppError(
-        allocationResult.message || 'Insufficient inventory available to satisfy order',
+        `Insufficient stock: ${allocationResult.message || 'Insufficient inventory available to satisfy order'}`,
         409,
-        ERROR_CODES.INVENTORY_INSUFFICIENT || 'INSUFFICIENT_STOCK'
+        ERROR_CODES.ORDER_OUT_OF_STOCK || 'ORDER_OUT_OF_STOCK'
       );
     }
 
     const { allocations, shipmentGroups } = allocationResult;
     const reservationDocId = new mongoose.Types.ObjectId();
+    const finalAllocations = [];
 
-    // 3. Atomically lock & reserve each position with conditional ATP checks
-    for (const alloc of allocations) {
+    // 3. Atomically lock & reserve each position with conditional ATP & backorder checks
+    for (let i = 0; i < allocations.length; i++) {
+      const alloc = allocations[i];
       let posQuery = InventoryPosition.findById(alloc.inventoryPositionId);
       if (session) posQuery = posQuery.session(session);
       const posBefore = await posQuery;
@@ -91,13 +95,16 @@ class InventoryReservationService {
       if (!posBefore) {
         throw new AppError(
           `Inventory position '${alloc.inventoryPositionId}' for SKU '${alloc.canonicalSku}' was not found`,
-          404,
-          'INVENTORY_POSITION_NOT_FOUND'
+          409,
+          'INVENTORY_POSITION_REQUIRED'
         );
       }
 
-      const beforeAtp = posBefore.calculateATP();
-      if (beforeAtp < alloc.quantity) {
+      const physicalAtp = posBefore.getPhysicalATP ? posBefore.getPhysicalATP() : Math.max(0, posBefore.onHand - posBefore.reserved - posBefore.unavailable - posBefore.safetyStock);
+      const backorderAtp = posBefore.getBackorderATP ? posBefore.getBackorderATP() : ((posBefore.allowBackorder && posBefore.backorderLimit > 0) ? Math.max(0, posBefore.backorderLimit - (posBefore.backordered || 0)) : 0);
+      const totalSellableAtp = physicalAtp + backorderAtp;
+
+      if (totalSellableAtp < alloc.quantity) {
         throw new AppError(
           `Insufficient available stock for SKU '${alloc.canonicalSku}' at location '${alloc.locationCode}'`,
           409,
@@ -105,31 +112,102 @@ class InventoryReservationService {
         );
       }
 
-      // Conditional atomic update enforcing non-negative remaining ATP
-      const updateCondition = {
-        _id: alloc.inventoryPositionId,
-        $expr: {
-          $gte: [
-            {
-              $subtract: [
-                { $subtract: [{ $subtract: ['$onHand', '$reserved'] }, '$unavailable'] },
-                '$safetyStock'
-              ]
-            },
-            alloc.quantity
-          ]
-        }
-      };
+      const physicalAlloc = Math.min(physicalAtp, alloc.quantity);
+      const backorderAlloc = alloc.quantity - physicalAlloc;
 
-      const updatePayload = {
-        $inc: {
-          reserved: alloc.quantity,
-          lockVersion: 1
-        },
-        $set: {
-          lastLedgerSequence: `${orderId}:${alloc.canonicalSku}:reserve`
-        }
-      };
+      if (backorderAlloc > 0 && backorderAlloc > backorderAtp) {
+        throw new AppError(
+          `Insufficient backorder capacity for SKU '${alloc.canonicalSku}' at location '${alloc.locationCode}'`,
+          409,
+          ERROR_CODES.INVENTORY_INSUFFICIENT || 'INSUFFICIENT_STOCK'
+        );
+      }
+
+      let updateCondition;
+      let updatePayload;
+
+      if (physicalAlloc > 0 && backorderAlloc === 0) {
+        updateCondition = {
+          _id: alloc.inventoryPositionId,
+          $expr: {
+            $gte: [
+              {
+                $subtract: [
+                  { $subtract: [{ $subtract: ['$onHand', '$reserved'] }, '$unavailable'] },
+                  '$safetyStock'
+                ]
+              },
+              physicalAlloc
+            ]
+          }
+        };
+        updatePayload = {
+          $inc: {
+            reserved: physicalAlloc,
+            lockVersion: 1
+          },
+          $set: {
+            lastLedgerSequence: `${orderId}:${alloc.canonicalSku}:reserve`
+          }
+        };
+      } else if (physicalAlloc > 0 && backorderAlloc > 0) {
+        updateCondition = {
+          _id: alloc.inventoryPositionId,
+          allowBackorder: true,
+          $expr: {
+            $and: [
+              {
+                $gte: [
+                  {
+                    $subtract: [
+                      { $subtract: [{ $subtract: ['$onHand', '$reserved'] }, '$unavailable'] },
+                      '$safetyStock'
+                    ]
+                  },
+                  physicalAlloc
+                ]
+              },
+              {
+                $gte: [
+                  { $subtract: ['$backorderLimit', { $ifNull: ['$backordered', 0] }] },
+                  backorderAlloc
+                ]
+              }
+            ]
+          }
+        };
+        updatePayload = {
+          $inc: {
+            reserved: physicalAlloc,
+            backordered: backorderAlloc,
+            lockVersion: 1
+          },
+          $set: {
+            lastLedgerSequence: `${orderId}:${alloc.canonicalSku}:reserve`
+          }
+        };
+      } else {
+        // Only backorder
+        updateCondition = {
+          _id: alloc.inventoryPositionId,
+          allowBackorder: true,
+          $expr: {
+            $gte: [
+              { $subtract: ['$backorderLimit', { $ifNull: ['$backordered', 0] }] },
+              backorderAlloc
+            ]
+          }
+        };
+        updatePayload = {
+          $inc: {
+            backordered: backorderAlloc,
+            lockVersion: 1
+          },
+          $set: {
+            lastLedgerSequence: `${orderId}:${alloc.canonicalSku}:reserve`
+          }
+        };
+      }
 
       let posUpdateQuery = InventoryPosition.findOneAndUpdate(updateCondition, updatePayload, { new: true });
       if (session) posUpdateQuery = posUpdateQuery.session(session);
@@ -143,7 +221,32 @@ class InventoryReservationService {
         );
       }
 
+
+      const beforeAtp = posBefore.calculateATP();
       const afterAtp = posAfter.calculateATP();
+
+      finalAllocations.push({
+        locationId: alloc.locationId,
+        locationCode: alloc.locationCode,
+        originCountry: alloc.originCountry,
+        productId: alloc.productId,
+        variantId: alloc.variantId || null,
+        canonicalSku: alloc.canonicalSku,
+        quantity: alloc.quantity,
+        physicalReservedQuantity: physicalAlloc,
+        backorderedQuantity: backorderAlloc,
+        consumedQuantity: 0,
+        releasedQuantity: 0,
+        returnedQuantity: 0,
+        inspectionPendingQuantity: 0,
+        restockedQuantity: 0,
+        disposedQuantity: 0,
+        status: isInstantConfirm ? 'confirmed' : 'pending',
+        inventoryPositionId: alloc.inventoryPositionId,
+        inventoryLockVersion: posAfter.lockVersion,
+        fulfillmentMode: alloc.fulfillmentMode,
+        shipmentGroup: alloc.shipmentGroup
+      });
 
       // Record immutable ledger entry in the same transaction
       const ledgerEntry = new InventoryLedger({
@@ -155,7 +258,7 @@ class InventoryReservationService {
         canonicalSku: alloc.canonicalSku,
         movementType: 'RESERVATION_CREATED',
         quantityDelta: 0,
-        reservationDelta: alloc.quantity,
+        reservationDelta: physicalAlloc,
         beforeSnapshot: {
           onHand: posBefore.onHand,
           reserved: posBefore.reserved,
@@ -175,7 +278,7 @@ class InventoryReservationService {
         sourceId: String(orderObjectId || orderId),
         orderId,
         reservationId: reservationDocId,
-        idempotencyKey: `${orderId}:${alloc.inventoryPositionId}:reserve`,
+        idempotencyKey: `${orderId}:${alloc.inventoryPositionId}:reserve:${i}`,
         actorType: userId ? 'user' : 'system',
         actorId: userId,
         correlationId: String(checkoutAttempt || idempotencyKey)
@@ -186,6 +289,7 @@ class InventoryReservationService {
       } else {
         await ledgerEntry.save();
       }
+
     }
 
     // 4. Create Durable Reservation Document
@@ -202,7 +306,7 @@ class InventoryReservationService {
       status: initialStatus,
       expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes TTL
       confirmedAt: isInstantConfirm ? now : null,
-      allocations,
+      allocations: finalAllocations,
       lockVersion: 1
     });
 
@@ -214,7 +318,7 @@ class InventoryReservationService {
 
     return {
       reservation,
-      allocations,
+      allocations: finalAllocations,
       shipmentGroups,
       isReplay: false
     };
@@ -251,6 +355,9 @@ class InventoryReservationService {
     reservation.status = 'confirmed';
     reservation.confirmedAt = new Date();
     reservation.lockVersion += 1;
+    reservation.allocations.forEach((a) => {
+      if (a.status === 'pending') a.status = 'confirmed';
+    });
 
     if (session) {
       await reservation.save({ session });
@@ -292,26 +399,33 @@ class InventoryReservationService {
       throw new AppError('Cannot release an already consumed inventory reservation', 409, 'RESERVATION_ALREADY_CONSUMED');
     }
 
-    // Decrement reserved counters on positions and append ledger entries
-    for (const alloc of reservation.allocations) {
+    // Decrement physical reserved and backorder counters on positions and append ledger entries
+    for (let i = 0; i < reservation.allocations.length; i++) {
+      const alloc = reservation.allocations[i];
       let posQuery = InventoryPosition.findById(alloc.inventoryPositionId);
       if (session) posQuery = posQuery.session(session);
       const posBefore = await posQuery;
 
       if (posBefore) {
         const beforeAtp = posBefore.calculateATP();
-        const nextReserved = Math.max(0, posBefore.reserved - alloc.quantity);
+        const physToRelease = Math.max(0, (alloc.physicalReservedQuantity || 0) - (alloc.consumedQuantity || 0) - (alloc.releasedQuantity || 0));
+        const backToRelease = Math.max(0, (alloc.backorderedQuantity || 0));
 
-        let posUpdateQuery = InventoryPosition.findByIdAndUpdate(
-          alloc.inventoryPositionId,
-          {
-            $set: { reserved: nextReserved },
-            $inc: { lockVersion: 1 }
-          },
-          { new: true }
-        );
-        if (session) posUpdateQuery = posUpdateQuery.session(session);
-        const posAfter = await posUpdateQuery;
+        const incObj = { lockVersion: 1 };
+        if (physToRelease > 0) incObj.reserved = -physToRelease;
+        if (backToRelease > 0) incObj.backordered = -backToRelease;
+
+        let posAfter = posBefore;
+        if (physToRelease > 0 || backToRelease > 0) {
+          let posUpdateQuery = InventoryPosition.findByIdAndUpdate(
+            alloc.inventoryPositionId,
+            { $inc: incObj },
+            { new: true }
+          );
+          if (session) posUpdateQuery = posUpdateQuery.session(session);
+          posAfter = await posUpdateQuery;
+
+        }
 
         const ledgerMovementType = releaseReason === 'ORDER_CANCELLED'
           ? 'ORDER_CANCELLED_RELEASE'
@@ -326,7 +440,7 @@ class InventoryReservationService {
           canonicalSku: alloc.canonicalSku,
           movementType: ledgerMovementType,
           quantityDelta: 0,
-          reservationDelta: -alloc.quantity,
+          reservationDelta: -physToRelease,
           beforeSnapshot: {
             onHand: posBefore.onHand,
             reserved: posBefore.reserved,
@@ -346,7 +460,7 @@ class InventoryReservationService {
           sourceId: String(reservation._id),
           orderId: reservation.orderId,
           reservationId: reservation._id,
-          idempotencyKey: `${reservation.orderId}:${alloc.inventoryPositionId}:release:${releaseReason}`,
+          idempotencyKey: `${reservation.orderId}:${alloc.inventoryPositionId}:release:${releaseReason}:${i}`,
           actorType: userId ? 'user' : 'system',
           actorId: userId
         });
@@ -356,6 +470,9 @@ class InventoryReservationService {
         } else {
           await ledgerEntry.save();
         }
+
+        alloc.releasedQuantity = (alloc.releasedQuantity || 0) + physToRelease + backToRelease;
+        alloc.status = 'released';
       }
     }
 
@@ -395,68 +512,73 @@ class InventoryReservationService {
       return { reservation, isReplay: true };
     }
 
-    for (const alloc of reservation.allocations) {
+    for (let i = 0; i < reservation.allocations.length; i++) {
+      const alloc = reservation.allocations[i];
       let posQuery = InventoryPosition.findById(alloc.inventoryPositionId);
       if (session) posQuery = posQuery.session(session);
       const posBefore = await posQuery;
 
       if (posBefore) {
         const beforeAtp = posBefore.calculateATP();
-        const nextOnHand = Math.max(0, posBefore.onHand - alloc.quantity);
-        const nextReserved = Math.max(0, posBefore.reserved - alloc.quantity);
+        const toConsume = Math.max(0, (alloc.physicalReservedQuantity || alloc.quantity) - (alloc.consumedQuantity || 0));
 
-        let posUpdateQuery = InventoryPosition.findByIdAndUpdate(
-          alloc.inventoryPositionId,
-          {
-            $set: {
-              onHand: nextOnHand,
-              reserved: nextReserved
+        if (toConsume > 0) {
+          let posUpdateQuery = InventoryPosition.findByIdAndUpdate(
+            alloc.inventoryPositionId,
+            {
+              $inc: {
+                onHand: -toConsume,
+                reserved: -toConsume,
+                lockVersion: 1
+              }
             },
-            $inc: { lockVersion: 1 }
-          },
-          { new: true }
-        );
-        if (session) posUpdateQuery = posUpdateQuery.session(session);
-        const posAfter = await posUpdateQuery;
+            { new: true }
+          );
+          if (session) posUpdateQuery = posUpdateQuery.session(session);
+          const posAfter = await posUpdateQuery;
 
-        const ledgerEntry = new InventoryLedger({
-          merchantScopeId: reservation.merchantScopeId,
-          locationId: alloc.locationId,
-          locationCode: alloc.locationCode,
-          productId: alloc.productId,
-          variantId: alloc.variantId || null,
-          canonicalSku: alloc.canonicalSku,
-          movementType: 'SHIPMENT_CONSUMED',
-          quantityDelta: -alloc.quantity,
-          reservationDelta: -alloc.quantity,
-          beforeSnapshot: {
-            onHand: posBefore.onHand,
-            reserved: posBefore.reserved,
-            unavailable: posBefore.unavailable,
-            safetyStock: posBefore.safetyStock,
-            atp: beforeAtp
-          },
-          afterSnapshot: {
-            onHand: posAfter.onHand,
-            reserved: posAfter.reserved,
-            unavailable: posAfter.unavailable,
-            safetyStock: posAfter.safetyStock,
-            atp: posAfter.calculateATP()
-          },
-          reasonCode: 'ORDER_SHIPMENT_DISPATCHED',
-          sourceType: 'order',
-          sourceId: String(order._id || orderId),
-          orderId,
-          reservationId: reservation._id,
-          idempotencyKey: `${orderId}:${alloc.inventoryPositionId}:shipment_consumed`,
-          actorType: userId ? 'admin' : 'system',
-          actorId: userId
-        });
+          const ledgerEntry = new InventoryLedger({
+            merchantScopeId: reservation.merchantScopeId,
+            locationId: alloc.locationId,
+            locationCode: alloc.locationCode,
+            productId: alloc.productId,
+            variantId: alloc.variantId || null,
+            canonicalSku: alloc.canonicalSku,
+            movementType: 'SHIPMENT_CONSUMED',
+            quantityDelta: -toConsume,
+            reservationDelta: -toConsume,
+            beforeSnapshot: {
+              onHand: posBefore.onHand,
+              reserved: posBefore.reserved,
+              unavailable: posBefore.unavailable,
+              safetyStock: posBefore.safetyStock,
+              atp: beforeAtp
+            },
+            afterSnapshot: {
+              onHand: posAfter.onHand,
+              reserved: posAfter.reserved,
+              unavailable: posAfter.unavailable,
+              safetyStock: posAfter.safetyStock,
+              atp: posAfter.calculateATP()
+            },
+            reasonCode: 'ORDER_SHIPMENT_DISPATCHED',
+            sourceType: 'order',
+            sourceId: String(order._id || orderId),
+            orderId,
+            reservationId: reservation._id,
+            idempotencyKey: `${orderId}:${alloc.inventoryPositionId}:shipment_consumed:${i}`,
+            actorType: userId ? 'admin' : 'system',
+            actorId: userId
+          });
 
-        if (session) {
-          await ledgerEntry.save({ session });
-        } else {
-          await ledgerEntry.save();
+          if (session) {
+            await ledgerEntry.save({ session });
+          } else {
+            await ledgerEntry.save();
+          }
+
+          alloc.consumedQuantity = (alloc.consumedQuantity || 0) + toConsume;
+          alloc.status = 'consumed';
         }
       }
     }
@@ -472,6 +594,230 @@ class InventoryReservationService {
     }
 
     return { reservation, isReplay: false };
+  }
+
+  /**
+   * Process return receipt into quarantine (physical return re-enters facility but is unavailable).
+   * Conservation: onHand += qty, unavailable += qty (sellable ATP remains unchanged).
+   */
+  async processReturnReceipt({
+    orderId,
+    reservationId = null,
+    items,
+    session = null,
+    userId = null,
+    reason = 'CUSTOMER_RETURN'
+  }) {
+    const query = reservationId ? { _id: reservationId } : { orderId };
+    let findQuery = InventoryReservation.findOne(query);
+    if (session) findQuery = findQuery.session(session);
+    const reservation = await findQuery;
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const alloc = reservation?.allocations.find((a) =>
+        String(a.productId) === String(it.productId || it.product) &&
+        String(a.variantId || '') === String(it.variantId || '')
+      );
+
+      const posId = it.inventoryPositionId || alloc?.inventoryPositionId;
+      if (!posId) continue;
+
+      let posQuery = InventoryPosition.findById(posId);
+      if (session) posQuery = posQuery.session(session);
+      const posBefore = await posQuery;
+
+      if (posBefore) {
+        const beforeAtp = posBefore.calculateATP();
+        const qty = Number(it.quantity);
+
+        let posUpdateQuery = InventoryPosition.findByIdAndUpdate(
+          posId,
+          {
+            $inc: {
+              onHand: qty,
+              unavailable: qty,
+              lockVersion: 1
+            }
+          },
+          { new: true }
+        );
+        if (session) posUpdateQuery = posUpdateQuery.session(session);
+        const posAfter = await posUpdateQuery;
+
+        const ledgerEntry = new InventoryLedger({
+          merchantScopeId: posBefore.merchantScopeId,
+          locationId: posBefore.locationId,
+          locationCode: posBefore.locationCode,
+          productId: posBefore.productId,
+          variantId: posBefore.variantId || null,
+          canonicalSku: posBefore.canonicalSku,
+          movementType: 'RETURN_RECEIVED',
+          quantityDelta: qty,
+          reservationDelta: 0,
+          beforeSnapshot: {
+            onHand: posBefore.onHand,
+            reserved: posBefore.reserved,
+            unavailable: posBefore.unavailable,
+            safetyStock: posBefore.safetyStock,
+            atp: beforeAtp
+          },
+          afterSnapshot: {
+            onHand: posAfter.onHand,
+            reserved: posAfter.reserved,
+            unavailable: posAfter.unavailable,
+            safetyStock: posAfter.safetyStock,
+            atp: posAfter.calculateATP()
+          },
+          reasonCode: reason,
+          sourceType: 'return',
+          sourceId: String(orderId),
+          orderId,
+          reservationId: reservation?._id || null,
+          idempotencyKey: `${orderId}:${posId}:return_receipt:${i}`,
+          actorType: userId ? 'admin' : 'system',
+          actorId: userId
+        });
+
+        if (session) {
+          await ledgerEntry.save({ session });
+        } else {
+          await ledgerEntry.save();
+        }
+
+        if (alloc) {
+          alloc.returnedQuantity = (alloc.returnedQuantity || 0) + qty;
+          alloc.inspectionPendingQuantity = (alloc.inspectionPendingQuantity || 0) + qty;
+        }
+      }
+    }
+
+    if (reservation) {
+      if (session) await reservation.save({ session });
+      else await reservation.save();
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Process return inspection decision (restock, quarantine, dispose).
+   */
+  async processReturnInspection({
+    orderId,
+    reservationId = null,
+    items,
+    decision = 'restock',
+    session = null,
+    userId = null,
+    reason = 'INSPECTION_DECISION'
+  }) {
+    const query = reservationId ? { _id: reservationId } : { orderId };
+    let findQuery = InventoryReservation.findOne(query);
+    if (session) findQuery = findQuery.session(session);
+    const reservation = await findQuery;
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const alloc = reservation?.allocations.find((a) =>
+        String(a.productId) === String(it.productId || it.product) &&
+        String(a.variantId || '') === String(it.variantId || '')
+      );
+
+      const posId = it.inventoryPositionId || alloc?.inventoryPositionId;
+      if (!posId) continue;
+
+      let posQuery = InventoryPosition.findById(posId);
+      if (session) posQuery = posQuery.session(session);
+      const posBefore = await posQuery;
+
+      if (posBefore) {
+        const beforeAtp = posBefore.calculateATP();
+        const qty = Number(it.quantity);
+        let incObj = { lockVersion: 1 };
+        let movementType = 'RETURN_RESTOCKED';
+        let qtyDelta = 0;
+
+        if (decision === 'restock') {
+          // Already in onHand: reduce unavailable to release back to ATP
+          incObj.unavailable = -qty;
+          movementType = 'RETURN_RESTOCKED';
+          qtyDelta = 0;
+          if (alloc) {
+            alloc.inspectionPendingQuantity = Math.max(0, (alloc.inspectionPendingQuantity || 0) - qty);
+            alloc.restockedQuantity = (alloc.restockedQuantity || 0) + qty;
+          }
+        } else if (decision === 'dispose') {
+          // Discard: reduce unavailable and onHand
+          incObj.unavailable = -qty;
+          incObj.onHand = -qty;
+          movementType = 'DAMAGE';
+          qtyDelta = -qty;
+          if (alloc) {
+            alloc.inspectionPendingQuantity = Math.max(0, (alloc.inspectionPendingQuantity || 0) - qty);
+            alloc.disposedQuantity = (alloc.disposedQuantity || 0) + qty;
+          }
+        } else {
+          // Quarantine confirmed
+          movementType = 'RETURN_QUARANTINED';
+          qtyDelta = 0;
+          if (alloc) {
+            alloc.inspectionPendingQuantity = Math.max(0, (alloc.inspectionPendingQuantity || 0) - qty);
+          }
+        }
+
+        let posUpdateQuery = InventoryPosition.findByIdAndUpdate(posId, { $inc: incObj }, { new: true });
+        if (session) posUpdateQuery = posUpdateQuery.session(session);
+        const posAfter = await posUpdateQuery;
+
+        const ledgerEntry = new InventoryLedger({
+          merchantScopeId: posBefore.merchantScopeId,
+          locationId: posBefore.locationId,
+          locationCode: posBefore.locationCode,
+          productId: posBefore.productId,
+          variantId: posBefore.variantId || null,
+          canonicalSku: posBefore.canonicalSku,
+          movementType,
+          quantityDelta: qtyDelta,
+          reservationDelta: 0,
+          beforeSnapshot: {
+            onHand: posBefore.onHand,
+            reserved: posBefore.reserved,
+            unavailable: posBefore.unavailable,
+            safetyStock: posBefore.safetyStock,
+            atp: beforeAtp
+          },
+          afterSnapshot: {
+            onHand: posAfter.onHand,
+            reserved: posAfter.reserved,
+            unavailable: posAfter.unavailable,
+            safetyStock: posAfter.safetyStock,
+            atp: posAfter.calculateATP()
+          },
+          reasonCode: reason,
+          sourceType: 'return',
+          sourceId: String(orderId),
+          orderId,
+          reservationId: reservation?._id || null,
+          idempotencyKey: `${orderId}:${posId}:inspection_${decision}:${i}`,
+          actorType: userId ? 'admin' : 'system',
+          actorId: userId
+        });
+
+        if (session) {
+          await ledgerEntry.save({ session });
+        } else {
+          await ledgerEntry.save();
+        }
+      }
+    }
+
+    if (reservation) {
+      if (session) await reservation.save({ session });
+      else await reservation.save();
+    }
+
+    return { success: true };
   }
 
   /**

@@ -124,6 +124,15 @@ const inventoryPositionSchema = new mongoose.Schema({
       message: 'backorderLimit must be a non-negative integer'
     }
   },
+  backordered: {
+    type: Number,
+    min: [0, 'Backordered quantity cannot be negative'],
+    default: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'backordered must be a non-negative integer'
+    }
+  },
   lockVersion: {
     type: Number,
     default: 1,
@@ -140,13 +149,41 @@ const inventoryPositionSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Calculate ATP (Available to Promise)
+// Calculate Physical ATP (Available to Promise without backorders)
+inventoryPositionSchema.methods.getPhysicalATP = function() {
+  const onHand = this.onHand || 0;
+  const reserved = this.reserved || 0;
+  const unavailable = this.unavailable || 0;
+  const safetyStock = this.safetyStock || 0;
+  return Math.max(0, onHand - reserved - unavailable - safetyStock);
+};
+
+// Calculate Backorder ATP
+inventoryPositionSchema.methods.getBackorderATP = function() {
+  if (!this.allowBackorder || !this.backorderLimit) return 0;
+  const onHand = this.onHand || 0;
+  const reserved = this.reserved || 0;
+  const unavailable = this.unavailable || 0;
+  const safetyStock = this.safetyStock || 0;
+  const baseDeficit = Math.min(0, onHand - reserved - unavailable - safetyStock);
+  const remainingLimit = Math.max(0, (this.backorderLimit || 0) - (this.backordered || 0));
+  return Math.max(0, remainingLimit + baseDeficit);
+};
+
+// Calculate Total Sellable ATP (Physical ATP + Backorder ATP)
 inventoryPositionSchema.methods.calculateATP = function() {
-  const baseAvailable = this.onHand - this.reserved - this.unavailable - this.safetyStock;
+  const onHand = this.onHand || 0;
+  const reserved = this.reserved || 0;
+  const unavailable = this.unavailable || 0;
+  const safetyStock = this.safetyStock || 0;
+  const base = onHand - reserved - unavailable - safetyStock;
+
   if (this.allowBackorder && this.backorderLimit > 0) {
-    return Math.max(0, baseAvailable + this.backorderLimit);
+    const remainingLimit = Math.max(0, (this.backorderLimit || 0) - (this.backordered || 0));
+    return Math.max(0, base + remainingLimit);
   }
-  return Math.max(0, baseAvailable);
+
+  return Math.max(0, base);
 };
 
 // Virtual property for ATP
@@ -162,12 +199,14 @@ inventoryPositionSchema.statics.calculateATPFromFields = function(fields) {
   const safetyStock = Number(fields.safetyStock) || 0;
   const allowBackorder = Boolean(fields.allowBackorder);
   const backorderLimit = Number(fields.backorderLimit) || 0;
+  const backordered = Number(fields.backordered) || 0;
 
-  const baseAvailable = onHand - reserved - unavailable - safetyStock;
+  const base = onHand - reserved - unavailable - safetyStock;
   if (allowBackorder && backorderLimit > 0) {
-    return Math.max(0, baseAvailable + backorderLimit);
+    const remainingLimit = Math.max(0, backorderLimit - backordered);
+    return Math.max(0, base + remainingLimit);
   }
-  return Math.max(0, baseAvailable);
+  return Math.max(0, base);
 };
 
 // Pre-validate hook: enforce scopeType / scopeKey consistency

@@ -45,18 +45,24 @@ class InventoryService {
    */
   isTransientMongoError(error) {
     if (!error) return false;
-    if (error.statusCode || error instanceof AppError) return false;
+    if (error.statusCode || (error instanceof AppError && error.statusCode < 500)) return false;
     return Boolean(
       error?.hasErrorLabel?.('TransientTransactionError')
       || error?.hasErrorLabel?.('UnknownTransactionCommitResult')
+      || (Array.isArray(error?.errorLabels) && (error.errorLabels.includes('TransientTransactionError') || error.errorLabels.includes('UnknownTransactionCommitResult')))
       || error?.name === 'VersionError'
       || error?.name === 'MongoServerError'
+      || error?.name === 'MongoError'
       || error?.code === 112 // WriteConflict
+      || error?.code === 11000 // DuplicateKey in race
+      || error?.codeName === 'WriteConflict'
       || (typeof error?.message === 'string' && (
         error.message.includes('WriteConflict')
         || error.message.includes('No matching document found')
         || error.message.includes('version')
         || error.message.includes('parallel')
+        || error.message.includes('duplicate key')
+        || error.message.includes('E11000')
       ))
     );
   }
@@ -631,6 +637,9 @@ class InventoryService {
     if (existingTx) {
       const product = await Product.findById(productId);
       return {
+        success: true,
+        stock: existingTx.newStock,
+        previousStock: existingTx.previousStock,
         transaction: existingTx,
         product: {
           id: String(productId),
@@ -760,15 +769,20 @@ class InventoryService {
         // Synchronize legacy Product model stock for backward compatibility
         if (hasVariants) {
           targetVariant.stock = newStock;
-          product.stock = product.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+          const rootStock = product.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+          product.stock = rootStock;
+          await Product.updateOne(
+            { _id: product._id, 'variants._id': variantId },
+            { $set: { 'variants.$.stock': newStock, stock: rootStock } },
+            session ? { session } : {}
+          );
         } else {
           product.stock = newStock;
-        }
-
-        if (session) {
-          await product.save({ session });
-        } else {
-          await product.save();
+          await Product.updateOne(
+            { _id: product._id },
+            { $set: { stock: newStock } },
+            session ? { session } : {}
+          );
         }
 
         const delta = Math.abs(newStock - previousStock);
@@ -840,7 +854,7 @@ class InventoryService {
 
         transactionDoc = createdTx;
         modifiedProduct = product;
-      });
+      }, 20);
     } catch (error) {
       if (error?.code === 11000 && (String(error?.message).includes('operationKey') || String(error?.message).includes('idempotencyKey'))) {
         let replay = await InventoryTransaction.findOne({ operationKey: trimmedKey });
@@ -851,6 +865,9 @@ class InventoryService {
         if (replay) {
           const product = await Product.findById(productId);
           return {
+            success: true,
+            stock: replay.newStock,
+            previousStock: replay.previousStock,
             transaction: replay,
             product: {
               id: String(productId),
@@ -890,6 +907,9 @@ class InventoryService {
     }
 
     return {
+      success: true,
+      stock: newStock,
+      previousStock,
       transaction: transactionDoc,
       product: {
         id: String(productId),
@@ -971,6 +991,62 @@ class InventoryService {
             reservationId: String(reservationId),
             reason
           }
+        });
+      }
+
+      return result;
+    });
+  }
+
+  async processReturnReceipt({ orderId, reservationId = null, items, locationId = null, reason = 'CUSTOMER_RETURN', actorId = null, req = null }) {
+    return this.runTransaction(async (session) => {
+      const result = await InventoryReservationService.processReturnReceipt({
+        orderId,
+        reservationId,
+        items,
+        locationId,
+        reason,
+        session,
+        userId: actorId
+      });
+
+      if (req) {
+        await AuditService.log({
+          requestId: req.requestId,
+          userId: actorId,
+          eventName: 'INVENTORY.RETURN_RECEIVED',
+          status: 'SUCCESS',
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
+          metadata: { orderId, reason }
+        });
+      }
+
+      return result;
+    });
+  }
+
+  async processReturnInspection({ orderId, reservationId = null, items, decision = 'restock', reason = 'INSPECTION_DECISION', actorId = null, req = null }) {
+    return this.runTransaction(async (session) => {
+      const result = await InventoryReservationService.processReturnInspection({
+        orderId,
+        reservationId,
+        items,
+        decision,
+        reason,
+        session,
+        userId: actorId
+      });
+
+      if (req) {
+        await AuditService.log({
+          requestId: req.requestId,
+          userId: actorId,
+          eventName: 'INVENTORY.RETURN_INSPECTED',
+          status: 'SUCCESS',
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
+          metadata: { orderId, decision, reason }
         });
       }
 
