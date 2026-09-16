@@ -238,15 +238,33 @@ const orderSchema = new mongoose.Schema({
       default: null
     },
     ruleId: { type: String, default: null, trim: true, maxlength: 64 },
+    serviceLevel: { type: String, default: 'standard', trim: true, maxlength: 50 },
     zoneName: { type: String, default: '', maxlength: 100 },
     deliveryMinDays: { type: Number, default: null },
     deliveryMaxDays: { type: Number, default: null },
-    remoteArea: { type: Boolean, default: false }
+    remoteArea: { type: Boolean, default: false },
+    deliveryPromise: {
+      dispatchDate: { type: String, default: null },
+      minDeliveryDate: { type: String, default: null },
+      maxDeliveryDate: { type: String, default: null },
+      isSameDayDispatch: { type: Boolean, default: false },
+      isPastCutoff: { type: Boolean, default: false },
+      isRemote: { type: Boolean, default: false },
+      promiseText: { type: String, default: null }
+    },
+    provenance: {
+      source: { type: String, default: 'GOVERNED_SHIPPING_TABLE' },
+      configVersionId: { type: String, default: null },
+      ruleId: { type: String, default: null },
+      timestamp: { type: String, default: null }
+    }
   },
   quote: {
     quoteId: { type: String, default: null, trim: true, maxlength: 64 },
     kid: { type: String, default: null, trim: true, maxlength: 32 },
     incoterm: { type: String, default: null, trim: true, maxlength: 20 },
+    configVersionId: { type: String, default: null, trim: true, maxlength: 64 },
+    merchantScopeId: { type: String, default: 'default', trim: true, maxlength: 64 },
     issuedAt: { type: String, default: null },
     expiresAt: { type: String, default: null }
   },

@@ -279,6 +279,12 @@ class OrderService {
           .join(', ')
         : '';
 
+      const weightGrams = Math.max(0, parseInt(
+        variant?.weightGrams || product.weightGrams
+        || (variant?.weight ? Math.round(variant.weight * 1000) : (product.weight ? Math.round(product.weight * 1000) : 0)),
+        10
+      ));
+
       resolved.push({
         product: product._id,
         variantId: variant?._id || null,
@@ -291,6 +297,7 @@ class OrderService {
         quantity: item.quantity,
         lineTotal,
         lineTotalExact,
+        weightGrams: weightGrams * item.quantity,
         image: variant?.images?.[0]
           || product.primaryImage
           || product.images?.[0]
@@ -737,6 +744,8 @@ class OrderService {
               quoteId: verifiedQuote.quoteId,
               kid: verifiedQuote.kid,
               incoterm: verifiedQuote.incoterm,
+              configVersionId: verifiedQuote.configVersionId || undefined,
+              merchantScopeId: verifiedQuote.merchantScopeId || 'default',
               issuedAt: verifiedQuote.issuedAt,
               expiresAt: verifiedQuote.expiresAt
             } : undefined,
@@ -751,10 +760,13 @@ class OrderService {
             shippingQuote: {
               zoneId: (shippingQuote.zone?._id && mongoose.isValidObjectId(shippingQuote.zone._id)) ? shippingQuote.zone._id : null,
               ruleId: shippingQuote.ruleId || null,
+              serviceLevel: shippingServiceLevel,
               zoneName: shippingQuote.ruleName || shippingQuote.zoneName || shippingQuote.zone?.name || 'Standard Delivery',
               deliveryMinDays: shippingQuote.deliveryEstimate?.minDays || shippingQuote.deliveryMinDays || 2,
               deliveryMaxDays: shippingQuote.deliveryEstimate?.maxDays || shippingQuote.deliveryMaxDays || 5,
-              remoteArea: Boolean(shippingQuote.isRemote || shippingQuote.remoteArea)
+              remoteArea: Boolean(shippingQuote.isRemote || shippingQuote.remoteArea),
+              deliveryPromise: shippingQuote.deliveryPromise || undefined,
+              provenance: shippingQuote.provenance || undefined
             },
             taxAmount,
             duties: dutyAmount,

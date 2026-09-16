@@ -7,12 +7,16 @@
 
 const { Money, MoneyMapper } = require('../../../modules/commerce');
 const { AppError } = require('../../../common/errors/AppError');
+const DeliveryPromiseService = require('../../shipping/DeliveryPromiseService');
+
+const defaultDeliveryPromiseService = new DeliveryPromiseService();
 
 class ManualTableShippingAdapter {
-  constructor(rules = null) {
+  constructor(rules = null, { deliveryPromiseService = defaultDeliveryPromiseService } = {}) {
     this.name = 'ManualTableShippingAdapter';
     this.version = '2.0.0';
     this.customRules = rules;
+    this.deliveryPromiseService = deliveryPromiseService;
   }
 
   /**
@@ -58,7 +62,6 @@ class ManualTableShippingAdapter {
    * @param {string} [params.city='']
    * @param {string} [params.region='']
    * @param {string} [params.postalCode='']
-   * @param {number} [params.weightKg=0]
    * @param {number} [params.weightGrams=0]
    * @param {string} [params.serviceLevel='standard'] - 'standard' | 'express' | string
    * @param {Array<Object>} [params.shippingRules=null]
@@ -73,7 +76,6 @@ class ManualTableShippingAdapter {
     city = '',
     region = '',
     postalCode = '',
-    weightKg = 0,
     weightGrams = 0,
     serviceLevel = 'standard',
     shippingRules = null,
@@ -88,8 +90,8 @@ class ManualTableShippingAdapter {
     const canonicalCurrency = currency.trim().toUpperCase();
     const normalizedService = (serviceLevel || 'standard').trim().toLowerCase();
 
-    // Determine weight in grams
-    const totalGrams = weightGrams > 0 ? weightGrams : Math.round((Number(weightKg) || 0) * 1000);
+    // Determine weight in integer grams
+    const totalGrams = Math.max(0, parseInt(weightGrams, 10) || 0);
 
     const rules = shippingRules || this.customRules || [];
 
@@ -129,56 +131,6 @@ class ManualTableShippingAdapter {
 
       return true;
     });
-
-    if (!candidates || candidates.length === 0) {
-      if (process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY === 'true' && canonicalCountry === 'PK') {
-        let legacyZones = [];
-        try {
-          const ShippingZone = require('../../../models/ShippingZone');
-          legacyZones = await ShippingZone.find({ enabled: true, countries: 'PK' }).sort({ priority: 1 }).lean();
-        } catch {
-          // ignore error if model not reachable
-        }
-
-        if (legacyZones && legacyZones.length > 0) {
-          const normCity = (city || '').trim().toLowerCase();
-          const matchedZone = legacyZones.find((z) => z.cities && z.cities.some((c) => c.toLowerCase() === normCity)) || legacyZones[0];
-          if (matchedZone) {
-            candidates.push({
-              ruleId: `LEGACY-${matchedZone._id}`,
-              ruleName: matchedZone.name,
-              destinationCountry: 'PK',
-              currency: matchedZone.currency || 'PKR',
-              baseRate: matchedZone.normalRate,
-              baseRateExact: matchedZone.normalRateExact,
-              freeShippingThreshold: matchedZone.freeShippingThreshold,
-              freeShippingThresholdExact: matchedZone.freeShippingThresholdExact,
-              remoteRate: matchedZone.remoteRate,
-              remoteRateExact: matchedZone.remoteRateExact,
-              remoteCities: matchedZone.remoteCities || [],
-              deliveryMinDays: matchedZone.deliveryMinDays,
-              deliveryMaxDays: matchedZone.deliveryMaxDays,
-              remoteDeliveryMinDays: matchedZone.remoteDeliveryMinDays,
-              remoteDeliveryMaxDays: matchedZone.remoteDeliveryMaxDays,
-              priority: matchedZone.priority
-            });
-          }
-        } else {
-          // Default domestic test fallback only when explicit compatibility gate is ON
-          candidates.push({
-            ruleId: 'LEGACY-DOMESTIC-DEFAULT',
-            ruleName: 'Domestic Standard Delivery (Legacy Gate)',
-            destinationCountry: 'PK',
-            currency: 'PKR',
-            baseRate: 250,
-            freeShippingThreshold: 5000,
-            deliveryMinDays: 2,
-            deliveryMaxDays: 5,
-            priority: 100
-          });
-        }
-      }
-    }
 
     if (!candidates || candidates.length === 0) {
       throw new AppError(
@@ -253,9 +205,13 @@ class ManualTableShippingAdapter {
 
     // 4. Weight bands evaluation
     if (Array.isArray(rule.weightBands) && rule.weightBands.length > 0 && totalGrams > 0) {
-      const matchingBand = rule.weightBands.find((b) => (
-        totalGrams >= (b.minWeightGrams || 0) && totalGrams < (b.maxWeightGrams || Infinity)
-      ));
+      const matchingBand = rule.weightBands.find((b, idx) => {
+        const min = b.minWeightGrams != null ? b.minWeightGrams : 0;
+        const max = b.maxWeightGrams != null ? b.maxWeightGrams : Infinity;
+        const minSatisfied = idx === 0 ? totalGrams >= min : totalGrams > min;
+        const maxSatisfied = totalGrams <= max;
+        return minSatisfied && maxSatisfied;
+      });
 
       if (matchingBand && matchingBand.rateExact) {
         const bandRateMoney = MoneyMapper.toMoney(matchingBand.rateExact);
@@ -275,6 +231,15 @@ class ManualTableShippingAdapter {
       ? rule.remoteDeliveryMaxDays
       : (rule.deliveryMaxDays != null ? rule.deliveryMaxDays : 7);
 
+    const deliveryPromise = this.deliveryPromiseService.calculatePromise({
+      orderDate: new Date(),
+      deliveryMinDays: minDays,
+      deliveryMaxDays: maxDays,
+      isRemote,
+      remoteDeliveryMinDays: rule.remoteDeliveryMinDays,
+      remoteDeliveryMaxDays: rule.remoteDeliveryMaxDays
+    });
+
     return {
       adapter: this.name,
       version: this.version,
@@ -290,6 +255,7 @@ class ManualTableShippingAdapter {
         minDays,
         maxDays
       },
+      deliveryPromise,
       provenance: {
         source: 'GOVERNED_SHIPPING_TABLE',
         configVersionId: configVersionId || rule.configVersionId || 'v-active',

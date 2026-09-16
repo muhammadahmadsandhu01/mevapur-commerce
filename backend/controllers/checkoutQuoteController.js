@@ -8,8 +8,10 @@ const CheckoutQuoteService = require('../services/checkout/CheckoutQuoteService'
 exports.createQuote = async (req, res, next) => {
   try {
     const userId = req.user?._id || req.user?.id || null;
+    const merchantScopeId = req.user?.merchantScopeId || req.query?.merchantScopeId || req.body?.merchantScopeId || 'default';
     const quote = await CheckoutQuoteService.generateQuote({
       userId,
+      merchantScopeId,
       items: req.body.items,
       shippingAddress: req.body.shippingAddress,
       currency: req.body.currency,

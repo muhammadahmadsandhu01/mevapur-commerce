@@ -19,6 +19,8 @@ const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const InventoryAvailabilityService = require('../inventory/InventoryAvailabilityService');
 const InventoryAllocationService = require('../inventory/InventoryAllocationService');
+const ShippingServiceabilityService = require('../shipping/ShippingServiceabilityService');
+const DeliveryPromiseService = require('../shipping/DeliveryPromiseService');
 const {
   Money,
   MoneyMapper,
@@ -32,6 +34,9 @@ const ERROR_CODES = require('../../constants/errorCodes');
 
 const QUOTE_TTL_SECONDS = 15 * 60; // 15 minutes default quote validity
 const CURRENT_QUOTE_KEY_ID = 'v2';
+
+const defaultServiceabilityService = new ShippingServiceabilityService();
+const defaultDeliveryPromiseService = new DeliveryPromiseService();
 
 /**
  * Resolves the authoritative dedicated signing secret for checkout quotes.
@@ -87,13 +92,17 @@ class CheckoutQuoteService {
     taxEngine = TaxDutyEngine,
     shippingRegistry = shippingAdapterRegistry,
     paymentPolicy = defaultPaymentPolicy,
-    commerceConfigService = CommerceConfigurationService
+    commerceConfigService = CommerceConfigurationService,
+    serviceabilityService = defaultServiceabilityService,
+    deliveryPromiseService = defaultDeliveryPromiseService
   } = {}) {
     this.marketService = marketService;
     this.taxEngine = taxEngine;
     this.shippingRegistry = shippingRegistry;
     this.paymentPolicy = paymentPolicy;
     this.commerceConfigService = commerceConfigService;
+    this.serviceabilityService = serviceabilityService;
+    this.deliveryPromiseService = deliveryPromiseService;
   }
 
   /**
@@ -371,8 +380,11 @@ class CheckoutQuoteService {
       const lineTotalMoney = unitPriceMoney.multiplyRational(quantity, 1);
 
       // Logistics & Customs Resolution
-      const weightGrams = variant?.weightGrams || product.weightGrams
-        || (variant?.weight ? Math.round(variant.weight * 1000) : (product.weight ? Math.round(product.weight * 1000) : 500));
+      const weightGrams = Math.max(0, parseInt(
+        variant?.weightGrams || product.weightGrams
+        || (variant?.weight ? Math.round(variant.weight * 1000) : (product.weight ? Math.round(product.weight * 1000) : 0)),
+        10
+      ));
 
       const dangerousGoodsClassification = variant?.dangerousGoodsClassification
         || product.dangerousGoodsClassification
@@ -398,7 +410,6 @@ class CheckoutQuoteService {
         lineTotal: Number(lineTotalMoney.toDecimalString()),
         lineTotalExact: MoneyMapper.toPersistence(lineTotalMoney),
         weightGrams: weightGrams * quantity,
-        weightKg: (weightGrams * quantity) / 1000,
         dangerousGoodsClassification,
         declaredValueEligibility,
         hsCode,
@@ -575,61 +586,30 @@ class CheckoutQuoteService {
       ? subtotalMoney.subtract(discountMoney)
       : Money.zero(targetCurrency);
 
-    // 6. Multi-Service Shipping Quoting via Active Version Rules
+    // 6. Multi-Service Shipping Quoting via Active Version Rules & Serviceability Engine
     const shippingRules = activeConfigDoc?.shippingRules || null;
-    const adapter = this.shippingRegistry.get(shippingAdapter);
 
-    let shippingOptions = [];
-    if (typeof adapter.quoteAllServices === 'function') {
-      shippingOptions = await adapter.quoteAllServices({
-        countryCode: destinationCountry,
-        originCountry: fulfillmentOrigin,
-        currency: targetCurrency,
-        subtotalMoney: afterDiscountMoney,
-        city: normalizedAddress.locality,
-        region: normalizedAddress.administrativeArea,
-        postalCode: normalizedAddress.postalCode,
-        weightGrams: totalWeightGrams,
-        shippingRules,
-        configVersionId
-      });
+    const serviceabilityResult = await this.serviceabilityService.evaluateServiceability({
+      countryCode: destinationCountry,
+      originCountry: fulfillmentOrigin,
+      subdivision: normalizedAddress.administrativeArea,
+      postalCode: normalizedAddress.postalCode,
+      city: normalizedAddress.locality,
+      weightGrams: totalWeightGrams,
+      subtotalMoney: afterDiscountMoney,
+      currency: targetCurrency,
+      shippingRules
+    });
+
+    if (!serviceabilityResult.isServiceable || !serviceabilityResult.options || serviceabilityResult.options.length === 0) {
+      throw new AppError(
+        serviceabilityResult.message || `No shipping rules configured for destination country '${destinationCountry}'`,
+        409,
+        'SHIPPING_ZONE_UNAVAILABLE'
+      );
     }
 
-    if (!shippingOptions || shippingOptions.length === 0) {
-      const shippingStandard = await adapter.quote({
-        countryCode: destinationCountry,
-        originCountry: fulfillmentOrigin,
-        currency: targetCurrency,
-        subtotalMoney: afterDiscountMoney,
-        city: normalizedAddress.locality,
-        region: normalizedAddress.administrativeArea,
-        postalCode: normalizedAddress.postalCode,
-        weightGrams: totalWeightGrams,
-        serviceLevel: 'standard',
-        shippingRules,
-        configVersionId
-      });
-      shippingOptions.push(shippingStandard);
-
-      try {
-        const shippingExpress = await adapter.quote({
-          countryCode: destinationCountry,
-          originCountry: fulfillmentOrigin,
-          currency: targetCurrency,
-          subtotalMoney: afterDiscountMoney,
-          city: normalizedAddress.locality,
-          region: normalizedAddress.administrativeArea,
-          postalCode: normalizedAddress.postalCode,
-          weightGrams: totalWeightGrams,
-          serviceLevel: 'express',
-          shippingRules,
-          configVersionId
-        });
-        shippingOptions.push(shippingExpress);
-      } catch {
-        // Express might not be supported for all zones
-      }
-    }
+    const shippingOptions = serviceabilityResult.options;
 
     const normalizedRequestedService = (shippingServiceLevel || 'standard').trim().toLowerCase();
     const selectedShippingOption = shippingOptions.find(
@@ -695,6 +675,38 @@ class CheckoutQuoteService {
 
     const itemsHash = this.hashItems(pricedItems);
 
+    const aggregateDeliveryPromise = selectedShippingOption.deliveryPromise || this.deliveryPromiseService.calculatePromise({
+      orderDate: now,
+      deliveryMinDays: selectedShippingOption.deliveryEstimate?.minDays || 2,
+      deliveryMaxDays: selectedShippingOption.deliveryEstimate?.maxDays || 5,
+      isRemote: selectedShippingOption.isRemote
+    });
+
+    const shipmentGroups = [{
+      groupId: 'group_1',
+      originCountry: fulfillmentOrigin,
+      destinationCountry,
+      serviceLevel: selectedShippingOption.serviceLevel,
+      shippingAmount: Number(selectedShippingMoney.toDecimalString()),
+      shippingAmountExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(selectedShippingMoney)),
+      deliveryEstimate: selectedShippingOption.deliveryEstimate,
+      deliveryPromise: aggregateDeliveryPromise,
+      provenance: selectedShippingOption.provenance || {
+        source: 'GOVERNED_SHIPPING_TABLE',
+        configVersionId: configVersionId || 'v-active',
+        ruleId: selectedShippingOption.ruleId || 'RULE-DEF',
+        timestamp: now.toISOString()
+      },
+      items: pricedItems.map((it) => ({
+        productId: it.productId,
+        variantId: it.variantId,
+        name: it.name,
+        sku: it.sku,
+        quantity: it.quantity,
+        weightGrams: it.weightGrams
+      }))
+    }];
+
     const quoteData = {
       kid: CURRENT_QUOTE_KEY_ID,
       quoteId,
@@ -728,7 +740,9 @@ class CheckoutQuoteService {
           amountExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(selectedShippingMoney)),
           freeShippingApplied: Boolean(isFreeStandard || selectedShippingOption.freeShippingApplied),
           isRemote: selectedShippingOption.isRemote,
-          deliveryEstimate: selectedShippingOption.deliveryEstimate
+          deliveryEstimate: selectedShippingOption.deliveryEstimate,
+          deliveryPromise: aggregateDeliveryPromise,
+          provenance: selectedShippingOption.provenance
         },
         availableOptions: shippingOptions.map((opt) => {
           const isOptionFree = freeShippingCoupon && (opt.serviceLevel || '').toLowerCase() === 'standard';
@@ -738,9 +752,12 @@ class CheckoutQuoteService {
             amountExact: isOptionFree
               ? MoneyMapper.toJSON(MoneyMapper.toPersistence(Money.zero(targetCurrency)))
               : MoneyMapper.toJSON(opt.shippingAmountExact),
-            deliveryEstimate: opt.deliveryEstimate
+            deliveryEstimate: opt.deliveryEstimate,
+            deliveryPromise: opt.deliveryPromise
           };
-        })
+        }),
+        deliveryPromise: aggregateDeliveryPromise,
+        shipmentGroups
       },
       taxesAndDuties: {
         taxType: taxDutyResult.taxType,
