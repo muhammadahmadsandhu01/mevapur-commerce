@@ -627,11 +627,13 @@ class OrderService {
           const shippingAdapter = shippingAdapterRegistry.get(orderData.shippingAdapter || null);
           const shippingQuote = await shippingAdapter.quote({
             countryCode: destinationCountry,
+            originCountry: fulfillmentOrigin,
             currency,
             subtotalMoney: MoneyMapper.fromLegacy(afterDiscount, currency),
             city: normalizedAddress.locality,
             region: normalizedAddress.administrativeArea,
             postalCode: normalizedAddress.postalCode,
+            weightGrams: pricedItems.reduce((sum, it) => sum + (it.weightGrams || 0), 0),
             serviceLevel: shippingServiceLevel,
             shippingRules,
             configVersionId: activeConfig?.version ? `v${activeConfig.version}` : undefined

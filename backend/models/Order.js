@@ -243,6 +243,13 @@ const orderSchema = new mongoose.Schema({
     deliveryMaxDays: { type: Number, default: null },
     remoteArea: { type: Boolean, default: false }
   },
+  quote: {
+    quoteId: { type: String, default: null, trim: true, maxlength: 64 },
+    kid: { type: String, default: null, trim: true, maxlength: 32 },
+    incoterm: { type: String, default: null, trim: true, maxlength: 20 },
+    issuedAt: { type: String, default: null },
+    expiresAt: { type: String, default: null }
+  },
   taxAmount: { type: Number, default: 0, min: 0 },
   taxAmountExact: { type: MoneySchema, default: null },
   duties: { type: Number, default: 0, min: 0 },

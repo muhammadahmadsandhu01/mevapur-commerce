@@ -579,42 +579,65 @@ class CheckoutQuoteService {
     const shippingRules = activeConfigDoc?.shippingRules || null;
     const adapter = this.shippingRegistry.get(shippingAdapter);
 
-    const shippingStandard = await adapter.quote({
-      countryCode: destinationCountry,
-      currency: targetCurrency,
-      subtotalMoney: afterDiscountMoney,
-      city: normalizedAddress.locality,
-      region: normalizedAddress.administrativeArea,
-      postalCode: normalizedAddress.postalCode,
-      weightGrams: totalWeightGrams,
-      serviceLevel: 'standard',
-      shippingRules,
-      configVersionId
-    });
-
-    let shippingExpress = null;
-    try {
-      shippingExpress = await adapter.quote({
+    let shippingOptions = [];
+    if (typeof adapter.quoteAllServices === 'function') {
+      shippingOptions = await adapter.quoteAllServices({
         countryCode: destinationCountry,
+        originCountry: fulfillmentOrigin,
         currency: targetCurrency,
         subtotalMoney: afterDiscountMoney,
         city: normalizedAddress.locality,
         region: normalizedAddress.administrativeArea,
         postalCode: normalizedAddress.postalCode,
         weightGrams: totalWeightGrams,
-        serviceLevel: 'express',
         shippingRules,
         configVersionId
       });
-    } catch {
-      // Express might not be supported for all zones
     }
 
-    const selectedShippingOption = shippingServiceLevel === 'express' && shippingExpress
-      ? shippingExpress
-      : shippingStandard;
+    if (!shippingOptions || shippingOptions.length === 0) {
+      const shippingStandard = await adapter.quote({
+        countryCode: destinationCountry,
+        originCountry: fulfillmentOrigin,
+        currency: targetCurrency,
+        subtotalMoney: afterDiscountMoney,
+        city: normalizedAddress.locality,
+        region: normalizedAddress.administrativeArea,
+        postalCode: normalizedAddress.postalCode,
+        weightGrams: totalWeightGrams,
+        serviceLevel: 'standard',
+        shippingRules,
+        configVersionId
+      });
+      shippingOptions.push(shippingStandard);
 
-    let selectedShippingMoney = freeShippingCoupon && shippingServiceLevel === 'standard'
+      try {
+        const shippingExpress = await adapter.quote({
+          countryCode: destinationCountry,
+          originCountry: fulfillmentOrigin,
+          currency: targetCurrency,
+          subtotalMoney: afterDiscountMoney,
+          city: normalizedAddress.locality,
+          region: normalizedAddress.administrativeArea,
+          postalCode: normalizedAddress.postalCode,
+          weightGrams: totalWeightGrams,
+          serviceLevel: 'express',
+          shippingRules,
+          configVersionId
+        });
+        shippingOptions.push(shippingExpress);
+      } catch {
+        // Express might not be supported for all zones
+      }
+    }
+
+    const normalizedRequestedService = (shippingServiceLevel || 'standard').trim().toLowerCase();
+    const selectedShippingOption = shippingOptions.find(
+      (opt) => (opt.serviceLevel || '').toLowerCase() === normalizedRequestedService
+    ) || shippingOptions[0];
+
+    const isFreeStandard = freeShippingCoupon && (selectedShippingOption.serviceLevel || '').toLowerCase() === 'standard';
+    let selectedShippingMoney = isFreeStandard
       ? Money.zero(targetCurrency)
       : MoneyMapper.toMoney(selectedShippingOption.shippingAmountExact);
 
@@ -703,21 +726,21 @@ class CheckoutQuoteService {
           zoneName: selectedShippingOption.ruleName || selectedShippingOption.zoneName,
           amount: Number(selectedShippingMoney.toDecimalString()),
           amountExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(selectedShippingMoney)),
-          freeShippingApplied: freeShippingCoupon || selectedShippingOption.freeShippingApplied,
+          freeShippingApplied: Boolean(isFreeStandard || selectedShippingOption.freeShippingApplied),
           isRemote: selectedShippingOption.isRemote,
           deliveryEstimate: selectedShippingOption.deliveryEstimate
         },
-        availableOptions: [
-          shippingStandard,
-          ...(shippingExpress ? [shippingExpress] : [])
-        ].map((opt) => ({
-          serviceLevel: opt.serviceLevel,
-          amount: opt.serviceLevel === 'standard' && freeShippingCoupon ? 0 : opt.shippingAmount,
-          amountExact: opt.serviceLevel === 'standard' && freeShippingCoupon
-            ? MoneyMapper.toJSON(MoneyMapper.toPersistence(Money.zero(targetCurrency)))
-            : MoneyMapper.toJSON(opt.shippingAmountExact),
-          deliveryEstimate: opt.deliveryEstimate
-        }))
+        availableOptions: shippingOptions.map((opt) => {
+          const isOptionFree = freeShippingCoupon && (opt.serviceLevel || '').toLowerCase() === 'standard';
+          return {
+            serviceLevel: opt.serviceLevel,
+            amount: isOptionFree ? 0 : opt.shippingAmount,
+            amountExact: isOptionFree
+              ? MoneyMapper.toJSON(MoneyMapper.toPersistence(Money.zero(targetCurrency)))
+              : MoneyMapper.toJSON(opt.shippingAmountExact),
+            deliveryEstimate: opt.deliveryEstimate
+          };
+        })
       },
       taxesAndDuties: {
         taxType: taxDutyResult.taxType,

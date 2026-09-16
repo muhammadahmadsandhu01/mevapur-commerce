@@ -45,7 +45,7 @@ const createCheckoutQuoteSchema = z.object({
   shippingAddress: quoteAddressSchema,
   currency: optionalTrimmed(currencyCode),
   couponCode: optionalTrimmed(z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9_-]+$/)),
-  shippingServiceLevel: z.enum(['standard', 'express']).default('standard'),
+  shippingServiceLevel: z.string().trim().toLowerCase().max(50).optional().default('standard'),
   shippingAdapter: optionalTrimmed(z.string().trim().max(50))
 }).strict();
 

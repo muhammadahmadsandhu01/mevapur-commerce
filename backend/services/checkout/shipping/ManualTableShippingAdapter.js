@@ -52,6 +52,7 @@ class ManualTableShippingAdapter {
    * Quote shipping rates for a destination and cart subtotal.
    * @param {Object} params
    * @param {string} params.countryCode - ISO 3166-1 alpha-2
+   * @param {string} [params.originCountry=null] - ISO 3166-1 alpha-2
    * @param {string} [params.currency='PKR']
    * @param {Money} params.subtotalMoney
    * @param {string} [params.city='']
@@ -59,13 +60,14 @@ class ManualTableShippingAdapter {
    * @param {string} [params.postalCode='']
    * @param {number} [params.weightKg=0]
    * @param {number} [params.weightGrams=0]
-   * @param {string} [params.serviceLevel='standard'] - 'standard' | 'express'
+   * @param {string} [params.serviceLevel='standard'] - 'standard' | 'express' | string
    * @param {Array<Object>} [params.shippingRules=null]
    * @param {string|number} [params.configVersionId=null]
    * @returns {Promise<Object>}
    */
   async quote({
     countryCode,
+    originCountry = null,
     currency = 'PKR',
     subtotalMoney,
     city = '',
@@ -82,6 +84,7 @@ class ManualTableShippingAdapter {
     }
 
     const canonicalCountry = countryCode.trim().toUpperCase();
+    const canonicalOrigin = originCountry ? originCountry.trim().toUpperCase() : null;
     const canonicalCurrency = currency.trim().toUpperCase();
     const normalizedService = (serviceLevel || 'standard').trim().toLowerCase();
 
@@ -90,10 +93,19 @@ class ManualTableShippingAdapter {
 
     const rules = shippingRules || this.customRules || [];
 
-    // Filter matching rules for destination country and service level
+    // Filter matching rules for destination country, origin country, and service level
     const candidates = rules.filter((r) => {
       if (r.enabled === false) return false;
       if (r.destinationCountry !== canonicalCountry) return false;
+      if (canonicalOrigin && r.originCountry) {
+        const ruleOrigin = r.originCountry.toUpperCase();
+        if (ruleOrigin !== canonicalOrigin) {
+          const isDomesticRule = canonicalOrigin === canonicalCountry && Array.isArray(r.supportedIncoterms) && r.supportedIncoterms.includes('DOMESTIC');
+          if (!isDomesticRule) {
+            return false;
+          }
+        }
+      }
 
       // Match service level if specified on rule
       if (r.serviceCode && r.serviceCode.toLowerCase() !== normalizedService) {
@@ -285,6 +297,61 @@ class ManualTableShippingAdapter {
         timestamp: new Date().toISOString()
       }
     };
+  }
+
+  /**
+   * Evaluates all distinct shipping service levels available for a given route and cart.
+   * @param {Object} params
+   * @returns {Promise<Array<Object>>}
+   */
+  async quoteAllServices(params) {
+    const rules = params.shippingRules || this.customRules || [];
+    const canonicalCountry = (params.countryCode || '').trim().toUpperCase();
+    const canonicalOrigin = params.originCountry ? params.originCountry.trim().toUpperCase() : null;
+
+    // Discover matching rules for route to identify configured service codes
+    const matchingRules = rules.filter((r) => {
+      if (r.enabled === false) return false;
+      if (r.destinationCountry !== canonicalCountry) return false;
+      if (canonicalOrigin && r.originCountry) {
+        const ruleOrigin = r.originCountry.toUpperCase();
+        if (ruleOrigin !== canonicalOrigin) {
+          const isDomesticRule = canonicalOrigin === canonicalCountry && Array.isArray(r.supportedIncoterms) && r.supportedIncoterms.includes('DOMESTIC');
+          if (!isDomesticRule) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    const discoveredCodes = new Set(
+      matchingRules
+        .map((r) => (r.serviceCode || 'standard').toLowerCase().trim())
+        .filter(Boolean)
+    );
+
+    // If rules do not define explicit services or is empty, try default standard & express
+    if (discoveredCodes.size === 0) {
+      discoveredCodes.add('standard');
+      discoveredCodes.add('express');
+    }
+
+    const quotes = [];
+    for (const sc of discoveredCodes) {
+      try {
+        const q = await this.quote({
+          ...params,
+          serviceLevel: sc
+        });
+        quotes.push(q);
+      } catch {
+        // Service level might not be serviceable for this specific address/subdivision
+      }
+    }
+
+    // Sort options by priority (e.g. standard before express if standard is lower priority number)
+    return quotes;
   }
 }
 

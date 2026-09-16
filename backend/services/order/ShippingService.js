@@ -78,22 +78,45 @@ class ShippingService {
   }) {
     const canonicalCurrency = String(currency).toUpperCase();
     const market = await MarketService.assertEligible({ country, currency: canonicalCurrency });
-    await this.ensureDemoZone(market);
 
     const countryCode = country.length === 2 ? country.toUpperCase() : (country.toUpperCase() === 'PAKISTAN' ? 'PK' : country);
     const zones = await ShippingZone.find({
       enabled: true,
       $or: [{ countries: countryCode }, { countries: country }]
-    }).sort({ priority: 1, _id: 1 });
+    }).sort({ priority: 1, _id: 1 }).lean();
 
     const normalizedCity = city.trim().toLocaleLowerCase();
     const normalizedRegion = region.trim().toLocaleLowerCase();
 
-    const zone = zones.find((candidate) => (
-      candidate.cities.length === 0 || candidate.cities.some((value) => value.toLocaleLowerCase() === normalizedCity)
+    let zone = zones.find((candidate) => (
+      !candidate.cities || candidate.cities.length === 0 || candidate.cities.some((value) => value.toLocaleLowerCase() === normalizedCity)
     )) || zones.find((candidate) => (
-      candidate.regions.length === 0 || candidate.regions.some((value) => value.toLocaleLowerCase() === normalizedRegion)
+      !candidate.regions || candidate.regions.length === 0 || candidate.regions.some((value) => value.toLocaleLowerCase() === normalizedRegion)
     ));
+
+    if (!zone && (countryCode === 'PK' || country.toUpperCase() === 'PAKISTAN')) {
+      zone = {
+        _id: 'LEGACY_DEFAULT_PK_ZONE',
+        name: 'Pakistan standard delivery',
+        enabled: true,
+        countries: ['PK'],
+        cities: [],
+        regions: [],
+        normalRate: 250,
+        normalRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+        freeShippingThreshold: 5000,
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+        remoteRate: 350,
+        remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+        remoteCities: ['gwadar', 'skardu', 'chitral', 'turbat', 'zhob'],
+        currency: 'PKR',
+        deliveryMinDays: 3,
+        deliveryMaxDays: 5,
+        remoteDeliveryMinDays: 4,
+        remoteDeliveryMaxDays: 7,
+        priority: 100
+      };
+    }
 
     if (!zone) {
       throw new AppError('No shipping zone is available for this address', 409, 'SHIPPING_ZONE_UNAVAILABLE');
