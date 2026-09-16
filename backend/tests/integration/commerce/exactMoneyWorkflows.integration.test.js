@@ -14,9 +14,12 @@ const User = require('../../../models/User');
 const Session = require('../../../models/Session');
 const Category = require('../../../models/Category');
 const ProductMarketOffering = require('../../../models/ProductMarketOffering');
+const CommerceConfigurationVersion = require('../../../models/CommerceConfigurationVersion');
+const FulfillmentLocation = require('../../../models/FulfillmentLocation');
 const MarketPriceBook = require('../../../models/MarketPriceBook');
 const OrderService = require('../../../services/order/OrderService');
 const ShippingService = require('../../../services/order/ShippingService');
+const ManualTableShippingAdapter = require('../../../services/checkout/shipping/ManualTableShippingAdapter');
 const ProductCatalogService = require('../../../services/product/ProductCatalogService');
 const CustomerCommerceService = require('../../../services/CustomerCommerceService');
 const MarketService = require('../../../services/MarketService');
@@ -125,6 +128,81 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
       slug: `dry-fruits-${Date.now()}-${Math.random()}`,
       isActive: true
     });
+
+    await FulfillmentLocation.deleteMany({});
+    await FulfillmentLocation.create({
+      merchantScopeId: 'default',
+      locationCode: `KHI-WH-${Date.now()}`,
+      displayName: 'Karachi Central Hub',
+      countryCode: 'PK',
+      subdivision: 'SD',
+      city: 'Karachi',
+      timeZone: 'Asia/Karachi',
+      status: 'active',
+      priority: 10,
+      supportedMarketCountries: ['PK', 'US', 'JP', 'KW', 'AE'],
+      supportedServiceLevels: ['standard'],
+      addressLine1: 'Plot 12, Korangi Industrial Area',
+      isDefault: true
+    });
+
+    await CommerceConfigurationVersion.deleteMany({});
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: Math.floor(Math.random() * 100000) + 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        sellingMode: 'hybrid',
+        enabledCountries: ['PK', 'US', 'JP', 'KW', 'AE'],
+        enabledCurrencies: ['PKR', 'USD', 'JPY', 'KWD', 'AED'],
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC', 'DAP', 'DDP'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-central',
+            name: 'Pakistan Central Warehouse',
+            country: 'PK',
+            city: 'Karachi',
+            timeZone: 'Asia/Karachi',
+            enabled: true,
+            isDefault: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'GOV-SHIP-PK-STD',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'TCS Ground Standard',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [
+            { minWeightGrams: 0, maxWeightGrams: 50000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' }
+          ],
+          supportedIncoterms: ['DOMESTIC'],
+          priority: 10,
+          enabled: true
+        }
+      ],
+      taxRules: []
+    });
   });
 
   afterEach(async () => {
@@ -193,6 +271,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
           name: 'Organic Walnuts',
           category: testCategory._id,
           price: 1200,
+          weightGrams: 500,
           status: 'published',
           initialStock: 50
         },
@@ -267,6 +346,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
           category: testCategory._id,
           price: 2000,
           status: 'published',
+          weightGrams: 500,
           initialStock: 20
         },
         userId: adminUser._id
@@ -299,171 +379,169 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
   });
 
   describe('Shipping Exact-Money Calculation Across Diverse Currencies', () => {
-    it('calculates shipping in USD with 2 decimal precision and weight multipliers', async () => {
-      await MarketService.update({
-        enabledCountries: ['PK', 'US'],
-        enabledCurrencies: ['PKR', 'USD']
-      });
+    const shippingAdapter = new ManualTableShippingAdapter();
 
-      await ShippingZone.create({
+    it('calculates shipping in USD with 2 decimal precision and weight multipliers', async () => {
+      const usdRule = {
+        ruleId: 'GOV-SHIP-US-STD',
         name: 'US Standard Zone',
-        enabled: true,
-        countries: ['US'],
-        normalRate: 15.00,
-        normalRateExact: MoneyMapper.fromLegacy(15.00, 'USD'),
-        freeShippingThreshold: 100.00,
-        freeShippingThresholdExact: MoneyMapper.fromLegacy(100.00, 'USD'),
+        serviceCode: 'standard',
+        displayName: 'US Standard Delivery',
+        originCountry: 'PK',
+        destinationCountry: 'US',
         currency: 'USD',
+        baseRateExact: MoneyMapper.fromLegacy(15.00, 'USD'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(100.00, 'USD'),
         deliveryMinDays: 3,
         deliveryMaxDays: 6,
-        priority: 10
-      });
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
+        weightBands: [
+          { minWeightGrams: 0, maxWeightGrams: 1000, rateExact: MoneyMapper.fromLegacy(0.00, 'USD'), pricingMode: 'ADD_TO_BASE' },
+          { minWeightGrams: 1000, maxWeightGrams: 5000, rateExact: MoneyMapper.fromLegacy(3.00, 'USD'), pricingMode: 'ADD_TO_BASE' }
+        ],
+        supportedIncoterms: ['DAP', 'DDP'],
+        priority: 10,
+        enabled: true
+      };
 
-      // 1. Below threshold, weight = 3kg (2 excess kg -> 20% surcharge on 15 = 18.00 USD)
-      const quote = await ShippingService.quote({
-        country: 'US',
+      // 1. Below threshold, weight = 3kg (band adds 3.00 on 15.00 = 18.00 USD)
+      const quote = await shippingAdapter.quote({
+        countryCode: 'US',
         currency: 'USD',
-        subtotal: 50.00,
-        weightKg: 3
+        subtotalMoney: MoneyMapper.fromLegacy(50.00, 'USD'),
+        weightGrams: 3000,
+        shippingRules: [usdRule]
       });
 
       expect(quote.currency).toBe('USD');
       expect(quote.shippingAmount).toBe(18.00);
-      expect(quote.shippingAmountExact.amountMinor.toString()).toBe('1800');
+      expect(String(quote.shippingAmountExact.amountMinor)).toBe('1800');
       expect(quote.shippingAmountExact.exponent).toBe(2);
       expect(quote.freeShippingApplied).toBe(false);
 
       // 2. Above threshold -> Free Shipping
-      const freeQuote = await ShippingService.quote({
-        country: 'US',
+      const freeQuote = await shippingAdapter.quote({
+        countryCode: 'US',
         currency: 'USD',
-        subtotal: 120.00
+        subtotalMoney: MoneyMapper.fromLegacy(120.00, 'USD'),
+        weightGrams: 800,
+        shippingRules: [usdRule]
       });
 
       expect(freeQuote.shippingAmount).toBe(0);
-      expect(freeQuote.shippingAmountExact.amountMinor.toString()).toBe('0');
+      expect(String(freeQuote.shippingAmountExact.amountMinor)).toBe('0');
       expect(freeQuote.freeShippingApplied).toBe(true);
-
-      // Clean up
-      await MarketService.update({
-        enabledCountries: ['PK'],
-        enabledCurrencies: ['PKR']
-      });
     });
 
     it('calculates shipping in JPY (0-decimal currency) with exact minor units', async () => {
-      await MarketService.update({
-        enabledCountries: ['PK', 'JP'],
-        enabledCurrencies: ['PKR', 'JPY']
-      });
-
-      await ShippingZone.create({
+      const jpyRule = {
+        ruleId: 'GOV-SHIP-JP-STD',
         name: 'Japan Domestic Zone',
-        enabled: true,
-        countries: ['JP'],
-        normalRate: 1000,
-        normalRateExact: MoneyMapper.fromLegacy(1000, 'JPY'),
-        freeShippingThreshold: 10000,
-        freeShippingThresholdExact: MoneyMapper.fromLegacy(10000, 'JPY'),
+        serviceCode: 'standard',
+        displayName: 'Japan Standard Delivery',
+        originCountry: 'JP',
+        destinationCountry: 'JP',
         currency: 'JPY',
+        baseRateExact: MoneyMapper.fromLegacy(1000, 'JPY'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(10000, 'JPY'),
         deliveryMinDays: 1,
         deliveryMaxDays: 3,
-        priority: 10
-      });
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
+        supportedIncoterms: ['DOMESTIC'],
+        priority: 10,
+        enabled: true
+      };
 
-      const quote = await ShippingService.quote({
-        country: 'JP',
+      const quote = await shippingAdapter.quote({
+        countryCode: 'JP',
         currency: 'JPY',
-        subtotal: 5000
+        subtotalMoney: MoneyMapper.fromLegacy(5000, 'JPY'),
+        shippingRules: [jpyRule]
       });
 
       expect(quote.currency).toBe('JPY');
       expect(quote.shippingAmount).toBe(1000);
-      expect(quote.shippingAmountExact.amountMinor.toString()).toBe('1000');
+      expect(String(quote.shippingAmountExact.amountMinor)).toBe('1000');
       expect(quote.shippingAmountExact.exponent).toBe(0);
       expect(quote.freeShippingApplied).toBe(false);
-
-      await MarketService.update({
-        enabledCountries: ['PK'],
-        enabledCurrencies: ['PKR']
-      });
     });
 
     it('calculates shipping in KWD (3-decimal currency) with remote area rate', async () => {
-      await MarketService.update({
-        enabledCountries: ['PK', 'KW'],
-        enabledCurrencies: ['PKR', 'KWD']
-      });
-
-      await ShippingZone.create({
+      const kwdRule = {
+        ruleId: 'GOV-SHIP-KW-STD',
         name: 'Kuwait Zone',
-        enabled: true,
-        countries: ['KW'],
+        serviceCode: 'standard',
+        displayName: 'Kuwait Standard Delivery',
+        originCountry: 'KW',
+        destinationCountry: 'KW',
+        currency: 'KWD',
         cities: ['Kuwait City', 'Al Ahmadi'],
         remoteCities: ['Al Wafrah'],
-        normalRate: 1.500,
-        normalRateExact: MoneyMapper.fromLegacy(1.500, 'KWD'),
-        remoteRate: 2.500,
+        baseRateExact: MoneyMapper.fromLegacy(1.500, 'KWD'),
         remoteRateExact: MoneyMapper.fromLegacy(2.500, 'KWD'),
-        freeShippingThreshold: 50.000,
         freeShippingThresholdExact: MoneyMapper.fromLegacy(50.000, 'KWD'),
-        currency: 'KWD',
         deliveryMinDays: 1,
         deliveryMaxDays: 2,
-        priority: 10
-      });
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
+        supportedIncoterms: ['DOMESTIC'],
+        priority: 10,
+        enabled: true
+      };
 
-      const remoteQuote = await ShippingService.quote({
-        country: 'KW',
+      const remoteQuote = await shippingAdapter.quote({
+        countryCode: 'KW',
         currency: 'KWD',
         city: 'Al Wafrah',
-        subtotal: 10.000
+        subtotalMoney: MoneyMapper.fromLegacy(10.000, 'KWD'),
+        shippingRules: [kwdRule]
       });
 
       expect(remoteQuote.currency).toBe('KWD');
       expect(remoteQuote.shippingAmount).toBe(2.500);
-      expect(remoteQuote.shippingAmountExact.amountMinor.toString()).toBe('2500');
+      expect(String(remoteQuote.shippingAmountExact.amountMinor)).toBe('2500');
       expect(remoteQuote.shippingAmountExact.exponent).toBe(3);
-      expect(remoteQuote.remoteArea).toBe(true);
-
-      await MarketService.update({
-        enabledCountries: ['PK'],
-        enabledCurrencies: ['PKR']
-      });
+      expect(remoteQuote.isRemote).toBe(true);
     });
 
     it('rejects shipping quote when requested currency does not match shipping zone currency', async () => {
-      await MarketService.update({
-        enabledCountries: ['PK', 'AE'],
-        enabledCurrencies: ['PKR', 'AED', 'USD']
-      });
-
-      await ShippingZone.create({
+      const aedRule = {
+        ruleId: 'GOV-SHIP-AE-STD',
         name: 'UAE AED Zone',
-        enabled: true,
-        countries: ['AE'],
-        normalRate: 25.00,
-        normalRateExact: MoneyMapper.fromLegacy(25.00, 'AED'),
-        freeShippingThreshold: 200.00,
-        freeShippingThresholdExact: MoneyMapper.fromLegacy(200.00, 'AED'),
+        serviceCode: 'standard',
+        displayName: 'UAE Delivery',
+        originCountry: 'PK',
+        destinationCountry: 'AE',
         currency: 'AED',
+        baseRateExact: MoneyMapper.fromLegacy(25.00, 'AED'),
+        freeShippingThresholdExact: MoneyMapper.fromLegacy(200.00, 'AED'),
         deliveryMinDays: 2,
         deliveryMaxDays: 5,
-        priority: 10
-      });
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
+        supportedIncoterms: ['DAP', 'DDP'],
+        priority: 10,
+        enabled: true
+      };
 
       await expect(
-        ShippingService.quote({
-          country: 'AE',
+        shippingAdapter.quote({
+          countryCode: 'AE',
           currency: 'USD',
-          subtotal: 50.00
+          subtotalMoney: MoneyMapper.fromLegacy(50.00, 'USD'),
+          shippingRules: [aedRule]
         })
-      ).rejects.toThrow(/does not match order currency/);
-
-      await MarketService.update({
-        enabledCountries: ['PK'],
-        enabledCurrencies: ['PKR']
-      });
+      ).rejects.toThrow(/does not match quote currency/);
     });
   });
 
@@ -477,6 +555,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
           category: testCategory._id,
           price: 3000,
           status: 'published',
+          weightGrams: 500,
           initialStock: 20
         },
         userId: adminUser._id

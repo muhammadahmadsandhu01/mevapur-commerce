@@ -7,6 +7,8 @@ const InventoryTransaction = require('../../models/InventoryTransaction');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
 const InventoryPosition = require('../../models/InventoryPosition');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const { MoneyMapper } = require('../../modules/commerce');
 const OrderService = require('../../services/order/OrderService');
 const InventoryService = require('../../services/order/InventoryService');
@@ -122,6 +124,67 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
       name: `Integrity Cat ${Date.now()}`,
       slug: `cat-integ-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
     });
+
+    await CommerceConfigurationVersion.deleteMany({});
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: Math.floor(Math.random() * 100000) + 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        sellingMode: 'hybrid',
+        enabledCountries: ['PK', 'AE', 'GB', 'US'],
+        enabledCurrencies: ['PKR', 'AED', 'GBP', 'USD'],
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC', 'DDP', 'DAP'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-central',
+            name: 'Pakistan Central Warehouse',
+            country: 'PK',
+            city: 'Karachi',
+            timeZone: 'Asia/Karachi',
+            enabled: true,
+            isDefault: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'GOV-SHIP-PK-STD',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'TCS Ground Standard',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          remoteCities: ['Gwadar', 'Skardu'],
+          remotePostalPrefixes: ['89100'],
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [
+            { minWeightGrams: 0, maxWeightGrams: 1000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' },
+            { minWeightGrams: 1000, maxWeightGrams: 50000, rateExact: MoneyMapper.fromLegacy(100, 'PKR'), pricingMode: 'ADD_TO_BASE' }
+          ],
+          supportedIncoterms: ['DOMESTIC'],
+          priority: 10,
+          enabled: true
+        }
+      ],
+      taxRules: []
+    });
   });
 
   it('synchronizes variant stock and root stock upon order reservation and cancellation restore', async () => {
@@ -135,9 +198,10 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         category: testCategory._id,
         status: 'published',
         images: ['https://example.com/honey.webp'],
+        weightGrams: 500,
         variants: [
-          { _id: variant1Id, sku: `HON-500G-${Date.now()}`, attributes: [{ name: 'Size', value: '500g' }], price: 1000, initialStock: 20, isDefault: true },
-          { _id: variant2Id, sku: `HON-1KG-${Date.now()}`, attributes: [{ name: 'Size', value: '1kg' }], price: 1800, initialStock: 15, isDefault: false }
+          { _id: variant1Id, sku: `HON-500G-${Date.now()}`, attributes: [{ name: 'Size', value: '500g' }], price: 1000, initialStock: 20, isDefault: true, weightGrams: 500 },
+          { _id: variant2Id, sku: `HON-1KG-${Date.now()}`, attributes: [{ name: 'Size', value: '1kg' }], price: 1800, initialStock: 15, isDefault: false, weightGrams: 1000 }
         ]
       },
       userId: adminUser._id
@@ -195,7 +259,8 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
     const draft = await ProductCatalogService.createProduct({
       data: {
         name: 'Draft Honey Item',
-        status: 'draft'
+        status: 'draft',
+        weightGrams: 500
       },
       userId: adminUser._id
     });
@@ -221,8 +286,9 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         category: testCategory._id,
         status: 'published',
         images: ['https://example.com/honey.webp'],
+        weightGrams: 250,
         variants: [
-          { _id: variantId, sku: `LTD-HON-${Date.now()}`, attributes: [{ name: 'Size', value: '250g' }], price: 500, initialStock: 2, isDefault: true }
+          { _id: variantId, sku: `LTD-HON-${Date.now()}`, attributes: [{ name: 'Size', value: '250g' }], price: 500, initialStock: 2, isDefault: true, weightGrams: 250 }
         ]
       },
       userId: adminUser._id
@@ -251,6 +317,7 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         price: 2500,
         initialStock: 10,
         status: 'published',
+        weightGrams: 500,
         images: ['https://example.com/item.webp']
       },
       userId: adminUser._id
@@ -283,8 +350,9 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         category: testCategory._id,
         status: 'published',
         images: ['https://example.com/variant.webp'],
+        weightGrams: 500,
         variants: [
-          { _id: variantId, sku: `HIST-VAR-${Date.now()}`, attributes: [{ name: 'Size', value: 'S' }], price: 500, initialStock: 10, isDefault: true }
+          { _id: variantId, sku: `HIST-VAR-${Date.now()}`, attributes: [{ name: 'Size', value: 'S' }], price: 500, initialStock: 10, isDefault: true, weightGrams: 500 }
         ]
       },
       userId: adminUser._id
@@ -350,9 +418,10 @@ describe('Product Commerce Integrity & Checkout Enforcement', () => {
         price: 9999, // Root dummy price
         status: 'published',
         images: ['https://example.com/item.webp'],
+        weightGrams: 500,
         variants: [
-          { _id: varRegId, sku: `VAR-REG-${Date.now()}`, attributes: [{ name: 'Type', value: 'Regular' }], price: 1200, initialStock: 10, isDefault: true },
-          { _id: varSaleId, sku: `VAR-SALE-${Date.now()}`, attributes: [{ name: 'Type', value: 'Discounted' }], price: 1500, salePrice: 950, initialStock: 10, isDefault: false }
+          { _id: varRegId, sku: `VAR-REG-${Date.now()}`, attributes: [{ name: 'Type', value: 'Regular' }], price: 1200, initialStock: 10, isDefault: true, weightGrams: 500 },
+          { _id: varSaleId, sku: `VAR-SALE-${Date.now()}`, attributes: [{ name: 'Type', value: 'Discounted' }], price: 1500, salePrice: 950, initialStock: 10, isDefault: false, weightGrams: 500 }
         ]
       },
       userId: adminUser._id

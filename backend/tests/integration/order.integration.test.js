@@ -68,13 +68,21 @@ const createProduct = async (overrides = {}) => {
     });
     catId = cat._id;
   }
-  const prod = await Product.create({
+  const variants = Array.isArray(overrides.variants)
+    ? overrides.variants.map((v) => ({
+        ...v,
+        weightGrams: v.weightGrams !== undefined ? v.weightGrams : (overrides.weightGrams !== undefined ? overrides.weightGrams : 500)
+      }))
+    : undefined;
+
+  const prodData = {
     name: `Order Product ${sequence}`,
     slug: `order-product-${sequence}`,
     description: 'Product used by the isolated order integration tests',
     sku: `ORDER-${sequence}`,
     price: 125,
     stock: 10,
+    weightGrams: 500,
     status: overrides.status || (overrides.isActive === false ? 'inactive' : 'published'),
     isActive: overrides.isActive !== undefined ? overrides.isActive : true,
     category: catId,
@@ -87,7 +95,11 @@ const createProduct = async (overrides = {}) => {
     declaredValueEligibility: 'ELIGIBLE',
     dangerousGoodsClassification: 'NOT_RESTRICTED',
     ...overrides
-  });
+  };
+  if (variants) {
+    prodData.variants = variants;
+  }
+  const prod = await Product.create(prodData);
 
   const priceNum = prod.price !== undefined ? prod.price : 125;
   await ProductMarketOffering.create({
@@ -286,7 +298,7 @@ describe('Order API integration', () => {
         {
           ruleId: 'rule-pk-standard',
           name: 'Pakistan Domestic Standard',
-          serviceCode: 'STANDARD',
+          serviceCode: 'standard',
           displayName: 'Standard Delivery (TCS)',
           originCountry: 'PK',
           destinationCountry: 'PK',
@@ -299,6 +311,10 @@ describe('Order API integration', () => {
           postalCodeRanges: [],
           deliveryMinDays: 2,
           deliveryMaxDays: 4,
+          processingCutoffLocal: '15:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           supportedIncoterms: ['DOMESTIC'],
           enabled: true,
           priority: 10

@@ -19,6 +19,7 @@ const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const { MoneyMapper } = require('../../modules/commerce');
 
 /**
@@ -39,6 +40,92 @@ const seedOfferingAndPrice = async (product, options = {}) => {
   const country = options.marketCountry || 'PK';
   const currency = options.currency || 'PKR';
   const priceNum = options.price !== undefined ? options.price : (product.price || 100);
+
+  let activeConfig = await CommerceConfigurationVersion.findOne({ merchantScopeId: 'default', status: 'active' });
+  if (!activeConfig) {
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      effectiveTo: null,
+      lockVersion: 1,
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR'],
+        sellingMode: 'domestic',
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-main',
+            name: 'Main Pakistan Warehouse',
+            country: 'PK',
+            subdivision: 'IS',
+            city: 'Karachi',
+            postalCode: '75000',
+            line1: 'Port Qasim',
+            timeZone: 'Asia/Karachi',
+            isDefault: true,
+            enabled: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'rule-pk-standard',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'Standard Delivery (TCS)',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          remoteCities: ['Gwadar', 'Skardu'],
+          weightBands: [],
+          postalCodeRanges: [],
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '15:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          supportedIncoterms: ['DOMESTIC'],
+          enabled: true,
+          priority: 10
+        }
+      ],
+      taxRules: [
+        {
+          ruleId: 'tax-pk-domestic',
+          name: 'PK Domestic Zero Rating',
+          destinationCountry: 'PK',
+          taxType: 'VAT',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 100,
+          roundingMode: 'HALF_EVEN',
+          roundingScope: 'subtotal',
+          incoterm: 'DOMESTIC',
+          effectiveFrom: new Date(Date.now() - 60000),
+          effectiveTo: null,
+          sourceAuthority: 'FBR SRO',
+          sourceReference: 'SRO 2026',
+          sourcePublicationDate: new Date(Date.now() - 60000),
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          enabled: true
+        }
+      ]
+    });
+  }
 
   await ProductMarketOffering.create({
     merchantScopeId: 'default',
@@ -311,6 +398,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
       description: 'Raw walnut kernels in variable package sizes.',
       price: 1000,
       stock: 15,
+      weightGrams: 500,
       category: categoryId,
       sku: `P10-WALNUT-ROOT-${Date.now()}`,
       status: 'published',
@@ -322,6 +410,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
           name: '500g Pack',
           price: 1200,
           stock: 15,
+          weightGrams: 500,
           attributes: [{ name: 'size', value: '500g' }],
           isActive: true,
         },
@@ -390,6 +479,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
       description: 'Raw mountain honey.',
       price: 2500,
       stock: 20,
+      weightGrams: 500,
       category: categoryId,
       sku: `P10-HONEY-${Date.now()}`,
       status: 'published',
@@ -529,6 +619,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
       description: 'Sundried organic figs.',
       price: 2000,
       stock: 25,
+      weightGrams: 500,
       category: categoryId,
       sku: `P10-FIGS-${Date.now()}`,
       status: 'published',

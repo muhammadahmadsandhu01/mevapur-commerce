@@ -13,6 +13,7 @@ const ShippingZone = require('../../models/ShippingZone');
 const Category = require('../../models/Category');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const { MoneyMapper } = require('../../modules/commerce');
 
 let sequence = 0;
@@ -46,18 +47,38 @@ const product = async (overrides = {}) => {
     });
     catId = cat._id;
   }
-  const prod = await Product.create({
+  const variants = Array.isArray(overrides.variants)
+    ? overrides.variants.map((v) => ({
+        ...v,
+        weightGrams: v.weightGrams !== undefined ? v.weightGrams : (overrides.weightGrams !== undefined ? overrides.weightGrams : 500)
+      }))
+    : undefined;
+
+  const prodData = {
     name: `Core Product ${sequence}`,
     slug: `core-product-${sequence}`,
     description: 'Commercial core integration product',
     sku: `CORE-${sequence}`,
     price: 100,
     stock: 10,
+    weightGrams: overrides.weightGrams !== undefined ? overrides.weightGrams : 500,
     status: 'published',
     isActive: true,
     category: catId,
+    countryOfOrigin: 'PK',
+    hsClassification: {
+      code: '080232',
+      systemVersion: 'HS_2022',
+      jurisdiction: 'WCO'
+    },
+    declaredValueEligibility: 'ELIGIBLE',
+    dangerousGoodsClassification: 'NOT_RESTRICTED',
     ...overrides
-  });
+  };
+  if (variants) {
+    prodData.variants = variants;
+  }
+  const prod = await Product.create(prodData);
 
   const priceNum = prod.price !== undefined ? prod.price : 100;
   await ProductMarketOffering.create({
@@ -225,6 +246,92 @@ describe('P6A commercial core contracts', () => {
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
   });
 
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      effectiveTo: null,
+      lockVersion: 1,
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR'],
+        sellingMode: 'domestic',
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-main',
+            name: 'Main Pakistan Warehouse',
+            country: 'PK',
+            subdivision: 'IS',
+            city: 'Lahore',
+            postalCode: '54000',
+            line1: 'Industrial Area',
+            timeZone: 'Asia/Karachi',
+            isDefault: true,
+            enabled: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'rule-pk-standard',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'Standard Delivery (TCS)',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          remoteCities: ['RemoteTown'],
+          weightBands: [],
+          postalCodeRanges: [],
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '15:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          supportedIncoterms: ['DOMESTIC'],
+          enabled: true,
+          priority: 10
+        }
+      ],
+      taxRules: [
+        {
+          ruleId: 'tax-pk-domestic',
+          name: 'PK Domestic Zero Rating',
+          destinationCountry: 'PK',
+          taxType: 'VAT',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 100,
+          roundingMode: 'HALF_EVEN',
+          roundingScope: 'subtotal',
+          incoterm: 'DOMESTIC',
+          effectiveFrom: new Date(Date.now() - 60000),
+          effectiveTo: null,
+          sourceAuthority: 'FBR SRO',
+          sourceReference: 'SRO 2026',
+          sourcePublicationDate: new Date(Date.now() - 60000),
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          enabled: true
+        }
+      ]
+    });
+  });
+
   test('validates the canonical product query and rejects unsupported parameters', async () => {
     const first = await product({ price: 20 });
     const second = await product({ price: 200 });
@@ -238,19 +345,100 @@ describe('P6A commercial core contracts', () => {
   });
 
   test('uses configuration data for thresholds, remote shipping and country eligibility', async () => {
-    const normal = await request(app).get('/api/commerce/shipping/quote?country=PK&currency=PKR&subtotal=4999&city=Lahore&region=Punjab');
+    const prod = await product({ price: 100, stock: 100 });
+    const normal = await request(app)
+      .post('/api/commerce/checkout/quote')
+      .send({
+        items: [{ productId: String(prod._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Core Customer',
+          phone: '03001234567',
+          address: '12 Commercial Core Street',
+          city: 'Lahore',
+          province: 'Punjab',
+          postalCode: '54000',
+          country: 'PK'
+        },
+        currency: 'PKR'
+      });
     expect(normal.status).toBe(200);
-    expect(normal.body.data.shippingAmount).toBe(250);
-    expect(normal.body.data.deliveryMinDays).toBe(2);
-    const free = await request(app).get('/api/commerce/shipping/quote?country=PK&currency=PKR&subtotal=5000&city=Lahore&region=Punjab');
-    expect(free.body.data.shippingAmount).toBe(0);
-    await ShippingZone.updateOne({ name: 'Pakistan major cities' }, { $set: { normalRate: 275 } });
-    const changed = await request(app).get('/api/commerce/shipping/quote?country=PK&currency=PKR&subtotal=4999&city=Lahore&region=Punjab');
-    expect(changed.body.data.shippingAmount).toBe(275);
-    await ShippingZone.updateOne({ name: 'Pakistan standard delivery' }, { $set: { remoteCities: ['RemoteTown'] } });
-    const remote = await request(app).get('/api/commerce/shipping/quote?country=PK&currency=PKR&subtotal=100&city=RemoteTown&region=Punjab');
-    expect(remote.body.data).toMatchObject({ shippingAmount: 350, remoteArea: true, deliveryMinDays: 4, deliveryMaxDays: 7 });
-    const unavailable = await request(app).get('/api/commerce/shipping/quote?country=US&currency=USD&subtotal=100');
+    expect(normal.body.data.quote.totals.shipping).toBe(250);
+    expect(normal.body.data.quote.shipping.deliveryPromise.deliveryMinDays).toBe(2);
+
+    const free = await request(app)
+      .post('/api/commerce/checkout/quote')
+      .send({
+        items: [{ productId: String(prod._id), quantity: 50 }],
+        shippingAddress: {
+          fullName: 'Core Customer',
+          phone: '03001234567',
+          address: '12 Commercial Core Street',
+          city: 'Lahore',
+          province: 'Punjab',
+          postalCode: '54000',
+          country: 'PK'
+        },
+        currency: 'PKR'
+      });
+    expect(free.status).toBe(200);
+    expect(free.body.data.quote.totals.shipping).toBe(0);
+
+    await CommerceConfigurationVersion.updateOne(
+      { merchantScopeId: 'default', status: 'active' },
+      { $set: { 'shippingRules.0.baseRateExact': MoneyMapper.fromLegacy(275, 'PKR') } }
+    );
+    const changed = await request(app)
+      .post('/api/commerce/checkout/quote')
+      .send({
+        items: [{ productId: String(prod._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Core Customer',
+          phone: '03001234567',
+          address: '12 Commercial Core Street',
+          city: 'Lahore',
+          province: 'Punjab',
+          postalCode: '54000',
+          country: 'PK'
+        },
+        currency: 'PKR'
+      });
+    expect(changed.status).toBe(200);
+    expect(changed.body.data.quote.totals.shipping).toBe(275);
+
+    const remote = await request(app)
+      .post('/api/commerce/checkout/quote')
+      .send({
+        items: [{ productId: String(prod._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Core Customer',
+          phone: '03001234567',
+          address: '12 Commercial Core Street',
+          city: 'RemoteTown',
+          province: 'Punjab',
+          postalCode: '54000',
+          country: 'PK'
+        },
+        currency: 'PKR'
+      });
+    expect(remote.status).toBe(200);
+    expect(remote.body.data.quote.totals.shipping).toBe(350);
+    expect(remote.body.data.quote.shipping.selectedOption.isRemote).toBe(true);
+
+    const unavailable = await request(app)
+      .post('/api/commerce/checkout/quote')
+      .send({
+        items: [{ productId: String(prod._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Core Customer',
+          phone: '+1 555 1234567',
+          address: '123 Main St',
+          city: 'New York',
+          province: 'NY',
+          postalCode: '10001',
+          country: 'US'
+        },
+        currency: 'USD'
+      });
     expect(unavailable.status).toBe(409);
     expect(unavailable.body.error.code).toBe('MARKET_COUNTRY_INELIGIBLE');
   });

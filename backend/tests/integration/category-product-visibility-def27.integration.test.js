@@ -12,6 +12,9 @@ const Wishlist = require('../../models/Wishlist');
 const Coupon = require('../../models/Coupon');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
+const { MoneyMapper } = require('../../modules/commerce');
 const { searchPublicProducts, getPublicProductDetails } = require('../../modules/assistant/tools/assistantReadTools');
 const CouponService = require('../../services/order/CouponService');
 const { CANONICAL_ROLES } = require('../../constants/roleConstants');
@@ -83,6 +86,81 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
     await InventoryTransaction.deleteMany({});
     await Wishlist.deleteMany({});
     await Coupon.deleteMany({});
+    await CommerceConfigurationVersion.deleteMany({});
+    await FulfillmentLocation.deleteMany({});
+
+    await FulfillmentLocation.create({
+      locationCode: `KHI-LOC-${Date.now()}`,
+      displayName: 'Karachi Central Warehouse',
+      countryCode: 'PK',
+      subdivision: 'SD',
+      city: 'Karachi',
+      timeZone: 'Asia/Karachi',
+      status: 'active',
+      priority: 10,
+      supportedMarketCountries: ['PK'],
+      supportedServiceLevels: ['standard'],
+      addressLine1: 'Main Industrial Area'
+    });
+
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: Math.floor(Math.random() * 100000) + 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        sellingMode: 'hybrid',
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR'],
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-central',
+            name: 'Pakistan Central Warehouse',
+            country: 'PK',
+            city: 'Karachi',
+            timeZone: 'Asia/Karachi',
+            enabled: true,
+            isDefault: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'GOV-SHIP-PK-STD',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'TCS Ground Standard',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          remoteCities: ['Gwadar', 'Skardu'],
+          remotePostalPrefixes: ['89100'],
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [
+            { minWeightGrams: 0, maxWeightGrams: 50000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' }
+          ],
+          supportedIncoterms: ['DOMESTIC'],
+          priority: 10,
+          enabled: true
+        }
+      ],
+      taxRules: []
+    });
 
     customerAuth = await createAuth(CANONICAL_ROLES.CUSTOMER);
     adminAuth = await createAuth(CANONICAL_ROLES.ADMIN);
@@ -140,6 +218,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       subcategory: activeSubCategory._id,
       price: 1500,
       stock: 50,
+      weightGrams: 500,
       status: 'published',
       isActive: true,
       isFeatured: true,
@@ -157,6 +236,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       description: 'Wild exotic berries rich in antioxidants',
       images: ['https://example.com/berries.jpg'],
       stock: 20,
+      weightGrams: 500,
       status: 'published',
       isActive: true,
       isFeatured: true,
@@ -173,6 +253,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       subcategory: inactiveSubCategory._id,
       price: 1800,
       stock: 30,
+      weightGrams: 500,
       status: 'published',
       isActive: true
     });
@@ -184,6 +265,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       category: orphanedChildCategory._id,
       price: 3500,
       stock: 15,
+      weightGrams: 500,
       status: 'published',
       isActive: true
     });
@@ -195,6 +277,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       category: activeParentCategory._id,
       price: 1200,
       stock: 40,
+      weightGrams: 500,
       status: 'draft',
       isActive: false
     });
@@ -206,6 +289,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       category: activeParentCategory._id,
       price: 2800,
       stock: 25,
+      weightGrams: 500,
       status: 'inactive',
       isActive: false
     });
@@ -217,6 +301,7 @@ describe('DEF-27: Enterprise Category Visibility & Lifecycle', () => {
       category: null,
       price: 999,
       stock: 10,
+      weightGrams: 500,
       status: 'published',
       isActive: true
     });

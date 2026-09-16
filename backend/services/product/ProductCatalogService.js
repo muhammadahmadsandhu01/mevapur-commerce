@@ -170,6 +170,10 @@ class ProductCatalogService {
             costPrice: vCostPrice,
             costPriceExact: vCostPrice !== undefined ? MoneyMapper.fromLegacy(vCostPrice, 'PKR') : undefined,
             stock: v.stock !== undefined ? Number(v.stock) : (v.initialStock !== undefined ? Number(v.initialStock) : 0),
+            weight: v.weight !== undefined ? Number(v.weight) : undefined,
+            weightGrams: v.weightGrams !== undefined ? Number(v.weightGrams) : undefined,
+            dimensions: v.dimensions || undefined,
+            dimensionsMm: v.dimensionsMm || undefined,
             mediaAssetIds: v.mediaAssetIds || [],
             images: v.images || [],
             isDefault: v.isDefault !== undefined ? Boolean(v.isDefault) : (index === 0)
@@ -246,7 +250,9 @@ class ProductCatalogService {
         shelfLife: data.shelfLife || '',
         countryOfOrigin: data.countryOfOrigin || 'Pakistan',
         weight: data.weight !== undefined ? Number(data.weight) : undefined,
+        weightGrams: data.weightGrams !== undefined ? Number(data.weightGrams) : undefined,
         dimensions: data.dimensions || undefined,
+        dimensionsMm: data.dimensionsMm || undefined,
         shippingClass: data.shippingClass || 'standard',
         freeShipping: Boolean(data.freeShipping),
         taxClass: data.taxClass || 'standard',
@@ -523,6 +529,9 @@ class ProductCatalogService {
             sku: v.sku ? v.sku.trim().toUpperCase() : (oldVar?.sku || ''),
             barcode: v.barcode !== undefined ? v.barcode.trim() : (oldVar?.barcode || ''),
             weight: v.weight !== undefined ? (v.weight === null ? undefined : Number(v.weight)) : oldVar?.weight,
+            weightGrams: v.weightGrams !== undefined ? (v.weightGrams === null ? undefined : Number(v.weightGrams)) : oldVar?.weightGrams,
+            dimensions: v.dimensions !== undefined ? (v.dimensions === null ? undefined : v.dimensions) : oldVar?.dimensions,
+            dimensionsMm: v.dimensionsMm !== undefined ? (v.dimensionsMm === null ? undefined : v.dimensionsMm) : oldVar?.dimensionsMm,
             attributes: v.attributes || oldVar?.attributes || [],
             price: vPrice,
             priceExact: MoneyMapper.fromLegacy(vPrice, 'PKR'),
@@ -607,7 +616,9 @@ class ProductCatalogService {
       if (data.shelfLife !== undefined) product.shelfLife = data.shelfLife;
       if (data.countryOfOrigin !== undefined) product.countryOfOrigin = data.countryOfOrigin;
       if (data.weight !== undefined) product.weight = (data.weight !== null && data.weight !== '') ? Number(data.weight) : undefined;
+      if (data.weightGrams !== undefined) product.weightGrams = (data.weightGrams !== null && data.weightGrams !== '') ? Number(data.weightGrams) : undefined;
       if (data.dimensions !== undefined) product.dimensions = data.dimensions;
+      if (data.dimensionsMm !== undefined) product.dimensionsMm = data.dimensionsMm;
       if (data.shippingClass !== undefined) product.shippingClass = data.shippingClass;
       if (data.freeShipping !== undefined) product.freeShipping = Boolean(data.freeShipping);
       if (data.taxClass !== undefined) product.taxClass = data.taxClass;

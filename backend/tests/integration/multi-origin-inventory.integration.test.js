@@ -119,7 +119,7 @@ describe('Phase 6D-2: Multi-Origin Inventory Integration Tests', () => {
         {
           ruleId: 'rule-pk-standard',
           name: 'Pakistan Domestic Standard',
-          serviceCode: 'STANDARD',
+          serviceCode: 'standard',
           displayName: 'Standard Delivery (TCS)',
           originCountry: 'PK',
           destinationCountry: 'PK',
@@ -130,6 +130,14 @@ describe('Phase 6D-2: Multi-Origin Inventory Integration Tests', () => {
           remoteCities: ['Gwadar', 'Skardu'],
           deliveryMinDays: 2,
           deliveryMaxDays: 5,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [
+            { minWeightGrams: 0, maxWeightGrams: 50000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' }
+          ],
+          supportedIncoterms: ['DOMESTIC'],
           priority: 10,
           enabled: true
         }
@@ -162,6 +170,7 @@ describe('Phase 6D-2: Multi-Origin Inventory Integration Tests', () => {
       category: testCategory._id,
       price: 1500,
       stock: 50,
+      weightGrams: 500,
       lowStockThreshold: 10
     });
   });
@@ -711,7 +720,8 @@ describe('Phase 6D-2: Multi-Origin Inventory Integration Tests', () => {
         isActive: true,
         category: testCategory._id,
         price: 3000,
-        stock: 10
+        stock: 10,
+        weightGrams: 500
       });
 
       await ProductMarketOffering.create({

@@ -12,6 +12,7 @@ const CommerceConfigurationVersion = require('../../models/CommerceConfiguration
 const TokenService = require('../../services/TokenService');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
+const { MoneyMapper } = require('../../modules/commerce');
 
 const createAuthToken = async (user) => {
   const session = await Session.create({
@@ -81,7 +82,32 @@ describe('Market Customer Context Integration Tests', () => {
           isDefault: true
         }]
       },
-      shippingRules: [],
+      shippingRules: [
+        {
+          ruleId: 'GOV-SHIP-PK-STD',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'TCS Ground Standard',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [
+            { minWeightGrams: 0, maxWeightGrams: 50000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' }
+          ],
+          supportedIncoterms: ['DOMESTIC'],
+          priority: 10,
+          enabled: true
+        }
+      ],
       taxRules: []
     });
   });
@@ -250,6 +276,7 @@ describe('Market Customer Context Integration Tests', () => {
         slug: `pistachio-${Date.now()}`,
         price: 2500,
         stock: 30,
+        weightGrams: 500,
         category: defaultCategory._id,
         isActive: true,
         status: 'published'

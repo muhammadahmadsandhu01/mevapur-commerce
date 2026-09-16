@@ -329,7 +329,7 @@ const setupTestFixtures = async () => {
       {
         ruleId: 'rule-pk-standard',
         name: 'Pakistan Domestic Standard',
-        serviceCode: 'STANDARD',
+        serviceCode: 'standard',
         displayName: 'Standard Delivery (TCS)',
         originCountry: 'PK',
         destinationCountry: 'PK',
@@ -342,6 +342,10 @@ const setupTestFixtures = async () => {
         postalCodeRanges: [],
         deliveryMinDays: 2,
         deliveryMaxDays: 4,
+        processingCutoffLocal: '15:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DOMESTIC'],
         priority: 10,
         enabled: true
@@ -349,7 +353,7 @@ const setupTestFixtures = async () => {
       {
         ruleId: 'rule-ae-standard',
         name: 'UAE International Standard',
-        serviceCode: 'STANDARD',
+        serviceCode: 'standard',
         displayName: 'Standard International (DHL)',
         originCountry: 'PK',
         destinationCountry: 'AE',
@@ -361,6 +365,10 @@ const setupTestFixtures = async () => {
         postalCodeRanges: [],
         deliveryMinDays: 3,
         deliveryMaxDays: 6,
+        processingCutoffLocal: '15:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DDP'],
         priority: 20,
         enabled: true
@@ -368,7 +376,7 @@ const setupTestFixtures = async () => {
       {
         ruleId: 'rule-gb-standard',
         name: 'United Kingdom Standard',
-        serviceCode: 'STANDARD',
+        serviceCode: 'standard',
         displayName: 'Standard International (Royal Mail)',
         originCountry: 'PK',
         destinationCountry: 'GB',
@@ -380,6 +388,10 @@ const setupTestFixtures = async () => {
         postalCodeRanges: [],
         deliveryMinDays: 4,
         deliveryMaxDays: 7,
+        processingCutoffLocal: '15:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DDP'],
         priority: 30,
         enabled: true
@@ -387,7 +399,7 @@ const setupTestFixtures = async () => {
       {
         ruleId: 'rule-de-standard',
         name: 'Germany Europe Standard',
-        serviceCode: 'STANDARD',
+        serviceCode: 'standard',
         displayName: 'Standard International (DHL Paket)',
         originCountry: 'PK',
         destinationCountry: 'DE',
@@ -399,6 +411,10 @@ const setupTestFixtures = async () => {
         postalCodeRanges: [],
         deliveryMinDays: 4,
         deliveryMaxDays: 7,
+        processingCutoffLocal: '15:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DDP'],
         priority: 40,
         enabled: true
@@ -406,7 +422,7 @@ const setupTestFixtures = async () => {
       {
         ruleId: 'rule-us-standard',
         name: 'United States Standard',
-        serviceCode: 'STANDARD',
+        serviceCode: 'standard',
         displayName: 'Standard International (FedEx)',
         originCountry: 'PK',
         destinationCountry: 'US',
@@ -418,6 +434,10 @@ const setupTestFixtures = async () => {
         postalCodeRanges: [],
         deliveryMinDays: 5,
         deliveryMaxDays: 9,
+        processingCutoffLocal: '15:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DDP'],
         priority: 50,
         enabled: true
@@ -1531,10 +1551,16 @@ describe('Phase 6A: Global Checkout Eligibility & Quote Orchestration Matrix', (
             'merchantProfile.baseCurrency': 'AED',
             'merchantProfile.defaultCurrency': 'AED',
             'merchantProfile.fulfillmentOrigins.0.country': 'AE',
+            'shippingRules.1.originCountry': 'AE',
             'shippingRules.1.supportedIncoterms': ['DOMESTIC', 'DDP'],
             'taxRules.1.incoterm': 'DOMESTIC'
           }
         }
+      );
+
+      await FulfillmentLocation.updateOne(
+        { merchantScopeId: 'default' },
+        { $set: { countryCode: 'AE', timeZone: 'Asia/Dubai' } }
       );
 
       const res = await request(app)
