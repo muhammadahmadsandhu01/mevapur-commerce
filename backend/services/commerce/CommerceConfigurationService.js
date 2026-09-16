@@ -251,8 +251,9 @@ class CommerceConfigurationService {
    * @param {Object} params
    * @returns {Promise<Object>}
    */
-  async validateDraft({ id, merchantScopeId = null, validatorId = null }) {
-    const doc = await this.getVersionById(id, { merchantScopeId });
+  async validateDraft({ id, merchantScopeId = 'default', validatorId = null }) {
+    const scope = (merchantScopeId || 'default').trim();
+    const doc = await this.getVersionById(id, { merchantScopeId: scope });
 
     if (doc.status !== 'draft' && doc.status !== 'validated') {
       throw new AppError(
@@ -301,7 +302,7 @@ class CommerceConfigurationService {
    */
   async scheduleOrActivateVersion({
     id,
-    merchantScopeId = null,
+    merchantScopeId = 'default',
     activatorId = null,
     effectiveFrom = null
   }) {
@@ -310,28 +311,23 @@ class CommerceConfigurationService {
     try {
       let result;
       await session.withTransaction(async () => {
-        // 1. Query target version document inside the transaction
-        let query = {};
+        // 1. Query target version document inside the transaction strictly scoped
+        const scope = (merchantScopeId || 'default').trim();
+        let query = { merchantScopeId: scope };
         if (mongoose.isObjectIdOrHexString(id)) {
           query._id = id;
-          if (merchantScopeId) {
-            query.merchantScopeId = merchantScopeId.trim();
-          }
         } else {
           const vNum = parseInt(id, 10);
           if (Number.isNaN(vNum)) {
             throw new AppError('Invalid configuration version identifier', 400, 'INVALID_VERSION_IDENTIFIER');
           }
           query.version = vNum;
-          query.merchantScopeId = (merchantScopeId || 'default').trim();
         }
 
         const targetDoc = await CommerceConfigurationVersion.findOne(query).session(session);
         if (!targetDoc) {
           throw new AppError('Commerce configuration version not found', 404, 'CONFIG_VERSION_NOT_FOUND');
         }
-
-        const scope = targetDoc.merchantScopeId;
 
         // 2. Acquire per-scope authority revision lock inside the transaction
         await CommerceConfigurationSequence.acquireAuthorityRevision(scope, { session });
@@ -446,7 +442,7 @@ class CommerceConfigurationService {
    */
   async retireVersion({
     id,
-    merchantScopeId = null,
+    merchantScopeId = 'default',
     retireId = null,
     reason = '',
     isEmergency = false
@@ -456,19 +452,16 @@ class CommerceConfigurationService {
     try {
       let result;
       await session.withTransaction(async () => {
-        let query = {};
+        const scope = (merchantScopeId || 'default').trim();
+        let query = { merchantScopeId: scope };
         if (mongoose.isObjectIdOrHexString(id)) {
           query._id = id;
-          if (merchantScopeId) {
-            query.merchantScopeId = merchantScopeId.trim();
-          }
         } else {
           const vNum = parseInt(id, 10);
           if (Number.isNaN(vNum)) {
             throw new AppError('Invalid configuration version identifier', 400, 'INVALID_VERSION_IDENTIFIER');
           }
           query.version = vNum;
-          query.merchantScopeId = (merchantScopeId || 'default').trim();
         }
 
         const doc = await CommerceConfigurationVersion.findOne(query).session(session);
@@ -476,7 +469,6 @@ class CommerceConfigurationService {
           throw new AppError('Commerce configuration version not found', 404, 'CONFIG_VERSION_NOT_FOUND');
         }
 
-        const scope = doc.merchantScopeId;
         await CommerceConfigurationSequence.acquireAuthorityRevision(scope, { session });
 
         const now = new Date();

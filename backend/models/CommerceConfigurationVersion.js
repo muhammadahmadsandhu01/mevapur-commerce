@@ -68,6 +68,17 @@ const shippingRuleSchema = new mongoose.Schema({
   deliveryMaxDays: { type: Number, required: true, min: 0, max: 120 },
   remoteDeliveryMinDays: { type: Number, default: null, min: 0, max: 120 },
   remoteDeliveryMaxDays: { type: Number, default: null, min: 0, max: 120 },
+  processingCutoffLocal: {
+    type: String,
+    trim: true,
+    match: /^(?:[01]\d|2[0-3]):[0-5]\d$/
+  },
+  workingDays: {
+    type: [{ type: Number, min: 1, max: 7 }],
+    validate: [(val) => !val || val.length <= 7, 'workingDays cannot exceed 7 entries']
+  },
+  processingMinBusinessDays: { type: Number, min: 0, max: 120 },
+  processingMaxBusinessDays: { type: Number, min: 0, max: 120 },
   weightBands: {
     type: [weightBandSchema],
     validate: [(val) => !val || val.length <= 20, 'weightBands cannot exceed 20 entries']
@@ -309,6 +320,14 @@ commerceConfigurationVersionSchema.pre('validate', function normalizeMoneyFields
   const defaultSnapshot = 'MevaPur currency snapshot 2026-09';
   if (Array.isArray(this.shippingRules)) {
     for (const rule of this.shippingRules) {
+      if (Array.isArray(rule.workingDays)) {
+        const uniqueAscending = Array.from(new Set(
+          rule.workingDays
+            .map((d) => parseInt(d, 10))
+            .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7)
+        )).sort((a, b) => a - b);
+        rule.workingDays = uniqueAscending;
+      }
       if (rule.baseRateExact && !rule.baseRateExact.registrySnapshot) {
         rule.baseRateExact.registrySnapshot = defaultSnapshot;
       }
@@ -599,6 +618,90 @@ commerceConfigurationVersionSchema.methods.validateIntegrity = function validate
             message: 'Numeric postal range requires valid integer bounds with max >= min'
           });
         }
+      }
+    }
+
+    // Governed Processing Promise Fields (Required for enabled shipping rules)
+    if (rule.enabled !== false) {
+      // 1. processingCutoffLocal
+      if (!rule.processingCutoffLocal || typeof rule.processingCutoffLocal !== 'string') {
+        errors.push({
+          code: 'PROCESSING_CUTOFF_REQUIRED',
+          path: `shippingRules[${i}].processingCutoffLocal`,
+          message: 'Processing cutoff (HH:mm) is required for enabled shipping rules'
+        });
+      } else if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(rule.processingCutoffLocal.trim())) {
+        errors.push({
+          code: 'INVALID_PROCESSING_CUTOFF',
+          path: `shippingRules[${i}].processingCutoffLocal`,
+          message: `Processing cutoff '${rule.processingCutoffLocal}' must be in strict HH:mm 24-hour format (00:00 - 23:59)`
+        });
+      }
+
+      // 2. workingDays
+      if (!Array.isArray(rule.workingDays) || rule.workingDays.length === 0) {
+        errors.push({
+          code: 'WORKING_DAYS_REQUIRED',
+          path: `shippingRules[${i}].workingDays`,
+          message: 'At least one working day (1=Mon..7=Sun) is required for enabled shipping rules'
+        });
+      } else {
+        const seenDays = new Set();
+        let hasInvalid = false;
+        let hasDuplicate = false;
+        for (const day of rule.workingDays) {
+          const numDay = Number(day);
+          if (!Number.isInteger(numDay) || numDay < 1 || numDay > 7) {
+            hasInvalid = true;
+          }
+          if (seenDays.has(numDay)) {
+            hasDuplicate = true;
+          }
+          seenDays.add(numDay);
+        }
+        if (hasInvalid) {
+          errors.push({
+            code: 'INVALID_WORKING_DAYS',
+            path: `shippingRules[${i}].workingDays`,
+            message: 'Working days must be integers between 1 (Monday) and 7 (Sunday)'
+          });
+        }
+        if (hasDuplicate) {
+          errors.push({
+            code: 'DUPLICATE_WORKING_DAYS',
+            path: `shippingRules[${i}].workingDays`,
+            message: 'Working days array cannot contain duplicate days'
+          });
+        }
+      }
+
+      // 3. processingMinBusinessDays & processingMaxBusinessDays
+      if (rule.processingMinBusinessDays == null || !Number.isInteger(Number(rule.processingMinBusinessDays)) || Number(rule.processingMinBusinessDays) < 0) {
+        errors.push({
+          code: 'INVALID_PROCESSING_MIN_DAYS',
+          path: `shippingRules[${i}].processingMinBusinessDays`,
+          message: 'Processing minimum business days must be a non-negative integer'
+        });
+      }
+      if (rule.processingMaxBusinessDays == null || !Number.isInteger(Number(rule.processingMaxBusinessDays)) || Number(rule.processingMaxBusinessDays) < 0) {
+        errors.push({
+          code: 'INVALID_PROCESSING_MAX_DAYS',
+          path: `shippingRules[${i}].processingMaxBusinessDays`,
+          message: 'Processing maximum business days must be a non-negative integer'
+        });
+      }
+      if (
+        rule.processingMinBusinessDays != null &&
+        rule.processingMaxBusinessDays != null &&
+        Number.isInteger(Number(rule.processingMinBusinessDays)) &&
+        Number.isInteger(Number(rule.processingMaxBusinessDays)) &&
+        Number(rule.processingMaxBusinessDays) < Number(rule.processingMinBusinessDays)
+      ) {
+        errors.push({
+          code: 'INVALID_PROCESSING_DAYS_RANGE',
+          path: `shippingRules[${i}].processingMaxBusinessDays`,
+          message: 'Processing maximum business days must not be lower than minimum days'
+        });
       }
     }
   }

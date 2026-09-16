@@ -7,7 +7,6 @@ const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
 const Payment = require('../../models/Payment');
 const CouponService = require('./CouponService');
-const ShippingService = require('./ShippingService');
 const TaxService = require('./TaxService');
 const InventoryService = require('./InventoryService');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
@@ -279,11 +278,19 @@ class OrderService {
           .join(', ')
         : '';
 
-      const weightGrams = Math.max(0, parseInt(
-        variant?.weightGrams || product.weightGrams
-        || (variant?.weight ? Math.round(variant.weight * 1000) : (product.weight ? Math.round(product.weight * 1000) : 0)),
-        10
-      ));
+      const rawWeight = (variant?.weightGrams !== undefined && variant?.weightGrams !== null)
+        ? variant.weightGrams
+        : product.weightGrams;
+
+      const parsedWeight = Number(rawWeight);
+      if (!Number.isInteger(parsedWeight) || parsedWeight <= 0) {
+        throw new AppError(
+          `Product '${product.name}' is missing valid integer weightGrams for shipping calculations`,
+          400,
+          'SHIPPING_WEIGHT_REQUIRED'
+        );
+      }
+      const weightGrams = parsedWeight;
 
       resolved.push({
         product: product._id,
@@ -449,7 +456,7 @@ class OrderService {
           if (!merchantCountry) {
             throw new AppError('Market configuration missing merchant country', 503, 'MARKET_CONFIGURATION_UNAVAILABLE');
           }
-          const fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
+          let fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
 
           // 1. Authoritative Address Normalization
           let normalizedAddress = null;
@@ -631,6 +638,9 @@ class OrderService {
           const taxRules = activeConfig?.taxRules || [];
 
           const shippingServiceLevel = orderData.shippingServiceLevel || verifiedQuote?.shippingServiceLevel || 'standard';
+          const quoteShipmentGroups = Array.isArray(verifiedQuote?.shipmentGroups) ? verifiedQuote.shipmentGroups : [];
+          const uniqueOrigins = [...new Set(quoteShipmentGroups.map((g) => g.originCountry).filter(Boolean))];
+          fulfillmentOrigin = uniqueOrigins.length === 1 ? uniqueOrigins[0] : (verifiedQuote?.fulfillmentOriginCountry || fulfillmentOrigin);
           const shippingAdapter = shippingAdapterRegistry.get(orderData.shippingAdapter || null);
           const shippingQuote = await shippingAdapter.quote({
             countryCode: destinationCountry,
@@ -722,7 +732,19 @@ class OrderService {
           );
           const paymentManifest = paymentProvider.getManifest();
 
-          const persistedItems = pricedItems.map(({ categoryId, ...item }) => item);
+          const persistedItems = pricedItems.map(({ categoryId, ...item }) => {
+            const matchingGroup = quoteShipmentGroups.find((g) =>
+              Array.isArray(g.items) && g.items.some((it) => String(it.productId) === String(item.product))
+            );
+            return {
+              ...item,
+              fulfillmentLocationId: matchingGroup?.locationId && mongoose.isValidObjectId(matchingGroup.locationId) ? matchingGroup.locationId : item.fulfillmentLocationId,
+              locationCode: matchingGroup?.locationCode || item.locationCode,
+              originCountry: matchingGroup?.originCountry || item.originCountry,
+              shipmentGroup: matchingGroup?.groupId || item.shipmentGroup
+            };
+          });
+
           const [order] = await Order.create([{
             _id: orderObjectId,
             orderId,
@@ -766,7 +788,24 @@ class OrderService {
               deliveryMaxDays: shippingQuote.deliveryEstimate?.maxDays || shippingQuote.deliveryMaxDays || 5,
               remoteArea: Boolean(shippingQuote.isRemote || shippingQuote.remoteArea),
               deliveryPromise: shippingQuote.deliveryPromise || undefined,
-              provenance: shippingQuote.provenance || undefined
+              provenance: shippingQuote.provenance || undefined,
+              shipmentGroups: quoteShipmentGroups.length > 0 ? quoteShipmentGroups.map((g) => ({
+                groupId: g.groupId || g.shipmentGroup || 'group_1',
+                locationId: g.locationId && mongoose.isValidObjectId(g.locationId) ? g.locationId : null,
+                locationCode: g.locationCode || '',
+                originCountry: g.originCountry || '',
+                serviceLevel: g.serviceLevel || shippingServiceLevel,
+                shippingAmount: g.shippingAmount || 0,
+                shippingAmountExact: g.shippingAmountExact ? MoneyMapper.toPersistence(MoneyMapper.toMoney(g.shippingAmountExact)) : null,
+                deliveryEstimate: g.deliveryEstimate || undefined,
+                deliveryPromise: g.deliveryPromise || undefined,
+                provenance: g.provenance || undefined,
+                items: (g.items || []).map((it) => ({
+                  productId: String(it.productId || it.product),
+                  variantId: it.variantId ? String(it.variantId) : null,
+                  quantity: Number(it.quantity)
+                }))
+              })) : undefined
             },
             taxAmount,
             duties: dutyAmount,

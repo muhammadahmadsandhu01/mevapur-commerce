@@ -29,6 +29,10 @@ describe('Phase 6D-3: ShippingServiceabilityService Unit Tests', () => {
         remotePostalPrefixes: ['89100'],
         deliveryMinDays: 2,
         deliveryMaxDays: 4,
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         weightBands: [
           { minWeightGrams: 0, maxWeightGrams: 1000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' },
           { minWeightGrams: 1000, maxWeightGrams: 5000, rateExact: MoneyMapper.fromLegacy(100, 'PKR'), pricingMode: 'ADD_TO_BASE' }
@@ -47,6 +51,10 @@ describe('Phase 6D-3: ShippingServiceabilityService Unit Tests', () => {
         baseRateExact: MoneyMapper.fromLegacy(500, 'PKR'),
         deliveryMinDays: 1,
         deliveryMaxDays: 2,
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DOMESTIC'],
         enabled: true
       },
@@ -62,6 +70,10 @@ describe('Phase 6D-3: ShippingServiceabilityService Unit Tests', () => {
         freeShippingThresholdExact: MoneyMapper.fromLegacy(250, 'AED'),
         deliveryMinDays: 3,
         deliveryMaxDays: 6,
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
+        processingMinBusinessDays: 0,
+        processingMaxBusinessDays: 1,
         supportedIncoterms: ['DDP', 'DOMESTIC'],
         enabled: true
       }

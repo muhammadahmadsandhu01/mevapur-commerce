@@ -257,7 +257,40 @@ const orderSchema = new mongoose.Schema({
       configVersionId: { type: String, default: null },
       ruleId: { type: String, default: null },
       timestamp: { type: String, default: null }
-    }
+    },
+    shipmentGroups: [{
+      groupId: { type: String, default: 'group_1' },
+      locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'FulfillmentLocation', default: null },
+      locationCode: { type: String, default: '' },
+      originCountry: { type: String, default: '' },
+      serviceLevel: { type: String, default: 'standard' },
+      shippingAmount: { type: Number, default: 0 },
+      shippingAmountExact: { type: MoneySchema, default: null },
+      deliveryEstimate: {
+        minDays: { type: Number, default: null },
+        maxDays: { type: Number, default: null }
+      },
+      deliveryPromise: {
+        dispatchDate: { type: String, default: null },
+        minDeliveryDate: { type: String, default: null },
+        maxDeliveryDate: { type: String, default: null },
+        isSameDayDispatch: { type: Boolean, default: false },
+        isPastCutoff: { type: Boolean, default: false },
+        isRemote: { type: Boolean, default: false },
+        promiseText: { type: String, default: null }
+      },
+      provenance: {
+        source: { type: String, default: 'GOVERNED_SHIPPING_TABLE' },
+        configVersionId: { type: String, default: null },
+        ruleId: { type: String, default: null },
+        timestamp: { type: String, default: null }
+      },
+      items: [{
+        productId: { type: String },
+        variantId: { type: String, default: null },
+        quantity: { type: Number, default: 1 }
+      }]
+    }]
   },
   quote: {
     quoteId: { type: String, default: null, trim: true, maxlength: 64 },

@@ -6,6 +6,8 @@
 
 const ManualTableShippingAdapter = require('../../../services/checkout/shipping/ManualTableShippingAdapter');
 const { Money, MoneyMapper } = require('../../../modules/commerce');
+const CommerceConfigurationVersion = require('../../../models/CommerceConfigurationVersion');
+const { createDraftSchema } = require('../../../validators/commerceGovernanceValidator');
 const {
   TARGET_INDEXES,
   findIndexMatch,
@@ -30,6 +32,10 @@ const GOVERNED_SHIPPING_FIXTURES = [
     deliveryMaxDays: 4,
     remoteDeliveryMinDays: 5,
     remoteDeliveryMaxDays: 8,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 0,
+    processingMaxBusinessDays: 1,
     priority: 100,
     supportedIncoterms: ['DOMESTIC'],
     enabled: true
@@ -45,6 +51,10 @@ const GOVERNED_SHIPPING_FIXTURES = [
     baseRateExact: { amountMinor: '55000', currency: 'PKR', exponent: 2 },
     deliveryMinDays: 1,
     deliveryMaxDays: 2,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 0,
+    processingMaxBusinessDays: 0,
     priority: 50,
     supportedIncoterms: ['DOMESTIC'],
     enabled: true
@@ -60,6 +70,10 @@ const GOVERNED_SHIPPING_FIXTURES = [
     baseRateExact: { amountMinor: '18000', currency: 'PKR', exponent: 2 },
     deliveryMinDays: 5,
     deliveryMaxDays: 10,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 1,
+    processingMaxBusinessDays: 2,
     priority: 150,
     supportedIncoterms: ['DOMESTIC'],
     enabled: true
@@ -84,6 +98,10 @@ const GOVERNED_SHIPPING_FIXTURES = [
     ],
     deliveryMinDays: 5,
     deliveryMaxDays: 8,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 1,
+    processingMaxBusinessDays: 2,
     priority: 10,
     supportedIncoterms: ['DDP', 'DAP'],
     enabled: true
@@ -99,6 +117,10 @@ const GOVERNED_SHIPPING_FIXTURES = [
     baseRateExact: { amountMinor: '1900', currency: 'USD', exponent: 2 },
     deliveryMinDays: 4,
     deliveryMaxDays: 7,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 1,
+    processingMaxBusinessDays: 2,
     priority: 10,
     supportedIncoterms: ['DDP'],
     enabled: true
@@ -342,6 +364,253 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Engine Unit Tests', ()
       expect(anomalies).toHaveLength(2);
       expect(anomalies.some((a) => a.type === 'INVALID_DESTINATION_COUNTRY')).toBe(true);
       expect(anomalies.some((a) => a.type === 'INVALID_WEIGHT_BAND_BOUNDS')).toBe(true);
+    });
+  });
+
+  describe('6. Governed Shipping Promise & Configuration Schema Validation', () => {
+    const validShippingRule = {
+      ruleId: 'RULE-VAL-01',
+      name: 'Validation Test Rule',
+      serviceCode: 'standard',
+      displayName: 'Standard Delivery',
+      originCountry: 'PK',
+      destinationCountry: 'PK',
+      currency: 'PKR',
+      baseRateExact: { amountMinor: '25000', currency: 'PKR', exponent: 2 },
+      deliveryMinDays: 2,
+      deliveryMaxDays: 4,
+      processingCutoffLocal: '14:00',
+      workingDays: [1, 2, 3, 4, 5],
+      processingMinBusinessDays: 0,
+      processingMaxBusinessDays: 1,
+      enabled: true
+    };
+
+    const validMerchantProfile = {
+      merchantCountry: 'PK',
+      baseCurrency: 'PKR',
+      defaultCurrency: 'PKR',
+      sellingMode: 'hybrid',
+      enabledCurrencies: ['PKR'],
+      enabledCountries: ['PK'],
+      defaultLocale: 'en-PK',
+      defaultTimeZone: 'Asia/Karachi',
+      fulfillmentOrigins: [
+        {
+          originId: 'ORIGIN-PK-MAIN',
+          name: 'Main Pakistan Warehouse',
+          country: 'PK',
+          city: 'Karachi',
+          timeZone: 'Asia/Karachi',
+          enabled: true,
+          isDefault: true
+        }
+      ],
+      supportedIncoterms: ['DOMESTIC', 'DAP', 'DDP'],
+      taxCalculationMode: 'exact_rational'
+    };
+
+    it('6.1 valid governed promise fields are accepted by Zod schema and model integrity', () => {
+      const parsed = createDraftSchema.safeParse({
+        merchantProfile: validMerchantProfile,
+        shippingRules: [validShippingRule]
+      });
+      expect(parsed.success).toBe(true);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [validShippingRule]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors).toHaveLength(0);
+    });
+
+    it('6.2 malformed cutoff is rejected by both validator and model integrity', () => {
+      const invalidCutoff = { ...validShippingRule, processingCutoffLocal: '25:99' };
+      const parsed = createDraftSchema.safeParse({
+        shippingRules: [invalidCutoff]
+      });
+      expect(parsed.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [invalidCutoff]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'INVALID_PROCESSING_CUTOFF')).toBe(true);
+    });
+
+    it('6.3 missing cutoff is rejected for enabled rules', () => {
+      const missingCutoff = { ...validShippingRule, processingCutoffLocal: undefined };
+      const parsed = createDraftSchema.safeParse({
+        shippingRules: [missingCutoff]
+      });
+      expect(parsed.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [missingCutoff]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'PROCESSING_CUTOFF_REQUIRED')).toBe(true);
+    });
+
+    it('6.4 empty workingDays is rejected', () => {
+      const emptyDays = { ...validShippingRule, workingDays: [] };
+      const parsed = createDraftSchema.safeParse({
+        shippingRules: [emptyDays]
+      });
+      expect(parsed.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [emptyDays]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'WORKING_DAYS_REQUIRED')).toBe(true);
+    });
+
+    it('6.5 duplicate workingDays are rejected by schema validator and model integrity', () => {
+      const dupDays = { ...validShippingRule, workingDays: [1, 2, 2, 3] };
+      const parsed = createDraftSchema.safeParse({
+        shippingRules: [dupDays]
+      });
+      expect(parsed.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [dupDays]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'DUPLICATE_WORKING_DAYS')).toBe(true);
+    });
+
+    it('6.6 invalid weekday values outside 1-7 are rejected', () => {
+      const invalidWeekday = { ...validShippingRule, workingDays: [0, 8] };
+      const parsed = createDraftSchema.safeParse({
+        shippingRules: [invalidWeekday]
+      });
+      expect(parsed.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [invalidWeekday]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'INVALID_WORKING_DAYS')).toBe(true);
+    });
+
+    it('6.7 negative processing durations are rejected', () => {
+      const negMin = { ...validShippingRule, processingMinBusinessDays: -1 };
+      const parsedMin = createDraftSchema.safeParse({
+        shippingRules: [negMin]
+      });
+      expect(parsedMin.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [negMin]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'INVALID_PROCESSING_MIN_DAYS')).toBe(true);
+    });
+
+    it('6.8 processingMaxBusinessDays below processingMinBusinessDays is rejected', () => {
+      const invertedDays = {
+        ...validShippingRule,
+        processingMinBusinessDays: 3,
+        processingMaxBusinessDays: 1
+      };
+      const parsed = createDraftSchema.safeParse({
+        shippingRules: [invertedDays]
+      });
+      expect(parsed.success).toBe(false);
+
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [invertedDays]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'INVALID_PROCESSING_DAYS_RANGE')).toBe(true);
+    });
+
+    it('6.9 no hardcoded operational defaults are injected when fields are missing', () => {
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [{
+          ruleId: 'RULE-NO-DEF',
+          name: 'No Defaults Rule',
+          serviceCode: 'standard',
+          displayName: 'Standard Delivery',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: { amountMinor: '25000', currency: 'PKR', exponent: 2 },
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          enabled: true
+        }]
+      });
+
+      const rule = doc.shippingRules[0];
+      expect(rule.processingCutoffLocal).toBeUndefined();
+      expect(rule.workingDays).toEqual([]);
+      expect(rule.processingMinBusinessDays).toBeUndefined();
+      expect(rule.processingMaxBusinessDays).toBeUndefined();
+
+      const errors = doc.validateIntegrity();
+      expect(errors.some((e) => e.code === 'PROCESSING_CUTOFF_REQUIRED')).toBe(true);
+      expect(errors.some((e) => e.code === 'WORKING_DAYS_REQUIRED')).toBe(true);
+      expect(errors.some((e) => e.code === 'INVALID_PROCESSING_MIN_DAYS')).toBe(true);
+      expect(errors.some((e) => e.code === 'INVALID_PROCESSING_MAX_DAYS')).toBe(true);
+    });
+
+    it('6.10 existing unrelated configuration behavior remains intact', () => {
+      const doc = new CommerceConfigurationVersion({
+        merchantScopeId: 'default',
+        version: 1,
+        merchantProfile: validMerchantProfile,
+        shippingRules: [validShippingRule],
+        taxRules: [{
+          ruleId: 'TAX-PK-01',
+          destinationCountry: 'PK',
+          taxType: 'GST',
+          taxTreatment: 'exclusive',
+          taxRateNumerator: 0,
+          taxRateDenominator: 10000,
+          dutyRateNumerator: 0,
+          dutyRateDenominator: 10000,
+          roundingMode: 'HALF_UP',
+          roundingScope: 'subtotal',
+          incoterm: 'DOMESTIC',
+          sourceAuthority: 'FBR',
+          sourceReference: 'PK-FBR-2026',
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          enabled: true
+        }]
+      });
+      const errors = doc.validateIntegrity();
+      expect(errors).toHaveLength(0);
+      expect(doc.status).toBe('draft');
+      expect(doc.version).toBe(1);
     });
   });
 });

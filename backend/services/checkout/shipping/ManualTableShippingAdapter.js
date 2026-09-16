@@ -71,6 +71,10 @@ class ManualTableShippingAdapter {
   async quote({
     countryCode,
     originCountry = null,
+    originLocation = null,
+    originTimeZone = null,
+    orderDate = null,
+    orderPlacedAt = null,
     currency = 'PKR',
     subtotalMoney,
     city = '',
@@ -80,7 +84,7 @@ class ManualTableShippingAdapter {
     serviceLevel = 'standard',
     shippingRules = null,
     configVersionId = null
-  }) {
+  } = {}) {
     if (!countryCode || typeof countryCode !== 'string') {
       throw new AppError('Country code is required for shipping quote', 400, 'SHIPPING_COUNTRY_REQUIRED');
     }
@@ -223,21 +227,16 @@ class ManualTableShippingAdapter {
       }
     }
 
-    const minDays = isRemote && rule.remoteDeliveryMinDays != null
-      ? rule.remoteDeliveryMinDays
-      : (rule.deliveryMinDays != null ? rule.deliveryMinDays : 3);
-
-    const maxDays = isRemote && rule.remoteDeliveryMaxDays != null
-      ? rule.remoteDeliveryMaxDays
-      : (rule.deliveryMaxDays != null ? rule.deliveryMaxDays : 7);
+    const resolvedOriginLocation = originLocation || {
+      country: canonicalOrigin || 'PK',
+      timeZone: originTimeZone || (canonicalOrigin === 'US' ? 'America/New_York' : (canonicalOrigin === 'GB' ? 'Europe/London' : 'Asia/Karachi'))
+    };
 
     const deliveryPromise = this.deliveryPromiseService.calculatePromise({
-      orderDate: new Date(),
-      deliveryMinDays: minDays,
-      deliveryMaxDays: maxDays,
-      isRemote,
-      remoteDeliveryMinDays: rule.remoteDeliveryMinDays,
-      remoteDeliveryMaxDays: rule.remoteDeliveryMaxDays
+      orderDate: orderPlacedAt || orderDate || new Date(),
+      shippingRule: rule,
+      originLocation: resolvedOriginLocation,
+      isRemote
     });
 
     return {
@@ -252,8 +251,8 @@ class ManualTableShippingAdapter {
       freeShippingApplied: isFreeEligible,
       isRemote,
       deliveryEstimate: {
-        minDays,
-        maxDays
+        minDays: deliveryPromise.deliveryMinDays,
+        maxDays: deliveryPromise.deliveryMaxDays
       },
       deliveryPromise,
       provenance: {

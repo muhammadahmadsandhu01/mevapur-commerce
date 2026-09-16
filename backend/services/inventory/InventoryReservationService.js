@@ -70,6 +70,7 @@ class InventoryReservationService {
       items,
       destinationCountry,
       merchantScopeId,
+      allowSplit: true,
       session
     });
 

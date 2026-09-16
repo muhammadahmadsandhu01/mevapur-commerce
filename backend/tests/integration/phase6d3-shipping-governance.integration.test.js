@@ -58,6 +58,8 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
         timeZone: 'Asia/Karachi',
         status: 'active',
         priority: 10,
+        supportedMarketCountries: ['PK', 'AE', 'GB', 'US'],
+        supportedServiceLevels: ['standard', 'express'],
         addressLine1: 'Plot 12, Korangi Industrial Area'
       },
       {
@@ -69,6 +71,8 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
         timeZone: 'Asia/Dubai',
         status: 'active',
         priority: 20,
+        supportedMarketCountries: ['AE', 'PK'],
+        supportedServiceLevels: ['standard', 'express'],
         addressLine1: 'Building 4, DAFZA'
       }
     ]);
@@ -127,6 +131,10 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
           remotePostalPrefixes: ['89100'],
           deliveryMinDays: 2,
           deliveryMaxDays: 4,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           weightBands: [
             { minWeightGrams: 0, maxWeightGrams: 1000, rateExact: MoneyMapper.fromLegacy(250, 'PKR'), pricingMode: 'REPLACE_BASE' },
             { minWeightGrams: 1000, maxWeightGrams: 5000, rateExact: MoneyMapper.fromLegacy(100, 'PKR'), pricingMode: 'ADD_TO_BASE' }
@@ -149,6 +157,10 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
           remoteCities: ['Hatta', 'Liwa'],
           deliveryMinDays: 3,
           deliveryMaxDays: 6,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           weightBands: [
             { minWeightGrams: 0, maxWeightGrams: 2000, rateExact: MoneyMapper.fromLegacy(35, 'AED'), pricingMode: 'REPLACE_BASE' },
             { minWeightGrams: 2000, maxWeightGrams: 10000, rateExact: MoneyMapper.fromLegacy(25, 'AED'), pricingMode: 'ADD_TO_BASE' }
@@ -168,6 +180,10 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
           baseRateExact: MoneyMapper.fromLegacy(70, 'AED'),
           deliveryMinDays: 1,
           deliveryMaxDays: 3,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           supportedIncoterms: ['DDP', 'DOMESTIC'],
           priority: 5,
           enabled: true
@@ -248,20 +264,6 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
         merchantScopeId: 'default',
         locationId: locations[0]._id,
         locationCode: locations[0].locationCode,
-        productId: testProduct._id,
-        scopeType: 'product',
-        scopeKey: 'product',
-        canonicalSku: testProduct.sku,
-        onHand: 100,
-        reserved: 0,
-        unavailable: 0,
-        safetyStock: 0,
-        lockVersion: 1
-      },
-      {
-        merchantScopeId: 'default',
-        locationId: locations[1]._id,
-        locationCode: locations[1].locationCode,
         productId: testProduct._id,
         scopeType: 'product',
         scopeKey: 'product',
@@ -383,8 +385,10 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
       expect(expressOpt.shippingAmount).toBe(70);
 
       const standardPromise = promiseService.calculatePromise({
-        orderDate: '2026-09-16T10:00:00.000Z',
-        cutoffTime: '14:00',
+        orderDate: '2026-09-16T08:00:00.000Z',
+        originTimeZone: 'Asia/Karachi',
+        processingCutoffLocal: '14:00',
+        workingDays: [1, 2, 3, 4, 5],
         deliveryMinDays: standardOpt.deliveryEstimate.minDays,
         deliveryMaxDays: standardOpt.deliveryEstimate.maxDays
       });

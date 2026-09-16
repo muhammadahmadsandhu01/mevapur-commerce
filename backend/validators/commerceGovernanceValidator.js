@@ -58,6 +58,15 @@ const merchantProfileSchema = z.object({
   taxCalculationMode: z.enum(['exact_rational']).optional().default('exact_rational')
 }).strict();
 
+const timeFormatRegex = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+const workingDaysSchema = z.array(z.number().int().min(1).max(7))
+  .min(1, 'workingDays must contain at least 1 day')
+  .max(7, 'workingDays cannot exceed 7 days')
+  .refine((days) => new Set(days).size === days.length, {
+    message: 'workingDays entries must be unique'
+  });
+
 const shippingRuleSchema = z.object({
   ruleId: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(100),
@@ -77,11 +86,37 @@ const shippingRuleSchema = z.object({
   deliveryMaxDays: z.number().int().min(0).max(120),
   remoteDeliveryMinDays: z.number().int().min(0).max(120).nullable().optional(),
   remoteDeliveryMaxDays: z.number().int().min(0).max(120).nullable().optional(),
+  processingCutoffLocal: z.string().trim().regex(timeFormatRegex, 'Cutoff must be in HH:mm 24-hour format (00:00 - 23:59)'),
+  workingDays: workingDaysSchema,
+  processingMinBusinessDays: z.number().int().min(0).max(120),
+  processingMaxBusinessDays: z.number().int().min(0).max(120),
   weightBands: z.array(weightBandSchema).max(20).optional().default([]),
   priority: z.number().int().min(0).max(10000).optional().default(100),
   supportedIncoterms: z.array(z.enum(['DOMESTIC', 'DAP', 'DDP', 'CIF', 'FOB', 'EXW'])).max(10).optional().default(['DOMESTIC', 'DAP']),
   enabled: z.boolean().optional().default(true)
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (data.deliveryMaxDays < data.deliveryMinDays) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'deliveryMaxDays cannot be less than deliveryMinDays',
+      path: ['deliveryMaxDays']
+    });
+  }
+  if (data.processingMaxBusinessDays < data.processingMinBusinessDays) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'processingMaxBusinessDays cannot be less than processingMinBusinessDays',
+      path: ['processingMaxBusinessDays']
+    });
+  }
+  if (data.remoteDeliveryMaxDays != null && data.remoteDeliveryMinDays != null && data.remoteDeliveryMaxDays < data.remoteDeliveryMinDays) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'remoteDeliveryMaxDays cannot be less than remoteDeliveryMinDays',
+      path: ['remoteDeliveryMaxDays']
+    });
+  }
+});
 
 const taxRuleSchema = z.object({
   ruleId: z.string().trim().min(1).max(64),

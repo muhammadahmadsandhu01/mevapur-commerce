@@ -31,6 +31,10 @@ class ShippingServiceabilityService {
   async evaluateServiceability({
     countryCode,
     originCountry = null,
+    originLocation = null,
+    originTimeZone = null,
+    orderDate = null,
+    orderPlacedAt = null,
     subdivision = '',
     postalCode = '',
     city = '',
@@ -64,6 +68,9 @@ class ShippingServiceabilityService {
         const singleQuote = await this.adapter.quote({
           countryCode: canonicalCountry,
           originCountry,
+          originLocation,
+          originTimeZone,
+          orderDate: orderPlacedAt || orderDate || new Date(),
           currency: targetCurrency,
           subtotalMoney: effectiveSubtotal,
           city,
@@ -86,6 +93,9 @@ class ShippingServiceabilityService {
       const allOptions = await this.adapter.quoteAllServices({
         countryCode: canonicalCountry,
         originCountry,
+        originLocation,
+        originTimeZone,
+        orderDate: orderPlacedAt || orderDate || new Date(),
         currency: targetCurrency,
         subtotalMoney: effectiveSubtotal,
         city,

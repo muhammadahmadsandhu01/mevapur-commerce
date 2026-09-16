@@ -19,6 +19,7 @@ const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const InventoryAvailabilityService = require('../inventory/InventoryAvailabilityService');
 const InventoryAllocationService = require('../inventory/InventoryAllocationService');
+const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const ShippingServiceabilityService = require('../shipping/ShippingServiceabilityService');
 const DeliveryPromiseService = require('../shipping/DeliveryPromiseService');
 const {
@@ -93,6 +94,7 @@ class CheckoutQuoteService {
     shippingRegistry = shippingAdapterRegistry,
     paymentPolicy = defaultPaymentPolicy,
     commerceConfigService = CommerceConfigurationService,
+    inventoryAllocationService = InventoryAllocationService,
     serviceabilityService = defaultServiceabilityService,
     deliveryPromiseService = defaultDeliveryPromiseService
   } = {}) {
@@ -101,6 +103,7 @@ class CheckoutQuoteService {
     this.shippingRegistry = shippingRegistry;
     this.paymentPolicy = paymentPolicy;
     this.commerceConfigService = commerceConfigService;
+    this.inventoryAllocationService = inventoryAllocationService;
     this.serviceabilityService = serviceabilityService;
     this.deliveryPromiseService = deliveryPromiseService;
   }
@@ -160,6 +163,19 @@ class CheckoutQuoteService {
       grandTotalMinor: quotePayload.grandTotalMinor || getMinorStr(quotePayload.totals?.grandTotalExact),
       incoterm: quotePayload.incoterm || 'DOMESTIC',
       shippingServiceLevel: quotePayload.shippingServiceLevel || quotePayload.shipping?.selectedOption?.serviceLevel || 'standard',
+      shipmentGroups: (quotePayload.shipmentGroups || quotePayload.shipping?.shipmentGroups || []).map((g) => ({
+        groupId: g.groupId || g.shipmentGroup || 'group_1',
+        locationId: String(g.locationId || ''),
+        locationCode: g.locationCode || '',
+        originCountry: g.originCountry || '',
+        serviceLevel: g.serviceLevel || quotePayload.shippingServiceLevel || quotePayload.shipping?.selectedOption?.serviceLevel || 'standard',
+        shippingMinor: getMinorStr(g.shippingAmountExact || g.shippingMinor),
+        items: (g.items || []).map((it) => ({
+          productId: String(it.productId || it.product),
+          variantId: it.variantId ? String(it.variantId) : null,
+          quantity: Number(it.quantity)
+        }))
+      })),
       issuedAt: quotePayload.issuedAt,
       expiresAt: quotePayload.expiresAt
     };
@@ -380,11 +396,19 @@ class CheckoutQuoteService {
       const lineTotalMoney = unitPriceMoney.multiplyRational(quantity, 1);
 
       // Logistics & Customs Resolution
-      const weightGrams = Math.max(0, parseInt(
-        variant?.weightGrams || product.weightGrams
-        || (variant?.weight ? Math.round(variant.weight * 1000) : (product.weight ? Math.round(product.weight * 1000) : 0)),
-        10
-      ));
+      const rawWeight = (variant?.weightGrams !== undefined && variant?.weightGrams !== null)
+        ? variant.weightGrams
+        : product.weightGrams;
+
+      const parsedWeight = Number(rawWeight);
+      if (!Number.isInteger(parsedWeight) || parsedWeight <= 0) {
+        throw new AppError(
+          `Product '${product.name}' is missing valid integer weightGrams for shipping calculations`,
+          400,
+          'SHIPPING_WEIGHT_REQUIRED'
+        );
+      }
+      const weightGrams = parsedWeight;
 
       const dangerousGoodsClassification = variant?.dangerousGoodsClassification
         || product.dangerousGoodsClassification
@@ -471,7 +495,6 @@ class CheckoutQuoteService {
       throw new AppError('Governed merchantCountry is missing in active configuration', 503, 'MARKET_CONFIGURATION_UNAVAILABLE');
     }
     const merchantCountry = rawMerchantCountry.toUpperCase();
-    const fulfillmentOrigin = (market.fulfillmentOriginCountry || merchantCountry).toUpperCase();
 
     // 2. Validate and Normalize Destination Address
     if (!shippingAddress || typeof shippingAddress !== 'object') {
@@ -586,12 +609,82 @@ class CheckoutQuoteService {
       ? subtotalMoney.subtract(discountMoney)
       : Money.zero(targetCurrency);
 
-    // 6. Multi-Service Shipping Quoting via Active Version Rules & Serviceability Engine
+    // 6. Preview Canonical Inventory Allocation to Determine Authoritative Fulfillment Origins
+    const normalizedRequestedService = (shippingServiceLevel || 'standard').trim().toLowerCase();
+    const allocationResult = await this.inventoryAllocationService.previewAllocation({
+      items: pricedItems,
+      destinationCountry,
+      merchantScopeId,
+      serviceLevel: normalizedRequestedService,
+      allowSplit: true
+    });
+
+    if (!allocationResult || !allocationResult.success || !allocationResult.shipmentGroups || allocationResult.shipmentGroups.length === 0) {
+      throw new AppError(
+        allocationResult?.message || 'No authorized fulfillment origin available to fulfill the requested items',
+        409,
+        'NO_AUTHORIZED_FULFILLMENT_ORIGIN'
+      );
+    }
+
+    const now = new Date();
     const shippingRules = activeConfigDoc?.shippingRules || null;
 
+    // Resolve and Authorize each allocation shipment group's FulfillmentLocation atomically
+    const validatedShipmentGroupOrigins = [];
+    for (const group of allocationResult.shipmentGroups) {
+      const locId = group.locationId || allocationResult.fulfillmentLocationId;
+      if (!locId) {
+        throw new AppError(
+          'Missing fulfillment location ID in inventory allocation',
+          409,
+          'NO_AUTHORIZED_FULFILLMENT_ORIGIN'
+        );
+      }
+
+      const fulfillmentLoc = await FulfillmentLocation.findOne({
+        _id: locId,
+        merchantScopeId,
+        status: 'active',
+        effectiveFrom: { $lte: now },
+        supportedMarketCountries: destinationCountry,
+        supportedServiceLevels: normalizedRequestedService,
+        $or: [
+          { effectiveTo: null },
+          { effectiveTo: { $gte: now } }
+        ]
+      });
+
+      if (!fulfillmentLoc) {
+        throw new AppError(
+          `No authorized fulfillment origin available for location '${locId}', market '${destinationCountry}', and service level '${normalizedRequestedService}'`,
+          409,
+          'NO_AUTHORIZED_FULFILLMENT_ORIGIN'
+        );
+      }
+
+      validatedShipmentGroupOrigins.push({
+        group,
+        originLocation: {
+          locationId: String(fulfillmentLoc._id),
+          locationCode: fulfillmentLoc.locationCode,
+          countryCode: fulfillmentLoc.countryCode.toUpperCase(),
+          originCountry: fulfillmentLoc.countryCode.toUpperCase(),
+          timeZone: fulfillmentLoc.timeZone
+        }
+      });
+    }
+
+    const primaryOrigin = validatedShipmentGroupOrigins[0].originLocation;
+    const fulfillmentOrigin = primaryOrigin.countryCode;
+
+    // 7. Multi-Service Shipping Quoting via Active Version Rules & Serviceability Engine
     const serviceabilityResult = await this.serviceabilityService.evaluateServiceability({
       countryCode: destinationCountry,
-      originCountry: fulfillmentOrigin,
+      originCountry: primaryOrigin.countryCode,
+      originLocation: primaryOrigin,
+      originTimeZone: primaryOrigin.timeZone,
+      orderDate: now,
       subdivision: normalizedAddress.administrativeArea,
       postalCode: normalizedAddress.postalCode,
       city: normalizedAddress.locality,
@@ -611,7 +704,6 @@ class CheckoutQuoteService {
 
     const shippingOptions = serviceabilityResult.options;
 
-    const normalizedRequestedService = (shippingServiceLevel || 'standard').trim().toLowerCase();
     const selectedShippingOption = shippingOptions.find(
       (opt) => (opt.serviceLevel || '').toLowerCase() === normalizedRequestedService
     ) || shippingOptions[0];
@@ -621,7 +713,7 @@ class CheckoutQuoteService {
       ? Money.zero(targetCurrency)
       : MoneyMapper.toMoney(selectedShippingOption.shippingAmountExact);
 
-    // 7. Calculate Tax & Duties with Landed-Cost Provenance via Active Version Rules
+    // 8. Calculate Tax & Duties with Landed-Cost Provenance via Active Version Rules
     const taxRules = activeConfigDoc?.taxRules || null;
     const taxDutyResult = this.taxEngine.calculate({
       destinationCountry,
@@ -637,7 +729,7 @@ class CheckoutQuoteService {
     const taxMoney = MoneyMapper.toMoney(taxDutyResult.taxAmountExact);
     const dutiesMoney = MoneyMapper.toMoney(taxDutyResult.dutyAmountExact);
 
-    // 8. Deterministic Exact Grand Total
+    // 9. Deterministic Exact Grand Total
     // DDP: subtotal - discount + shipping + tax + duties (seller collects import duties)
     // DAP / DOMESTIC: subtotal - discount + shipping + tax (duties unpaid at checkout, collected at destination)
     const payableDutiesMoney = taxDutyResult.incoterm === 'DDP' ? dutiesMoney : Money.zero(targetCurrency);
@@ -647,7 +739,7 @@ class CheckoutQuoteService {
       .add(taxMoney)
       .add(payableDutiesMoney);
 
-    // 9. Payment Method Eligibility Synthesis
+    // 10. Payment Method Eligibility Synthesis
     const availablePaymentMethods = await this.paymentPolicy.getPublicAvailableMethods({
       country: destinationCountry,
       deliveryCountry: destinationCountry,
@@ -666,7 +758,6 @@ class CheckoutQuoteService {
       return true;
     });
 
-    const now = new Date();
     const issuedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + QUOTE_TTL_SECONDS * 1000).toISOString();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -675,16 +766,14 @@ class CheckoutQuoteService {
 
     const itemsHash = this.hashItems(pricedItems);
 
-    const aggregateDeliveryPromise = selectedShippingOption.deliveryPromise || this.deliveryPromiseService.calculatePromise({
-      orderDate: now,
-      deliveryMinDays: selectedShippingOption.deliveryEstimate?.minDays || 2,
-      deliveryMaxDays: selectedShippingOption.deliveryEstimate?.maxDays || 5,
-      isRemote: selectedShippingOption.isRemote
-    });
+    const aggregateDeliveryPromise = selectedShippingOption.deliveryPromise;
 
-    const shipmentGroups = [{
-      groupId: 'group_1',
-      originCountry: fulfillmentOrigin,
+    const shipmentGroups = validatedShipmentGroupOrigins.map(({ group, originLocation }, idx) => ({
+      groupId: group.shipmentGroup || `group_${idx + 1}`,
+      locationId: originLocation.locationId,
+      locationCode: originLocation.locationCode,
+      originCountry: originLocation.countryCode,
+      originTimeZone: originLocation.timeZone,
       destinationCountry,
       serviceLevel: selectedShippingOption.serviceLevel,
       shippingAmount: Number(selectedShippingMoney.toDecimalString()),
@@ -697,15 +786,18 @@ class CheckoutQuoteService {
         ruleId: selectedShippingOption.ruleId || 'RULE-DEF',
         timestamp: now.toISOString()
       },
-      items: pricedItems.map((it) => ({
-        productId: it.productId,
-        variantId: it.variantId,
-        name: it.name,
-        sku: it.sku,
-        quantity: it.quantity,
-        weightGrams: it.weightGrams
-      }))
-    }];
+      items: (group.items || pricedItems).map((it) => {
+        const matchingPriced = pricedItems.find((p) => String(p.productId) === String(it.product || it.productId));
+        return {
+          productId: String(it.product || it.productId),
+          variantId: it.variantId ? String(it.variantId) : (matchingPriced?.variantId || null),
+          name: it.name || matchingPriced?.name || '',
+          sku: it.sku || it.canonicalSku || matchingPriced?.sku || '',
+          quantity: it.quantity,
+          weightGrams: it.weightGrams || matchingPriced?.weightGrams || 0
+        };
+      })
+    }));
 
     const quoteData = {
       kid: CURRENT_QUOTE_KEY_ID,

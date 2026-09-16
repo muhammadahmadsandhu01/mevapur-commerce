@@ -24,6 +24,10 @@ const TEST_SHIPPING_RULES = [
     deliveryMaxDays: 4,
     remoteDeliveryMinDays: 5,
     remoteDeliveryMaxDays: 9,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 0,
+    processingMaxBusinessDays: 1,
     priority: 100,
     enabled: true
   },
@@ -38,6 +42,10 @@ const TEST_SHIPPING_RULES = [
     baseRateExact: { amountMinor: '50000', currency: 'PKR', exponent: 2 },
     deliveryMinDays: 1,
     deliveryMaxDays: 2,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 0,
+    processingMaxBusinessDays: 1,
     priority: 50,
     enabled: true
   },
@@ -59,6 +67,10 @@ const TEST_SHIPPING_RULES = [
     ],
     deliveryMinDays: 5,
     deliveryMaxDays: 10,
+    processingCutoffLocal: '14:00',
+    workingDays: [1, 2, 3, 4, 5],
+    processingMinBusinessDays: 0,
+    processingMaxBusinessDays: 1,
     priority: 10,
     enabled: true
   }

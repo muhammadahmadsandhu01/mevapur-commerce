@@ -133,6 +133,10 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
           deliveryMaxDays: 4,
           remoteDeliveryMinDays: 5,
           remoteDeliveryMaxDays: 8,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           priority: 100,
           supportedIncoterms: ['DOMESTIC'],
           enabled: true
@@ -148,6 +152,10 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
           baseRateExact: { amountMinor: '50000', currency: 'PKR', exponent: 2 },
           deliveryMinDays: 1,
           deliveryMaxDays: 2,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           priority: 50,
           supportedIncoterms: ['DOMESTIC'],
           enabled: true
@@ -163,6 +171,10 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
           baseRateExact: { amountMinor: '3500', currency: 'AED', exponent: 2 },
           deliveryMinDays: 3,
           deliveryMaxDays: 5,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           priority: 100,
           supportedIncoterms: ['DDP'],
           enabled: true
@@ -178,8 +190,50 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
           baseRateExact: { amountMinor: '7000', currency: 'AED', exponent: 2 },
           deliveryMinDays: 1,
           deliveryMaxDays: 2,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
           priority: 50,
           supportedIncoterms: ['DDP'],
+          enabled: true
+        },
+        {
+          ruleId: 'SHIP-AE-DOM-01',
+          name: 'UAE Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'Careem Express UAE (1-2 Days)',
+          originCountry: 'AE',
+          destinationCountry: 'AE',
+          currency: 'AED',
+          baseRateExact: { amountMinor: '2000', currency: 'AED', exponent: 2 },
+          deliveryMinDays: 1,
+          deliveryMaxDays: 2,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          priority: 100,
+          supportedIncoterms: ['DOMESTIC'],
+          enabled: true
+        },
+        {
+          ruleId: 'SHIP-AE-DOM-EXP',
+          name: 'UAE Domestic Express',
+          serviceCode: 'express',
+          displayName: 'Careem Next-Hour Express',
+          originCountry: 'AE',
+          destinationCountry: 'AE',
+          currency: 'AED',
+          baseRateExact: { amountMinor: '4000', currency: 'AED', exponent: 2 },
+          deliveryMinDays: 1,
+          deliveryMaxDays: 1,
+          processingCutoffLocal: '16:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          priority: 50,
+          supportedIncoterms: ['DOMESTIC'],
           enabled: true
         }
       ],
@@ -541,6 +595,381 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
       expect(allocation.allocatableMinor).toBe(500000);
       expect(allocation.lines).toHaveLength(1);
       expect(allocation.lines[0].refundableMinor).toBe(500000);
+    });
+  });
+
+  describe('6. Canonical Fulfillment Origin & Legacy Closure Invariants', () => {
+    it('6.1 Proves allocation-selected FulfillmentLocation is the origin authority and cannot be altered by client', async () => {
+      const quote = await CheckoutQuoteService.generateQuote({
+        userId: customerUser._id,
+        items: [{ productId: String(testProduct._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Zainab Bibi',
+          address: 'F-7 Markaz, Islamabad',
+          city: 'Islamabad',
+          province: 'Federal Capital',
+          postalCode: '44000',
+          countryCode: 'PK',
+          phone: '+923009876543',
+          originCountry: 'US' // Client attempts to override origin
+        },
+        currency: 'PKR',
+        shippingServiceLevel: 'standard'
+      });
+
+      expect(quote.shipping.shipmentGroups[0].locationId).toBe(String(fulfillmentLocation._id));
+      expect(quote.shipping.shipmentGroups[0].locationCode).toBe(fulfillmentLocation.locationCode);
+      expect(quote.shipping.shipmentGroups[0].originCountry).toBe('PK');
+      expect(quote.fulfillmentOriginCountry).toBe('PK');
+    });
+
+    it('6.2 Fails closed with NO_AUTHORIZED_FULFILLMENT_ORIGIN if location does not support destination market', async () => {
+      await FulfillmentLocation.updateOne(
+        { _id: fulfillmentLocation._id },
+        { $set: { supportedMarketCountries: ['US'] } } // Only supports US, not PK
+      );
+
+      await expect(
+        CheckoutQuoteService.generateQuote({
+          userId: customerUser._id,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Zainab Bibi',
+            address: 'F-7 Markaz, Islamabad',
+            city: 'Islamabad',
+            province: 'Federal Capital',
+            postalCode: '44000',
+            countryCode: 'PK',
+            phone: '+923009876543'
+          },
+          currency: 'PKR',
+          shippingServiceLevel: 'standard'
+        })
+      ).rejects.toThrow();
+
+      // Reset
+      await FulfillmentLocation.updateOne(
+        { _id: fulfillmentLocation._id },
+        { $set: { supportedMarketCountries: ['PK', 'AE', 'US'] } }
+      );
+    });
+
+    it('6.3 Fails closed with NO_AUTHORIZED_FULFILLMENT_ORIGIN if service level is unsupported by location', async () => {
+      await FulfillmentLocation.updateOne(
+        { _id: fulfillmentLocation._id },
+        { $set: { supportedServiceLevels: ['standard'] } }
+      );
+
+      await expect(
+        CheckoutQuoteService.generateQuote({
+          userId: customerUser._id,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Zainab Bibi',
+            address: 'F-7 Markaz, Islamabad',
+            city: 'Islamabad',
+            province: 'Federal Capital',
+            postalCode: '44000',
+            countryCode: 'PK',
+            phone: '+923009876543'
+          },
+          currency: 'PKR',
+          shippingServiceLevel: 'express'
+        })
+      ).rejects.toThrow();
+
+      // Reset
+      await FulfillmentLocation.updateOne(
+        { _id: fulfillmentLocation._id },
+        { $set: { supportedServiceLevels: ['standard', 'express'] } }
+      );
+    });
+
+    it('6.4 Proves missing or invalid product weight strictly fails closed with SHIPPING_WEIGHT_REQUIRED (no 500g fallback)', async () => {
+      const zeroWeightProduct = await Product.create({
+        name: 'Weightless Tea Leaves',
+        slug: `weightless-tea-${Date.now()}`,
+        category: testCategory._id,
+        price: 1500,
+        stock: 50,
+        status: 'published',
+        isActive: true,
+        countryOfOrigin: 'PK',
+        sku: `TEA-NOWEIGHT-${Date.now()}`
+      });
+
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: fulfillmentLocation._id,
+        locationCode: fulfillmentLocation.locationCode,
+        productId: zeroWeightProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: zeroWeightProduct.sku,
+        onHand: 50,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        lockVersion: 1
+      });
+
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: zeroWeightProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        pricingPolicy: 'inherit_product_price',
+        effectiveFrom: new Date(Date.now() - 3600000)
+      });
+
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: zeroWeightProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'PK',
+        currency: 'PKR',
+        amountMinor: 150000,
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 3600000)
+      });
+
+      await expect(
+        CheckoutQuoteService.generateQuote({
+          userId: customerUser._id,
+          items: [{ productId: String(zeroWeightProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Zainab Bibi',
+            address: 'F-7 Markaz, Islamabad',
+            city: 'Islamabad',
+            province: 'Federal Capital',
+            postalCode: '44000',
+            countryCode: 'PK',
+            phone: '+923009876543'
+          },
+          currency: 'PKR',
+          shippingServiceLevel: 'standard'
+        })
+      ).rejects.toThrow('missing valid integer weightGrams for shipping calculations');
+    });
+
+    it('6.5 Proves all legacy ShippingZone endpoints fail closed with LEGACY_SHIPPING_CONFIGURATION_DISABLED and zero DB reads/writes', async () => {
+      const commercialCoreController = require('../../controllers/commercialCoreController');
+      let errorThrown = null;
+      const mockReq = { body: { name: 'Test Zone' }, params: { id: 'some-id' }, query: {} };
+      const mockRes = {};
+      const mockNext = (err) => { errorThrown = err; };
+
+      // 1. listZones
+      errorThrown = null;
+      await commercialCoreController.listZones(mockReq, mockRes, mockNext);
+      expect(errorThrown).toBeDefined();
+      expect(errorThrown.code).toBe('LEGACY_SHIPPING_CONFIGURATION_DISABLED');
+      expect(errorThrown.message).toContain('Direct ShippingZone configuration is disabled');
+
+      // 2. createZone
+      errorThrown = null;
+      await commercialCoreController.createZone(mockReq, mockRes, mockNext);
+      expect(errorThrown).toBeDefined();
+      expect(errorThrown.code).toBe('LEGACY_SHIPPING_CONFIGURATION_DISABLED');
+
+      // 3. updateZone
+      errorThrown = null;
+      await commercialCoreController.updateZone(mockReq, mockRes, mockNext);
+      expect(errorThrown).toBeDefined();
+      expect(errorThrown.code).toBe('LEGACY_SHIPPING_CONFIGURATION_DISABLED');
+
+      // 4. deleteZone
+      errorThrown = null;
+      await commercialCoreController.deleteZone(mockReq, mockRes, mockNext);
+      expect(errorThrown).toBeDefined();
+      expect(errorThrown.code).toBe('LEGACY_SHIPPING_CONFIGURATION_DISABLED');
+
+      // 5. quoteShipping
+      errorThrown = null;
+      await commercialCoreController.quoteShipping(mockReq, mockRes, mockNext);
+      expect(errorThrown).toBeDefined();
+      expect(errorThrown.code).toBe('LEGACY_SHIPPING_CONFIGURATION_DISABLED');
+    });
+
+    it('6.6 Proves standalone legacy ShippingService methods fail closed with LEGACY_SHIPPING_CONFIGURATION_DISABLED', async () => {
+      const ShippingService = require('../../services/order/ShippingService');
+
+      await expect(ShippingService.quote({ country: 'PK', subtotal: 1000 })).rejects.toThrow(
+        'Direct legacy ShippingService quote is disabled'
+      );
+      await expect(ShippingService.calculate({ country: 'PK' }, 1000)).rejects.toThrow(
+        'Direct legacy ShippingService calculation is disabled'
+      );
+    });
+
+    it('6.7 Proves international COD remains rejected in checkout quotes', async () => {
+      const quote = await CheckoutQuoteService.generateQuote({
+        userId: customerUser._id,
+        items: [{ productId: String(testProduct._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Hamad Al-Maktoum',
+          address: 'Sheikh Zayed Road, Floor 14',
+          city: 'Dubai',
+          province: 'Dubai',
+          countryCode: 'AE',
+          phone: '+971501234567'
+        },
+        currency: 'AED',
+        shippingServiceLevel: 'standard'
+      });
+
+      const codMethod = quote.eligiblePaymentMethods.find((m) => m.code === 'cod');
+      expect(codMethod).toBeUndefined();
+    });
+
+    it('6.8 Proves split-origin order persistence retains independent origins for multiple shipment groups', async () => {
+      // Create a second fulfillment location in AE
+      const dxbLocation = await FulfillmentLocation.create({
+        merchantScopeId: 'default',
+        locationCode: 'WH-DXB-AIRPORT',
+        displayName: 'Dubai Airport Logistics Depot',
+        name: 'Dubai Airport Logistics Depot',
+        type: 'warehouse',
+        countryCode: 'AE',
+        city: 'Dubai',
+        timeZone: 'Asia/Dubai',
+        supportedMarketCountries: ['PK', 'AE', 'US'],
+        supportedServiceLevels: ['standard', 'express'],
+        isDefault: false,
+        priority: 20,
+        status: 'active'
+      });
+
+      // Create a second product
+      const secondProduct = await Product.create({
+        name: 'Saffron Spice Special Edition',
+        slug: `saffron-spice-${Date.now()}`,
+        category: testCategory._id,
+        price: 5000,
+        weightGrams: 200,
+        stock: 50,
+        status: 'published',
+        isActive: true,
+        countryOfOrigin: 'AE',
+        sku: `SAFFRON-${Date.now()}`,
+        customsTariff: {
+          code: '091020',
+          systemVersion: 'HS_2022',
+          jurisdiction: 'WCO'
+        },
+        declaredValueEligibility: 'ELIGIBLE',
+        dangerousGoodsClassification: 'NOT_RESTRICTED'
+      });
+
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: dxbLocation._id,
+        locationCode: dxbLocation.locationCode,
+        productId: secondProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: secondProduct.sku,
+        onHand: 50,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        lockVersion: 1
+      });
+
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: secondProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'AE',
+        status: 'active',
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        pricingPolicy: 'inherit_product_price',
+        effectiveFrom: new Date(Date.now() - 3600000)
+      });
+
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: secondProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'AE',
+        currency: 'AED',
+        amountMinor: 6000, // 60.00 AED
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 3600000)
+      });
+
+      // Generate quote with both items (one from PK hub, one from AE hub)
+      const quote = await CheckoutQuoteService.generateQuote({
+        userId: customerUser._id,
+        items: [
+          { productId: String(testProduct._id), quantity: 1 },
+          { productId: String(secondProduct._id), quantity: 1 }
+        ],
+        shippingAddress: {
+          fullName: 'Hamad Al-Maktoum',
+          address: 'Sheikh Zayed Road, Floor 14',
+          city: 'Dubai',
+          province: 'Dubai',
+          countryCode: 'AE',
+          phone: '+971501234567'
+        },
+        currency: 'AED',
+        shippingServiceLevel: 'standard'
+      });
+
+      // Construct and create order with quoteToken
+      const seq = ++sequence;
+      const result = await OrderService.createOrder({
+        userId: customerUser._id,
+        orderData: {
+          items: [
+            { productId: String(testProduct._id), quantity: 1 },
+            { productId: String(secondProduct._id), quantity: 1 }
+          ],
+          shippingAddress: {
+            fullName: 'Hamad Al-Maktoum',
+            address: 'Sheikh Zayed Road, Floor 14',
+            city: 'Dubai',
+            province: 'Dubai',
+            countryCode: 'AE',
+            phone: '+971501234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'AED',
+          shippingServiceLevel: 'standard',
+          quoteToken: quote.quoteToken
+        },
+        idempotencyKey: `IDEMP-P6D3-SPLIT-${seq}`
+      });
+
+      const order = result.order || result;
+      expect(order).toBeDefined();
+      expect(order.orderId).toMatch(/^ORD-/);
+      expect(order.shippingQuote).toBeDefined();
+      expect(order.quote.quoteId).toBe(quote.quoteId);
+      expect(order.items).toHaveLength(2);
+
+      // Verify shipment groups in quote and persisted order
+      expect(quote.shipping.shipmentGroups).toHaveLength(2);
+      const quoteOrigins = quote.shipping.shipmentGroups.map((g) => g.originCountry).sort();
+      expect(quoteOrigins).toEqual(['AE', 'PK']);
+
+      expect(order.shippingQuote.shipmentGroups).toHaveLength(2);
+      const persistedOrigins = order.shippingQuote.shipmentGroups.map((g) => g.originCountry).sort();
+      expect(persistedOrigins).toEqual(['AE', 'PK']);
+
+      const item1 = order.items.find((it) => String(it.product) === String(testProduct._id));
+      const item2 = order.items.find((it) => String(it.product) === String(secondProduct._id));
+      expect(item1.originCountry).toBe('PK');
+      expect(item2.originCountry).toBe('AE');
     });
   });
 });

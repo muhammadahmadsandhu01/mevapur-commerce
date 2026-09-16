@@ -1,12 +1,11 @@
-const ShippingZone = require('../models/ShippingZone');
 const MarketService = require('../services/MarketService');
-const ShippingService = require('../services/order/ShippingService');
-const { NotFoundError } = require('../common/errors/AppError');
+const { AppError } = require('../common/errors/AppError');
 const { logActivity } = require('../middleware/activityLogger');
 
 exports.getMarket = async (_req, res, next) => {
   try { res.json({ success: true, data: await MarketService.getPublicConfig() }); } catch (error) { next(error); }
 };
+
 exports.updateMarket = async (req, res, next) => {
   try {
     const market = await MarketService.update(req.body);
@@ -14,32 +13,53 @@ exports.updateMarket = async (req, res, next) => {
     res.json({ success: true, data: await MarketService.getPublicConfig() });
   } catch (error) { next(error); }
 };
-exports.listZones = async (_req, res, next) => {
-  try { res.json({ success: true, data: { zones: await ShippingZone.find().sort({ priority: 1, name: 1 }) } }); } catch (error) { next(error); }
-};
-exports.createZone = async (req, res, next) => {
+
+exports.listZones = async (_req, _res, next) => {
   try {
-    const zone = await ShippingZone.create(req.body);
-    await logActivity(req, 'SHIPPING_ZONE_CREATE', `Created shipping zone ${zone.name}`, { zoneId: String(zone._id) });
-    res.status(201).json({ success: true, data: { zone } });
+    throw new AppError(
+      'Direct ShippingZone configuration is disabled. Configure and view shipping rules through CommerceConfiguration version drafts.',
+      409,
+      'LEGACY_SHIPPING_CONFIGURATION_DISABLED'
+    );
   } catch (error) { next(error); }
 };
-exports.updateZone = async (req, res, next) => {
+
+exports.createZone = async (_req, _res, next) => {
   try {
-    const zone = await ShippingZone.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
-    if (!zone) throw new NotFoundError('Shipping zone');
-    await logActivity(req, 'SHIPPING_ZONE_UPDATE', `Updated shipping zone ${zone.name}`, { zoneId: String(zone._id) });
-    res.json({ success: true, data: { zone } });
+    throw new AppError(
+      'Direct ShippingZone mutation is disabled. Configure shipping rules through CommerceConfiguration version drafts.',
+      409,
+      'LEGACY_SHIPPING_CONFIGURATION_DISABLED'
+    );
   } catch (error) { next(error); }
 };
-exports.deleteZone = async (req, res, next) => {
+
+exports.updateZone = async (_req, _res, next) => {
   try {
-    const zone = await ShippingZone.findByIdAndDelete(req.params.id);
-    if (!zone) throw new NotFoundError('Shipping zone');
-    await logActivity(req, 'SHIPPING_ZONE_DELETE', `Deleted shipping zone ${zone.name}`, { zoneId: String(zone._id) });
-    res.json({ success: true, data: { deleted: true } });
+    throw new AppError(
+      'Direct ShippingZone mutation is disabled. Configure shipping rules through CommerceConfiguration version drafts.',
+      409,
+      'LEGACY_SHIPPING_CONFIGURATION_DISABLED'
+    );
   } catch (error) { next(error); }
 };
-exports.quoteShipping = async (req, res, next) => {
-  try { res.json({ success: true, data: await ShippingService.quote(req.query) }); } catch (error) { next(error); }
+
+exports.deleteZone = async (_req, _res, next) => {
+  try {
+    throw new AppError(
+      'Direct ShippingZone mutation is disabled. Configure shipping rules through CommerceConfiguration version drafts.',
+      409,
+      'LEGACY_SHIPPING_CONFIGURATION_DISABLED'
+    );
+  } catch (error) { next(error); }
+};
+
+exports.quoteShipping = async (_req, _res, next) => {
+  try {
+    throw new AppError(
+      'Legacy GET /shipping/quote is disabled. Use POST /api/commerce/checkout/quote for governed checkout quotes.',
+      409,
+      'LEGACY_SHIPPING_CONFIGURATION_DISABLED'
+    );
+  } catch (error) { next(error); }
 };

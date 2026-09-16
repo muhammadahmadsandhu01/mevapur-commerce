@@ -12,7 +12,7 @@ class CommerceGovernanceController {
   async listVersions(req, res, next) {
     try {
       const { page = 1, limit = 20, status } = req.query;
-      const merchantScopeId = req.query?.merchantScopeId || req.user?.merchantScopeId || 'default';
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const result = await CommerceConfigurationService.listVersions({
         merchantScopeId,
         page,
@@ -28,7 +28,7 @@ class CommerceGovernanceController {
   async getVersion(req, res, next) {
     try {
       const { id } = req.params;
-      const merchantScopeId = req.query?.merchantScopeId || req.user?.merchantScopeId || null;
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const version = await CommerceConfigurationService.getVersionById(id, { merchantScopeId });
       res.json({ success: true, data: { version } });
     } catch (error) {
@@ -39,7 +39,7 @@ class CommerceGovernanceController {
   async createDraft(req, res, next) {
     try {
       const { sourceVersionId, merchantProfile, shippingRules, taxRules, changeNotes } = req.body;
-      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || req.user?.merchantScopeId || 'default';
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const authorId = req.user?._id;
 
       const draft = await CommerceConfigurationService.createDraft({
@@ -75,7 +75,7 @@ class CommerceGovernanceController {
     try {
       const { id } = req.params;
       const { expectedLockVersion, merchantProfile, shippingRules, taxRules, effectiveFrom, effectiveTo, changeNotes } = req.body;
-      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || req.user?.merchantScopeId || 'default';
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const authorId = req.user?._id;
 
       const updated = await CommerceConfigurationService.updateDraft({
@@ -111,7 +111,7 @@ class CommerceGovernanceController {
   async validateDraft(req, res, next) {
     try {
       const { id } = req.params;
-      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || req.user?.merchantScopeId || null;
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const validatorId = req.user?._id;
 
       const result = await CommerceConfigurationService.validateDraft({
@@ -129,7 +129,7 @@ class CommerceGovernanceController {
         ipAddress: req.ip || 'unknown',
         userAgent: req.headers['user-agent'] || 'unknown',
         metadata: {
-          merchantScopeId: merchantScopeId || 'default',
+          merchantScopeId,
           version: result.version,
           isValid: result.isValid,
           errorCount: (result.errors || []).length
@@ -146,7 +146,7 @@ class CommerceGovernanceController {
     try {
       const { id } = req.params;
       const { effectiveFrom } = req.body || {};
-      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || req.user?.merchantScopeId || null;
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const activatorId = req.user?._id;
 
       const activated = await CommerceConfigurationService.scheduleOrActivateVersion({
@@ -182,7 +182,7 @@ class CommerceGovernanceController {
     try {
       const { id } = req.params;
       const { reason, isEmergency } = req.body || {};
-      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || req.user?.merchantScopeId || null;
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const retireId = req.user?._id;
 
       const retired = await CommerceConfigurationService.retireVersion({
@@ -219,7 +219,7 @@ class CommerceGovernanceController {
   async previewQuote(req, res, next) {
     try {
       const { configId, destination, items, currency, couponCode, shippingServiceLevel } = req.body;
-      const merchantScopeId = req.body?.merchantScopeId || req.query?.merchantScopeId || req.user?.merchantScopeId || 'default';
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const preview = await CommerceConfigurationService.previewQuote({
         configId,
         merchantScopeId,
@@ -255,7 +255,7 @@ class CommerceGovernanceController {
 
   async getReadiness(req, res, next) {
     try {
-      const merchantScopeId = req.query?.merchantScopeId || req.user?.merchantScopeId || 'default';
+      const merchantScopeId = req.user?.merchantScopeId || 'default';
       const readiness = await CommerceConfigurationService.getReadinessStatus({ merchantScopeId });
       res.json({ success: true, data: readiness });
     } catch (error) {

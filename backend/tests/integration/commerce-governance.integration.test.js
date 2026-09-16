@@ -37,7 +37,8 @@ const createAuth = async (role = 'admin', options = {}) => {
   sequence += 1;
   const user = await global.createTestUser({
     email: `gov-test-${sequence}@example.test`,
-    role
+    role,
+    merchantScopeId: options.merchantScopeId || 'default'
   });
   const session = await Session.create({
     user: user._id,
@@ -74,6 +75,10 @@ const createTestShippingRule = (ruleId = 'SHIP-PK-STD-INT', origin = 'PK', dest 
   baseRateExact: { amountMinor: '25000', currency: 'PKR', exponent: 2 },
   deliveryMinDays: 2,
   deliveryMaxDays: 4,
+  processingCutoffLocal: '14:00',
+  workingDays: [1, 2, 3, 4, 5],
+  processingMinBusinessDays: 0,
+  processingMaxBusinessDays: 1,
   enabled: true
 });
 
@@ -139,10 +144,10 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
     });
 
     it('1.4 Revoked session token is rejected with 401', async () => {
-      await Session.findByIdAndUpdate(adminAuth.session._id, { isRevoked: true });
+      const revokedAuth = await createAuth('admin', { sessionRevoked: true });
       const res = await request(app)
         .get('/api/commerce/admin/config/versions')
-        .set('Authorization', adminAuth.authorization);
+        .set('Authorization', revokedAuth.authorization);
       expect(res.status).toBe(401);
     });
 
@@ -175,57 +180,70 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
     });
 
     it('1.9 Admin role is permitted draft creation, validation, preview and reading', async () => {
-      // Create draft
+      // 1. Create draft
       const draftRes = await request(app)
         .post('/api/commerce/admin/config/draft')
         .set('Authorization', adminAuth.authorization)
-        .send({ changeNotes: 'Admin allowed draft' });
+        .send({
+          shippingRules: [createTestShippingRule('SHIP-ADMIN-1')],
+          taxRules: [createTestTaxRule('TAX-ADMIN-1')]
+        });
       expect(draftRes.status).toBe(201);
+      expect(draftRes.body.success).toBe(true);
       const draftId = draftRes.body.data.draft._id;
 
-      // Validate draft
+      // 2. Validate draft
       const valRes = await request(app)
         .post(`/api/commerce/admin/config/draft/${draftId}/validate`)
         .set('Authorization', adminAuth.authorization);
       expect(valRes.status).toBe(200);
+      expect(valRes.body.data.isValid).toBe(true);
 
-      // List versions
+      // 3. Read versions list
       const listRes = await request(app)
         .get('/api/commerce/admin/config/versions')
         .set('Authorization', adminAuth.authorization);
       expect(listRes.status).toBe(200);
+      expect(listRes.body.data.versions.length).toBeGreaterThanOrEqual(1);
+
+      // 4. Preview calculation
+      const prevRes = await request(app)
+        .post('/api/commerce/admin/config/preview')
+        .set('Authorization', adminAuth.authorization)
+        .send({
+          configId: draftId,
+          destination: { countryCode: 'PK', city: 'Karachi' },
+          items: [{ name: 'Test Product', price: 1000, quantity: 1, weightGrams: 500 }]
+        });
+      expect(prevRes.status).toBe(200);
+      expect(prevRes.body.data.preview).toBeDefined();
     });
 
     it('1.10 Admin role is forbidden from activating or retiring versions (403)', async () => {
       const draftRes = await request(app)
         .post('/api/commerce/admin/config/draft')
         .set('Authorization', adminAuth.authorization)
-        .send({ changeNotes: 'Admin activation test' });
+        .send({});
       const draftId = draftRes.body.data.draft._id;
 
-      await request(app)
-        .post(`/api/commerce/admin/config/draft/${draftId}/validate`)
-        .set('Authorization', adminAuth.authorization);
-
-      // Admin activation attempt -> 403
       const actRes = await request(app)
         .post(`/api/commerce/admin/config/versions/${draftId}/activate`)
         .set('Authorization', adminAuth.authorization)
         .send({});
       expect(actRes.status).toBe(403);
 
-      // Admin retirement attempt -> 403
       const retRes = await request(app)
         .post(`/api/commerce/admin/config/versions/${draftId}/retire`)
         .set('Authorization', adminAuth.authorization)
-        .send({});
+        .send({ reason: 'Unauthorized retire attempt' });
       expect(retRes.status).toBe(403);
     });
 
     it('1.11 Super Admin is permitted to activate and retire versions (200)', async () => {
+      // 1. Create and validate draft
       const draftRes = await request(app)
         .post('/api/commerce/admin/config/draft')
-        .set('Authorization', adminAuth.authorization)
+        .set('Authorization', superAdminAuth.authorization)
         .send({
           shippingRules: [createTestShippingRule('SHIP-SA-1')],
           taxRules: [createTestTaxRule('TAX-SA-1')]
@@ -234,9 +252,9 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
 
       await request(app)
         .post(`/api/commerce/admin/config/draft/${draftId}/validate`)
-        .set('Authorization', adminAuth.authorization);
+        .set('Authorization', superAdminAuth.authorization);
 
-      // Super admin activation -> 200
+      // 2. Super admin activates
       const actRes = await request(app)
         .post(`/api/commerce/admin/config/versions/${draftId}/activate`)
         .set('Authorization', superAdminAuth.authorization)
@@ -244,11 +262,11 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
       expect(actRes.status).toBe(200);
       expect(actRes.body.data.version.status).toBe('active');
 
-      // Super admin retirement -> 200
+      // 3. Super admin retires
       const retRes = await request(app)
         .post(`/api/commerce/admin/config/versions/${draftId}/retire`)
         .set('Authorization', superAdminAuth.authorization)
-        .send({ reason: 'Governance rotation test' });
+        .send({ reason: 'Routine governance lifecycle rotation' });
       expect(retRes.status).toBe(200);
       expect(retRes.body.data.version.status).toBe('retired');
     });
@@ -261,7 +279,6 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
         .post('/api/commerce/admin/config/draft')
         .set('Authorization', adminAuth.authorization)
         .send({
-          merchantScopeId: 'default',
           shippingRules: [createTestShippingRule('SHIP-C1-01')],
           taxRules: [createTestTaxRule('TAX-C1-01')]
         });
@@ -271,7 +288,6 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
         .post('/api/commerce/admin/config/draft')
         .set('Authorization', adminAuth.authorization)
         .send({
-          merchantScopeId: 'default',
           shippingRules: [createTestShippingRule('SHIP-C2-01')],
           taxRules: [createTestTaxRule('TAX-C2-01')]
         });
@@ -311,12 +327,16 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
     });
 
     it('2.2 Different merchant scopes can activate concurrently without interference', async () => {
+      const usAdmin = await createAuth('admin', { merchantScopeId: 'scope-us' });
+      const usSuperAdmin = await createAuth('super_admin', { merchantScopeId: 'scope-us' });
+      const gbAdmin = await createAuth('admin', { merchantScopeId: 'scope-gb' });
+      const gbSuperAdmin = await createAuth('super_admin', { merchantScopeId: 'scope-gb' });
+
       // Create and validate for scope US
       const usDraftRes = await request(app)
         .post('/api/commerce/admin/config/draft')
-        .set('Authorization', adminAuth.authorization)
+        .set('Authorization', usAdmin.authorization)
         .send({
-          merchantScopeId: 'scope-us',
           merchantProfile: {
             merchantCountry: 'US',
             legalName: 'MevaPur US LLC',
@@ -345,14 +365,13 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
       const usDraftId = usDraftRes.body.data.draft._id;
       await request(app)
         .post(`/api/commerce/admin/config/draft/${usDraftId}/validate`)
-        .set('Authorization', adminAuth.authorization);
+        .set('Authorization', usAdmin.authorization);
 
       // Create and validate for scope GB
       const gbDraftRes = await request(app)
         .post('/api/commerce/admin/config/draft')
-        .set('Authorization', adminAuth.authorization)
+        .set('Authorization', gbAdmin.authorization)
         .send({
-          merchantScopeId: 'scope-gb',
           merchantProfile: {
             merchantCountry: 'GB',
             legalName: 'MevaPur UK Ltd',
@@ -381,18 +400,18 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
       const gbDraftId = gbDraftRes.body.data.draft._id;
       await request(app)
         .post(`/api/commerce/admin/config/draft/${gbDraftId}/validate`)
-        .set('Authorization', adminAuth.authorization);
+        .set('Authorization', gbAdmin.authorization);
 
-      // Concurrently activate both scopes
+      // Concurrently activate both scopes with their respective authoritative superadmins
       const [usRes, gbRes] = await Promise.all([
         request(app)
           .post(`/api/commerce/admin/config/versions/${usDraftId}/activate`)
-          .set('Authorization', superAdminAuth.authorization)
-          .send({ merchantScopeId: 'scope-us' }),
+          .set('Authorization', usSuperAdmin.authorization)
+          .send({}),
         request(app)
           .post(`/api/commerce/admin/config/versions/${gbDraftId}/activate`)
-          .set('Authorization', superAdminAuth.authorization)
-          .send({ merchantScopeId: 'scope-gb' })
+          .set('Authorization', gbSuperAdmin.authorization)
+          .send({})
       ]);
 
       expect(usRes.status).toBe(200);
@@ -693,6 +712,214 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
       expect(fetched.shippingQuote.zoneId).toBeNull();
       expect(fetched.shippingQuote.ruleId).toBe('SHIP-PK-STD-01');
       expect(fetched.shippingQuote.zoneName).toBe('Standard Delivery');
+    });
+  });
+
+  describe('5. Cross-Tenant Isolation & Server-Derived Authority Suite', () => {
+    let tenantAAdmin;
+    let tenantASuperAdmin;
+    let tenantBAdmin;
+    let tenantBSuperAdmin;
+    let tenantBDraftId;
+    let tenantBVersionId;
+
+    beforeEach(async () => {
+      tenantAAdmin = await createAuth('admin', { merchantScopeId: 'scope-tenant-a' });
+      tenantASuperAdmin = await createAuth('super_admin', { merchantScopeId: 'scope-tenant-a' });
+      tenantBAdmin = await createAuth('admin', { merchantScopeId: 'scope-tenant-b' });
+      tenantBSuperAdmin = await createAuth('super_admin', { merchantScopeId: 'scope-tenant-b' });
+
+      // Tenant B creates a valid draft
+      const draftRes = await request(app)
+        .post('/api/commerce/admin/config/draft')
+        .set('Authorization', tenantBAdmin.authorization)
+        .send({
+          merchantProfile: {
+            merchantCountry: 'US',
+            legalName: 'Tenant B Inc',
+            sellingMode: 'hybrid',
+            baseCurrency: 'USD',
+            defaultCurrency: 'USD',
+            enabledCurrencies: ['USD'],
+            enabledCountries: ['US'],
+            defaultLocale: 'en-US',
+            defaultTimeZone: 'America/New_York',
+            fulfillmentOrigins: [{
+              originId: 'ORIGIN-US-B',
+              name: 'Tenant B US Warehouse',
+              country: 'US',
+              city: 'New York',
+              timeZone: 'America/New_York',
+              enabled: true,
+              isDefault: true
+            }],
+            supportedIncoterms: ['DOMESTIC', 'DAP'],
+            taxCalculationMode: 'exact_rational'
+          },
+          shippingRules: [createTestShippingRule('SHIP-TB-01', 'US', 'US')],
+          taxRules: [createTestTaxRule('TAX-TB-01', 'US')]
+        });
+      expect(draftRes.status).toBe(201);
+      tenantBDraftId = draftRes.body.data.draft._id;
+
+      // Tenant B validates draft
+      const valRes = await request(app)
+        .post(`/api/commerce/admin/config/draft/${tenantBDraftId}/validate`)
+        .set('Authorization', tenantBAdmin.authorization);
+      expect(valRes.status).toBe(200);
+      tenantBVersionId = tenantBDraftId;
+    });
+
+    it('5.1 Tenant A admin cannot fetch Tenant B draft or version by ID (404)', async () => {
+      const getRes = await request(app)
+        .get(`/api/commerce/admin/config/versions/${tenantBDraftId}`)
+        .set('Authorization', tenantAAdmin.authorization);
+
+      expect(getRes.status).toBe(404);
+      expect(getRes.body.success).toBe(false);
+      expect(getRes.body.error.code).toBe('CONFIG_VERSION_NOT_FOUND');
+    });
+
+    it('5.2 Tenant A admin cannot validate Tenant B draft (404)', async () => {
+      const valRes = await request(app)
+        .post(`/api/commerce/admin/config/draft/${tenantBDraftId}/validate`)
+        .set('Authorization', tenantAAdmin.authorization);
+
+      expect(valRes.status).toBe(404);
+      expect(valRes.body.success).toBe(false);
+      expect(valRes.body.error.code).toBe('CONFIG_VERSION_NOT_FOUND');
+    });
+
+    it('5.3 Tenant A admin cannot edit or update Tenant B draft (404)', async () => {
+      const editRes = await request(app)
+        .put(`/api/commerce/admin/config/draft/${tenantBDraftId}`)
+        .set('Authorization', tenantAAdmin.authorization)
+        .send({
+          changeNotes: 'Malicious cross-tenant edit attempt',
+          shippingRules: [createTestShippingRule('SHIP-ATTACK-01', 'US', 'US')]
+        });
+
+      expect(editRes.status).toBe(404);
+      expect(editRes.body.success).toBe(false);
+      expect(editRes.body.error.code).toBe('CONFIG_VERSION_NOT_FOUND');
+
+      // Verify Tenant B draft was untouched
+      const bDoc = await CommerceConfigurationVersion.findById(tenantBDraftId);
+      expect(bDoc.merchantScopeId).toBe('scope-tenant-b');
+      expect(bDoc.shippingRules[0].ruleId).toBe('SHIP-TB-01');
+    });
+
+    it('5.4 Tenant A super admin cannot activate Tenant B version (404)', async () => {
+      const actRes = await request(app)
+        .post(`/api/commerce/admin/config/versions/${tenantBVersionId}/activate`)
+        .set('Authorization', tenantASuperAdmin.authorization)
+        .send({});
+
+      expect(actRes.status).toBe(404);
+      expect(actRes.body.success).toBe(false);
+      expect(actRes.body.error.code).toBe('CONFIG_VERSION_NOT_FOUND');
+
+      // Verify Tenant B version was NOT activated
+      const bDoc = await CommerceConfigurationVersion.findById(tenantBVersionId);
+      expect(bDoc.status).toBe('validated');
+    });
+
+    it('5.5 Tenant A super admin cannot retire Tenant B version (404)', async () => {
+      // First Tenant B activates their version
+      const bActRes = await request(app)
+        .post(`/api/commerce/admin/config/versions/${tenantBVersionId}/activate`)
+        .set('Authorization', tenantBSuperAdmin.authorization)
+        .send({});
+      expect(bActRes.status).toBe(200);
+
+      // Tenant A attempts to retire Tenant B's active version
+      const retRes = await request(app)
+        .post(`/api/commerce/admin/config/versions/${tenantBVersionId}/retire`)
+        .set('Authorization', tenantASuperAdmin.authorization)
+        .send({ reason: 'Malicious retirement attempt' });
+
+      expect(retRes.status).toBe(404);
+      expect(retRes.body.success).toBe(false);
+      expect(retRes.body.error.code).toBe('CONFIG_VERSION_NOT_FOUND');
+
+      // Verify Tenant B version remains active
+      const bDoc = await CommerceConfigurationVersion.findById(tenantBVersionId);
+      expect(bDoc.status).toBe('active');
+    });
+
+    it('5.6 Tenant A cannot preview quotes using Tenant B configuration ID (404)', async () => {
+      const prevRes = await request(app)
+        .post('/api/commerce/admin/config/preview')
+        .set('Authorization', tenantAAdmin.authorization)
+        .send({
+          configId: tenantBDraftId,
+          destination: { countryCode: 'US' },
+          items: [{ name: 'Test', price: 50, quantity: 1 }]
+        });
+
+      expect(prevRes.status).toBe(404);
+      expect(prevRes.body.success).toBe(false);
+      expect(prevRes.body.error.code).toBe('CONFIG_VERSION_NOT_FOUND');
+    });
+
+    it('5.7 Request-body or query merchantScopeId cannot override server-derived authenticated scope', async () => {
+      // Tenant A creates draft with spoofed body and query merchantScopeId = 'scope-tenant-b'
+      const spoofDraftRes = await request(app)
+        .post('/api/commerce/admin/config/draft?merchantScopeId=scope-tenant-b')
+        .set('Authorization', tenantAAdmin.authorization)
+        .send({
+          merchantScopeId: 'scope-tenant-b',
+          changeNotes: 'Attempted scope override'
+        });
+
+      expect(spoofDraftRes.status).toBe(201);
+      expect(spoofDraftRes.body.data.draft.merchantScopeId).toBe('scope-tenant-a');
+
+      const createdDraftId = spoofDraftRes.body.data.draft._id;
+      const createdDoc = await CommerceConfigurationVersion.findById(createdDraftId);
+      expect(createdDoc.merchantScopeId).toBe('scope-tenant-a');
+
+      // Tenant A lists versions with spoofed query merchantScopeId = 'scope-tenant-b'
+      const listRes = await request(app)
+        .get('/api/commerce/admin/config/versions?merchantScopeId=scope-tenant-b')
+        .set('Authorization', tenantAAdmin.authorization);
+
+      expect(listRes.status).toBe(200);
+      const allListedAreTenantA = listRes.body.data.versions.every((v) => v.merchantScopeId === 'scope-tenant-a');
+      expect(allListedAreTenantA).toBe(true);
+      expect(listRes.body.data.versions.some((v) => v._id.toString() === tenantBDraftId.toString())).toBe(false);
+    });
+
+    it('5.8 Valid same-tenant full lifecycle succeeds end-to-end for isolated tenants', async () => {
+      // Tenant A creates, validates, activates, and retires their own version
+      const aDraftRes = await request(app)
+        .post('/api/commerce/admin/config/draft')
+        .set('Authorization', tenantAAdmin.authorization)
+        .send({
+          shippingRules: [createTestShippingRule('SHIP-TA-01', 'PK', 'PK')],
+          taxRules: [createTestTaxRule('TAX-TA-01', 'PK')]
+        });
+      expect(aDraftRes.status).toBe(201);
+      const aDraftId = aDraftRes.body.data.draft._id;
+
+      const aValRes = await request(app)
+        .post(`/api/commerce/admin/config/draft/${aDraftId}/validate`)
+        .set('Authorization', tenantAAdmin.authorization);
+      expect(aValRes.status).toBe(200);
+
+      const aActRes = await request(app)
+        .post(`/api/commerce/admin/config/versions/${aDraftId}/activate`)
+        .set('Authorization', tenantASuperAdmin.authorization)
+        .send({});
+      expect(aActRes.status).toBe(200);
+      expect(aActRes.body.data.version.status).toBe('active');
+
+      const aRetRes = await request(app)
+        .post(`/api/commerce/admin/config/versions/${aDraftId}/retire`)
+        .set('Authorization', tenantASuperAdmin.authorization)
+        .send({ reason: 'Tenant A routine lifecycle rotation' });
+      expect(aRetRes.status).toBe(200);
+      expect(aRetRes.body.data.version.status).toBe('retired');
     });
   });
 });
