@@ -98,8 +98,8 @@ export default function CommerceGovernancePage() {
     try {
       setLoading(true);
       const [versionsRes, readinessRes] = await Promise.all([
-        commerceGovernanceService.listVersions({ merchantScopeId }),
-        commerceGovernanceService.getReadiness(merchantScopeId),
+        commerceGovernanceService.listVersions(),
+        commerceGovernanceService.getReadiness(),
       ]);
 
       setVersions(versionsRes.versions || []);
@@ -119,7 +119,7 @@ export default function CommerceGovernancePage() {
     } finally {
       setLoading(false);
     }
-  }, [merchantScopeId, selectedVersion, initDraftEditor]);
+  }, [selectedVersion, initDraftEditor]);
 
   useEffect(() => {
     let active = true;
@@ -142,7 +142,6 @@ export default function CommerceGovernancePage() {
     try {
       setLoading(true);
       const newDraft = await commerceGovernanceService.createDraft({
-        merchantScopeId,
         sourceVersionId: selectedVersion?._id || undefined,
         changeNotes: 'New administrative draft configuration version.',
       });
@@ -169,7 +168,6 @@ export default function CommerceGovernancePage() {
     try {
       setDraftSaving(true);
       const updated = await commerceGovernanceService.updateDraft(selectedVersion._id, {
-        merchantScopeId,
         expectedLockVersion: selectedVersion.lockVersion,
         merchantProfile: draftProfile || undefined,
         shippingRules: draftShippingRules,
@@ -198,7 +196,7 @@ export default function CommerceGovernancePage() {
     if (!selectedVersion) return;
     try {
       setValidating(true);
-      const res = await commerceGovernanceService.validateDraft(selectedVersion._id, merchantScopeId);
+      const res = await commerceGovernanceService.validateDraft(selectedVersion._id);
       setValidationResult(res);
       showToast(res.isValid ? 'Draft configuration is valid!' : 'Integrity validation found issues.', res.isValid ? 'success' : 'error');
       await loadData();
@@ -228,13 +226,10 @@ export default function CommerceGovernancePage() {
       setLifecycleModal((prev) => ({ ...prev, loading: true }));
 
       if (actionType === 'activate') {
-        const activated = await commerceGovernanceService.activateVersion(version._id, {
-          merchantScopeId,
-        });
+        const activated = await commerceGovernanceService.activateVersion(version._id);
         showToast(`Version v${activated.version} is now LIVE!`, 'success');
       } else if (actionType === 'retire' || actionType === 'revoke') {
         const retired = await commerceGovernanceService.retireVersion(version._id, {
-          merchantScopeId,
           reason,
           isEmergency: actionType === 'revoke',
         });

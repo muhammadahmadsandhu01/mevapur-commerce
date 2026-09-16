@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test:assistant": "node --test tests/adminHelpAssistantComponent.test.mts && vitest run tests/AdminHelpAssistant.dom.test.tsx",
-    "test:categories": "node --test tests/categoryAdminVisibilityDef26.test.mts && vitest run tests/ProductCategorySelector.dom.test.tsx"
+    "test:categories": "node --test tests/categoryAdminVisibilityDef26.test.mts && vitest run tests/ProductCategorySelector.dom.test.tsx",
+    "test:phase6c": "node --test tests/phase6cAdminGovernance.test.mts && vitest run tests/phase6cAdminGovernance.dom.test.tsx",
+    "test:phase6d3": "node --test tests/phase6d3ShippingGovernance.test.mts && vitest run tests/phase6d3ShippingGovernance.dom.test.tsx"
   },
   "engines": {
     "node": "24.x",

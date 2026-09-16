@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Clock,
   CheckCircle2,
+  Package,
 } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
@@ -55,6 +56,41 @@ interface FormState {
   customerNote: string;
 }
 
+/**
+ * Maps backend machine codes and network errors to customer-safe messages.
+ * Prevents raw database, stack trace, or internal exception leaks.
+ */
+function mapQuoteErrorMessage(err: unknown): string {
+  const errorResp = (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data;
+  const code = errorResp?.code;
+  const rawMsg = errorResp?.message || (err instanceof Error ? err.message : '');
+
+  if (code === 'SHIPPING_WEIGHT_REQUIRED') {
+    return 'Product weight missing or invalid for shipping calculation. Please contact customer support.';
+  }
+  if (code === 'NO_AUTHORIZED_FULFILLMENT_ORIGIN') {
+    return 'No authorized fulfillment origin available for this destination.';
+  }
+  if (code === 'SHIPPING_ZONE_UNAVAILABLE' || code === 'NO_SHIPPING_RULE' || code === 'UNSERVICEABLE_DESTINATION') {
+    return 'No governed shipping route available for the specified destination.';
+  }
+  if (code === 'PAYMENT_PROVIDER_NOT_ELIGIBLE') {
+    return 'The selected payment method is not eligible for this destination or currency.';
+  }
+  if (code === 'QUOTE_EXPIRED' || code === 'QUOTE_TAMPERED') {
+    return 'Your checkout quote has expired or is invalid. Please refresh the quote to proceed.';
+  }
+  if (code === 'INVENTORY_SHORTAGE' || code === 'OUT_OF_STOCK') {
+    return 'One or more items in your cart are no longer available in sufficient quantity.';
+  }
+  if (rawMsg && !rawMsg.includes('Cast to') && !rawMsg.includes('Mongo') && !rawMsg.includes('stack') && !rawMsg.includes('ValidationError:')) {
+    return rawMsg;
+  }
+  return 'Unable to generate authoritative shipping quote for this destination.';
+}
+
+export type CheckoutQuoteStatus = 'idle' | 'loading' | 'valid' | 'error' | 'expired';
+
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, clearCart } = useCartStore();
@@ -85,15 +121,19 @@ export default function CheckoutPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // Shipping Service Level Selection
+  // Shipping Service Level Selection (governed arbitrary string code)
   const [shippingServiceLevel, setShippingServiceLevel] = useState<string>('standard');
 
   // Authoritative Quote State
   const [quote, setQuote] = useState<AuthoritativeQuote | null>(null);
+  const [quoteStatus, setQuoteStatus] = useState<CheckoutQuoteStatus>('idle');
   const [lastConfirmedQuote, setLastConfirmedQuote] = useState<AuthoritativeQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [materialChangeNotice, setMaterialChangeNotice] = useState<string | null>(null);
+
+  // Live accessibility announcement
+  const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
 
   // Payment Selection
   const [availableMethods, setAvailableMethods] = useState<AvailablePaymentMethod[]>([]);
@@ -157,23 +197,59 @@ export default function CheckoutPage() {
 
   const availableItems = items.filter((i) => !i.isUnavailable);
 
+  // Monitor cart items changes to immediately invalidate stale quote token
+  const prevItemsFingerprintRef = useRef('');
+  const currentItemsFingerprint = availableItems.map((i) => `${i.productId || i.id}:${i.variantId || ''}:${i.quantity}`).join('|');
+
+  useEffect(() => {
+    if (prevItemsFingerprintRef.current && prevItemsFingerprintRef.current !== currentItemsFingerprint) {
+      setQuote(null);
+      setQuoteStatus('loading');
+      setQuoteError(null);
+    }
+    prevItemsFingerprintRef.current = currentItemsFingerprint;
+  }, [currentItemsFingerprint]);
+
   // Active Country Policy
   const activeCountryCode = (formData.country || marketConfig?.merchantCountry || marketConfig?.homeCountry || marketConfig?.enabledCountries?.[0] || '').toUpperCase();
   const countryPolicy = getCountryPolicy(activeCountryCode);
+
   const subdivisionLabel = getSubdivisionLabel(countryPolicy);
+
+  // Check if current quote is expired via periodic timer tick
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!quote?.expiresAt) return;
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [quote?.expiresAt]);
+
+  const isQuoteExpired = Boolean(
+    quote?.expiresAt && new Date(quote.expiresAt).getTime() <= currentTime
+  );
 
   // Step 2: Authoritative Quote Fetcher with Debounce & Stale Response Race Protection
   const requestAuthoritativeQuote = useCallback(
-    async (signal?: AbortSignal) => {
+    async (overrideServiceLevel?: string, signal?: AbortSignal) => {
       if (availableItems.length === 0 || !formData.address.trim() || !formData.city.trim()) {
         setQuote(null);
+        setQuoteStatus('idle');
         setQuoteError(null);
+        setQuoteLoading(false);
         return;
       }
 
       const currentReqId = ++quoteRequestIdRef.current;
+      setQuote(null);
+      setQuoteStatus('loading');
       setQuoteLoading(true);
       setQuoteError(null);
+      setLiveAnnouncement('Updating authoritative quote and shipping options...');
+
+      const effectiveServiceLevel = overrideServiceLevel || shippingServiceLevel || undefined;
 
       try {
         const quoteRequest = {
@@ -193,15 +269,25 @@ export default function CheckoutPage() {
             country: countryPolicy.name,
             countryCode: activeCountryCode,
           },
-          currency: quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || undefined,
+          currency: marketConfig?.defaultCurrency || marketConfig?.baseCurrency || undefined,
           couponCode: appliedCoupon?.code || undefined,
-          shippingServiceLevel,
+          shippingServiceLevel: effectiveServiceLevel,
         };
 
         const res = await fetchCheckoutQuote(quoteRequest, signal);
 
         if (currentReqId === quoteRequestIdRef.current) {
           const newQuote = res.data.quote;
+
+          // Fail closed if server returned no available shipping options or missing token
+          if (!newQuote.shipping?.availableOptions || newQuote.shipping.availableOptions.length === 0 || !newQuote.quoteToken) {
+            setQuote(null);
+            setQuoteStatus('error');
+            const errMsg = 'No governed shipping service is available for this destination.';
+            setQuoteError(errMsg);
+            setLiveAnnouncement(errMsg);
+            return;
+          }
 
           // Check if material quote terms changed since customer last reviewed
           if (lastConfirmedQuote) {
@@ -211,15 +297,31 @@ export default function CheckoutPage() {
             }
           }
 
+          // Sync selected service level preference with server response
+          if (newQuote.shipping.selectedOption?.serviceLevel) {
+            setShippingServiceLevel(newQuote.shipping.selectedOption.serviceLevel);
+          }
+
           setQuote(newQuote);
+          setQuoteStatus('valid');
           setQuoteError(null);
+          setLiveAnnouncement(`Quote updated. Shipping: ${formatExactMoney(newQuote.totals.shippingExact)}`);
+
+          // If COD was selected and destination is international or COD is not eligible, clear COD immediately
+          const isHomeCountry = Boolean(marketConfig?.homeCountry && activeCountryCode === marketConfig.homeCountry);
+          const isCodEligible = Array.isArray(newQuote.eligiblePaymentMethods) && newQuote.eligiblePaymentMethods.some((m) => m.code === 'cod');
+          if ((!newQuote.isDomestic || !isHomeCountry || !isCodEligible) && paymentMethod === 'cod') {
+            setPaymentMethod('');
+          }
         }
       } catch (err: unknown) {
         if (currentReqId === quoteRequestIdRef.current) {
-          const errorMsg =
-            (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-            (err instanceof Error ? err.message : 'Unable to generate quote for this destination.');
-          setQuoteError(errorMsg);
+          // Fail closed: clear stale quote and token on failure
+          setQuote(null);
+          setQuoteStatus('error');
+          const safeMessage = mapQuoteErrorMessage(err);
+          setQuoteError(safeMessage);
+          setLiveAnnouncement(`Quote error: ${safeMessage}`);
         }
       } finally {
         if (currentReqId === quoteRequestIdRef.current) {
@@ -238,26 +340,45 @@ export default function CheckoutPage() {
       formData.postalCode,
       countryPolicy.name,
       activeCountryCode,
-      quote,
       marketConfig,
       appliedCoupon,
       shippingServiceLevel,
       lastConfirmedQuote,
+      paymentMethod,
     ]
   );
 
-  // Debounced quote updates when address / service level / items change
+  // Debounced quote updates when address / items / coupon change
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void requestAuthoritativeQuote(controller.signal);
+      void requestAuthoritativeQuote(shippingServiceLevel, controller.signal);
     }, 350);
 
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [requestAuthoritativeQuote]);
+  }, [
+    formData.address,
+    formData.city,
+    formData.province,
+    formData.postalCode,
+    formData.country,
+    availableItems.length,
+    appliedCoupon?.code,
+    shippingServiceLevel,
+    requestAuthoritativeQuote,
+  ]);
+
+  // Handle shipping service selection with immediate authoritative re-quote
+  const handleShippingSelect = (serviceLevel: string) => {
+    setShippingServiceLevel(serviceLevel);
+    setQuote(null);
+    setQuoteStatus('loading');
+    setQuoteError(null);
+    void requestAuthoritativeQuote(serviceLevel);
+  };
 
   // Step 3: Discover Available Payment Methods from Backend Policy
   useEffect(() => {
@@ -277,16 +398,23 @@ export default function CheckoutPage() {
         );
 
         if (!controller.signal.aborted) {
-          // Filter against backend quote's eligible methods if quote is active
           let filtered = methods;
+
+          // Filter strictly against backend quote's eligible methods
           if (quote && Array.isArray(quote.eligiblePaymentMethods)) {
             const allowedCodes = new Set(quote.eligiblePaymentMethods.map((m) => m.code));
             filtered = methods.filter((m) => allowedCodes.has(m.code));
           }
 
+          // If international / cross-border destination or quote is not domestic, ensure COD is removed
+          const isHomeCountry = activeCountryCode === (marketConfig?.homeCountry || marketConfig?.merchantCountry || 'PK');
+          if ((quote && !quote.isDomestic) || !isHomeCountry) {
+            filtered = filtered.filter((m) => m.code !== 'cod');
+          }
+
           setAvailableMethods(filtered);
 
-          // If current selected payment method is no longer eligible, reset it
+          // If current selected payment method is no longer eligible (e.g. COD for international), auto-reset
           setPaymentMethod((current) => {
             if (current && !filtered.some((m) => m.code === current)) {
               return filtered[0]?.code || '';
@@ -307,7 +435,14 @@ export default function CheckoutPage() {
     return () => {
       controller.abort();
     };
-  }, [activeCountryCode, quote, marketConfig?.defaultCurrency, marketConfig?.baseCurrency]);
+  }, [
+    activeCountryCode,
+    quote,
+    marketConfig?.defaultCurrency,
+    marketConfig?.baseCurrency,
+    marketConfig?.homeCountry,
+    marketConfig?.merchantCountry,
+  ]);
 
   const handleFieldChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -316,6 +451,12 @@ export default function CheckoutPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: '' }));
+    }
+    // Immediately invalidate stale quote on any address / destination changes
+    if (['country', 'province', 'city', 'address', 'addressLine2', 'postalCode', 'fullName', 'phone'].includes(name)) {
+      setQuote(null);
+      setQuoteStatus('loading');
+      setQuoteError(null);
     }
   };
 
@@ -399,6 +540,9 @@ export default function CheckoutPage() {
     }
 
     setCouponLoading(true);
+    setQuote(null);
+    setQuoteStatus('loading');
+    setQuoteError(null);
     try {
       const preview = await validateCouponPreview(couponInput, availableItems);
       setAppliedCoupon(preview);
@@ -420,6 +564,9 @@ export default function CheckoutPage() {
 
   const handleRemoveCoupon = () => {
     setAppliedCoupon(null);
+    setQuote(null);
+    setQuoteStatus('loading');
+    setQuoteError(null);
     setToast({ message: 'Coupon removed', type: 'info' });
   };
 
@@ -431,7 +578,7 @@ export default function CheckoutPage() {
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (loading || submittingRef.current) return;
+    if (loading || quoteLoading || quoteStatus !== 'valid' || submittingRef.current) return;
     if (availableItems.length === 0) {
       setToast({ message: 'Your cart has no available items to checkout.', type: 'error' });
       return;
@@ -446,13 +593,15 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!quote || !quote.quoteToken) {
+    if (!quote || !quote.quoteToken || quoteStatus !== 'valid') {
       setToast({ message: 'A valid authoritative checkout quote is required. Please check your address.', type: 'error' });
       return;
     }
 
     // Check if quote expired
     if (new Date(quote.expiresAt).getTime() <= Date.now()) {
+      setQuote(null);
+      setQuoteStatus('expired');
       setToast({ message: 'Your checkout quote has expired. Refreshing quote...', type: 'info' });
       await requestAuthoritativeQuote();
       return;
@@ -516,13 +665,13 @@ export default function CheckoutPage() {
 
       const errorResp = (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data;
       const errorCode = errorResp?.code;
-      const errorMessage = errorResp?.message || (err instanceof Error ? err.message : 'Order creation failed.');
 
       if (errorCode === 'QUOTE_EXPIRED' || errorCode === 'QUOTE_TAMPERED') {
         setToast({ message: 'Checkout quote expired or invalidated. Refreshing quote...', type: 'info' });
         await requestAuthoritativeQuote();
       } else {
-        setToast({ message: errorMessage, type: 'error' });
+        const safeErrorMessage = mapQuoteErrorMessage(err);
+        setToast({ message: safeErrorMessage, type: 'error' });
       }
     }
   };
@@ -569,9 +718,15 @@ export default function CheckoutPage() {
   }
 
   const enabledCountriesList = marketConfig?.enabledCountries || (marketConfig?.merchantCountry ? [marketConfig.merchantCountry] : []);
+  const isCrossBorderRoute = quote ? !quote.isDomestic : activeCountryCode !== (marketConfig?.homeCountry || marketConfig?.merchantCountry || 'PK');
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 bg-slate-50 min-h-screen">
+      {/* Accessible Live Region for Screen Readers */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {liveAnnouncement}
+      </div>
+
       {/* Breadcrumb & Title */}
       <div className="mb-8">
         <Link href="/cart" className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-[#9a3412] mb-3 transition">
@@ -609,6 +764,29 @@ export default function CheckoutPage() {
           >
             Complete Profile
           </Link>
+        </div>
+      )}
+
+      {/* Quote Expiry Warning */}
+      {isQuoteExpired && quote && (
+        <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <Clock className="text-amber-700 shrink-0 mt-0.5" size={20} />
+            <div>
+              <h3 className="text-sm font-bold text-amber-900">Quote Expired</h3>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Your authoritative checkout quote has expired. Please refresh to retrieve updated rates and delivery promises.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void requestAuthoritativeQuote()}
+            disabled={quoteLoading}
+            className="px-4 py-2 bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold rounded-xl transition shrink-0 inline-flex items-center gap-1.5"
+          >
+            <RefreshCw size={14} className={quoteLoading ? 'animate-spin' : ''} /> Refresh Quote
+          </button>
         </div>
       )}
 
@@ -877,65 +1055,104 @@ export default function CheckoutPage() {
             </div>
           </section>
 
-          {/* Step 2: Shipping Service Level */}
-          {quote && quote.shipping.availableOptions.length > 1 && (
-            <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs" aria-labelledby="shipping-service-heading">
-              <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
-                <div className="w-8 h-8 rounded-full bg-orange-100 text-[#0b132b] font-black flex items-center justify-center text-sm">
-                  2
-                </div>
-                <div>
-                  <h2 id="shipping-service-heading" className="text-lg font-bold text-slate-900">
-                    Shipping Method
-                  </h2>
-                  <p className="text-xs text-slate-600">Select delivery speed and handling preference</p>
-                </div>
+          {/* Step 2: Dynamic Governed Shipping Options */}
+          <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs" aria-labelledby="shipping-service-heading">
+            <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
+              <div className="w-8 h-8 rounded-full bg-orange-100 text-[#0b132b] font-black flex items-center justify-center text-sm">
+                2
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {quote.shipping.availableOptions.map((opt) => (
-                  <label
-                    key={opt.serviceLevel}
-                    className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition ${
-                      shippingServiceLevel === opt.serviceLevel
-                        ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="shippingServiceLevel"
-                      value={opt.serviceLevel}
-                      checked={shippingServiceLevel === opt.serviceLevel}
-                      onChange={() => setShippingServiceLevel(opt.serviceLevel)}
-                      className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-slate-900 uppercase">
-                          {opt.serviceLevel} Delivery
-                        </span>
-                        <span className="text-xs font-black text-[#0b132b]">
-                          {formatExactMoney(opt.amountExact)}
-                        </span>
-                      </div>
-                      {opt.deliveryEstimate && (
-                        <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
-                          <Clock size={12} /> {opt.deliveryEstimate.minDays} - {opt.deliveryEstimate.maxDays} business days
-                        </p>
-                      )}
-                    </div>
-                  </label>
-                ))}
+              <div>
+                <h2 id="shipping-service-heading" className="text-lg font-bold text-slate-900">
+                  Shipping Method
+                </h2>
+                <p className="text-xs text-slate-600">Governed delivery services for {countryPolicy.name}</p>
               </div>
-            </section>
-          )}
+            </div>
 
-          {/* Step 3: Payment Method Discovery (Policy-Backed) */}
+            {quoteLoading ? (
+              <div className="p-6 text-center bg-slate-50 rounded-xl border border-slate-200">
+                <Loader2 className="w-6 h-6 text-[#ff8a00] animate-spin mx-auto mb-2" />
+                <p className="text-xs text-slate-600 font-semibold">Updating authoritative shipping options...</p>
+              </div>
+            ) : !quote ? (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
+                Enter your delivery address above to compute available shipping methods and exact rates.
+              </div>
+            ) : quote.shipping.availableOptions.length === 0 ? (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>No governed shipping route available for this destination. Order placement is unavailable.</span>
+              </div>
+            ) : (
+              <fieldset className="space-y-3" role="radiogroup" aria-label="Shipping method options">
+                <legend className="sr-only">Available Shipping Options</legend>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {quote.shipping.availableOptions.map((opt) => {
+                    const isSelected = (quote.shipping.selectedOption?.serviceLevel || shippingServiceLevel) === opt.serviceLevel;
+                    return (
+                      <label
+                        key={opt.serviceLevel}
+                        htmlFor={`shipping-option-${opt.serviceLevel}`}
+                        className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition focus-within:ring-2 focus-within:ring-[#ff8a00] ${
+                          isSelected
+                            ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
+                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          id={`shipping-option-${opt.serviceLevel}`}
+                          name="shippingServiceLevel"
+                          value={opt.serviceLevel}
+                          checked={isSelected}
+                          onChange={() => handleShippingSelect(opt.serviceLevel)}
+                          disabled={quoteLoading}
+                          className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-slate-900">
+                              {opt.displayName || `${opt.serviceLevel.toUpperCase()} Delivery`}
+                            </span>
+                            <span className="text-sm font-black text-[#0b132b]">
+                              {formatExactMoney(opt.amountExact)}
+                            </span>
+                          </div>
+
+                          {/* Delivery Promise Display */}
+                          {opt.deliveryPromise?.promiseText ? (
+                            <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
+                              <Clock size={12} className="text-[#ff8a00] shrink-0" /> {opt.deliveryPromise.promiseText}
+                            </p>
+                          ) : opt.deliveryPromise?.minDeliveryDate && opt.deliveryPromise?.maxDeliveryDate ? (
+                            <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
+                              <Clock size={12} className="text-[#ff8a00] shrink-0" /> Delivery: {opt.deliveryPromise.minDeliveryDate} – {opt.deliveryPromise.maxDeliveryDate}
+                            </p>
+                          ) : opt.deliveryEstimate ? (
+                            <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
+                              <Clock size={12} className="text-[#ff8a00] shrink-0" /> {opt.deliveryEstimate.minDays} – {opt.deliveryEstimate.maxDays} business days
+                            </p>
+                          ) : null}
+
+                          {opt.deliveryPromise?.isRemote && (
+                            <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded mt-1.5">
+                              Remote Area
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            )}
+          </section>
+
+          {/* Step 3: Payment Method Discovery (Policy-Backed & Governed) */}
           <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs" aria-labelledby="payment-heading">
             <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
               <div className="w-8 h-8 rounded-full bg-orange-100 text-[#0b132b] font-black flex items-center justify-center text-sm">
-                {quote && quote.shipping.availableOptions.length > 1 ? '3' : '2'}
+                3
               </div>
               <div>
                 <h2 id="payment-heading" className="text-lg font-bold text-slate-900">
@@ -944,6 +1161,14 @@ export default function CheckoutPage() {
                 <p className="text-xs text-slate-600">Select an eligible payment provider for {countryPolicy.name}</p>
               </div>
             </div>
+
+            {/* International Prepaid Requirement Notice */}
+            {isCrossBorderRoute && (
+              <div className="mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 font-semibold flex items-center gap-2.5">
+                <Shield size={16} className="text-blue-700 shrink-0" />
+                <span>Prepaid payment required for this destination. Cash on Delivery is not supported for cross-border routes.</span>
+              </div>
+            )}
 
             {availableMethods.length === 0 ? (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-semibold flex items-center gap-2">
@@ -1018,7 +1243,7 @@ export default function CheckoutPage() {
 
             {quoteError && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold flex items-center gap-2">
-                <AlertCircle size={15} />
+                <AlertCircle size={15} className="shrink-0" />
                 <span>{quoteError}</span>
               </div>
             )}
@@ -1028,8 +1253,11 @@ export default function CheckoutPage() {
               disabled={
                 loading ||
                 quoteLoading ||
+                quoteStatus !== 'valid' ||
                 availableItems.length === 0 ||
                 !quote ||
+                !quote.quoteToken ||
+                isQuoteExpired ||
                 !paymentMethod ||
                 Boolean(materialChangeNotice)
               }
@@ -1061,30 +1289,35 @@ export default function CheckoutPage() {
             </h2>
 
             <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-              {availableItems.map((item) => (
-                <div
-                  key={`${item.productId || item.id}:${item.variantId || 'default'}`}
-                  className="flex items-center gap-3 text-xs"
-                >
-                  <div className="relative w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
-                    <Image
-                      src={getSafeMediaUrl(item.image)}
-                      alt={item.name}
-                      fill
-                      sizes="48px"
-                      className="object-cover"
-                    />
+              {availableItems.map((item) => {
+                const quoteItem = quote?.items?.find((qi) => qi.productId === (item.productId || item.id));
+                return (
+                  <div
+                    key={`${item.productId || item.id}:${item.variantId || 'default'}`}
+                    className="flex items-center gap-3 text-xs"
+                  >
+                    <div className="relative w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                      <Image
+                        src={getSafeMediaUrl(item.image)}
+                        alt={item.name}
+                        fill
+                        sizes="48px"
+                        className="object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-900 truncate">{item.name}</p>
+                      {item.variant && <p className="text-slate-600 text-[11px] truncate">{item.variant}</p>}
+                      <p className="text-slate-600 font-medium">Qty: {item.quantity}</p>
+                    </div>
+                    <div className="font-extrabold text-slate-900 shrink-0">
+                      {quoteItem?.lineTotalExact
+                        ? formatExactMoney(quoteItem.lineTotalExact)
+                        : `${quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || ''} ${(item.price * item.quantity).toLocaleString()}`}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-900 truncate">{item.name}</p>
-                    {item.variant && <p className="text-slate-600 text-[11px] truncate">{item.variant}</p>}
-                    <p className="text-slate-600 font-medium">Qty: {item.quantity}</p>
-                  </div>
-                  <div className="font-extrabold text-slate-900 shrink-0">
-                    {quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || ''} {(item.price * item.quantity).toLocaleString()}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -1171,7 +1404,7 @@ export default function CheckoutPage() {
 
                 <div className="flex justify-between text-slate-700">
                   <span>
-                    Shipping ({quote.shipping.selectedOption.serviceLevel.toUpperCase()})
+                    Shipping ({quote.shipping.selectedOption.displayName || quote.shipping.selectedOption.serviceLevel.toUpperCase()})
                   </span>
                   <span className="font-bold text-slate-900">
                     {quote.shipping.selectedOption.freeShippingApplied
@@ -1213,13 +1446,69 @@ export default function CheckoutPage() {
                     : 'Standard domestic delivery terms.'}
                 </div>
 
-                {/* Delivery Estimate */}
-                {quote.shipping.selectedOption.deliveryEstimate && (
-                  <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
-                    <Clock size={13} className="text-[#ff8a00]" />
-                    <span>
-                      Estimated Delivery: {quote.shipping.selectedOption.deliveryEstimate.minDays} – {quote.shipping.selectedOption.deliveryEstimate.maxDays} business days
-                    </span>
+                {/* Delivery Promise & Dispatch Timeline */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
+                  {quote.shipping.deliveryPromise?.dispatchDate ? (
+                    <div className="flex items-center gap-1.5 text-slate-700">
+                      <Clock size={12} className="text-[#ff8a00] shrink-0" />
+                      <span>Dispatch by: <strong className="font-bold text-slate-900">{quote.shipping.deliveryPromise.dispatchDate}</strong></span>
+                    </div>
+                  ) : quote.shipping.deliveryPromise?.dispatchMinDate && quote.shipping.deliveryPromise?.dispatchMaxDate ? (
+                    <div className="flex items-center gap-1.5 text-slate-700">
+                      <Clock size={12} className="text-[#ff8a00] shrink-0" />
+                      <span>Dispatch: {quote.shipping.deliveryPromise.dispatchMinDate} – {quote.shipping.deliveryPromise.dispatchMaxDate}</span>
+                    </div>
+                  ) : null}
+
+                  {quote.shipping.deliveryPromise?.promiseText ? (
+                    <div className="flex items-center gap-1.5 text-slate-700 font-medium">
+                      <Truck size={12} className="text-[#ff8a00] shrink-0" />
+                      <span>{quote.shipping.deliveryPromise.promiseText}</span>
+                    </div>
+                  ) : quote.shipping.selectedOption.deliveryEstimate ? (
+                    <div className="flex items-center gap-1.5 text-slate-700">
+                      <Truck size={12} className="text-[#ff8a00] shrink-0" />
+                      <span>Estimated: {quote.shipping.selectedOption.deliveryEstimate.minDays} – {quote.shipping.selectedOption.deliveryEstimate.maxDays} business days</span>
+                    </div>
+                  ) : null}
+
+                  {(quote.shipping.selectedOption.isRemote || quote.shipping.deliveryPromise?.isRemote) && (
+                    <div className="mt-1 text-[11px] font-bold text-amber-800">
+                      Remote area delivery notice applied.
+                    </div>
+                  )}
+                </div>
+
+                {/* Split Shipment Groups Breakdown (When > 1 Package) */}
+                {quote.shipping.shipmentGroups && quote.shipping.shipmentGroups.length > 1 && (
+                  <div className="pt-2 border-t border-slate-200 space-y-2">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Package size={13} className="text-[#ff8a00]" /> Split Fulfillment ({quote.shipping.shipmentGroups.length} Packages)
+                    </h3>
+                    <div className="space-y-2">
+                      {quote.shipping.shipmentGroups.map((grp, idx) => (
+                        <div key={grp.groupId || idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                          <div className="flex justify-between items-center font-bold text-slate-900">
+                            <span>Package {idx + 1} ({grp.originCountry || grp.locationCode || 'Fulfillment Center'})</span>
+                            <span>{formatExactMoney(grp.shippingAmountExact)}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600">
+                            Service: <span className="font-semibold text-slate-800">{grp.serviceLevel.toUpperCase()}</span>
+                          </p>
+                          {grp.items && grp.items.length > 0 && (
+                            <p className="text-[11px] text-slate-500">
+                              Items: {grp.items.map((i) => `${i.name || i.productId} (×${i.quantity})`).join(', ')}
+                            </p>
+                          )}
+                          {(grp.deliveryPromise?.promiseText || grp.deliveryEstimate) && (
+                            <p className="text-[11px] text-slate-600 flex items-center gap-1">
+                              <Clock size={10} className="text-slate-400" />
+                              {grp.deliveryPromise?.promiseText || `${grp.deliveryEstimate?.minDays}–${grp.deliveryEstimate?.maxDays} days`}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

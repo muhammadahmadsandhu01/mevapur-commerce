@@ -277,7 +277,7 @@ describe('Phase 6C Admin Commerce Governance Real-DOM Test Suite', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Simulation Result for AE \(AED\)/i)).toBeInTheDocument();
-      expect(screen.getByText('AED 235')).toBeInTheDocument();
+      expect(screen.getByText('AED 235.00')).toBeInTheDocument();
       expect(screen.getByText('Incoterm: DAP')).toBeInTheDocument();
     });
   });

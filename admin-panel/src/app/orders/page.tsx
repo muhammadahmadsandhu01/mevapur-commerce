@@ -11,6 +11,7 @@ import {
 import api from '@/lib/api';
 import { exportCsvFile } from '@/lib/csvExport';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import { formatExactMoney, type MoneyExact } from '@/lib/exactMoney';
 
 interface Order {
   _id: string;
@@ -37,10 +38,15 @@ interface Order {
   paymentMethod: string;
   paymentStatus: string;
   orderStatus: string;
+  currency?: string;
   subtotal: number;
+  subtotalExact?: MoneyExact;
   shippingCost: number;
+  shippingCostExact?: MoneyExact;
   discount: number;
+  discountExact?: MoneyExact;
   totalAmount: number;
+  totalAmountExact?: MoneyExact;
   payment?: {
     provider?: string;
     paidAt?: string;
@@ -263,7 +269,7 @@ function OrdersListContent() {
   };
 
   const exportToCSV = () => {
-    const headers = ['Order ID', 'Customer', 'Phone', 'City', 'Order Status', 'Payment Status', 'Total (PKR)', 'Date'];
+    const headers = ['Order ID', 'Customer', 'Phone', 'City', 'Order Status', 'Payment Status', 'Total Amount', 'Date'];
     const rows = filteredOrders.map((o) => [
       o.orderId || o._id,
       o.shippingAddress?.fullName || 'N/A',
@@ -431,7 +437,7 @@ function OrdersListContent() {
           <div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>Revenue</div>
             <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)' }}>
-              Rs. {stats.totalRevenue >= 1000 ? `${(stats.totalRevenue / 1000).toFixed(1)}k` : stats.totalRevenue.toLocaleString()}
+              {stats.totalRevenue >= 1000 ? `${(stats.totalRevenue / 1000).toFixed(1)}k` : stats.totalRevenue.toLocaleString()}
             </div>
           </div>
         </div>
@@ -628,7 +634,7 @@ function OrdersListContent() {
                       </td>
                       <td style={{ padding: '16px 20px' }}>
                         <div style={{ fontWeight: '800', color: 'var(--text-primary)', fontSize: '15px' }}>
-                          Rs. {order.totalAmount.toLocaleString()}
+                          {order.totalAmountExact ? formatExactMoney(order.totalAmountExact) : `${order.currency || ''} ${order.totalAmount.toLocaleString()}`}
                         </div>
                       </td>
                       <td style={{ padding: '16px 20px' }}>
@@ -915,7 +921,7 @@ function OrdersListContent() {
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Qty: {item.quantity}</div>
                     </div>
                     <div style={{ fontWeight: '800', color: 'var(--text-primary)', fontSize: '15px' }}>
-                      Rs. {(item.price * item.quantity).toLocaleString()}
+                      {selectedOrder.currency ? `${selectedOrder.currency} ` : ''}{(item.price * item.quantity).toLocaleString()}
                     </div>
                   </div>
                 ))}
@@ -930,23 +936,29 @@ function OrdersListContent() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
-                  <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>Rs. {selectedOrder.subtotal.toLocaleString()}</span>
+                  <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                    {selectedOrder.subtotalExact ? formatExactMoney(selectedOrder.subtotalExact) : `${selectedOrder.currency ? `${selectedOrder.currency} ` : ''}${selectedOrder.subtotal.toLocaleString()}`}
+                  </span>
                 </div>
                 {selectedOrder.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--accent-text)' }}>
                     <span>Discount</span>
-                    <span style={{ fontWeight: '600' }}>-Rs. {selectedOrder.discount.toLocaleString()}</span>
+                    <span style={{ fontWeight: '600' }}>
+                      -{selectedOrder.discountExact ? formatExactMoney(selectedOrder.discountExact) : `${selectedOrder.currency ? `${selectedOrder.currency} ` : ''}${selectedOrder.discount.toLocaleString()}`}
+                    </span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Shipping</span>
                   <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
-                    {selectedOrder.shippingCost === 0 ? 'FREE' : `Rs. ${selectedOrder.shippingCost.toLocaleString()}`}
+                    {selectedOrder.shippingCost === 0 ? 'FREE' : (selectedOrder.shippingCostExact ? formatExactMoney(selectedOrder.shippingCostExact) : `${selectedOrder.currency ? `${selectedOrder.currency} ` : ''}${selectedOrder.shippingCost.toLocaleString()}`)}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', paddingTop: '12px', borderTop: '2px solid var(--border-color)' }}>
                   <span>Total</span>
-                  <span>Rs. {selectedOrder.totalAmount.toLocaleString()}</span>
+                  <span>
+                    {selectedOrder.totalAmountExact ? formatExactMoney(selectedOrder.totalAmountExact) : `${selectedOrder.currency ? `${selectedOrder.currency} ` : ''}${selectedOrder.totalAmount.toLocaleString()}`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1056,7 +1068,7 @@ function OrdersListContent() {
                 #{updatingOrder.orderId || updatingOrder._id.slice(-8).toUpperCase()}
               </div>
               <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                {updatingOrder.shippingAddress.fullName} - Rs. {updatingOrder.totalAmount.toLocaleString()}
+                {updatingOrder.shippingAddress.fullName} - {updatingOrder.totalAmountExact ? formatExactMoney(updatingOrder.totalAmountExact) : `${updatingOrder.currency ? `${updatingOrder.currency} ` : ''}${updatingOrder.totalAmount.toLocaleString()}`}
               </div>
             </div>
 
@@ -1204,7 +1216,7 @@ function OrdersListContent() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
                 <span style={{ color: 'var(--text-primary)', fontWeight: '700' }}>Amount to Collect</span>
-                <span style={{ fontWeight: '800', color: 'var(--success-text)' }}>Rs. {codOrderToMark.totalAmount.toLocaleString()}</span>
+                <span style={{ fontWeight: '800', color: 'var(--success-text)' }}>{codOrderToMark.totalAmountExact ? formatExactMoney(codOrderToMark.totalAmountExact) : `${codOrderToMark.currency ? `${codOrderToMark.currency} ` : ''}${codOrderToMark.totalAmount.toLocaleString()}`}</span>
               </div>
             </div>
 

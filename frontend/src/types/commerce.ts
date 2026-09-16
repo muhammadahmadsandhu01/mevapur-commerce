@@ -43,27 +43,84 @@ export interface QuoteAddressInput {
   countryCode?: string;
 }
 
+export interface DeliveryPromiseExact {
+  dispatchDate?: string;
+  dispatchMinDate?: string;
+  dispatchMaxDate?: string;
+  minDeliveryDate?: string;
+  maxDeliveryDate?: string;
+  deliveryMinDays?: number;
+  deliveryMaxDays?: number;
+  isSameDayDispatch?: boolean;
+  isPastCutoff?: boolean;
+  isRemote?: boolean;
+  promiseText?: string;
+  deliveryWindow?: {
+    minDays?: number;
+    maxDays?: number;
+    minDeliveryDate?: string;
+    maxDeliveryDate?: string;
+    promiseText?: string;
+  };
+}
+
+export interface QuoteShipmentGroupItem {
+  productId: string;
+  variantId?: string | null;
+  name?: string;
+  sku?: string;
+  quantity: number;
+  weightGrams?: number;
+}
+
+export interface QuoteShipmentGroup {
+  groupId: string;
+  locationId?: string;
+  locationCode?: string;
+  originCountry?: string;
+  originTimeZone?: string;
+  destinationCountry?: string;
+  serviceLevel: string;
+  shippingAmount: number;
+  shippingAmountExact: MoneyExact;
+  deliveryEstimate?: {
+    minDays: number;
+    maxDays: number;
+  };
+  deliveryPromise?: DeliveryPromiseExact;
+  provenance?: {
+    source?: string;
+    configVersionId?: string;
+    ruleId?: string;
+    timestamp?: string;
+  };
+  items: QuoteShipmentGroupItem[];
+}
+
 export interface CheckoutQuoteRequest {
   items: QuoteItemInput[];
   shippingAddress: QuoteAddressInput;
   currency?: string;
   couponCode?: string;
-  shippingServiceLevel?: 'standard' | 'express';
+  shippingServiceLevel?: string;
   shippingAdapter?: string;
 }
 
 export interface QuoteShippingOption {
-  serviceLevel: 'standard' | 'express';
+  serviceLevel: string;
+  displayName?: string;
   amount: number;
   amountExact: MoneyExact;
   deliveryEstimate?: {
     minDays: number;
     maxDays: number;
   };
+  deliveryPromise?: DeliveryPromiseExact;
 }
 
 export interface QuoteSelectedShipping {
-  serviceLevel: 'standard' | 'express';
+  serviceLevel: string;
+  displayName?: string;
   zoneId?: string;
   zoneName?: string;
   amount: number;
@@ -73,6 +130,13 @@ export interface QuoteSelectedShipping {
   deliveryEstimate?: {
     minDays: number;
     maxDays: number;
+  };
+  deliveryPromise?: DeliveryPromiseExact;
+  provenance?: {
+    source?: string;
+    configVersionId?: string;
+    ruleId?: string;
+    timestamp?: string;
   };
 }
 
@@ -84,7 +148,7 @@ export interface QuoteTaxesAndDuties {
   dutyRatePercent: number;
   dutyAmount: number;
   dutyAmountExact: MoneyExact;
-  incoterm: 'DOMESTIC' | 'DAP' | 'DDP' | 'CIF' | 'FOB' | 'EXW';
+  incoterm: 'DOMESTIC' | 'DAP' | 'DDP' | 'CIF' | 'FOB' | 'EXW' | string;
   provenance: string;
 }
 
@@ -106,7 +170,7 @@ export interface QuoteTotals {
 export interface EligiblePaymentMethod {
   code: string;
   displayName: string;
-  paymentType: 'offline' | 'manual' | 'automated';
+  paymentType: 'offline' | 'manual' | 'automated' | string;
   isPrepaid: boolean;
 }
 
@@ -154,6 +218,8 @@ export interface AuthoritativeQuote {
   shipping: {
     selectedOption: QuoteSelectedShipping;
     availableOptions: QuoteShippingOption[];
+    deliveryPromise?: DeliveryPromiseExact;
+    shipmentGroups?: QuoteShipmentGroup[];
   };
   taxesAndDuties: QuoteTaxesAndDuties;
   totals: QuoteTotals;

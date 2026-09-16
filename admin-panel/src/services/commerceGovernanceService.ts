@@ -27,16 +27,14 @@ export interface DraftMutationPayload {
 
 export const commerceGovernanceService = {
   /**
-   * Lists configuration versions for a merchant scope.
+   * Lists configuration versions for the authenticated merchant scope.
    */
   async listVersions(params?: {
-    merchantScopeId?: string;
     page?: number;
     limit?: number;
     status?: string;
   }, signal?: AbortSignal): Promise<VersionListResponse> {
     const query = new URLSearchParams();
-    if (params?.merchantScopeId) query.set('merchantScopeId', params.merchantScopeId);
     if (params?.page) query.set('page', String(params.page));
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.status) query.set('status', params.status);
@@ -48,20 +46,18 @@ export const commerceGovernanceService = {
   /**
    * Retrieves single version by ID or version number.
    */
-  async getVersion(id: string, merchantScopeId = 'default', signal?: AbortSignal): Promise<CommerceConfigurationVersion> {
+  async getVersion(id: string, signal?: AbortSignal): Promise<CommerceConfigurationVersion> {
     const res = await api.get(`/commerce/admin/config/versions/${encodeURIComponent(id)}`, {
-      params: { merchantScopeId },
       signal,
     });
     return res.data.data.version as CommerceConfigurationVersion;
   },
 
   /**
-   * Retrieves readiness status report for a merchant scope.
+   * Retrieves readiness status report for the authenticated merchant scope.
    */
-  async getReadiness(merchantScopeId = 'default', signal?: AbortSignal): Promise<ReadinessStatus> {
+  async getReadiness(signal?: AbortSignal): Promise<ReadinessStatus> {
     const res = await api.get('/commerce/admin/config/readiness', {
-      params: { merchantScopeId },
       signal,
     });
     return res.data.data as ReadinessStatus;
@@ -86,17 +82,15 @@ export const commerceGovernanceService = {
   /**
    * Runs authoritative integrity validation on a draft.
    */
-  async validateDraft(id: string, merchantScopeId = 'default'): Promise<ValidationResult> {
-    const res = await api.post(`/commerce/admin/config/draft/${encodeURIComponent(id)}/validate`, {
-      merchantScopeId,
-    });
+  async validateDraft(id: string): Promise<ValidationResult> {
+    const res = await api.post(`/commerce/admin/config/draft/${encodeURIComponent(id)}/validate`, {});
     return res.data.data as ValidationResult;
   },
 
   /**
    * Schedules or activates a validated configuration version (Super Admin only).
    */
-  async activateVersion(id: string, payload?: { merchantScopeId?: string; effectiveFrom?: string }): Promise<CommerceConfigurationVersion> {
+  async activateVersion(id: string, payload?: { effectiveFrom?: string }): Promise<CommerceConfigurationVersion> {
     const res = await api.post(`/commerce/admin/config/versions/${encodeURIComponent(id)}/activate`, payload || {});
     return res.data.data.version as CommerceConfigurationVersion;
   },
@@ -104,7 +98,7 @@ export const commerceGovernanceService = {
   /**
    * Retires or emergency revokes an active configuration version (Super Admin only).
    */
-  async retireVersion(id: string, payload?: { merchantScopeId?: string; reason?: string; isEmergency?: boolean }): Promise<CommerceConfigurationVersion> {
+  async retireVersion(id: string, payload?: { reason?: string; isEmergency?: boolean }): Promise<CommerceConfigurationVersion> {
     const res = await api.post(`/commerce/admin/config/versions/${encodeURIComponent(id)}/retire`, payload || {});
     return res.data.data.version as CommerceConfigurationVersion;
   },

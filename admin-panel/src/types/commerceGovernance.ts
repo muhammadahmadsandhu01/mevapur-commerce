@@ -77,6 +77,10 @@ export interface ShippingRule {
   deliveryMaxDays: number;
   remoteDeliveryMinDays?: number | null;
   remoteDeliveryMaxDays?: number | null;
+  processingCutoffLocal?: string;
+  workingDays?: number[];
+  processingMinBusinessDays?: number;
+  processingMaxBusinessDays?: number;
   weightBands?: WeightBand[];
   priority?: number;
   supportedIncoterms?: Array<'DOMESTIC' | 'DAP' | 'DDP' | 'CIF' | 'FOB' | 'EXW'>;
@@ -184,7 +188,8 @@ export interface QuotePreviewRequest {
     weightGrams?: number;
   }>;
   currency?: string;
-  shippingServiceLevel?: 'standard' | 'express';
+  couponCode?: string;
+  shippingServiceLevel?: string;
 }
 
 export interface QuotePreviewResponse {
@@ -194,6 +199,8 @@ export interface QuotePreviewResponse {
   destinationCountry: string;
   currency: string;
   incoterm: string;
+  serviceability?: boolean;
+  reasonCode?: string;
   items: Array<{
     itemIndex: number;
     name: string;
@@ -205,11 +212,16 @@ export interface QuotePreviewResponse {
   }>;
   totals: {
     subtotal: number;
+    subtotalExact?: MoneyExact;
     shipping: number;
+    shippingExact?: MoneyExact;
     tax: number;
+    taxExact?: MoneyExact;
     taxType: string;
     duties: number;
+    dutiesExact?: MoneyExact;
     grandTotal: number;
+    grandTotalExact?: MoneyExact;
   };
   appliedRules: {
     shippingRuleId: string | null;
@@ -221,6 +233,30 @@ export interface QuotePreviewResponse {
     minDays: number;
     maxDays: number;
   };
+  deliveryPromise?: {
+    dispatchDate?: string;
+    dispatchMinDate?: string;
+    dispatchMaxDate?: string;
+    promiseText?: string;
+    isRemote?: boolean;
+  };
+  shipmentGroups?: Array<{
+    groupId?: string;
+    originCountry?: string;
+    locationCode?: string;
+    serviceLevel?: string;
+    shippingAmount?: number;
+    shippingAmountExact?: MoneyExact;
+    deliveryPromise?: {
+      promiseText?: string;
+      dispatchDate?: string;
+    };
+    items?: Array<{
+      productId?: string;
+      name?: string;
+      quantity?: number;
+    }>;
+  }>;
 }
 
 export interface ReadinessStatus {

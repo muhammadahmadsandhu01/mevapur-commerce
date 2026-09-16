@@ -11,7 +11,7 @@ import type {
   CheckoutQuoteResponse,
   MarketConfigResponse,
 } from '../types/commerce.ts';
-import { normalizeMinorString, getCurrencyExponent } from './exactMoney.ts';
+import { normalizeMinorString, getCurrencyExponent, type MoneyExact } from './exactMoney.ts';
 
 export interface CouponPreviewResult {
   code: string;
@@ -61,13 +61,23 @@ export interface CheckoutPayload {
   couponCode?: string;
   customerNote?: string;
   quoteToken?: string;
-  shippingServiceLevel?: 'standard' | 'express';
+  shippingServiceLevel?: string;
 }
 
 export interface CreatedOrderResult {
   _id: string;
   orderId: string;
   totalAmount: number;
+  totalAmountExact?: MoneyExact;
+  subtotal?: number;
+  subtotalExact?: MoneyExact;
+  shippingCost?: number;
+  shippingCostExact?: MoneyExact;
+  taxAmount?: number;
+  taxAmountExact?: MoneyExact;
+  discount?: number;
+  discountExact?: MoneyExact;
+  currency?: string;
   paymentMethod: string;
   orderStatus: string;
   paymentStatus: string;
@@ -75,10 +85,23 @@ export interface CreatedOrderResult {
     productId: string;
     name: string;
     price: number;
+    priceExact?: MoneyExact;
     quantity: number;
     variantId?: string;
+    originCountry?: string;
+    locationCode?: string;
+    shipmentGroup?: string;
   }>;
   shippingAddress: ShippingAddressInput;
+  shippingQuote?: {
+    serviceLevel?: string;
+    zoneName?: string;
+    deliveryMinDays?: number;
+    deliveryMaxDays?: number;
+    remoteArea?: boolean;
+    deliveryPromise?: import('../types/commerce.ts').DeliveryPromiseExact;
+    shipmentGroups?: import('../types/commerce.ts').QuoteShipmentGroup[];
+  };
   createdAt: string;
 }
 
@@ -375,8 +398,7 @@ export function detectMaterialQuoteChange(
 }
 
 /**
- * Allowlisted serializer for checkout requests.
- * Strictly preserves exact fields and prevents prototype pollution.
+ * Serializes and sanitizes checkout submission payload.
  */
 export function serializeCheckoutPayload(
   items: CartItem[],
@@ -389,22 +411,27 @@ export function serializeCheckoutPayload(
   currency?: string
 ): CheckoutPayload {
   let effectiveQuoteToken: string | undefined = undefined;
-  let effectiveServiceLevel: 'standard' | 'express' = 'standard';
+  let effectiveServiceLevel: string = 'standard';
   let effectiveCouponCode: string | undefined = couponCode;
   let effectiveCustomerNote: string | undefined = customerNote;
 
-  if (
-    shippingServiceLevelOrCustomerNote !== 'standard' &&
-    shippingServiceLevelOrCustomerNote !== 'express'
-  ) {
-    // Legacy signature: (items, address, paymentMethod, couponCode, customerNote)
-    effectiveCouponCode = quoteTokenOrCouponCode;
-    effectiveCustomerNote = shippingServiceLevelOrCustomerNote;
-    effectiveQuoteToken = undefined;
-    effectiveServiceLevel = 'standard';
+  if (couponCode !== undefined || customerNote !== undefined || currency !== undefined || (quoteTokenOrCouponCode && quoteTokenOrCouponCode.length > 50)) {
+    effectiveQuoteToken = quoteTokenOrCouponCode;
+    effectiveServiceLevel = shippingServiceLevelOrCustomerNote || 'standard';
+  } else if (shippingServiceLevelOrCustomerNote && !couponCode) {
+    if (quoteTokenOrCouponCode && (quoteTokenOrCouponCode.startsWith('eyJ') || quoteTokenOrCouponCode.length > 50)) {
+      effectiveQuoteToken = quoteTokenOrCouponCode;
+      effectiveServiceLevel = shippingServiceLevelOrCustomerNote;
+    } else {
+      // Legacy signature: (items, address, paymentMethod, couponCode, customerNote)
+      effectiveCouponCode = quoteTokenOrCouponCode;
+      effectiveCustomerNote = shippingServiceLevelOrCustomerNote;
+      effectiveQuoteToken = undefined;
+      effectiveServiceLevel = 'standard';
+    }
   } else {
     effectiveQuoteToken = quoteTokenOrCouponCode;
-    effectiveServiceLevel = shippingServiceLevelOrCustomerNote as 'standard' | 'express';
+    effectiveServiceLevel = shippingServiceLevelOrCustomerNote || 'standard';
   }
 
   const cleanItems = items.map((i) => {

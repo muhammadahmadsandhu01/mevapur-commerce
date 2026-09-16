@@ -18,14 +18,17 @@ import {
   ArrowRight,
   RotateCcw,
   MapPin,
+  Clock,
 } from 'lucide-react';
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
 import Toast from '@/components/Toast';
+import { formatExactMoney, type MoneyExact } from '@/lib/exactMoney';
 import { formatMoney } from '@/lib/money';
 import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 import { buildInvoiceRoute } from '@/lib/orderRouting';
+import type { DeliveryPromiseExact, QuoteShipmentGroup } from '@/types/commerce';
 
 interface OrderItem {
   product?: string | {
@@ -37,10 +40,14 @@ interface OrderItem {
   variantId?: string | null;
   name: string;
   price: number | string;
+  priceExact?: MoneyExact;
   quantity: number;
   image?: string;
   sku?: string;
   variant?: string;
+  originCountry?: string;
+  locationCode?: string;
+  shipmentGroup?: string;
 }
 
 interface TimelineStep {
@@ -55,11 +62,17 @@ interface Order {
   orderStatus: string;
   paymentMethod: string;
   paymentStatus: string;
+  currency?: string;
   subtotal: number | string;
+  subtotalExact?: MoneyExact;
   shippingCost?: number | string;
+  shippingCostExact?: MoneyExact;
   taxAmount?: number | string;
+  taxAmountExact?: MoneyExact;
   discount?: number | string;
+  discountExact?: MoneyExact;
   totalAmount: number | string;
+  totalAmountExact?: MoneyExact;
   createdAt: string;
   deliveredAt?: string | null;
   cancelledAt?: string | null;
@@ -74,6 +87,15 @@ interface Order {
     province?: string;
     postalCode?: string;
     country?: string;
+  };
+  shippingQuote?: {
+    serviceLevel?: string;
+    zoneName?: string;
+    deliveryMinDays?: number;
+    deliveryMaxDays?: number;
+    remoteArea?: boolean;
+    deliveryPromise?: DeliveryPromiseExact;
+    shipmentGroups?: QuoteShipmentGroup[];
   };
   statusTimeline?: TimelineStep[];
   timeline?: TimelineStep[];
@@ -404,10 +426,14 @@ export default function OrderDetailsPage() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-black text-[#0b132b]">
-                      {formatMoney(Number(item.price) * item.quantity)}
+                      {item.priceExact
+                        ? formatExactMoney(item.priceExact)
+                        : formatMoney(Number(item.price) * item.quantity, order.currency || order.totalAmountExact?.currency || '')}
                     </p>
                     <p className="text-xs text-slate-500 font-medium">
-                      {formatMoney(Number(item.price))} each
+                      {item.priceExact
+                        ? formatExactMoney(item.priceExact)
+                        : `${formatMoney(Number(item.price), order.currency || order.totalAmountExact?.currency || '')} each`}
                     </p>
                   </div>
                 </div>
@@ -417,34 +443,92 @@ export default function OrderDetailsPage() {
 
           {/* Breakdown */}
           <div className="mt-6 pt-5 border-t border-slate-200 space-y-2 text-xs sm:text-sm">
-            <div className="flex justify-between text-slate-700">
-              <span>Subtotal</span>
-              <span className="font-semibold text-slate-900">{formatMoney(order.subtotal)}</span>
-            </div>
-            {Number(order.discount) > 0 && (
+            {order.subtotalExact ? (
+              <div className="flex justify-between text-slate-700">
+                <span>Subtotal</span>
+                <span className="font-semibold text-slate-900">{formatExactMoney(order.subtotalExact)}</span>
+              </div>
+            ) : (
+              <div className="flex justify-between text-slate-700">
+                <span>Subtotal</span>
+                <span className="font-semibold text-slate-900">{formatMoney(order.subtotal, order.currency || order.totalAmountExact?.currency || '')}</span>
+              </div>
+            )}
+            {order.discountExact ? (
               <div className="flex justify-between text-emerald-700 font-semibold">
                 <span>Discount</span>
-                <span>-{formatMoney(order.discount)}</span>
+                <span>-{formatExactMoney(order.discountExact)}</span>
               </div>
-            )}
-            {order.shippingCost !== undefined && (
+            ) : Number(order.discount) > 0 ? (
+              <div className="flex justify-between text-emerald-700 font-semibold">
+                <span>Discount</span>
+                <span>-{formatMoney(order.discount, order.currency || '')}</span>
+              </div>
+            ) : null}
+            {order.shippingCostExact ? (
               <div className="flex justify-between text-slate-700">
                 <span>Shipping</span>
-                <span className="font-semibold text-slate-900">{formatMoney(order.shippingCost)}</span>
+                <span className="font-semibold text-slate-900">{formatExactMoney(order.shippingCostExact)}</span>
               </div>
-            )}
-            {Number(order.taxAmount) > 0 && (
+            ) : order.shippingCost !== undefined ? (
+              <div className="flex justify-between text-slate-700">
+                <span>Shipping</span>
+                <span className="font-semibold text-slate-900">{formatMoney(order.shippingCost, order.currency || '')}</span>
+              </div>
+            ) : null}
+            {order.taxAmountExact ? (
               <div className="flex justify-between text-slate-700">
                 <span>Tax</span>
-                <span className="font-semibold text-slate-900">{formatMoney(order.taxAmount)}</span>
+                <span className="font-semibold text-slate-900">{formatExactMoney(order.taxAmountExact)}</span>
               </div>
-            )}
+            ) : Number(order.taxAmount) > 0 ? (
+              <div className="flex justify-between text-slate-700">
+                <span>Tax</span>
+                <span className="font-semibold text-slate-900">{formatMoney(order.taxAmount, order.currency || '')}</span>
+              </div>
+            ) : null}
             <div className="pt-3 border-t border-slate-200 flex justify-between items-baseline text-base font-black text-[#0b132b]">
               <span>Final Total Charged</span>
-              <span className="text-xl sm:text-2xl">{formatMoney(order.totalAmount)}</span>
+              <span className="text-xl sm:text-2xl">
+                {order.totalAmountExact
+                  ? formatExactMoney(order.totalAmountExact)
+                  : formatMoney(order.totalAmount, order.currency || '')}
+              </span>
             </div>
           </div>
         </section>
+
+        {/* Split Shipment Packages (When > 1 Package) */}
+        {order.shippingQuote?.shipmentGroups && order.shippingQuote.shipmentGroups.length > 1 && (
+          <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs" aria-label="Split shipments">
+            <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Package size={17} className="text-[#ff8a00]" /> Split Fulfillment ({order.shippingQuote.shipmentGroups.length} Packages)
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {order.shippingQuote.shipmentGroups.map((grp, idx) => (
+                <div key={grp.groupId || idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5">
+                  <div className="flex justify-between items-center font-bold text-slate-900">
+                    <span>Package {idx + 1} ({grp.originCountry || grp.locationCode || 'Fulfillment Center'})</span>
+                    <span>
+                      {grp.shippingAmountExact
+                        ? formatExactMoney(grp.shippingAmountExact)
+                        : formatMoney(grp.shippingAmount, order.currency || '')}
+                    </span>
+                  </div>
+                  <p className="text-slate-600">
+                    Service: <span className="font-semibold text-slate-800">{grp.serviceLevel.toUpperCase()}</span>
+                  </p>
+                  {(grp.deliveryPromise?.promiseText || grp.deliveryEstimate) && (
+                    <p className="text-slate-600 flex items-center gap-1">
+                      <Clock size={11} className="text-slate-400" />
+                      {grp.deliveryPromise?.promiseText || `${grp.deliveryEstimate?.minDays}–${grp.deliveryEstimate?.maxDays} business days`}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Tracking & Fulfillment Timeline */}
         {(order.trackingNumber || order.courierCompany || timelineSteps.length > 0) && (

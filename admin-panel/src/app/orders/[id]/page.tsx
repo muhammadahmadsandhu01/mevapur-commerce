@@ -11,16 +11,22 @@ import {
 import api from '@/lib/api';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 import axios from 'axios';
+import { formatExactMoney, type MoneyExact } from '@/lib/exactMoney';
 
 interface OrderItem {
   _id?: string;
   product?: string | { _id: string; name: string; images?: string[] };
   name: string;
   price: number;
+  priceExact?: MoneyExact;
+  lineTotalExact?: MoneyExact;
   quantity: number;
   image?: string;
   variant?: string;
   sku?: string;
+  originCountry?: string;
+  locationCode?: string;
+  shipmentGroup?: string;
 }
 
 interface TimelineEntry {
@@ -51,10 +57,44 @@ interface Order {
   paymentMethod: string;
   paymentStatus: string;
   orderStatus: string;
+  currency?: string;
   subtotal: number;
+  subtotalExact?: MoneyExact;
   shippingCost: number;
+  shippingCostExact?: MoneyExact;
+  taxAmount?: number;
+  taxAmountExact?: MoneyExact;
   discount: number;
+  discountExact?: MoneyExact;
   totalAmount: number;
+  totalAmountExact?: MoneyExact;
+  shippingQuote?: {
+    serviceLevel?: string;
+    displayName?: string;
+    isPrepaidRequired?: boolean;
+    deliveryPromise?: {
+      dispatchDate?: string;
+      promiseText?: string;
+      isRemote?: boolean;
+    };
+    shipmentGroups?: Array<{
+      groupId?: string;
+      originCountry?: string;
+      locationCode?: string;
+      serviceLevel?: string;
+      shippingAmount?: number;
+      shippingAmountExact?: MoneyExact;
+      deliveryPromise?: {
+        promiseText?: string;
+        dispatchDate?: string;
+      };
+      items?: Array<{
+        productId?: string;
+        name?: string;
+        quantity?: number;
+      }>;
+    }>;
+  };
   payment?: {
     provider?: string;
     paidAt?: string;
@@ -615,10 +655,18 @@ export default function OrderDetailPage() {
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
                         <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                          Qty: <strong style={{ color: 'var(--text-primary)' }}>{item.quantity}</strong> × Rs. {item.price.toLocaleString()}
+                          Qty: <strong style={{ color: 'var(--text-primary)' }}>{item.quantity}</strong> × {item.priceExact ? formatExactMoney(item.priceExact) : `${order.currency || order.totalAmountExact?.currency || ''} ${item.price.toLocaleString()}`}
                         </div>
                         <div style={{ fontWeight: '800', color: 'var(--text-primary)', fontSize: '16px' }}>
-                          Rs. {(item.price * item.quantity).toLocaleString()}
+                          {item.lineTotalExact
+                            ? formatExactMoney(item.lineTotalExact)
+                            : item.priceExact
+                            ? formatExactMoney({
+                                amountMinor: String(BigInt(item.priceExact.amountMinor) * BigInt(item.quantity)),
+                                currency: item.priceExact.currency,
+                                exponent: item.priceExact.exponent,
+                              })
+                            : `${order.currency || order.totalAmountExact?.currency || ''} ${(item.price * item.quantity).toLocaleString()}`}
                         </div>
                       </div>
                     </div>
@@ -851,20 +899,38 @@ export default function OrderDetailPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
-                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>Rs. {order.subtotal.toLocaleString()}</span>
+                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                  {order.subtotalExact ? formatExactMoney(order.subtotalExact) : `${order.currency ? `${order.currency} ` : ''}${order.subtotal.toLocaleString()}`}
+                </span>
               </div>
               {order.discount > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--accent-text)' }}>
                   <span>Discount</span>
-                  <span style={{ fontWeight: '600' }}>-Rs. {order.discount.toLocaleString()}</span>
+                  <span style={{ fontWeight: '600' }}>
+                    -{order.discountExact ? formatExactMoney(order.discountExact) : `${order.currency ? `${order.currency} ` : ''}${order.discount.toLocaleString()}`}
+                  </span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Shipping</span>
-                <span style={{ fontWeight: '600', color: order.shippingCost === 0 ? 'var(--success-text)' : 'var(--text-primary)' }}>
-                  {order.shippingCost === 0 ? 'FREE' : `Rs. ${order.shippingCost.toLocaleString()}`}
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  Shipping {order.shippingQuote?.displayName ? `(${order.shippingQuote.displayName})` : order.shippingQuote?.serviceLevel ? `(${order.shippingQuote.serviceLevel.toUpperCase()})` : ''}
+                </span>
+                <span style={{ fontWeight: '600', color: (order.shippingCostExact?.amountMinor === '0' || order.shippingCost === 0) ? 'var(--success-text)' : 'var(--text-primary)' }}>
+                  {order.shippingCostExact
+                    ? formatExactMoney(order.shippingCostExact)
+                    : order.shippingCost === 0
+                    ? 'FREE'
+                    : `${order.currency ? `${order.currency} ` : ''}${order.shippingCost.toLocaleString()}`}
                 </span>
               </div>
+              {order.taxAmount !== undefined && order.taxAmount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Taxes & Duties</span>
+                  <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                    {order.taxAmountExact ? formatExactMoney(order.taxAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.taxAmount.toLocaleString()}`}
+                  </span>
+                </div>
+              )}
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -876,8 +942,64 @@ export default function OrderDetailPage() {
                 marginTop: '8px'
               }}>
                 <span>Total</span>
-                <span>Rs. {order.totalAmount.toLocaleString()}</span>
+                <span>
+                  {order.totalAmountExact ? formatExactMoney(order.totalAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.totalAmount.toLocaleString()}`}
+                </span>
               </div>
+
+              {/* Governed Delivery Promise & Split Groups */}
+              {order.shippingQuote && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', fontSize: '12px' }}>
+                  <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Truck size={14} color="var(--primary)" /> Governed Delivery Snapshot
+                  </div>
+                  {order.shippingQuote.deliveryPromise?.promiseText && (
+                    <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Promise: {order.shippingQuote.deliveryPromise.promiseText}
+                    </div>
+                  )}
+                  {order.shippingQuote.deliveryPromise?.dispatchDate && (
+                    <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Dispatch Date: <strong>{order.shippingQuote.deliveryPromise.dispatchDate}</strong>
+                    </div>
+                  )}
+                  {order.shippingQuote.deliveryPromise?.isRemote && (
+                    <div style={{ color: 'var(--warning-text)', fontWeight: '600' }}>
+                      Remote area delivery notice applied.
+                    </div>
+                  )}
+                  {order.shippingQuote.isPrepaidRequired && (
+                    <div style={{ color: 'var(--info-text)', fontWeight: '600', marginTop: '4px' }}>
+                      Prepaid payment required for this cross-border route.
+                    </div>
+                  )}
+
+                  {/* Split Fulfillment Groups */}
+                  {order.shippingQuote.shipmentGroups && order.shippingQuote.shipmentGroups.length > 1 && (
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
+                        Split Fulfillment ({order.shippingQuote.shipmentGroups.length} Packages)
+                      </div>
+                      {order.shippingQuote.shipmentGroups.map((grp, idx) => (
+                        <div key={grp.groupId || idx} style={{ padding: '8px', backgroundColor: 'var(--bg-primary)', borderRadius: '6px', fontSize: '11px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700' }}>
+                            <span>Package {idx + 1} ({grp.originCountry || grp.locationCode || 'Origin'})</span>
+                            <span>{grp.shippingAmountExact ? formatExactMoney(grp.shippingAmountExact) : ''}</span>
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            Service: {grp.serviceLevel?.toUpperCase()}
+                          </div>
+                          {grp.items && grp.items.length > 0 && (
+                            <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                              Items: {grp.items.map(i => `${i.name || i.productId} (×${i.quantity})`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1257,7 +1379,7 @@ export default function OrderDetailPage() {
             </div>
 
             <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
-              Record received cash collection for delivered order <strong style={{ color: 'var(--text-primary)' }}>{order.orderId || order._id}</strong>. This will transition payment status to <strong>Paid</strong> and recognize <strong>Rs. {order.totalAmount?.toLocaleString()}</strong> in realized revenue.
+              Record received cash collection for delivered order <strong style={{ color: 'var(--text-primary)' }}>{order.orderId || order._id}</strong>. This will transition payment status to <strong>Paid</strong> and recognize <strong>{order.totalAmountExact ? formatExactMoney(order.totalAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.totalAmount?.toLocaleString()}`}</strong> in realized revenue.
             </p>
 
             <div style={{ marginBottom: '24px' }}>
