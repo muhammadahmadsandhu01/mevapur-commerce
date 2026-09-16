@@ -113,28 +113,48 @@ const TARGET_INDEXES = [
   }
 ];
 
-function findIndexMatch(existingIndexes, targetIndex) {
-  const targetKeyEntries = Object.entries(targetIndex.key);
+function findIndexMatch(existingIndexes, targetIndex, targetName = null) {
+  if (!Array.isArray(existingIndexes)) return null;
+  const targetKey = targetIndex && targetIndex.key ? targetIndex.key : targetIndex;
+  const targetKeyEntries = targetKey && typeof targetKey === 'object' ? Object.entries(targetKey) : [];
+
   return existingIndexes.find((existing) => {
-    if (existing.name === targetIndex.name) return true;
-    const existingKeyEntries = Object.entries(existing.key);
+    if (targetName && existing.name === targetName) return true;
+    if (targetIndex && targetIndex.name && existing.name === targetIndex.name) return true;
+    if (targetKeyEntries.length === 0) return false;
+
+    const existingKey = existing.key || existing;
+    const existingKeyEntries = Object.entries(existingKey);
     if (existingKeyEntries.length !== targetKeyEntries.length) return false;
-    return targetKeyEntries.every(([k, v], idx) => {
-      const [exK, exV] = existingKeyEntries[idx];
-      return k === exK && v === exV;
-    });
-  });
+    return targetKeyEntries.every(([k, v]) => existingKey[k] === v);
+  }) || null;
 }
 
-async function inspectPreflightAnomalies(db) {
+async function inspectPreflightAnomalies(dbOrRules) {
   const anomalies = [];
+  let configs = [];
 
-  // Check invalid country codes or negative rates in active configuration shipping rules
-  const configCol = db.collection('commerceconfigurationversions');
-  const activeConfigs = await configCol.find({ status: 'active' }).toArray();
+  if (Array.isArray(dbOrRules)) {
+    configs = [{ version: 1, shippingRules: dbOrRules }];
+  } else if (dbOrRules && typeof dbOrRules.collection === 'function') {
+    const configCol = dbOrRules.collection('commerceconfigurationversions');
+    configs = await configCol.find({ status: 'active' }).toArray();
+  } else if (dbOrRules && Array.isArray(dbOrRules.shippingRules)) {
+    configs = [dbOrRules];
+  }
 
-  for (const cfg of activeConfigs) {
+  for (const cfg of configs) {
+    const seenRuleIds = new Set();
     for (const rule of (cfg.shippingRules || [])) {
+      if (seenRuleIds.has(rule.ruleId)) {
+        anomalies.push({
+          type: 'DUPLICATE_RULE_ID',
+          configVersion: cfg.version,
+          ruleId: rule.ruleId
+        });
+      }
+      seenRuleIds.add(rule.ruleId);
+
       if (!CountryRegistry.hasCountry(rule.destinationCountry)) {
         anomalies.push({
           type: 'INVALID_DESTINATION_COUNTRY',
@@ -149,6 +169,13 @@ async function inspectPreflightAnomalies(db) {
           configVersion: cfg.version,
           ruleId: rule.ruleId,
           country: rule.originCountry
+        });
+      }
+      if (rule.deliveryMaxDays != null && rule.deliveryMinDays != null && rule.deliveryMaxDays < rule.deliveryMinDays) {
+        anomalies.push({
+          type: 'INVERTED_DELIVERY_DAYS',
+          configVersion: cfg.version,
+          ruleId: rule.ruleId
         });
       }
       for (const band of (rule.weightBands || [])) {
