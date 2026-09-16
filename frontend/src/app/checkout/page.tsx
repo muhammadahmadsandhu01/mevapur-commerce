@@ -86,7 +86,7 @@ export default function CheckoutPage() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   // Shipping Service Level Selection
-  const [shippingServiceLevel, setShippingServiceLevel] = useState<'standard' | 'express'>('standard');
+  const [shippingServiceLevel, setShippingServiceLevel] = useState<string>('standard');
 
   // Authoritative Quote State
   const [quote, setQuote] = useState<AuthoritativeQuote | null>(null);
