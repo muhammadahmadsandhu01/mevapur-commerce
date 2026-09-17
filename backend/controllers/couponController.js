@@ -158,12 +158,47 @@ exports.createCoupon = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid start or end date' });
     }
 
+    const { Money, MoneyMapper } = require('../modules/commerce');
+    let rateNumerator = req.body.rateNumerator !== undefined ? Number(req.body.rateNumerator) : null;
+    let rateDenominator = req.body.rateDenominator !== undefined ? Number(req.body.rateDenominator) : null;
+    let valueExact = req.body.valueExact || null;
+
+    if (type === 'percentage') {
+      if (rateNumerator === null || rateDenominator === null) {
+        const valStr = String(value || 0);
+        const decPart = valStr.includes('.') ? valStr.split('.')[1] : '';
+        const scale = decPart.length;
+        rateNumerator = Math.round(Number(value) * (10 ** scale));
+        rateDenominator = 100 * (10 ** scale);
+      }
+    } else if (type === 'fixed') {
+      if (!valueExact) {
+        valueExact = MoneyMapper.toPersistence(Money.fromLegacyNumber(Number(value), req.body.currency || 'PKR'));
+      }
+    }
+
+    let minOrderAmountExact = req.body.minOrderAmountExact || null;
+    if (!minOrderAmountExact && minOrderAmount) {
+      minOrderAmountExact = MoneyMapper.toPersistence(Money.fromLegacyNumber(Number(minOrderAmount), req.body.currency || 'PKR'));
+    }
+
+    let maxDiscountExact = req.body.maxDiscountExact || null;
+    if (!maxDiscountExact && maxDiscount) {
+      maxDiscountExact = MoneyMapper.toPersistence(Money.fromLegacyNumber(Number(maxDiscount), req.body.currency || 'PKR'));
+    }
+
     const coupon = await Coupon.create({
       code: normalizedCode,
       type,
       value: Number(value),
+      rateNumerator,
+      rateDenominator,
+      valueExact,
       minOrderAmount: Number(minOrderAmount) || 0,
+      minOrderAmountExact,
       maxDiscount: Number(maxDiscount) || 0,
+      maxDiscountExact,
+      currency: req.body.currency || 'PKR',
       usageLimit: Number(usageLimit) || 0,
       usedCount: 0,
       perCustomerLimit: Number(perCustomerLimit) || 0,
@@ -249,10 +284,40 @@ exports.updateCoupon = async (req, res) => {
       });
     }
 
+    const { Money, MoneyMapper } = require('../modules/commerce');
     if (type !== undefined) coupon.type = type;
     if (value !== undefined) coupon.value = Number(value);
-    if (minOrderAmount !== undefined) coupon.minOrderAmount = Number(minOrderAmount);
-    if (maxDiscount !== undefined) coupon.maxDiscount = Number(maxDiscount);
+    if (req.body.rateNumerator !== undefined) coupon.rateNumerator = Number(req.body.rateNumerator);
+    if (req.body.rateDenominator !== undefined) coupon.rateDenominator = Number(req.body.rateDenominator);
+    if (req.body.valueExact !== undefined) coupon.valueExact = req.body.valueExact;
+
+    const effType = coupon.type;
+    if (effType === 'percentage' && (coupon.rateNumerator === null || coupon.rateDenominator === null) && coupon.value !== undefined) {
+      const valStr = String(coupon.value || 0);
+      const decPart = valStr.includes('.') ? valStr.split('.')[1] : '';
+      const scale = decPart.length;
+      coupon.rateNumerator = Math.round(Number(coupon.value) * (10 ** scale));
+      coupon.rateDenominator = 100 * (10 ** scale);
+    } else if (effType === 'fixed' && !coupon.valueExact && coupon.value !== undefined) {
+      coupon.valueExact = MoneyMapper.toPersistence(Money.fromLegacyNumber(Number(coupon.value), coupon.currency || 'PKR'));
+    }
+
+    if (minOrderAmount !== undefined) {
+      coupon.minOrderAmount = Number(minOrderAmount);
+      if (req.body.minOrderAmountExact !== undefined) {
+        coupon.minOrderAmountExact = req.body.minOrderAmountExact;
+      } else {
+        coupon.minOrderAmountExact = MoneyMapper.toPersistence(Money.fromLegacyNumber(Number(minOrderAmount), coupon.currency || 'PKR'));
+      }
+    }
+    if (maxDiscount !== undefined) {
+      coupon.maxDiscount = Number(maxDiscount);
+      if (req.body.maxDiscountExact !== undefined) {
+        coupon.maxDiscountExact = req.body.maxDiscountExact;
+      } else {
+        coupon.maxDiscountExact = MoneyMapper.toPersistence(Money.fromLegacyNumber(Number(maxDiscount), coupon.currency || 'PKR'));
+      }
+    }
     if (usageLimit !== undefined) coupon.usageLimit = Number(usageLimit);
     if (perCustomerLimit !== undefined) coupon.perCustomerLimit = Number(perCustomerLimit);
     if (status !== undefined) coupon.status = status;

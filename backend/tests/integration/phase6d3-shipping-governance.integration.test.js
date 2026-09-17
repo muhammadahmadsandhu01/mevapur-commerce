@@ -24,6 +24,7 @@ const { Money, MoneyMapper } = require('../../modules/commerce');
 
 describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
   let customerUser;
+  let testCategory;
   let testProduct;
   let activeConfigDoc;
   let serviceabilityService;
@@ -206,6 +207,10 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
           verificationStatus: 'VERIFIED_LEGAL_RULE',
           requiresTax: false,
           requiresDuty: false,
+          dutyRefundPolicy: 'REFUNDABLE',
+          taxRefundPolicy: 'REFUNDABLE',
+          customsValueIncludesShipping: false,
+          customsValueIncludesInsurance: false,
           enabled: true
         },
         {
@@ -224,13 +229,17 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
           verificationStatus: 'VERIFIED_LEGAL_RULE',
           requiresTax: true,
           requiresDuty: true,
+          dutyRefundPolicy: 'REFUNDABLE',
+          taxRefundPolicy: 'REFUNDABLE',
+          customsValueIncludesShipping: true,
+          customsValueIncludesInsurance: false,
           enabled: true
         }
       ]
     });
 
     // 4. Seed Category & Simple Product
-    const testCategory = await Category.create({
+    testCategory = await Category.create({
       name: `Dry Fruits ${seq}`,
       slug: `dry-fruits-${seq}`,
       isActive: true
@@ -246,6 +255,16 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
       priceExact: MoneyMapper.fromLegacy(1000, 'PKR'),
       weightGrams: 500,
       originCountry: 'PK',
+      countryOfOrigin: 'PK',
+      hsCode: '080212',
+      hsClassification: {
+        code: '080212',
+        description: 'Shelled Almonds',
+        source: 'MANUAL_OVERRIDE',
+        confidence: 'VERIFIED',
+        sourceReference: 'CUSTOMS-FIXTURE-2026'
+      },
+      customsDescription: 'Shelled edible almonds for retail sale',
       hsTariffCode: {
         code: '080212',
         systemVersion: 'HS_2022',
@@ -360,6 +379,82 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
         const countAfter = await col.countDocuments({});
         expect(countAfter).toBe(countsBefore[name]);
       }
+    });
+
+    it('1.2 fails closed with 409 CUSTOMS_METADATA_INCOMPLETE when international item is missing valid HS code', async () => {
+      const nonHsProduct = await Product.create({
+        name: `Non HS Product ${Date.now()}`,
+        slug: `non-hs-product-${Date.now()}`,
+        sku: `SKU-NOHS-${Date.now()}`,
+        category: testCategory._id,
+        status: 'published',
+        price: 500,
+        priceExact: MoneyMapper.fromLegacy(500, 'PKR'),
+        originCountry: 'PK',
+        countryOfOrigin: 'PK',
+        weightGrams: 500,
+        isActive: true,
+        countInStock: 50,
+        stock: 50
+      });
+
+      await InventoryPosition.create({
+        merchantScopeId: 'default',
+        locationId: (await FulfillmentLocation.findOne({ countryCode: 'PK' }))._id,
+        locationCode: 'KHI-WH-TEST',
+        productId: nonHsProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        canonicalSku: nonHsProduct.sku,
+        onHand: 50,
+        reserved: 0,
+        unavailable: 0,
+        safetyStock: 0,
+        lockVersion: 1
+      });
+
+      await MarketPriceBook.create({
+        merchantScopeId: 'default',
+        productId: nonHsProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'AE',
+        currency: 'AED',
+        currencyExponent: 2,
+        amountMinor: '5000',
+        status: 'active',
+        effectiveFrom: new Date(Date.now() - 60000)
+      });
+
+      await ProductMarketOffering.create({
+        merchantScopeId: 'default',
+        productId: nonHsProduct._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        marketCountry: 'AE',
+        status: 'active',
+        visibility: 'visible',
+        pricingPolicy: 'inherit_product_price',
+        effectiveFrom: new Date(Date.now() - 60000)
+      });
+
+      const res = await request(app)
+        .post('/api/commerce/checkout/quote')
+        .send({
+          items: [{ productId: String(nonHsProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Fatima Al-Zahra',
+            phone: '+971501234567',
+            address: 'Al Wasl Road, Villa 42',
+            city: 'Dubai',
+            province: 'Dubai',
+            country: 'AE'
+          },
+          currency: 'AED'
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error?.code || res.body.code).toBe('CUSTOMS_METADATA_INCOMPLETE');
     });
   });
 
@@ -505,5 +600,9 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
       expect(allocation.lines).toHaveLength(1);
       expect(allocation.lines[0].refundableMinor).toBe(10000);
     });
+  });
+
+  afterAll(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
   });
 });

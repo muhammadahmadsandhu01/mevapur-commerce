@@ -78,16 +78,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
     });
   };
 
-  let prevCompat;
-  beforeAll(async () => {
-    prevCompat = process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY;
-    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = 'true';
-    await MarketService.getConfig();
-  });
 
-  afterAll(async () => {
-    process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
-  });
 
   beforeEach(async () => {
     customerUser = await User.create({
@@ -201,7 +192,34 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
           enabled: true
         }
       ],
-      taxRules: []
+      taxRules: [
+        {
+          ruleId: 'TAX-PK-01',
+          name: 'Pakistan Standard GST',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          taxType: 'GST',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 10000,
+          dutyRateNumerator: 0,
+          dutyRateDenominator: 10000,
+          incoterm: 'DOMESTIC',
+          priority: 10,
+          providerType: 'MANUAL_GOVERNED',
+          sourceAuthority: 'FBR',
+          sourceReference: 'Sales Tax Act 1990',
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          taxRefundPolicy: 'REFUNDABLE',
+          dutyRefundPolicy: 'NON_REFUNDABLE',
+          roundingMode: 'HALF_UP',
+          roundingScope: 'subtotal',
+          customsValueIncludesShipping: false,
+          customsValueIncludesInsurance: false,
+          enabled: true
+        }
+      ]
     });
   });
 
@@ -334,6 +352,7 @@ describe('Exact Money Persistence & Backend Workflows Integration Tests', () => 
         code: 'USDONLY10',
         type: 'fixed',
         value: 10,
+        valueExact: MoneyMapper.fromLegacy(10, 'USD'),
         currency: 'USD',
         status: 'active',
         startDate: new Date(Date.now() - 10000),

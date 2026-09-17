@@ -3,6 +3,7 @@ const Coupon = require('../../models/Coupon');
 const CouponRedemption = require('../../models/CouponRedemption');
 const Product = require('../../models/Product');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
+const { Money } = require('../../modules/commerce');
 const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
 
@@ -127,34 +128,126 @@ class CouponService {
       );
     }
 
-    const eligibleSubtotal = this.roundMoney(
-      eligibleItems.reduce((sum, item) => sum + (item.lineTotal || 0), 0)
-    );
-
-    const minPurchaseRequired = coupon.minPurchase || coupon.minOrderAmount || 0;
-    if (minPurchaseRequired && eligibleSubtotal < minPurchaseRequired) {
-      throw new AppError(
-        `Minimum purchase amount of Rs. ${minPurchaseRequired} is required for this coupon`,
-        400,
-        ERROR_CODES.ORDER_COUPON_INVALID
+    let subtotalMoney;
+    if (subtotal instanceof Money) {
+      subtotalMoney = subtotal;
+    } else {
+      const eligibleSubtotalNum = this.roundMoney(
+        eligibleItems.reduce((sum, item) => sum + (item.lineTotal || 0), 0)
       );
+      subtotalMoney = Money.fromLegacyNumber(eligibleSubtotalNum, currency);
     }
 
-    let discountAmount = 0;
-    if (coupon.type === 'percentage') {
-      discountAmount = this.roundMoney((eligibleSubtotal * coupon.value) / 100);
-      if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
-        discountAmount = coupon.maxDiscount;
+    const eligibleSubtotal = Number(subtotalMoney.toDecimalString());
+
+    // Check minimum spend
+    if (coupon.minOrderAmountExact && coupon.minOrderAmountExact.amountMinor !== undefined) {
+      const { MoneyMapper } = require('../../modules/commerce');
+      const minMoney = MoneyMapper.toMoney(coupon.minOrderAmountExact);
+      if (minMoney.currency !== currency) {
+        throw new AppError(
+          `Coupon minOrderAmount currency ${minMoney.currency} does not match order currency ${currency}`,
+          400,
+          'COUPON_CURRENCY_MISMATCH'
+        );
       }
-    } else if (coupon.type === 'fixed') {
-      discountAmount = this.roundMoney(Math.min(coupon.value, eligibleSubtotal));
-    } else if (coupon.type === 'freeshipping') {
-      discountAmount = 0;
+      if (subtotalMoney.amountMinor < minMoney.amountMinor) {
+        throw new AppError(
+          `Minimum purchase amount of ${minMoney.toDecimalString()} ${currency} is required for this coupon`,
+          400,
+          ERROR_CODES.ORDER_COUPON_INVALID || 'ORDER_COUPON_INVALID'
+        );
+      }
+    } else {
+      const minPurchaseRequired = coupon.minPurchase || coupon.minOrderAmount || 0;
+      if (minPurchaseRequired && eligibleSubtotal < minPurchaseRequired) {
+        throw new AppError(
+          `Minimum purchase amount of Rs. ${minPurchaseRequired} is required for this coupon`,
+          400,
+          ERROR_CODES.ORDER_COUPON_INVALID || 'ORDER_COUPON_INVALID'
+        );
+      }
     }
+
+    const couponType = (coupon.type || coupon.discountType || '').toLowerCase();
+    let discountMoney = Money.zero(currency);
+
+    if (couponType === 'percentage') {
+      const num = coupon.rateNumerator;
+      const den = coupon.rateDenominator;
+      if (
+        num == null ||
+        den == null ||
+        !Number.isInteger(Number(num)) ||
+        !Number.isInteger(Number(den)) ||
+        Number(num) < 0 ||
+        Number(den) <= 0
+      ) {
+        throw new AppError(
+          'Percentage coupon requires canonical integer rateNumerator and positive rateDenominator',
+          400,
+          'COUPON_EXACT_VALUE_REQUIRED'
+        );
+      }
+
+      const numerator = BigInt(num);
+      const denominator = BigInt(den);
+      discountMoney = subtotalMoney.multiplyRational(numerator, denominator, 'HALF_UP');
+
+      if (coupon.maxDiscountExact && coupon.maxDiscountExact.amountMinor !== undefined) {
+        const { MoneyMapper } = require('../../modules/commerce');
+        const maxDiscMoney = MoneyMapper.toMoney(coupon.maxDiscountExact);
+        if (maxDiscMoney.currency !== currency) {
+          throw new AppError(
+            `Coupon maxDiscount currency ${maxDiscMoney.currency} does not match order currency ${currency}`,
+            400,
+            'COUPON_CURRENCY_MISMATCH'
+          );
+        }
+        if (discountMoney.amountMinor > maxDiscMoney.amountMinor) {
+          discountMoney = maxDiscMoney;
+        }
+      } else if (coupon.maxDiscount) {
+        const maxDiscMoney = Money.fromLegacyNumber(coupon.maxDiscount, currency);
+        if (discountMoney.amountMinor > maxDiscMoney.amountMinor) {
+          discountMoney = maxDiscMoney;
+        }
+      }
+    } else if (couponType === 'fixed') {
+      if (!coupon.valueExact || coupon.valueExact.amountMinor === undefined) {
+        throw new AppError(
+          'Fixed coupon requires canonical valueExact money specification',
+          400,
+          'COUPON_EXACT_VALUE_REQUIRED'
+        );
+      }
+      const { MoneyMapper } = require('../../modules/commerce');
+      const fixedValueMoney = MoneyMapper.toMoney(coupon.valueExact);
+      if (fixedValueMoney.currency !== currency) {
+        throw new AppError(
+          `Fixed coupon currency ${fixedValueMoney.currency} does not match order currency ${currency}`,
+          400,
+          'COUPON_CURRENCY_MISMATCH'
+        );
+      }
+      discountMoney = fixedValueMoney;
+    } else if (couponType === 'freeshipping') {
+      discountMoney = Money.zero(currency);
+    } else {
+      throw new AppError('Invalid coupon type', 400, ERROR_CODES.ORDER_COUPON_INVALID || 'ORDER_COUPON_INVALID');
+    }
+
+    // Discount cannot exceed eligible subtotal
+    if (discountMoney.amountMinor > subtotalMoney.amountMinor) {
+      discountMoney = subtotalMoney;
+    }
+
+    const discountAmount = Number(discountMoney.toDecimalString());
 
     return {
       discountAmount,
-      freeShipping: coupon.type === 'freeshipping',
+      discountExact: discountMoney,
+      freeShipping: couponType === 'freeshipping',
       eligibleSubtotal
     };
   }

@@ -109,11 +109,35 @@ class CheckoutQuoteService {
   }
 
   /**
+   * Normalizes a postal code string for canonical comparison and hashing.
+   * @param {string} postalCode
+   * @returns {string}
+   */
+  static normalizePostalCode(postalCode) {
+    if (!postalCode || typeof postalCode !== 'string') return '';
+    return postalCode.trim().toUpperCase();
+  }
+
+  /**
+   * Computes deterministic SHA-256 hash of normalized postal code without exposing raw PII.
+   * @param {string|Object} shippingAddress
+   * @returns {string}
+   */
+  static hashPostalCode(shippingAddress) {
+    const raw = typeof shippingAddress === 'string'
+      ? shippingAddress
+      : (shippingAddress?.postalCode || shippingAddress?.zip || '');
+    const normalized = CheckoutQuoteService.normalizePostalCode(raw);
+    if (!normalized) return '';
+    return crypto.createHash('sha256').update(normalized).digest('hex');
+  }
+
+  /**
    * Computes deterministic SHA-256 hash of ordered items and prices.
    * @param {Array<Object>} items
    * @returns {string}
    */
-  hashItems(items) {
+  static hashItems(items) {
     const canonical = [...items]
       .map((item) => ({
         productId: String(item.product || item.productId),
@@ -130,6 +154,13 @@ class CheckoutQuoteService {
   }
 
   /**
+   * Instance alias for hashItems.
+   */
+  hashItems(items) {
+    return CheckoutQuoteService.hashItems(items);
+  }
+
+  /**
    * Builds canonical signable payload representation for quote signing.
    * @param {Object} quotePayload
    * @returns {Object}
@@ -143,25 +174,125 @@ class CheckoutQuoteService {
       return String(raw || '0');
     };
 
-    const destinationCountry = quotePayload.destination?.countryCode || quotePayload.destinationCountry || '';
+    const destinationCountry = (quotePayload.destination?.countryCode || quotePayload.destinationCountry || '').trim().toUpperCase();
+    const destinationSubdivision = (quotePayload.destination?.province || quotePayload.destination?.administrativeArea || quotePayload.destinationSubdivision || '').trim().toUpperCase();
+    const rawPostal = (quotePayload.destination?.postalCode || quotePayload.destinationPostalCode || '');
+    const destinationPostalFingerprint = quotePayload.destinationPostalFingerprint !== undefined && quotePayload.destinationPostalFingerprint !== null
+      ? quotePayload.destinationPostalFingerprint
+      : CheckoutQuoteService.hashPostalCode(rawPostal);
+
+    const taxProvenance = quotePayload.taxesAndDuties?.provenance || quotePayload.taxRuleProvenance || {};
+    const taxRuleId = taxProvenance.ruleId || quotePayload.taxRuleId || '';
+    const taxRulePriority = taxProvenance.priority !== undefined
+      ? Number(taxProvenance.priority)
+      : (quotePayload.taxRulePriority !== undefined ? Number(quotePayload.taxRulePriority) : 100);
+    const taxType = quotePayload.taxesAndDuties?.taxType || taxProvenance.taxType || quotePayload.taxType || 'VAT';
+    const taxTreatment = taxProvenance.taxTreatment || quotePayload.taxTreatment || 'exclusive';
+    const taxableBasis = taxProvenance.taxableBasis || quotePayload.taxableBasis || 'subtotal';
+    const taxRateNumerator = Number(taxProvenance.taxRateNumerator !== undefined ? taxProvenance.taxRateNumerator : (quotePayload.taxRateNumerator || 0));
+    const taxRateDenominator = Number(taxProvenance.taxRateDenominator !== undefined ? taxProvenance.taxRateDenominator : (quotePayload.taxRateDenominator || 10000));
+    const dutyRateNumerator = Number(taxProvenance.dutyRateNumerator !== undefined ? taxProvenance.dutyRateNumerator : (quotePayload.dutyRateNumerator || 0));
+    const dutyRateDenominator = Number(taxProvenance.dutyRateDenominator !== undefined ? taxProvenance.dutyRateDenominator : (quotePayload.dutyRateDenominator || 10000));
+    const roundingMode = taxProvenance.roundingMode || quotePayload.roundingMode || 'HALF_UP';
+    const roundingScope = taxProvenance.roundingScope || quotePayload.roundingScope || 'subtotal';
+    const incoterm = quotePayload.incoterm || taxProvenance.incoterm || 'DOMESTIC';
+    const providerType = taxProvenance.providerType || quotePayload.providerType || 'MANUAL_GOVERNED';
+    const sourceAuthority = taxProvenance.sourceAuthority || quotePayload.sourceAuthority || '';
+    const sourceReference = taxProvenance.sourceReference || quotePayload.sourceReference || '';
+    const verificationStatus = taxProvenance.verificationStatus || quotePayload.verificationStatus || 'VERIFIED_LEGAL_RULE';
+    const dutyRefundPolicy = taxProvenance.dutyRefundPolicy || quotePayload.dutyRefundPolicy || null;
+    const taxRefundPolicy = taxProvenance.taxRefundPolicy || quotePayload.taxRefundPolicy || null;
+
+    const goodsValueMinor = getMinorStr(quotePayload.goodsValueExact || quotePayload.taxesAndDuties?.goodsValueExact || quotePayload.goodsValueMinor || quotePayload.totals?.subtotalExact);
+    const customsValueMinor = getMinorStr(quotePayload.customsValueExact || quotePayload.taxesAndDuties?.customsValueExact || quotePayload.customsValueMinor || quotePayload.totals?.subtotalExact);
+    const cifValueMinor = getMinorStr(quotePayload.cifValueExact || quotePayload.taxesAndDuties?.cifValueExact || quotePayload.cifValueMinor || quotePayload.totals?.subtotalExact);
+    const customsValueIncludesShipping = Boolean(taxProvenance.customsValueIncludesShipping !== undefined ? taxProvenance.customsValueIncludesShipping : quotePayload.customsValueIncludesShipping);
+    const customsValueIncludesInsurance = Boolean(taxProvenance.customsValueIncludesInsurance !== undefined ? taxProvenance.customsValueIncludesInsurance : quotePayload.customsValueIncludesInsurance);
+
+    const insuranceAmountMinor = getMinorStr(taxProvenance.insuranceAmountExact || quotePayload.taxesAndDuties?.provenance?.insuranceAmountExact || quotePayload.insuranceAmountExact || quotePayload.insuranceAmountMinor);
+    const insuranceProvenance = taxProvenance.insuranceProvenance || quotePayload.taxesAndDuties?.provenance?.insuranceProvenance || quotePayload.insuranceProvenance || 'NO_INSURANCE_CHARGE';
+
+    const estimatedDutyMinor = getMinorStr(quotePayload.taxesAndDuties?.estimatedDutyExact || quotePayload.estimatedDutyExact || quotePayload.estimatedDutyMinor || quotePayload.dutyMinor);
+    const payableDutyMinor = getMinorStr(quotePayload.taxesAndDuties?.payableDutyExact || quotePayload.payableDutyExact || quotePayload.payableDutyMinor || quotePayload.dutyMinor || quotePayload.totals?.dutiesExact);
+    const taxMinor = getMinorStr(quotePayload.totals?.taxExact || quotePayload.taxesAndDuties?.taxAmountExact || quotePayload.taxMinor);
+    const additionalTaxMinor = getMinorStr(quotePayload.totals?.additionalTaxExact || quotePayload.taxesAndDuties?.additionalTaxAmountExact || quotePayload.additionalTaxMinor);
+    const taxIncludedMinor = getMinorStr(quotePayload.totals?.taxIncludedExact || quotePayload.taxesAndDuties?.taxIncludedAmountExact || quotePayload.taxIncludedMinor);
+
+    const dutyDeMinimis = quotePayload.taxesAndDuties?.dutyDeMinimis || quotePayload.dutyDeMinimis || {
+      configured: false,
+      exempt: false,
+      reasonCode: 'NO_THRESHOLD_CONFIGURED'
+    };
+    const taxDeMinimis = quotePayload.taxesAndDuties?.taxDeMinimis || quotePayload.taxDeMinimis || {
+      configured: false,
+      exempt: false,
+      reasonCode: 'NO_THRESHOLD_CONFIGURED'
+    };
+
+    const rawItems = quotePayload.items || quotePayload.customsItems || [];
+    const customsItems = rawItems.map((it) => ({
+      productId: String(it.productId || it.product),
+      variantId: it.variantId ? String(it.variantId) : null,
+      quantity: Number(it.quantity),
+      hsCode: it.hsCode || null,
+      countryOfOrigin: it.countryOfOrigin || null,
+      customsDescription: it.customsDescription || '',
+      declaredValueEligibility: it.declaredValueEligibility || 'UNKNOWN',
+      dangerousGoodsClassification: it.dangerousGoodsClassification || 'UNKNOWN',
+      weightGrams: Number(it.weightGrams || 0)
+    })).sort((a, b) => `${a.productId}:${a.variantId || ''}`.localeCompare(`${b.productId}:${b.variantId || ''}`));
 
     return {
       kid: quotePayload.kid || CURRENT_QUOTE_KEY_ID,
       quoteId: quotePayload.quoteId,
       merchantScopeId: quotePayload.merchantScopeId || 'default',
       configVersionId: quotePayload.configVersionId || 'v1',
+      authorityRevision: quotePayload.authorityRevision || null,
       merchantCountry: quotePayload.merchantCountry,
       fulfillmentOriginCountry: quotePayload.fulfillmentOriginCountry || quotePayload.merchantCountry,
       destinationCountry,
+      destinationSubdivision,
+      destinationPostalFingerprint,
       currency: quotePayload.currency,
       itemsHash: quotePayload.itemsHash,
       subtotalMinor: quotePayload.subtotalMinor || getMinorStr(quotePayload.totals?.subtotalExact),
       discountMinor: quotePayload.discountMinor || getMinorStr(quotePayload.totals?.discountExact),
       shippingMinor: quotePayload.shippingMinor || getMinorStr(quotePayload.totals?.shippingExact),
-      taxMinor: quotePayload.taxMinor || getMinorStr(quotePayload.totals?.taxExact),
-      dutyMinor: quotePayload.dutyMinor || getMinorStr(quotePayload.totals?.dutiesExact),
+      taxMinor,
+      additionalTaxMinor,
+      taxIncludedMinor,
+      estimatedDutyMinor,
+      payableDutyMinor,
+      dutyMinor: payableDutyMinor,
+      insuranceAmountMinor,
+      insuranceProvenance,
       grandTotalMinor: quotePayload.grandTotalMinor || getMinorStr(quotePayload.totals?.grandTotalExact),
-      incoterm: quotePayload.incoterm || 'DOMESTIC',
+      incoterm,
+      taxRuleId,
+      taxRulePriority,
+      taxType,
+      taxTreatment,
+      taxableBasis,
+      taxRateNumerator,
+      taxRateDenominator,
+      dutyRateNumerator,
+      dutyRateDenominator,
+      roundingMode,
+      roundingScope,
+      providerType,
+      sourceAuthority,
+      sourceReference,
+      verificationStatus,
+      dutyRefundPolicy,
+      taxRefundPolicy,
+      goodsValueMinor,
+      customsValueMinor,
+      cifValueMinor,
+      customsValueIncludesShipping,
+      customsValueIncludesInsurance,
+      dutyDeMinimis,
+      taxDeMinimis,
+      customsItems,
       shippingServiceLevel: quotePayload.shippingServiceLevel || quotePayload.shipping?.selectedOption?.serviceLevel || 'standard',
       shipmentGroups: (quotePayload.shipmentGroups || quotePayload.shipping?.shipmentGroups || []).map((g) => ({
         groupId: g.groupId || g.shipmentGroup || 'group_1',
@@ -418,8 +549,9 @@ class CheckoutQuoteService {
         || product.declaredValueEligibility
         || 'UNKNOWN';
 
-      const hsCode = variant?.hsClassification?.code || product.hsClassification?.code || null;
-      const countryOfOrigin = product.countryOfOrigin || null;
+      const hsCode = variant?.hsClassification?.code || variant?.customsTariff?.code || product.hsClassification?.code || product.customsTariff?.code || null;
+      const countryOfOrigin = variant?.countryOfOrigin || product.countryOfOrigin || null;
+      const customsDescription = variant?.customsDescription || product.customsDescription || product.shortDescription || product.name;
 
       resolved.push({
         product: product._id,
@@ -438,6 +570,7 @@ class CheckoutQuoteService {
         declaredValueEligibility,
         hsCode,
         countryOfOrigin,
+        customsDescription,
         image: variant?.images?.[0] || product.primaryImage || product.images?.[0] || product.image || '',
         offeringId: offering ? String(offering._id) : null,
         offeringLockVersion: offering ? offering.lockVersion : null,
@@ -546,9 +679,23 @@ class CheckoutQuoteService {
     // Enforce Product Customs Metadata for International routes
     if (!isDomestic) {
       for (const it of pricedItems) {
-        if (it.dangerousGoodsClassification === 'UNKNOWN' || it.dangerousGoodsClassification === 'UNCLASSIFIED') {
+        if (!it.hsCode || !/^\d{6,10}$/.test(it.hsCode)) {
           throw new AppError(
-            `Product '${it.name}' has unclassified dangerous goods status and cannot be quoted for international shipping`,
+            `Product '${it.name}' is missing a valid 6-10 digit HS code for international shipping`,
+            409,
+            'CUSTOMS_METADATA_INCOMPLETE'
+          );
+        }
+        if (!it.countryOfOrigin) {
+          throw new AppError(
+            `Product '${it.name}' is missing country of origin for international shipping`,
+            409,
+            'CUSTOMS_METADATA_INCOMPLETE'
+          );
+        }
+        if (!it.customsDescription || !it.customsDescription.trim()) {
+          throw new AppError(
+            `Product '${it.name}' is missing customs description for international shipping`,
             409,
             'CUSTOMS_METADATA_INCOMPLETE'
           );
@@ -560,9 +707,9 @@ class CheckoutQuoteService {
             'CUSTOMS_METADATA_INCOMPLETE'
           );
         }
-        if (!it.countryOfOrigin) {
+        if (it.dangerousGoodsClassification === 'UNKNOWN' || it.dangerousGoodsClassification === 'UNCLASSIFIED') {
           throw new AppError(
-            `Product '${it.name}' is missing country of origin for international shipping`,
+            `Product '${it.name}' has unclassified dangerous goods status and cannot be quoted for international shipping`,
             409,
             'CUSTOMS_METADATA_INCOMPLETE'
           );
@@ -719,25 +866,36 @@ class CheckoutQuoteService {
       destinationCountry,
       originCountry: fulfillmentOrigin,
       administrativeArea: normalizedAddress.administrativeArea,
+      goodsValue: afterDiscountMoney,
       taxableSubtotal: afterDiscountMoney,
       shippingAmount: selectedShippingMoney,
+      insuranceAmount: Money.zero(targetCurrency),
+      insuranceProvenance: 'NO_INSURANCE_CHARGE',
       currency: targetCurrency,
       taxRules,
-      configVersionId
+      configVersionId,
+      merchantScopeId
     });
 
     const taxMoney = MoneyMapper.toMoney(taxDutyResult.taxAmountExact);
-    const dutiesMoney = MoneyMapper.toMoney(taxDutyResult.dutyAmountExact);
+    const additionalTaxMoney = MoneyMapper.toMoney(taxDutyResult.additionalTaxAmountExact);
+    const taxIncludedMoney = MoneyMapper.toMoney(taxDutyResult.taxIncludedAmountExact);
+    const estimatedDutiesMoney = MoneyMapper.toMoney(taxDutyResult.estimatedDutyExact);
+    const payableDutiesMoney = MoneyMapper.toMoney(taxDutyResult.payableDutyExact);
 
     // 9. Deterministic Exact Grand Total
-    // DDP: subtotal - discount + shipping + tax + duties (seller collects import duties)
-    // DAP / DOMESTIC: subtotal - discount + shipping + tax (duties unpaid at checkout, collected at destination)
-    const payableDutiesMoney = taxDutyResult.incoterm === 'DDP' ? dutiesMoney : Money.zero(targetCurrency);
-    const grandTotalMoney = subtotalMoney
-      .subtract(discountMoney)
+    // Exclusive: goodsValue + shipping + additionalTaxPayable + payableDuty
+    // Inclusive: goodsValue + shipping + 0 + payableDuty (assessed tax is inside goodsValue)
+    const grandTotalMoney = afterDiscountMoney
       .add(selectedShippingMoney)
-      .add(taxMoney)
+      .add(additionalTaxMoney)
       .add(payableDutiesMoney);
+
+    // Landed cost: goodsValue + shipping + additionalTaxPayable + estimatedDuty
+    const landedCostMoney = afterDiscountMoney
+      .add(selectedShippingMoney)
+      .add(additionalTaxMoney)
+      .add(estimatedDutiesMoney);
 
     // 10. Payment Method Eligibility Synthesis
     const availablePaymentMethods = await this.paymentPolicy.getPublicAvailableMethods({
@@ -819,6 +977,7 @@ class CheckoutQuoteService {
         country: CountryRegistry.getCountry(destinationCountry).name,
         phone: parsedPhone ? parsedPhone.e164 : (normalizedAddress.phone || '')
       },
+      destinationPostalFingerprint: CheckoutQuoteService.hashPostalCode(normalizedAddress.postalCode),
       currency: targetCurrency,
       items: pricedItems,
       itemsHash,
@@ -853,12 +1012,32 @@ class CheckoutQuoteService {
       },
       taxesAndDuties: {
         taxType: taxDutyResult.taxType,
+        taxTreatment: taxDutyResult.taxTreatment,
+        taxableBasis: taxDutyResult.taxableBasis,
         taxRatePercent: taxDutyResult.taxRatePercent,
         taxAmount: taxDutyResult.taxAmount,
         taxAmountExact: MoneyMapper.toJSON(taxDutyResult.taxAmountExact),
+        additionalTaxAmount: taxDutyResult.additionalTaxAmount,
+        additionalTaxAmountExact: MoneyMapper.toJSON(taxDutyResult.additionalTaxAmountExact),
+        taxIncludedAmount: taxDutyResult.taxIncludedAmount,
+        taxIncludedAmountExact: MoneyMapper.toJSON(taxDutyResult.taxIncludedAmountExact),
         dutyRatePercent: taxDutyResult.dutyRatePercent,
-        dutyAmount: taxDutyResult.dutyAmount,
-        dutyAmountExact: MoneyMapper.toJSON(taxDutyResult.dutyAmountExact),
+        estimatedDutyAmount: taxDutyResult.estimatedDutyAmount,
+        estimatedDutyExact: MoneyMapper.toJSON(taxDutyResult.estimatedDutyExact),
+        payableDutyAmount: taxDutyResult.payableDutyAmount,
+        payableDutyExact: MoneyMapper.toJSON(taxDutyResult.payableDutyExact),
+        dutyAmount: taxDutyResult.payableDutyAmount,
+        dutyAmountExact: MoneyMapper.toJSON(taxDutyResult.payableDutyExact),
+        goodsValue: taxDutyResult.goodsValue,
+        goodsValueExact: MoneyMapper.toJSON(taxDutyResult.goodsValueExact),
+        customsValue: taxDutyResult.customsValue,
+        customsValueExact: MoneyMapper.toJSON(taxDutyResult.customsValueExact),
+        cifValue: taxDutyResult.cifValue,
+        cifValueExact: MoneyMapper.toJSON(taxDutyResult.cifValueExact),
+        customsValueIncludesShipping: taxDutyResult.customsValueIncludesShipping,
+        customsValueIncludesInsurance: taxDutyResult.customsValueIncludesInsurance,
+        dutyDeMinimis: taxDutyResult.dutyDeMinimis,
+        taxDeMinimis: taxDutyResult.taxDeMinimis,
         incoterm: taxDutyResult.incoterm,
         provenance: taxDutyResult.provenance
       },
@@ -871,8 +1050,16 @@ class CheckoutQuoteService {
         shippingExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(selectedShippingMoney)),
         tax: Number(taxMoney.toDecimalString()),
         taxExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(taxMoney)),
+        additionalTax: Number(additionalTaxMoney.toDecimalString()),
+        additionalTaxExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(additionalTaxMoney)),
+        taxIncluded: Number(taxIncludedMoney.toDecimalString()),
+        taxIncludedExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(taxIncludedMoney)),
         duties: Number(payableDutiesMoney.toDecimalString()),
         dutiesExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(payableDutiesMoney)),
+        estimatedDuties: Number(estimatedDutiesMoney.toDecimalString()),
+        estimatedDutiesExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(estimatedDutiesMoney)),
+        landedCost: Number(landedCostMoney.toDecimalString()),
+        landedCostExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(landedCostMoney)),
         grandTotal: Number(grandTotalMoney.toDecimalString()),
         grandTotalExact: MoneyMapper.toJSON(MoneyMapper.toPersistence(grandTotalMoney))
       },
@@ -918,7 +1105,7 @@ class CheckoutQuoteService {
       throw new AppError('Quote token is required', 400, 'QUOTE_REQUIRED');
     }
 
-    if (quoteToken.length > 4096) {
+    if (quoteToken.length > 32768) {
       throw new AppError('Quote token exceeds maximum allowed size', 400, 'QUOTE_MALFORMED');
     }
 
@@ -1013,7 +1200,21 @@ class CheckoutQuoteService {
 
     return true;
   }
+
+  normalizePostalCode(postalCode) {
+    return CheckoutQuoteService.normalizePostalCode(postalCode);
+  }
+
+  hashPostalCode(shippingAddress) {
+    return CheckoutQuoteService.hashPostalCode(shippingAddress);
+  }
 }
 
-module.exports = new CheckoutQuoteService();
+const defaultInstance = new CheckoutQuoteService();
+defaultInstance.CheckoutQuoteService = CheckoutQuoteService;
+defaultInstance.normalizePostalCode = CheckoutQuoteService.normalizePostalCode;
+defaultInstance.hashPostalCode = CheckoutQuoteService.hashPostalCode;
+defaultInstance.hashItems = CheckoutQuoteService.hashItems;
+
+module.exports = defaultInstance;
 module.exports.CheckoutQuoteService = CheckoutQuoteService;

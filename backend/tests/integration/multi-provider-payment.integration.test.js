@@ -6,6 +6,8 @@ const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
 const Session = require('../../models/Session');
 const AuditLog = require('../../models/AuditLog');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 
 let sequence = 0;
 
@@ -85,6 +87,15 @@ describe('P2.2 multi-provider payment flows', () => {
       Order.syncIndexes(),
       Payment.syncIndexes()
     ]);
+  });
+
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
+  });
+
+  afterAll(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   test('availability API exposes only available methods and no secrets', async () => {

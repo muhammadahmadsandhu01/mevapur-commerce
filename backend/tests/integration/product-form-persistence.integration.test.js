@@ -9,6 +9,8 @@ const Category = require('../../models/Category');
 const MediaAsset = require('../../models/MediaAsset');
 const SkuRegistry = require('../../models/SkuRegistry');
 const InventoryTransaction = require('../../models/InventoryTransaction');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 
 let sequence = 0;
 
@@ -48,9 +50,13 @@ describe('Product Form Persistence & Public Allowlist Protection Integration Tes
 
   afterAll(async () => {
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
+
     adminToken = await getAuthToken('admin');
     customerToken = await getAuthToken('customer');
 
@@ -613,6 +619,14 @@ describe('Product Form Persistence & Public Allowlist Protection Integration Tes
       expect(updateRes.body.data.product.name).toBe('Hydrated Edit Updated');
       expect(updateRes.body.data.product.costPrice).toBe(500);
       expect(updateRes.body.data.product.stock).toBe(30);
+    });
+
+    it('fails closed with 503 MARKET_CONFIGURATION_UNAVAILABLE when configuration is absent', async () => {
+      await CommerceConfigurationVersion.deleteMany({});
+      const res = await request(app).get('/api/products');
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message || res.body.error).toMatch(/No active commerce configuration|MARKET_CONFIGURATION_UNAVAILABLE/i);
     });
   });
 });

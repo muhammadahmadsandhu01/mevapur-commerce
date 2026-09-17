@@ -4,6 +4,8 @@ const app = require('../../app');
 const Product = require('../../models/Product');
 const Category = require('../../models/Category');
 const Brand = require('../../models/Brand');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 
 describe('Public Products Catalog Integration Tests', () => {
   let prevCompat;
@@ -14,6 +16,7 @@ describe('Public Products Catalog Integration Tests', () => {
 
   afterAll(async () => {
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   let publishedProduct;
@@ -24,6 +27,9 @@ describe('Public Products Catalog Integration Tests', () => {
   let testBrand;
 
   beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
+
     testCategory = await Category.create({
       name: `Public Cat ${Date.now()}-${Math.random()}`,
       slug: `pub-cat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
@@ -159,5 +165,13 @@ describe('Public Products Catalog Integration Tests', () => {
     rec.body.data.forEach(item => {
       expect(item.isActive).toBe(true);
     });
+  });
+
+  it('fails closed with 503 MARKET_CONFIGURATION_UNAVAILABLE when commerce configuration is absent', async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    const response = await request(app).get('/api/products');
+    expect(response.status).toBe(503);
+    expect(response.body.success).toBe(false);
+    expect(response.body.message || response.body.error).toMatch(/No active commerce configuration|MARKET_CONFIGURATION_UNAVAILABLE/i);
   });
 });

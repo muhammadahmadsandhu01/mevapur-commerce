@@ -11,15 +11,6 @@ const MarketConfig = require('../models/MarketConfig');
 const { RolloutAuthority } = require('../modules/commerce');
 const { AppError } = require('../common/errors/AppError');
 
-/**
- * Named Compatibility Gate for legacy domestic COD.
- * Strictly defaults to false in staging/production.
- * Removal boundary: Phase 7 / Legacy Deprecation.
- */
-function isLegacyDomesticCODCompatibilityEnabled() {
-  return process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY === 'true';
-}
-
 class MarketService {
   /**
    * Resolves effective market configuration. Prefers active CommerceConfigurationVersion.
@@ -58,29 +49,6 @@ class MarketService {
         isGovernedVersion: true,
         activeVersionDoc: activeVersion
       };
-    }
-
-    // Check explicit named legacy compatibility gate
-    if (isLegacyDomesticCODCompatibilityEnabled()) {
-      let legacy = await MarketConfig.findOne({ key: merchantScopeId }) || await MarketConfig.findOne({ key: 'default' });
-      if (!legacy && (merchantScopeId === 'default' || !merchantScopeId)) {
-        try {
-          legacy = await MarketConfig.create({ key: 'default' });
-        } catch (err) {
-          if (err.code === 11000) {
-            legacy = await MarketConfig.findOne({ key: 'default' });
-          } else {
-            throw err;
-          }
-        }
-      }
-      if (legacy) {
-        return {
-          ...legacy.toObject(),
-          isGovernedVersion: false,
-          configVersionId: 'legacy-fallback'
-        };
-      }
     }
 
     // Fail closed: No active governed configuration found

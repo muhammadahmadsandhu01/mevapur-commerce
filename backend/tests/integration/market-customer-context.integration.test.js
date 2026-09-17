@@ -108,8 +108,41 @@ describe('Market Customer Context Integration Tests', () => {
           enabled: true
         }
       ],
-      taxRules: []
+      taxRules: [
+        {
+          ruleId: 'TAX-PK-DOMESTIC',
+          name: 'Pakistan Domestic Tax Rule',
+          destinationCountry: 'PK',
+          destinationSubdivision: '',
+          taxType: 'GST',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 10000,
+          dutyRateNumerator: 0,
+          dutyRateDenominator: 10000,
+          roundingMode: 'HALF_UP',
+          roundingScope: 'subtotal',
+          incoterm: 'DOMESTIC',
+          priority: 10,
+          requiresTax: false,
+          requiresDuty: false,
+          customsValueIncludesShipping: false,
+          customsValueIncludesInsurance: false,
+          dutyRefundPolicy: 'REFUNDABLE',
+          taxRefundPolicy: 'REFUNDABLE',
+          providerType: 'MANUAL_GOVERNED',
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          sourceAuthority: 'STATUTE',
+          sourceReference: 'DEFAULT-DOMESTIC-TAX-2026',
+          enabled: true
+        }
+      ]
     });
+  });
+
+  afterAll(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   describe('1. Registration Country Requirements', () => {

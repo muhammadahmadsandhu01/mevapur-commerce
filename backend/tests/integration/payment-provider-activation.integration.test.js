@@ -6,6 +6,8 @@ const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
 const Session = require('../../models/Session');
 const MerchantPaymentAccount = require('../../models/MerchantPaymentAccount');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 const StripeProvider = require('../../modules/payments/providers/stripe/StripeProvider');
 const { MoneyMapper } = require('../../modules/commerce');
 
@@ -85,10 +87,19 @@ describe('Phase 5A: Payment Provider Activation & Governance Integration', () =>
     ]);
   });
 
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
+  });
+
   afterEach(async () => {
     delete process.env.STRIPE_SECRET_KEY;
     StripeProvider.resetClientForTests();
     await MerchantPaymentAccount.deleteMany({});
+  });
+
+  afterAll(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   describe('1. Public Discovery Privacy', () => {

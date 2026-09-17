@@ -11,14 +11,56 @@ const Order = require('../../../models/Order');
 const Product = require('../../../models/Product');
 const Payment = require('../../../models/Payment');
 const Refund = require('../../../models/Refund');
+const CommerceConfigurationVersion = require('../../../models/CommerceConfigurationVersion');
 const { CurrencyRegistry } = require('../../../modules/commerce');
 
 describe('Phase 4C Defect Closures (DEF-28 through DEF-32)', () => {
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      effectiveTo: null,
+      lockVersion: 1,
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        enabledCountries: ['PK', 'AE', 'GB', 'US'],
+        enabledCurrencies: ['PKR', 'AED', 'GBP', 'USD'],
+        sellingMode: 'hybrid',
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC', 'DDP', 'DAP'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-main',
+            name: 'Main Pakistan Warehouse',
+            country: 'PK',
+            subdivision: 'IS',
+            city: 'Islamabad',
+            postalCode: '44000',
+            line1: 'Industrial Area',
+            timeZone: 'Asia/Karachi',
+            isDefault: true,
+            enabled: true
+          }
+        ]
+      },
+      shippingRules: [],
+      taxRules: []
+    });
+  });
+
   afterEach(async () => {
     await Order.deleteMany({});
     await Product.deleteMany({});
     await Payment.deleteMany({});
     await Refund.deleteMany({});
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   describe('DEF-28: Financial metrics partition revenue by currency under byCurrency and never combine different currencies', () => {
@@ -400,14 +442,6 @@ const MarketService = require('../../../services/MarketService');
   });
 
   describe('DEF-31: CurrencyRegistry validity is separated from MarketConfig and provider capabilities', () => {
-    beforeAll(() => {
-      process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY = 'true';
-    });
-
-    afterAll(() => {
-      delete process.env.ALLOW_LEGACY_DOMESTIC_COD_COMPATIBILITY;
-    });
-
     it('distinguishes VALID_COMMERCE_CURRENCIES from provider-specific capabilities', () => {
       expect(Array.isArray(VALID_COMMERCE_CURRENCIES)).toBe(true);
       expect(VALID_COMMERCE_CURRENCIES.length).toBeGreaterThan(100);

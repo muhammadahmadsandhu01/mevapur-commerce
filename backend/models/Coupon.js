@@ -19,6 +19,8 @@ if (mongoose.models.Coupon) {
       required: true
     },
     value: { type: Number, required: true, min: 0 },
+    rateNumerator: { type: Number, default: null, min: 0 },
+    rateDenominator: { type: Number, default: null, min: 1 },
     valueExact: { type: MoneySchema, default: null },
     minOrderAmount: { type: Number, default: 0, min: 0 },
     minOrderAmountExact: { type: MoneySchema, default: null },

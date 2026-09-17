@@ -292,6 +292,18 @@ class OrderService {
       }
       const weightGrams = parsedWeight;
 
+      const dangerousGoodsClassification = variant?.dangerousGoodsClassification
+        || product.dangerousGoodsClassification
+        || 'UNKNOWN';
+
+      const declaredValueEligibility = variant?.declaredValueEligibility
+        || product.declaredValueEligibility
+        || 'UNKNOWN';
+
+      const hsCode = variant?.hsClassification?.code || product.hsClassification?.code || null;
+      const countryOfOrigin = variant?.countryOfOrigin || product.countryOfOrigin || null;
+      const customsDescription = variant?.customsDescription || product.customsDescription || product.shortDescription || product.name;
+
       resolved.push({
         product: product._id,
         variantId: variant?._id || null,
@@ -305,6 +317,11 @@ class OrderService {
         lineTotal,
         lineTotalExact,
         weightGrams: weightGrams * item.quantity,
+        dangerousGoodsClassification,
+        declaredValueEligibility,
+        hsCode,
+        countryOfOrigin,
+        customsDescription,
         image: variant?.images?.[0]
           || product.primaryImage
           || product.images?.[0]
@@ -537,13 +554,20 @@ class OrderService {
             if (verifiedQuote.destinationCountry !== destinationCountry) {
               throw new AppError('Order destination country does not match quote', 409, 'QUOTE_DESTINATION_MISMATCH');
             }
+            if (verifiedQuote.destinationSubdivision !== undefined && verifiedQuote.destinationSubdivision !== (normalizedAddress.administrativeArea || '').trim().toUpperCase()) {
+              throw new AppError('Order destination subdivision does not match quote', 409, 'QUOTE_DESTINATION_MISMATCH');
+            }
+            const computedPostalFingerprint = CheckoutQuoteService.hashPostalCode(normalizedAddress.postalCode);
+            if (verifiedQuote.destinationPostalFingerprint !== undefined && verifiedQuote.destinationPostalFingerprint !== computedPostalFingerprint) {
+              throw new AppError('Order destination postal code does not match quote', 409, 'QUOTE_DESTINATION_MISMATCH');
+            }
             if (verifiedQuote.currency !== currency) {
               throw new AppError('Order currency does not match quote', 409, 'QUOTE_CURRENCY_MISMATCH');
             }
             if (verifiedQuote.merchantCountry !== merchantCountry) {
               throw new AppError('Order merchant context does not match quote', 409, 'QUOTE_MERCHANT_MISMATCH');
             }
-            if (verifiedQuote.configVersionId && verifiedQuote.configVersionId !== 'legacy-fallback') {
+            if (verifiedQuote.configVersionId) {
               const isAcceptable = await CommerceConfigurationService.isVersionOrderAcceptable(
                 verifiedQuote.configVersionId.replace(/^v/, ''),
                 verifiedQuote.merchantScopeId || 'default'
@@ -606,12 +630,32 @@ class OrderService {
           );
           const currentItemsHash = CheckoutQuoteService.hashItems(pricedItems);
 
-          if (verifiedQuote && verifiedQuote.itemsHash !== currentItemsHash) {
-            throw new AppError(
-              'Order cart items, quantities, or prices have changed since quote issuance',
-              409,
-              'QUOTE_ITEMS_MISMATCH'
-            );
+          if (verifiedQuote) {
+            if (verifiedQuote.itemsHash !== currentItemsHash) {
+              throw new AppError(
+                'Order cart items, quantities, or prices have changed since quote issuance',
+                409,
+                'QUOTE_ITEMS_MISMATCH'
+              );
+            }
+            if (Array.isArray(verifiedQuote.customsItems)) {
+              for (const item of pricedItems) {
+                const match = verifiedQuote.customsItems.find(
+                  (c) => c.productId === String(item.product) && (c.variantId || null) === (item.variantId ? String(item.variantId) : null)
+                );
+                if (match) {
+                  if (
+                    match.hsCode !== (item.hsCode || null) ||
+                    match.countryOfOrigin !== (item.countryOfOrigin || null) ||
+                    match.declaredValueEligibility !== (item.declaredValueEligibility || 'UNKNOWN') ||
+                    match.dangerousGoodsClassification !== (item.dangerousGoodsClassification || 'UNKNOWN') ||
+                    Number(match.weightGrams) !== Number(item.weightGrams || 0)
+                  ) {
+                    throw new AppError('Product customs metadata has changed since quote issuance', 409, 'QUOTE_CUSTOMS_METADATA_MISMATCH');
+                  }
+                }
+              }
+            }
           }
 
           const subtotal = this.roundMoney(
@@ -628,9 +672,13 @@ class OrderService {
             currency,
             session
           });
-          const afterDiscount = this.roundMoney(
-            Math.max(0, subtotal - coupon.discountAmount)
-          );
+
+          const subtotalMoney = Money.fromLegacyNumber(subtotal, currency);
+          const discountMoney = Money.fromLegacyNumber(coupon.discountAmount || 0, currency);
+          const afterDiscountMoney = subtotalMoney.amountMinor > discountMoney.amountMinor
+            ? subtotalMoney.subtract(discountMoney)
+            : Money.zero(currency);
+          const afterDiscount = Number(afterDiscountMoney.toDecimalString());
 
           // 5. Calculate Shipping
           const activeConfig = market.activeVersionDoc || await CommerceConfigurationService.getActiveConfiguration();
@@ -646,7 +694,7 @@ class OrderService {
             countryCode: destinationCountry,
             originCountry: fulfillmentOrigin,
             currency,
-            subtotalMoney: MoneyMapper.fromLegacy(afterDiscount, currency),
+            subtotalMoney: afterDiscountMoney,
             city: normalizedAddress.locality,
             region: normalizedAddress.administrativeArea,
             postalCode: normalizedAddress.postalCode,
@@ -656,40 +704,145 @@ class OrderService {
             configVersionId: activeConfig?.version ? `v${activeConfig.version}` : undefined
           });
           const shippingCost = coupon.freeShipping && shippingServiceLevel === 'standard' ? 0 : shippingQuote.shippingAmount;
+          const shippingCostMoney = Money.fromLegacyNumber(shippingCost || 0, currency);
 
           // 6. Calculate Tax & Duties (Landed Cost)
           const taxDutyResult = TaxDutyEngine.calculate({
             destinationCountry,
             originCountry: fulfillmentOrigin,
             administrativeArea: normalizedAddress.administrativeArea,
-            taxableSubtotal: MoneyMapper.fromLegacy(afterDiscount, currency),
-            shippingAmount: MoneyMapper.fromLegacy(shippingCost, currency),
+            goodsValue: afterDiscountMoney,
+            taxableSubtotal: afterDiscountMoney,
+            shippingAmount: shippingCostMoney,
+            insuranceAmount: Money.zero(currency),
+            insuranceProvenance: 'NO_INSURANCE_CHARGE',
             currency,
             taxRules,
-            configVersionId: activeConfig?.version ? `v${activeConfig.version}` : undefined
+            configVersionId: activeConfig?.version ? `v${activeConfig.version}` : undefined,
+            merchantScopeId: verifiedQuote?.merchantScopeId || market.merchantScopeId || 'default'
           });
 
+          const taxMoney = MoneyMapper.toMoney(taxDutyResult.taxAmountExact);
+          const additionalTaxMoney = MoneyMapper.toMoney(taxDutyResult.additionalTaxAmountExact);
+          const taxIncludedMoney = MoneyMapper.toMoney(taxDutyResult.taxIncludedAmountExact);
+          const payableDutyMoney = MoneyMapper.toMoney(taxDutyResult.payableDutyExact);
+          const estimatedDutyMoney = MoneyMapper.toMoney(taxDutyResult.estimatedDutyExact);
+
           const taxAmount = taxDutyResult.taxAmount;
-          const dutyAmount = taxDutyResult.incoterm === 'DDP' ? taxDutyResult.dutyAmount : 0;
-          const totalAmount = this.roundMoney(
-            afterDiscount + shippingCost + taxAmount + dutyAmount
-          );
+          const dutyAmount = taxDutyResult.payableDutyAmount;
+          const estimatedDutyAmount = taxDutyResult.estimatedDutyAmount;
+
+          // Requirements 1 & 2:
+          // Exclusive: checkoutGrandTotal = goodsValue + shipping + additionalTaxPayable + payableDuty
+          // Inclusive: checkoutGrandTotal = goodsValue + shipping + 0 + payableDuty
+          const totalAmountMoney = afterDiscountMoney
+            .add(shippingCostMoney)
+            .add(additionalTaxMoney)
+            .add(payableDutyMoney);
+
+          const totalAmount = Number(totalAmountMoney.toDecimalString());
+          const totalAmountExact = MoneyMapper.toPersistence(totalAmountMoney);
 
           // 7. Exact Money Snapshots
-          const subtotalExact = MoneyMapper.fromLegacy(subtotal, currency);
-          const discountExact = MoneyMapper.fromLegacy(coupon.discountAmount, currency);
-          const shippingCostExact = MoneyMapper.fromLegacy(shippingCost, currency);
-          const taxAmountExact = MoneyMapper.fromLegacy(taxAmount, currency);
-          const dutiesExact = MoneyMapper.fromLegacy(dutyAmount, currency);
-          const totalAmountExact = MoneyMapper.fromLegacy(totalAmount, currency);
+          const subtotalExact = MoneyMapper.toPersistence(subtotalMoney);
+          const discountExact = MoneyMapper.toPersistence(discountMoney);
+          const shippingCostExact = MoneyMapper.toPersistence(shippingCostMoney);
+          const taxAmountExact = MoneyMapper.toPersistence(taxMoney);
+          const additionalTaxAmountExact = MoneyMapper.toPersistence(additionalTaxMoney);
+          const taxIncludedAmountExact = MoneyMapper.toPersistence(taxIncludedMoney);
+          const dutiesExact = MoneyMapper.toPersistence(payableDutyMoney);
+          const estimatedDutiesExact = MoneyMapper.toPersistence(estimatedDutyMoney);
+          const goodsValueExact = MoneyMapper.toPersistence(afterDiscountMoney);
 
-          // 8. Authoritatively Reconcile Exact Totals against Quote
+          // 8. Authoritatively Reconcile Exact Totals and Provenance against Quote
           if (verifiedQuote) {
+            if (verifiedQuote.taxRuleId && verifiedQuote.taxRuleId !== taxDutyResult.provenance.ruleId) {
+              throw new AppError('Tax governance rule has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxRulePriority !== undefined && Number(verifiedQuote.taxRulePriority) !== Number(taxDutyResult.provenance.priority)) {
+              throw new AppError('Tax rule priority has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxType && verifiedQuote.taxType !== taxDutyResult.taxType) {
+              throw new AppError('Tax type has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxTreatment && verifiedQuote.taxTreatment.toLowerCase() !== taxDutyResult.taxTreatment.toLowerCase()) {
+              throw new AppError('Tax treatment has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxableBasis && verifiedQuote.taxableBasis !== taxDutyResult.taxableBasis) {
+              throw new AppError('Taxable basis has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxRateNumerator !== undefined && Number(verifiedQuote.taxRateNumerator) !== Number(taxDutyResult.provenance.taxRateNumerator)) {
+              throw new AppError('Tax rate numerator has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxRateDenominator !== undefined && Number(verifiedQuote.taxRateDenominator) !== Number(taxDutyResult.provenance.taxRateDenominator)) {
+              throw new AppError('Tax rate denominator has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.dutyRateNumerator !== undefined && Number(verifiedQuote.dutyRateNumerator) !== Number(taxDutyResult.provenance.dutyRateNumerator)) {
+              throw new AppError('Duty rate numerator has changed since quote issuance', 409, 'QUOTE_DUTY_RULE_MISMATCH');
+            }
+            if (verifiedQuote.dutyRateDenominator !== undefined && Number(verifiedQuote.dutyRateDenominator) !== Number(taxDutyResult.provenance.dutyRateDenominator)) {
+              throw new AppError('Duty rate denominator has changed since quote issuance', 409, 'QUOTE_DUTY_RULE_MISMATCH');
+            }
+            if (verifiedQuote.roundingMode && verifiedQuote.roundingMode !== taxDutyResult.provenance.roundingMode) {
+              throw new AppError('Tax rounding mode has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.roundingScope && verifiedQuote.roundingScope !== taxDutyResult.provenance.roundingScope) {
+              throw new AppError('Tax rounding scope has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.providerType && verifiedQuote.providerType !== taxDutyResult.provenance.providerType) {
+              throw new AppError('Tax provider type has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.sourceAuthority && verifiedQuote.sourceAuthority !== taxDutyResult.provenance.sourceAuthority) {
+              throw new AppError('Tax source authority has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.sourceReference && verifiedQuote.sourceReference !== taxDutyResult.provenance.sourceReference) {
+              throw new AppError('Tax source reference has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.verificationStatus && verifiedQuote.verificationStatus !== taxDutyResult.provenance.verificationStatus) {
+              throw new AppError('Tax verification status has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.dutyRefundPolicy !== undefined && verifiedQuote.dutyRefundPolicy !== (taxDutyResult.provenance.dutyRefundPolicy || null)) {
+              throw new AppError('Duty refund policy has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.taxRefundPolicy !== undefined && verifiedQuote.taxRefundPolicy !== (taxDutyResult.provenance.taxRefundPolicy || null)) {
+              throw new AppError('Tax refund policy has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.customsValueIncludesShipping !== undefined && Boolean(verifiedQuote.customsValueIncludesShipping) !== Boolean(taxDutyResult.customsValueIncludesShipping)) {
+              throw new AppError('Customs value inclusion rules have changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.customsValueIncludesInsurance !== undefined && Boolean(verifiedQuote.customsValueIncludesInsurance) !== Boolean(taxDutyResult.customsValueIncludesInsurance)) {
+              throw new AppError('Customs value insurance inclusion rules have changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.insuranceProvenance && verifiedQuote.insuranceProvenance !== taxDutyResult.provenance.insuranceProvenance) {
+              throw new AppError('Insurance provenance has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+            if (verifiedQuote.insuranceAmountMinor !== undefined && verifiedQuote.insuranceAmountMinor !== (taxDutyResult.provenance.insuranceAmountExact?.amountMinor || 0).toString()) {
+              throw new AppError('Insurance amount has changed since quote issuance', 409, 'QUOTE_TAX_RULE_MISMATCH');
+            }
+
+            // Complete De-Minimis Reconciliations
+            if (verifiedQuote.dutyDeMinimis && taxDutyResult.dutyDeMinimis) {
+              const matches = TaxDutyEngine.compareDeMinimisDecisions(verifiedQuote.dutyDeMinimis, taxDutyResult.dutyDeMinimis);
+              if (!matches) {
+                throw new AppError('Customs duty de-minimis decision has changed since quote issuance', 409, 'QUOTE_DEMINIMIS_MISMATCH');
+              }
+            }
+            if (verifiedQuote.taxDeMinimis && taxDutyResult.taxDeMinimis) {
+              const matches = TaxDutyEngine.compareDeMinimisDecisions(verifiedQuote.taxDeMinimis, taxDutyResult.taxDeMinimis);
+              if (!matches) {
+                throw new AppError('Import tax de-minimis decision has changed since quote issuance', 409, 'QUOTE_DEMINIMIS_MISMATCH');
+              }
+            }
+
+            // Amounts reconciliation
             if (verifiedQuote.grandTotalMinor !== totalAmountExact.amountMinor.toString()) {
               throw new AppError('Order payable total does not match authoritative quote total', 409, 'QUOTE_TOTAL_MISMATCH');
             }
             if (verifiedQuote.subtotalMinor !== subtotalExact.amountMinor.toString()) {
               throw new AppError('Order subtotal does not match authoritative quote subtotal', 409, 'QUOTE_SUBTOTAL_MISMATCH');
+            }
+            if (verifiedQuote.discountMinor !== undefined && verifiedQuote.discountMinor !== discountExact.amountMinor.toString()) {
+              throw new AppError('Order discount does not match authoritative quote discount', 409, 'QUOTE_DISCOUNT_MISMATCH');
             }
             if (verifiedQuote.shippingMinor !== shippingCostExact.amountMinor.toString()) {
               throw new AppError('Order shipping amount does not match authoritative quote shipping', 409, 'QUOTE_SHIPPING_MISMATCH');
@@ -697,7 +850,22 @@ class OrderService {
             if (verifiedQuote.taxMinor !== taxAmountExact.amountMinor.toString()) {
               throw new AppError('Order tax amount does not match authoritative quote tax', 409, 'QUOTE_TAX_MISMATCH');
             }
-            if (verifiedQuote.dutyMinor !== dutiesExact.amountMinor.toString()) {
+            if (verifiedQuote.additionalTaxMinor !== undefined && verifiedQuote.additionalTaxMinor !== additionalTaxAmountExact.amountMinor.toString()) {
+              throw new AppError('Order additional tax amount does not match authoritative quote', 409, 'QUOTE_TAX_MISMATCH');
+            }
+            if (verifiedQuote.taxIncludedMinor !== undefined && verifiedQuote.taxIncludedMinor !== taxIncludedAmountExact.amountMinor.toString()) {
+              throw new AppError('Order tax included amount does not match authoritative quote', 409, 'QUOTE_TAX_MISMATCH');
+            }
+            if (verifiedQuote.goodsValueMinor !== undefined && verifiedQuote.goodsValueMinor !== goodsValueExact.amountMinor.toString()) {
+              throw new AppError('Order goods value does not match authoritative quote', 409, 'QUOTE_GOODS_VALUE_MISMATCH');
+            }
+            if (verifiedQuote.estimatedDutyMinor && verifiedQuote.estimatedDutyMinor !== estimatedDutiesExact.amountMinor.toString()) {
+              throw new AppError('Order estimated duty amount does not match authoritative quote', 409, 'QUOTE_DUTY_MISMATCH');
+            }
+            if (verifiedQuote.payableDutyMinor && verifiedQuote.payableDutyMinor !== dutiesExact.amountMinor.toString()) {
+              throw new AppError('Order payable duty amount does not match authoritative quote', 409, 'QUOTE_DUTY_MISMATCH');
+            }
+            if (verifiedQuote.dutyMinor && verifiedQuote.dutyMinor !== dutiesExact.amountMinor.toString()) {
               throw new AppError('Order duty amount does not match authoritative quote duty', 409, 'QUOTE_DUTY_MISMATCH');
             }
           }
@@ -771,6 +939,36 @@ class OrderService {
               issuedAt: verifiedQuote.issuedAt,
               expiresAt: verifiedQuote.expiresAt
             } : undefined,
+            taxesAndDuties: {
+              taxType: taxDutyResult.taxType,
+              taxTreatment: taxDutyResult.taxTreatment,
+              taxableBasis: taxDutyResult.taxableBasis,
+              taxRatePercent: taxDutyResult.taxRatePercent,
+              taxAmount: taxDutyResult.taxAmount,
+              taxAmountExact: taxAmountExact,
+              additionalTaxAmount: taxDutyResult.additionalTaxAmount,
+              additionalTaxAmountExact: additionalTaxAmountExact,
+              taxIncludedAmount: taxDutyResult.taxIncludedAmount,
+              taxIncludedAmountExact: taxIncludedAmountExact,
+              goodsValue: taxDutyResult.goodsValue,
+              goodsValueExact: goodsValueExact,
+              customsValue: taxDutyResult.customsValue,
+              customsValueExact: taxDutyResult.customsValueExact,
+              cifValue: taxDutyResult.cifValue,
+              cifValueExact: taxDutyResult.cifValueExact,
+              customsValueIncludesShipping: taxDutyResult.customsValueIncludesShipping,
+              customsValueIncludesInsurance: taxDutyResult.customsValueIncludesInsurance,
+              dutyRatePercent: taxDutyResult.dutyRatePercent,
+              estimatedDutyAmount: taxDutyResult.estimatedDutyAmount,
+              estimatedDutyExact: estimatedDutiesExact,
+              payableDutyAmount: taxDutyResult.payableDutyAmount,
+              payableDutyExact: dutiesExact,
+              dutyDeMinimis: taxDutyResult.dutyDeMinimis,
+              taxDeMinimis: taxDutyResult.taxDeMinimis,
+              incoterm: taxDutyResult.incoterm,
+              provenance: taxDutyResult.provenance,
+              customsItems: verifiedQuote?.customsItems || undefined
+            },
             payment: {
               provider: paymentManifest.displayName,
               currency,

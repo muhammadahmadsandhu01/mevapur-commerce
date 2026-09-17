@@ -428,6 +428,17 @@ describe('Phase 5A: PaymentCapabilityPolicy & Provider Governance', () => {
               webhookVerification: 'unverified'
             });
           }
+          if (query.provider === 'cod') {
+            return Promise.resolve({
+              provider: 'cod',
+              environment: 'sandbox',
+              isEnabled: true,
+              merchantCountry: 'PK',
+              settlementCurrency: 'PKR',
+              supportedCurrencies: ['PKR'],
+              supportedCountries: ['PK']
+            });
+          }
           return Promise.resolve(null);
         })
       };

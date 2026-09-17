@@ -20,6 +20,7 @@ const MarketPriceBook = require('../../models/MarketPriceBook');
 const FulfillmentLocation = require('../../models/FulfillmentLocation');
 const InventoryPosition = require('../../models/InventoryPosition');
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 const { MoneyMapper } = require('../../modules/commerce');
 
 /**
@@ -305,6 +306,12 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
 
   afterAll(async () => {
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+    await CommerceConfigurationVersion.deleteMany({});
+  });
+
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
   });
 
   test('1. Admin publishes product -> Storefront retrieves it; Admin unpublishes -> Storefront hides it (Persisted DB State Verified)', async () => {

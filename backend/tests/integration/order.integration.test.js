@@ -191,10 +191,19 @@ const createProduct = async (overrides = {}) => {
 
 const createCoupon = async (overrides = {}) => {
   sequence += 1;
+  const valNum = overrides.value !== undefined ? overrides.value : 25;
+  const type = overrides.type || 'fixed';
+  const valExact = overrides.valueExact || (type === 'fixed' ? MoneyMapper.fromLegacy(valNum, 'PKR') : undefined);
+  const rateNum = overrides.rateNumerator !== undefined ? overrides.rateNumerator : (type === 'percentage' ? valNum : undefined);
+  const rateDen = overrides.rateDenominator !== undefined ? overrides.rateDenominator : (type === 'percentage' ? 100 : undefined);
+
   return Coupon.create({
     code: `ORDER${sequence}`,
-    type: 'fixed',
-    value: 25,
+    type,
+    value: valNum,
+    valueExact: valExact,
+    rateNumerator: rateNum,
+    rateDenominator: rateDen,
     minOrderAmount: 0,
     maxDiscount: 0,
     usageLimit: 0,

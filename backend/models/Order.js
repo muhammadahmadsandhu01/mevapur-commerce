@@ -120,6 +120,65 @@ const statusHistorySchema = new mongoose.Schema({
   note: { type: String, default: '', maxlength: 500 }
 }, { _id: false });
 
+const deMinimisDecisionSchema = new mongoose.Schema({
+  configured: { type: Boolean, default: false },
+  thresholdExact: { type: MoneySchema, default: null },
+  basisType: { type: String, default: null },
+  basisAmountExact: { type: MoneySchema, default: null },
+  comparison: {
+    type: String,
+    enum: ['LT', 'LTE', 'BELOW_OR_EQUAL_DEMINIMIS', 'ABOVE_DEMINIMIS', 'NOT_APPLICABLE', null],
+    default: null
+  },
+  exempt: { type: Boolean, default: false },
+  reasonCode: { type: String, default: null }
+}, { _id: false });
+
+const taxProvenanceSchema = new mongoose.Schema({
+  ruleId: { type: String, default: null },
+  priority: { type: Number, default: 100 },
+  taxType: { type: String, default: null },
+  taxTreatment: { type: String, default: null },
+  taxableBasis: { type: String, default: null },
+  taxRateNumerator: { type: Number, default: 0 },
+  taxRateDenominator: { type: Number, default: 10000 },
+  dutyRateNumerator: { type: Number, default: 0 },
+  dutyRateDenominator: { type: Number, default: 10000 },
+  roundingMode: { type: String, default: 'HALF_UP' },
+  roundingScope: { type: String, default: 'subtotal' },
+  incoterm: { type: String, default: null },
+  providerType: { type: String, default: 'MANUAL_GOVERNED' },
+  sourceAuthority: { type: String, default: null },
+  sourceReference: { type: String, default: null },
+  verificationStatus: { type: String, default: 'VERIFIED_LEGAL_RULE' },
+  dutyRefundPolicy: { type: String, default: null },
+  taxRefundPolicy: { type: String, default: null },
+  customsValueIncludesShipping: { type: Boolean, default: false },
+  customsValueIncludesInsurance: { type: Boolean, default: false },
+  insuranceAmountExact: { type: MoneySchema, default: null },
+  insuranceProvenance: {
+    type: String,
+    enum: ['NO_INSURANCE_CHARGE', 'EXPLICIT_INSURANCE_CHARGE', null],
+    default: null
+  },
+  calculatedAt: { type: String, default: null }
+}, { _id: false });
+
+const customsItemSnapshotSchema = new mongoose.Schema({
+  productId: { type: String, default: null },
+  variantId: { type: String, default: null },
+  quantity: { type: Number, default: 1 },
+  hsCode: { type: String, default: null },
+  countryOfOrigin: { type: String, default: null },
+  customsDescription: { type: String, default: '' },
+  declaredValueEligibility: { type: String, default: 'UNKNOWN' },
+  dangerousGoodsClassification: { type: String, default: 'UNKNOWN' },
+  weightGrams: { type: Number, default: 0 },
+  itemValueExact: { type: MoneySchema, default: null },
+  dutyAmountExact: { type: MoneySchema, default: null },
+  taxAmountExact: { type: MoneySchema, default: null }
+}, { _id: false });
+
 const orderSchema = new mongoose.Schema({
   orderId: {
     type: String,
@@ -300,6 +359,36 @@ const orderSchema = new mongoose.Schema({
     merchantScopeId: { type: String, default: 'default', trim: true, maxlength: 64 },
     issuedAt: { type: String, default: null },
     expiresAt: { type: String, default: null }
+  },
+  taxesAndDuties: {
+    taxType: { type: String, default: null },
+    taxTreatment: { type: String, default: null },
+    taxableBasis: { type: String, default: null },
+    taxRatePercent: { type: Number, default: 0 },
+    taxAmount: { type: Number, default: 0 },
+    taxAmountExact: { type: MoneySchema, default: null },
+    additionalTaxAmount: { type: Number, default: 0 },
+    additionalTaxAmountExact: { type: MoneySchema, default: null },
+    taxIncludedAmount: { type: Number, default: 0 },
+    taxIncludedAmountExact: { type: MoneySchema, default: null },
+    goodsValue: { type: Number, default: 0 },
+    goodsValueExact: { type: MoneySchema, default: null },
+    customsValue: { type: Number, default: 0 },
+    customsValueExact: { type: MoneySchema, default: null },
+    cifValue: { type: Number, default: 0 },
+    cifValueExact: { type: MoneySchema, default: null },
+    customsValueIncludesShipping: { type: Boolean, default: false },
+    customsValueIncludesInsurance: { type: Boolean, default: false },
+    dutyRatePercent: { type: Number, default: 0 },
+    estimatedDutyAmount: { type: Number, default: 0 },
+    estimatedDutyExact: { type: MoneySchema, default: null },
+    payableDutyAmount: { type: Number, default: 0 },
+    payableDutyExact: { type: MoneySchema, default: null },
+    dutyDeMinimis: { type: deMinimisDecisionSchema, default: null },
+    taxDeMinimis: { type: deMinimisDecisionSchema, default: null },
+    incoterm: { type: String, default: null },
+    provenance: { type: taxProvenanceSchema, default: null },
+    customsItems: { type: [customsItemSnapshotSchema], default: undefined }
   },
   taxAmount: { type: Number, default: 0, min: 0 },
   taxAmountExact: { type: MoneySchema, default: null },

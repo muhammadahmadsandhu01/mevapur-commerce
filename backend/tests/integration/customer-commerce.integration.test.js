@@ -13,6 +13,8 @@ const Notification = require('../../models/Notification');
 const Coupon = require('../../models/Coupon');
 const Wishlist = require('../../models/Wishlist');
 const Category = require('../../models/Category');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 
 let sequence = 0;
 const auth = async (role = 'customer') => { sequence += 1; const user = await global.createTestUser({ email: `customer-${sequence}-${Date.now()}@example.test`, role }); const session = await Session.create({ user: user._id, refreshTokenHash: crypto.randomBytes(32).toString('hex'), tokenFamilyId: crypto.randomUUID(), isActive: true, isRevoked: false, expiresAt: new Date(Date.now() + 3600000) }); return { user, authorization: `Bearer ${TokenService.generateAccessToken({ userId: user._id, sessionId: session._id, tokenVersion: user.tokenVersion })}` }; };
@@ -39,6 +41,16 @@ const order = async (user, item, status = 'Delivered') => Order.create({ user: u
 
 describe('P6B customer commerce ownership contracts', () => {
   beforeAll(async () => { await Promise.all([Wishlist.syncIndexes(), Review.syncIndexes(), Return.syncIndexes(), Refund.syncIndexes(), Coupon.syncIndexes()]); });
+  afterAll(async () => { await CommerceConfigurationVersion.deleteMany({}); });
+  beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration({
+      merchantProfile: {
+        enabledCountries: ['PK'],
+        enabledCurrencies: ['PKR']
+      }
+    });
+  });
   test('profiles and addresses are owner-scoped, validated and market-eligible', async () => {
     const [first, second] = await Promise.all([auth(), auth()]);
     expect((await request(app).get('/api/account/profile').set('Authorization', first.authorization)).status).toBe(200);
@@ -143,7 +155,7 @@ describe('P6B customer commerce ownership contracts', () => {
     const notifications = await request(app).get('/api/account/notifications').set('Authorization', first.authorization); const id = notifications.body.data.notifications[0]._id; expect((await request(app).put(`/api/account/notifications/${id}/read`).set('Authorization', first.authorization)).status).toBe(200); expect((await request(app).put(`/api/account/notifications/${id}/read`).set('Authorization', second.authorization)).status).toBe(404);
   });
   test('coupon preview gives server feedback while final order authority remains separate', async () => {
-    await Coupon.create({ code: 'P6B10', type: 'percentage', value: 10, minOrderAmount: 50, startDate: new Date(Date.now() - 1000), endDate: new Date(Date.now() + 86400000), isActive: true });
+    await Coupon.create({ code: 'P6B10', type: 'percentage', value: 10, rateNumerator: 10, rateDenominator: 100, minOrderAmount: 50, startDate: new Date(Date.now() - 1000), endDate: new Date(Date.now() + 86400000), isActive: true });
     expect((await request(app).post('/api/coupons/validate').send({ code: 'P6B10', subtotal: 100 })).body.data.discountAmount).toBe(10);
     expect((await request(app).post('/api/coupons/validate').send({ code: 'P6B10', subtotal: 10 })).status).toBe(400);
   });

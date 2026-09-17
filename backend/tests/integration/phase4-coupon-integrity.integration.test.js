@@ -11,6 +11,8 @@ const Category = require('../../models/Category');
 const CouponService = require('../../services/order/CouponService');
 const OrderService = require('../../services/order/OrderService');
 
+const { MoneyMapper } = require('../../modules/commerce');
+
 let sequence = 0;
 let defaultCategory = null;
 const getOrCreateCouponCategory = async () => {
@@ -100,6 +102,8 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
             code,
             type: 'percentage',
             value: 15,
+            rateNumerator: 15,
+            rateDenominator: 100,
             startDate: new Date(Date.now() - 3600000),
             endDate: new Date(Date.now() + 86400000)
           });
@@ -117,6 +121,7 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         code: `DRAFT-${Date.now()}`,
         type: 'fixed',
         value: 100,
+        valueExact: MoneyMapper.fromLegacy(100, 'PKR'),
         status: 'draft',
         startDate: new Date(Date.now() - 3600000),
         endDate: new Date(Date.now() + 86400000)
@@ -144,7 +149,10 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         code: 'SAVE20',
         type: 'percentage',
         value: 20,
+        rateNumerator: 20,
+        rateDenominator: 100,
         maxDiscount: 150,
+        maxDiscountExact: MoneyMapper.fromLegacy(150, 'PKR'),
         status: 'active',
         startDate: new Date(Date.now() - 3600000),
         endDate: new Date(Date.now() + 86400000)
@@ -177,6 +185,7 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         code: 'EXPIRED10',
         type: 'fixed',
         value: 100,
+        valueExact: MoneyMapper.fromLegacy(100, 'PKR'),
         status: 'active',
         startDate: new Date(Date.now() - 7200000),
         endDate: new Date(Date.now() - 3600000)
@@ -196,7 +205,8 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
       const coupon = await Coupon.create({
         code: 'BIGDISCOUNT500',
         type: 'fixed',
-        value: 500, // Exceeds product price of 300
+        value: 500,
+        valueExact: MoneyMapper.fromLegacy(500, 'PKR'),
         status: 'active',
         startDate: new Date(Date.now() - 3600000),
         endDate: new Date(Date.now() + 86400000)
@@ -224,6 +234,8 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         code: 'LEDGER25',
         type: 'percentage',
         value: 25,
+        rateNumerator: 25,
+        rateDenominator: 100,
         status: 'active',
         usedCount: 0,
         perCustomerLimit: 1,
@@ -307,6 +319,8 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         code: 'LOCKED10',
         type: 'percentage',
         value: 10,
+        rateNumerator: 10,
+        rateDenominator: 100,
         usedCount: 3, // Already used in 3 orders
         status: 'active',
         startDate: new Date(Date.now() - 3600000),
@@ -330,6 +344,7 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         code: 'VERSION10',
         type: 'fixed',
         value: 100,
+        valueExact: MoneyMapper.fromLegacy(100, 'PKR'),
         status: 'active',
         startDate: new Date(Date.now() - 3600000),
         endDate: new Date(Date.now() + 86400000)
@@ -341,11 +356,80 @@ describe('Phase 4: Coupon Integrity, Durable Ledger & Checkout Integration', () 
         .set('Authorization', adminToken)
         .send({
           value: 150,
+          valueExact: MoneyMapper.fromLegacy(150, 'PKR'),
           __v: 99
         });
 
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('VERSION_CONFLICT');
+    });
+  });
+
+  describe('Canonical Exact-Money / Rational Negative Proofs', () => {
+    test('percentage coupon with only legacy value fails closed with COUPON_EXACT_VALUE_REQUIRED', () => {
+      const legacyCoupon = {
+        code: 'LEGACY-PCT',
+        type: 'percentage',
+        value: 15
+        // rateNumerator and rateDenominator missing
+      };
+      expect(() => {
+        CouponService.calculateDiscount({
+          coupon: legacyCoupon,
+          items: [{ product: new mongoose.Types.ObjectId(), lineTotal: 1000 }],
+          subtotal: 1000
+        });
+      }).toThrow(/COUPON_EXACT_VALUE_REQUIRED|Percentage coupon requires canonical integer rateNumerator/i);
+    });
+
+    test('fixed coupon with only legacy value fails closed with COUPON_EXACT_VALUE_REQUIRED', () => {
+      const legacyCoupon = {
+        code: 'LEGACY-FIXED',
+        type: 'fixed',
+        value: 100
+        // valueExact missing
+      };
+      expect(() => {
+        CouponService.calculateDiscount({
+          coupon: legacyCoupon,
+          items: [{ product: new mongoose.Types.ObjectId(), lineTotal: 1000 }],
+          subtotal: 1000
+        });
+      }).toThrow(/COUPON_EXACT_VALUE_REQUIRED|Fixed coupon requires canonical valueExact/i);
+    });
+
+    test('percentage coupon with non-positive denominator fails closed', () => {
+      const invalidCoupon = {
+        code: 'INVALID-DENOM',
+        type: 'percentage',
+        value: 15,
+        rateNumerator: 15,
+        rateDenominator: 0
+      };
+      expect(() => {
+        CouponService.calculateDiscount({
+          coupon: invalidCoupon,
+          items: [{ product: new mongoose.Types.ObjectId(), lineTotal: 1000 }],
+          subtotal: 1000
+        });
+      }).toThrow(/COUPON_EXACT_VALUE_REQUIRED|positive rateDenominator/i);
+    });
+
+    test('fixed coupon with currency mismatch fails closed', () => {
+      const usdCoupon = {
+        code: 'USD-FIXED',
+        type: 'fixed',
+        value: 10,
+        valueExact: MoneyMapper.fromLegacy(10, 'USD')
+      };
+      expect(() => {
+        CouponService.calculateDiscount({
+          coupon: usdCoupon,
+          items: [{ product: new mongoose.Types.ObjectId(), lineTotal: 1000 }],
+          subtotal: 1000,
+          currency: 'PKR'
+        });
+      }).toThrow(/COUPON_CURRENCY_MISMATCH|does not match order currency/i);
     });
   });
 });

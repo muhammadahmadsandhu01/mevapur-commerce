@@ -18,7 +18,11 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       taxRateNumerator: 0,
       taxRateDenominator: 100,
       requiresTax: false,
-      incoterm: 'DOMESTIC'
+      incoterm: 'DOMESTIC',
+      providerType: 'MANUAL_GOVERNED',
+      verificationStatus: 'VERIFIED_LEGAL_RULE',
+      sourceAuthority: 'FBR_STATUTE',
+      sourceReference: 'FBR-GST-01'
     }
   ];
 
@@ -34,7 +38,11 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       requiresDuty: true,
       dutyRateNumerator: 5,
       dutyRateDenominator: 100,
-      incoterm: 'DDP'
+      incoterm: 'DDP',
+      providerType: 'MANUAL_GOVERNED',
+      verificationStatus: 'VERIFIED_LEGAL_RULE',
+      sourceAuthority: 'UAE_FTA',
+      sourceReference: 'FTA-VAT-2026'
     }
   ];
 
@@ -50,7 +58,51 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       requiresDuty: true,
       dutyRateNumerator: 25,
       dutyRateDenominator: 1000,
-      incoterm: 'DDP'
+      incoterm: 'DDP',
+      providerType: 'MANUAL_GOVERNED',
+      verificationStatus: 'VERIFIED_LEGAL_RULE',
+      sourceAuthority: 'HMRC',
+      sourceReference: 'HMRC-VAT-2026'
+    }
+  ];
+
+  const TEST_KW_FIXTURE = [
+    {
+      ruleId: 'TAX-KW-01',
+      destinationCountry: 'KW',
+      taxType: 'VAT',
+      taxTreatment: 'exclusive',
+      taxRateNumerator: 5,
+      taxRateDenominator: 100,
+      requiresTax: true,
+      requiresDuty: true,
+      dutyRateNumerator: 5,
+      dutyRateDenominator: 100,
+      incoterm: 'DDP',
+      providerType: 'MANUAL_GOVERNED',
+      verificationStatus: 'VERIFIED_LEGAL_RULE',
+      sourceAuthority: 'KW_MOF',
+      sourceReference: 'MOF-KW-2026'
+    }
+  ];
+
+  const TEST_JP_FIXTURE = [
+    {
+      ruleId: 'TAX-JP-01',
+      destinationCountry: 'JP',
+      taxType: 'CONSUMPTION_TAX',
+      taxTreatment: 'exclusive',
+      taxRateNumerator: 10,
+      taxRateDenominator: 100,
+      requiresTax: true,
+      requiresDuty: false,
+      dutyRateNumerator: 0,
+      dutyRateDenominator: 100,
+      incoterm: 'DAP',
+      providerType: 'MANUAL_GOVERNED',
+      verificationStatus: 'VERIFIED_LEGAL_RULE',
+      sourceAuthority: 'NTA_JAPAN',
+      sourceReference: 'NTA-JCT-2026'
     }
   ];
 
@@ -124,15 +176,7 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       const subtotal = Money.fromDecimal('10.000', 'KWD');
       const shipping = Money.fromDecimal('2.000', 'KWD');
 
-      const customEngine = new TaxDutyEngine.TaxDutyEngine({
-        KW: {
-          taxType: 'VAT',
-          standardRatePercent: 5.0,
-          requiresTax: true,
-          dutyPercent: 5.0,
-          incoterm: 'DDP'
-        }
-      });
+      const customEngine = new TaxDutyEngine.TaxDutyEngine(TEST_KW_FIXTURE);
 
       const result = customEngine.calculate({
         destinationCountry: 'KW',
@@ -154,15 +198,7 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
       const subtotal = Money.fromDecimal('10000', 'JPY');
       const shipping = Money.fromDecimal('1500', 'JPY');
 
-      const customEngine = new TaxDutyEngine.TaxDutyEngine({
-        JP: {
-          taxType: 'CONSUMPTION_TAX',
-          standardRatePercent: 10.0,
-          requiresTax: true,
-          dutyPercent: 0,
-          incoterm: 'DAP'
-        }
-      });
+      const customEngine = new TaxDutyEngine.TaxDutyEngine(TEST_JP_FIXTURE);
 
       const result = customEngine.calculate({
         destinationCountry: 'JP',
@@ -363,7 +399,7 @@ describe('Phase 6A: Unit Tests — Global Checkout Eligibility & Quote Engines',
     });
 
     test('2.7 Rejects oversized quote tokens', () => {
-      const hugeToken = 'A'.repeat(5000);
+      const hugeToken = 'A'.repeat(40000);
       expect(() => CheckoutQuoteService.verifyAndDecodeQuoteToken(hugeToken)).toThrow(/size|malformed/i);
     });
 

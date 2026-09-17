@@ -23,6 +23,8 @@ const PaymentWebhookEvent = require('../../models/PaymentWebhookEvent');
 const MerchantPaymentAccount = require('../../models/MerchantPaymentAccount');
 const AuditLog = require('../../models/AuditLog');
 const Session = require('../../models/Session');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 const { Money, MoneyMapper } = require('../../modules/commerce');
 const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
 
@@ -153,6 +155,9 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
     capturedIntents = new Map();
     canceledIntents = new Map();
     let intentSeq = 0;
+
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
 
     await MerchantPaymentAccount.create({
       provider: 'stripe',
@@ -1269,5 +1274,9 @@ describe('Phase 5D: Payment Security, Provider Conformance & Operational Observa
       expect(curMismatchResult.eligible).toBe(false);
       expect(curMismatchResult.reason).toBe('PAYMENT_CURRENCY_UNSUPPORTED');
     });
+  });
+
+  afterAll(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
   });
 });

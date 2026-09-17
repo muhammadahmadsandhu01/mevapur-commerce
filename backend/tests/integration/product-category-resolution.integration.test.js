@@ -5,6 +5,8 @@ const app = require('../../app');
 const Product = require('../../models/Product');
 const Category = require('../../models/Category');
 const Order = require('../../models/Order');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 const { ORDER_STATUSES } = require('../../constants/orderConstants');
 const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
 
@@ -17,6 +19,7 @@ describe('DEF-04: Enterprise Category Identity & Product/SKU Resolution Integrat
 
   afterAll(async () => {
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   let activeCategory1;
@@ -31,6 +34,9 @@ describe('DEF-04: Enterprise Category Identity & Product/SKU Resolution Integrat
   let archivedItem;
 
   beforeEach(async () => {
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
+
     adminUser = await global.createTestUser({
       email: `admin-cat-${Date.now()}-${Math.random()}@example.test`,
       role: 'admin'
@@ -442,6 +448,14 @@ describe('DEF-04: Enterprise Category Identity & Product/SKU Resolution Integrat
       expect(categories.length).toBe(3);
       expect(categories[0]._id).toBeDefined();
       expect(categories[0].slug).toBeDefined();
+    });
+
+    it('32. Public category filtering fails closed with 503 MARKET_CONFIGURATION_UNAVAILABLE when configuration is absent', async () => {
+      await CommerceConfigurationVersion.deleteMany({});
+      const res = await request(app).get(`/api/products?category=${activeCategory1._id}`);
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message || res.body.error).toMatch(/No active commerce configuration|MARKET_CONFIGURATION_UNAVAILABLE/i);
     });
   });
 });

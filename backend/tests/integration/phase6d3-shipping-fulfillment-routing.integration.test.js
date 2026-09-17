@@ -857,7 +857,7 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
         isActive: true,
         countryOfOrigin: 'AE',
         sku: `SAFFRON-${Date.now()}`,
-        customsTariff: {
+        hsClassification: {
           code: '091020',
           systemVersion: 'HS_2022',
           jurisdiction: 'WCO'

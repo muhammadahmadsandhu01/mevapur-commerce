@@ -13,6 +13,8 @@ const Category = require('../../models/Category');
 const Order = require('../../models/Order');
 const InventoryTransaction = require('../../models/InventoryTransaction');
 const Session = require('../../models/Session');
+const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
+const { createGovernedCommerceConfiguration } = require('../helpers/commerceFixtureHelper');
 const TokenService = require('../../services/TokenService');
 const MediaService = require('../../services/media/MediaService');
 const { MockStorageProvider } = require('../../services/media/StorageProvider');
@@ -72,6 +74,7 @@ describe('Phase 3C-3A: Media Lifecycle, Storage Reconciliation & Irreversible De
 
   afterAll(async () => {
     process.env.ALLOW_LEGACY_HOME_MARKET_OFFERING_COMPATIBILITY = prevCompat;
+    await CommerceConfigurationVersion.deleteMany({});
   });
 
   let mockStorage;
@@ -85,6 +88,9 @@ describe('Phase 3C-3A: Media Lifecycle, Storage Reconciliation & Irreversible De
     sequence += 1;
     mockStorage = new MockStorageProvider();
     MediaService.storageProvider = mockStorage;
+
+    await CommerceConfigurationVersion.deleteMany({});
+    await createGovernedCommerceConfiguration();
 
     adminUser = await global.createTestUser({
       email: `media-admin-${sequence}@example.test`,
