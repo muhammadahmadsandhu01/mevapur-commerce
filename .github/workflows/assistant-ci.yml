@@ -120,6 +120,10 @@ jobs:
           node --test tests/phase6cAdminGovernance.test.mts
           npx --no-install vitest run tests/phase6cAdminGovernance.dom.test.tsx
 
+      - name: Run Admin Phase 6D-3 Shipping Governance Tests
+        working-directory: admin-panel
+        run: npm run test:phase6d3
+
       - name: Build Admin Panel Application
         working-directory: admin-panel
         env:
