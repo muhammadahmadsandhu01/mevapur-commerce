@@ -7,12 +7,31 @@
 
 const CommerceConfigurationService = require('../services/commerce/CommerceConfigurationService');
 const AuditService = require('../services/AuditService');
+const { AppError } = require('../common/errors/AppError');
+
+/**
+ * Resolves authenticated merchantScopeId strictly failing closed.
+ * Never silently falls back to 'default'.
+ * @param {Object} req
+ * @returns {string}
+ */
+function resolveAuthenticatedMerchantScope(req) {
+  const scope = req.user?.merchantScopeId;
+  if (!scope || typeof scope !== 'string' || !scope.trim()) {
+    throw new AppError(
+      'Authenticated merchant scope is required for commerce governance operations',
+      403,
+      'MERCHANT_SCOPE_REQUIRED'
+    );
+  }
+  return scope.trim();
+}
 
 class CommerceGovernanceController {
   async listVersions(req, res, next) {
     try {
       const { page = 1, limit = 20, status } = req.query;
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const result = await CommerceConfigurationService.listVersions({
         merchantScopeId,
         page,
@@ -28,7 +47,7 @@ class CommerceGovernanceController {
   async getVersion(req, res, next) {
     try {
       const { id } = req.params;
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const version = await CommerceConfigurationService.getVersionById(id, { merchantScopeId });
       res.json({ success: true, data: { version } });
     } catch (error) {
@@ -39,7 +58,7 @@ class CommerceGovernanceController {
   async createDraft(req, res, next) {
     try {
       const { sourceVersionId, merchantProfile, shippingRules, taxRules, changeNotes } = req.body;
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const authorId = req.user?._id;
 
       const draft = await CommerceConfigurationService.createDraft({
@@ -75,7 +94,7 @@ class CommerceGovernanceController {
     try {
       const { id } = req.params;
       const { expectedLockVersion, merchantProfile, shippingRules, taxRules, effectiveFrom, effectiveTo, changeNotes } = req.body;
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const authorId = req.user?._id;
 
       const updated = await CommerceConfigurationService.updateDraft({
@@ -111,7 +130,7 @@ class CommerceGovernanceController {
   async validateDraft(req, res, next) {
     try {
       const { id } = req.params;
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const validatorId = req.user?._id;
 
       const result = await CommerceConfigurationService.validateDraft({
@@ -146,7 +165,7 @@ class CommerceGovernanceController {
     try {
       const { id } = req.params;
       const { effectiveFrom } = req.body || {};
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const activatorId = req.user?._id;
 
       const activated = await CommerceConfigurationService.scheduleOrActivateVersion({
@@ -182,7 +201,7 @@ class CommerceGovernanceController {
     try {
       const { id } = req.params;
       const { reason, isEmergency } = req.body || {};
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const retireId = req.user?._id;
 
       const retired = await CommerceConfigurationService.retireVersion({
@@ -219,7 +238,7 @@ class CommerceGovernanceController {
   async previewQuote(req, res, next) {
     try {
       const { configId, destination, items, currency, couponCode, shippingServiceLevel } = req.body;
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const preview = await CommerceConfigurationService.previewQuote({
         configId,
         merchantScopeId,
@@ -238,7 +257,7 @@ class CommerceGovernanceController {
 
   async getReadiness(req, res, next) {
     try {
-      const merchantScopeId = req.user?.merchantScopeId || 'default';
+      const merchantScopeId = resolveAuthenticatedMerchantScope(req);
       const readiness = await CommerceConfigurationService.getReadinessStatus({ merchantScopeId });
       res.json({ success: true, data: readiness });
     } catch (error) {
@@ -248,3 +267,4 @@ class CommerceGovernanceController {
 }
 
 module.exports = new CommerceGovernanceController();
+module.exports.resolveAuthenticatedMerchantScope = resolveAuthenticatedMerchantScope;

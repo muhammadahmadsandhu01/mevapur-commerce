@@ -72,8 +72,11 @@ class CommerceConfigurationService {
    * @param {Object} params
    * @returns {Promise<Object>}
    */
-  async listVersions({ merchantScopeId = 'default', page = 1, limit = 20, status = null } = {}) {
-    const scope = (merchantScopeId || 'default').trim();
+  async listVersions({ merchantScopeId = null, page = 1, limit = 20, status = null } = {}) {
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
     const query = { merchantScopeId: scope };
     if (status) query.status = status;
 
@@ -102,11 +105,16 @@ class CommerceConfigurationService {
   /**
    * Get version by ID or version number.
    * @param {string|number} id
-   * @param {Object} [options]
+   * @param {Object} options
+   * @param {string} options.merchantScopeId
    * @returns {Promise<CommerceConfigurationVersion>}
    */
   async getVersionById(id, { merchantScopeId = null } = {}) {
-    let query = {};
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for configuration lookup', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
+    let query = { merchantScopeId: scope };
     if (mongoose.isObjectIdOrHexString(id)) {
       query._id = id;
     } else {
@@ -115,10 +123,6 @@ class CommerceConfigurationService {
         throw new AppError('Invalid configuration version identifier', 400, 'INVALID_VERSION_IDENTIFIER');
       }
       query.version = vNum;
-    }
-
-    if (merchantScopeId) {
-      query.merchantScopeId = merchantScopeId.trim();
     }
 
     const doc = await CommerceConfigurationVersion.findOne(query);
@@ -134,12 +138,15 @@ class CommerceConfigurationService {
    * @returns {Promise<CommerceConfigurationVersion>}
    */
   async createDraft({
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     sourceVersionId = null,
     initialData = {},
     authorId = null
   } = {}) {
-    const scope = (merchantScopeId || 'default').trim();
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
 
     let templateProfile = initialData.merchantProfile || {
       merchantCountry: 'PK',
@@ -203,12 +210,15 @@ class CommerceConfigurationService {
    */
   async updateDraft({
     id,
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     updates = {},
     expectedLockVersion = null,
     authorId = null
   }) {
-    const scope = (merchantScopeId || 'default').trim();
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for draft update', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
     const draft = await this.getVersionById(id, { merchantScopeId: scope });
 
     if (draft.status !== 'draft') {
@@ -251,8 +261,11 @@ class CommerceConfigurationService {
    * @param {Object} params
    * @returns {Promise<Object>}
    */
-  async validateDraft({ id, merchantScopeId = 'default', validatorId = null }) {
-    const scope = (merchantScopeId || 'default').trim();
+  async validateDraft({ id, merchantScopeId = null, validatorId = null }) {
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for draft validation', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
     const doc = await this.getVersionById(id, { merchantScopeId: scope });
 
     if (doc.status !== 'draft' && doc.status !== 'validated') {
@@ -302,17 +315,20 @@ class CommerceConfigurationService {
    */
   async scheduleOrActivateVersion({
     id,
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     activatorId = null,
     effectiveFrom = null
   }) {
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for version activation', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
     const session = await mongoose.startSession();
 
     try {
       let result;
       await session.withTransaction(async () => {
         // 1. Query target version document inside the transaction strictly scoped
-        const scope = (merchantScopeId || 'default').trim();
         let query = { merchantScopeId: scope };
         if (mongoose.isObjectIdOrHexString(id)) {
           query._id = id;
@@ -442,17 +458,20 @@ class CommerceConfigurationService {
    */
   async retireVersion({
     id,
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     retireId = null,
     reason = '',
     isEmergency = false
   }) {
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for version retirement', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
     const session = await mongoose.startSession();
 
     try {
       let result;
       await session.withTransaction(async () => {
-        const scope = (merchantScopeId || 'default').trim();
         let query = { merchantScopeId: scope };
         if (mongoose.isObjectIdOrHexString(id)) {
           query._id = id;
@@ -514,14 +533,18 @@ class CommerceConfigurationService {
    */
   async previewQuote({
     configId,
-    merchantScopeId = 'default',
+    merchantScopeId = null,
     destination,
     items,
     currency = null,
     couponCode = null,
     shippingServiceLevel = 'standard'
   }) {
-    const config = await this.getVersionById(configId, { merchantScopeId });
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for quote preview', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
+    const config = await this.getVersionById(configId, { merchantScopeId: scope });
 
     if (!destination || !destination.countryCode) {
       throw new AppError('Destination countryCode is required for preview', 400, 'DESTINATION_REQUIRED');
@@ -651,8 +674,11 @@ class CommerceConfigurationService {
    * @param {Object} [params]
    * @returns {Promise<Object>}
    */
-  async getReadinessStatus({ merchantScopeId = 'default' } = {}) {
-    const scope = (merchantScopeId || 'default').trim();
+  async getReadinessStatus({ merchantScopeId = null } = {}) {
+    if (!merchantScopeId || typeof merchantScopeId !== 'string' || !merchantScopeId.trim()) {
+      throw new AppError('Merchant scope identifier is required for readiness status', 400, 'MERCHANT_SCOPE_REQUIRED');
+    }
+    const scope = merchantScopeId.trim();
     const active = await this.getActiveConfiguration({ merchantScopeId: scope });
 
     const recentVersions = await CommerceConfigurationVersion.find({ merchantScopeId: scope })

@@ -49,6 +49,7 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
       // First update succeeds
       const updated = await CommerceConfigurationService.updateDraft({
         id: draft._id,
+        merchantScopeId: 'default',
         expectedLockVersion: 1,
         updates: { changeNotes: 'First update' }
       });
@@ -59,6 +60,7 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
       await expect(
         CommerceConfigurationService.updateDraft({
           id: draft._id,
+          merchantScopeId: 'default',
           expectedLockVersion: 1,
           updates: { changeNotes: 'Conflicting stale update' }
         })
@@ -67,12 +69,13 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
 
     it('2.2 Cannot edit published/active configuration version directly', async () => {
       const draft = await CommerceConfigurationService.createDraft({ merchantScopeId: 'default' });
-      await CommerceConfigurationService.validateDraft({ id: draft._id });
-      await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft._id });
+      await CommerceConfigurationService.validateDraft({ id: draft._id, merchantScopeId: 'default' });
+      await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft._id, merchantScopeId: 'default' });
 
       await expect(
         CommerceConfigurationService.updateDraft({
           id: draft._id,
+          merchantScopeId: 'default',
           updates: { changeNotes: 'Attempted edit on active version' }
         })
       ).rejects.toThrow('Cannot edit configuration version in \'active\' status');
@@ -99,7 +102,7 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
         }
       });
 
-      const result = await CommerceConfigurationService.validateDraft({ id: draft._id });
+      const result = await CommerceConfigurationService.validateDraft({ id: draft._id, merchantScopeId: 'default' });
       expect(result.isValid).toBe(false);
       expect(result.errors.some((e) => e.code === 'INVALID_MERCHANT_COUNTRY')).toBe(true);
       expect(result.errors.some((e) => e.code === 'INVALID_BASE_CURRENCY')).toBe(true);
@@ -146,7 +149,7 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
         }
       });
 
-      const result = await CommerceConfigurationService.validateDraft({ id: draft._id });
+      const result = await CommerceConfigurationService.validateDraft({ id: draft._id, merchantScopeId: 'default' });
       expect(result.isValid).toBe(false);
       expect(result.errors.some((e) => e.code === 'EXACTLY_ONE_DEFAULT_ORIGIN_REQUIRED')).toBe(true);
     });
@@ -156,15 +159,15 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
     it('4.1 Activating version 2 supersedes version 1 with quote acceptance grace period', async () => {
       // 1. Create and activate v1
       const draft1 = await CommerceConfigurationService.createDraft({ merchantScopeId: 'default' });
-      await CommerceConfigurationService.validateDraft({ id: draft1._id });
-      const v1 = await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft1._id });
+      await CommerceConfigurationService.validateDraft({ id: draft1._id, merchantScopeId: 'default' });
+      const v1 = await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft1._id, merchantScopeId: 'default' });
       expect(v1.status).toBe('active');
       expect(v1.isOrderAcceptable()).toBe(true);
 
       // 2. Create and activate v2
       const draft2 = await CommerceConfigurationService.createDraft({ merchantScopeId: 'default' });
-      await CommerceConfigurationService.validateDraft({ id: draft2._id });
-      const v2 = await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft2._id });
+      await CommerceConfigurationService.validateDraft({ id: draft2._id, merchantScopeId: 'default' });
+      const v2 = await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft2._id, merchantScopeId: 'default' });
       expect(v2.status).toBe('active');
 
       // 3. Inspect v1 supersession
@@ -183,11 +186,12 @@ describe('Phase 6B: Commerce Configuration Lifecycle & Concurrency', () => {
 
     it('4.2 Emergency revocation immediately invalidates quote acceptability', async () => {
       const draft = await CommerceConfigurationService.createDraft({ merchantScopeId: 'default' });
-      await CommerceConfigurationService.validateDraft({ id: draft._id });
-      await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft._id });
+      await CommerceConfigurationService.validateDraft({ id: draft._id, merchantScopeId: 'default' });
+      await CommerceConfigurationService.scheduleOrActivateVersion({ id: draft._id, merchantScopeId: 'default' });
 
       const retired = await CommerceConfigurationService.retireVersion({
         id: draft._id,
+        merchantScopeId: 'default',
         reason: 'Security incident emergency rollback',
         isEmergency: true
       });

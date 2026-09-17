@@ -10,7 +10,19 @@ const countryCode = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, 'Must be
 const currencyCode = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Must be a 3-letter ISO 4217 currency code');
 
 const moneyExactSchema = z.object({
-  amountMinor: z.union([z.string(), z.number()]),
+  amountMinor: z.union([z.string(), z.number()]).refine((val) => {
+    if (typeof val === 'number') {
+      return Number.isSafeInteger(val) && val >= 0;
+    }
+    const s = String(val).trim();
+    if (!/^\d+$/.test(s)) return false;
+    try {
+      const b = BigInt(s);
+      return b >= 0n && b <= 999999999999999999n;
+    } catch {
+      return false;
+    }
+  }, { message: 'amountMinor must be a non-negative integer up to 18 digits without decimals or scientific notation' }),
   currency: currencyCode,
   exponent: z.number().int().min(0).max(4).optional().default(2)
 }).strict();
@@ -132,6 +144,17 @@ const taxRuleSchema = z.object({
   roundingMode: z.enum(['HALF_UP', 'HALF_EVEN', 'FLOOR', 'CEIL']).optional().default('HALF_UP'),
   roundingScope: z.enum(['subtotal', 'per_item']).optional().default('subtotal'),
   incoterm: z.enum(['DOMESTIC', 'DAP', 'DDP']),
+  priority: z.number().int().min(0).max(10000).optional().default(100),
+  customsDutyDeMinimisExact: moneyExactSchema.nullable().optional(),
+  importTaxDeMinimisExact: moneyExactSchema.nullable().optional(),
+  deMinimisBasis: z.enum(['GOODS_VALUE', 'CUSTOMS_VALUE', 'CIF']).nullable().optional(),
+  deMinimisComparison: z.enum(['LT', 'LTE']).nullable().optional(),
+  customsValueIncludesShipping: z.boolean().optional(),
+  customsValueIncludesInsurance: z.boolean().optional(),
+  dutyRefundPolicy: z.enum(['REFUNDABLE', 'NON_REFUNDABLE', 'MANUAL_REVIEW']).nullable().optional(),
+  taxRefundPolicy: z.enum(['REFUNDABLE', 'NON_REFUNDABLE', 'PROPORTIONAL', 'MANUAL_REVIEW']).nullable().optional(),
+  providerType: z.enum(['MANUAL_GOVERNED', 'EXTERNAL_PROVIDER']).optional().default('MANUAL_GOVERNED'),
+  providerReference: z.string().trim().max(200).nullable().optional(),
   exemptionThresholdExact: moneyExactSchema.nullable().optional(),
   sourceAuthority: z.string().trim().min(1).max(200),
   sourceReference: z.string().trim().min(1).max(200),
@@ -198,5 +221,9 @@ module.exports = {
   updateDraftSchema,
   activateVersionSchema,
   retireVersionSchema,
-  previewQuoteSchema
+  previewQuoteSchema,
+  taxRuleSchema,
+  shippingRuleSchema,
+  merchantProfileSchema,
+  moneyExactSchema
 };

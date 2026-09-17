@@ -7,6 +7,7 @@
 
 const mongoose = require('mongoose');
 const { MoneySchema, CountryRegistry, CurrencyRegistry } = require('../modules/commerce');
+const { validateTaxRulesIntegrity } = require('../validators/taxRuleIntegrityValidator');
 
 const postalCodeRangeSchema = new mongoose.Schema({
   type: {
@@ -136,6 +137,37 @@ const taxRuleSchema = new mongoose.Schema({
     enum: ['DOMESTIC', 'DAP', 'DDP'],
     required: true
   },
+  priority: { type: Number, default: 100, min: 0, max: 10000 },
+  customsDutyDeMinimisExact: { type: MoneySchema, default: null },
+  importTaxDeMinimisExact: { type: MoneySchema, default: null },
+  deMinimisBasis: {
+    type: String,
+    enum: ['GOODS_VALUE', 'CUSTOMS_VALUE', 'CIF'],
+    default: null
+  },
+  deMinimisComparison: {
+    type: String,
+    enum: ['LT', 'LTE'],
+    default: null
+  },
+  customsValueIncludesShipping: { type: Boolean, default: null },
+  customsValueIncludesInsurance: { type: Boolean, default: null },
+  dutyRefundPolicy: {
+    type: String,
+    enum: ['REFUNDABLE', 'NON_REFUNDABLE', 'MANUAL_REVIEW'],
+    default: null
+  },
+  taxRefundPolicy: {
+    type: String,
+    enum: ['REFUNDABLE', 'NON_REFUNDABLE', 'PROPORTIONAL', 'MANUAL_REVIEW'],
+    default: null
+  },
+  providerType: {
+    type: String,
+    enum: ['MANUAL_GOVERNED', 'EXTERNAL_PROVIDER'],
+    default: 'MANUAL_GOVERNED'
+  },
+  providerReference: { type: String, default: null, trim: true, maxlength: 200 },
   exemptionThresholdExact: { type: MoneySchema, default: null },
   sourceAuthority: { type: String, required: true, trim: true, maxlength: 200 },
   sourceReference: { type: String, required: true, trim: true, maxlength: 200 },
@@ -350,6 +382,12 @@ commerceConfigurationVersionSchema.pre('validate', function normalizeMoneyFields
     for (const rule of this.taxRules) {
       if (rule.exemptionThresholdExact && !rule.exemptionThresholdExact.registrySnapshot) {
         rule.exemptionThresholdExact.registrySnapshot = defaultSnapshot;
+      }
+      if (rule.customsDutyDeMinimisExact && !rule.customsDutyDeMinimisExact.registrySnapshot) {
+        rule.customsDutyDeMinimisExact.registrySnapshot = defaultSnapshot;
+      }
+      if (rule.importTaxDeMinimisExact && !rule.importTaxDeMinimisExact.registrySnapshot) {
+        rule.importTaxDeMinimisExact.registrySnapshot = defaultSnapshot;
       }
     }
   }
@@ -707,56 +745,8 @@ commerceConfigurationVersionSchema.methods.validateIntegrity = function validate
   }
 
   // 6. Tax Rules Integrity
-  const taxRules = this.taxRules || [];
-  const taxRuleIds = new Set();
-  const taxRouteMap = new Map();
-
-  for (let i = 0; i < taxRules.length; i++) {
-    const tr = taxRules[i];
-    if (taxRuleIds.has(tr.ruleId)) {
-      errors.push({
-        code: 'DUPLICATE_TAX_RULE_ID',
-        path: `taxRules[${i}].ruleId`,
-        message: `Duplicate tax ruleId '${tr.ruleId}'`
-      });
-    }
-    taxRuleIds.add(tr.ruleId);
-
-    if (!CountryRegistry.hasCountry(tr.destinationCountry)) {
-      errors.push({
-        code: 'INVALID_TAX_DESTINATION_COUNTRY',
-        path: `taxRules[${i}].destinationCountry`,
-        message: `Tax destination country '${tr.destinationCountry}' is invalid`
-      });
-    }
-
-    if (tr.taxRateDenominator <= 0) {
-      errors.push({
-        code: 'INVALID_TAX_DENOMINATOR',
-        path: `taxRules[${i}].taxRateDenominator`,
-        message: 'Tax rate denominator must be a positive integer'
-      });
-    }
-
-    if (tr.dutyRateDenominator <= 0) {
-      errors.push({
-        code: 'INVALID_DUTY_DENOMINATOR',
-        path: `taxRules[${i}].dutyRateDenominator`,
-        message: 'Duty rate denominator must be a positive integer'
-      });
-    }
-
-    const routeKey = `${tr.destinationCountry}:${tr.destinationSubdivision || '*'}:${tr.taxType}`;
-    if (taxRouteMap.has(routeKey)) {
-      errors.push({
-        code: 'AMBIGUOUS_DUPLICATE_TAX_RULE',
-        path: `taxRules[${i}]`,
-        message: `Duplicate tax rule for route '${routeKey}' already defined by rule '${taxRouteMap.get(routeKey)}'`
-      });
-    } else {
-      taxRouteMap.set(routeKey, tr.ruleId);
-    }
-  }
+  const taxErrors = validateTaxRulesIntegrity(this.taxRules, this.merchantProfile);
+  errors.push(...taxErrors);
 
   return errors;
 };
