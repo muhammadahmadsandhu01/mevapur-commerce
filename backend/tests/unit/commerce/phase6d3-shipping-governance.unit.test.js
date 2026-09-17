@@ -348,6 +348,7 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Engine Unit Tests', ()
                 shippingRules: [
                   {
                     ruleId: 'BAD-RULE-1',
+                    serviceCode: 'standard',
                     destinationCountry: 'ZZ', // invalid
                     weightBands: [
                       { minWeightGrams: 5000, maxWeightGrams: 1000 } // inverted

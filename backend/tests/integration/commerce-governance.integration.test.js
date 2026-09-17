@@ -612,6 +612,52 @@ describe('Phase 6B: Commerce Governance Integration & Concurrency Suite', () => 
         });
       expect(p101Res.status).toBe(400);
     });
+
+    it('3.6 Admin Quote Preview performs zero persistent database mutations across all collections and returns authoritative calculated output', async () => {
+      const draftRes = await request(app)
+        .post('/api/commerce/admin/config/draft')
+        .set('Authorization', adminAuth.authorization)
+        .send({
+          shippingRules: [createTestShippingRule('SHIP-ZW-01', 'PK', 'PK')],
+          taxRules: [createTestTaxRule('TAX-ZW-01', 'PK')]
+        });
+      expect(draftRes.status).toBe(201);
+      const draftId = draftRes.body.data.draft._id;
+
+      const collections = mongoose.connection.collections;
+      const countsBefore = {};
+      for (const [name, col] of Object.entries(collections)) {
+        countsBefore[name] = await col.countDocuments({});
+      }
+
+      const prevRes = await request(app)
+        .post('/api/commerce/admin/config/preview')
+        .set('Authorization', adminAuth.authorization)
+        .send({
+          configId: draftId,
+          destination: { countryCode: 'PK' },
+          items: [{ name: 'Test Organic Product', price: 100, quantity: 2, weightGrams: 500 }],
+          currency: 'PKR',
+          shippingServiceLevel: 'standard'
+        });
+
+      expect(prevRes.status).toBe(200);
+      expect(prevRes.body.success).toBe(true);
+      const preview = prevRes.body.data.preview;
+      expect(preview).toBeDefined();
+      expect(preview.destinationCountry).toBe('PK');
+      expect(preview.currency).toBe('PKR');
+      expect(preview.totals.subtotal).toBe(200);
+      expect(preview.totals.grandTotal).toBeGreaterThan(0);
+      expect(preview.appliedRules.shippingRuleId).toBe('SHIP-ZW-01');
+      expect(preview.deliveryEstimate).toBeDefined();
+
+      // Verify ZERO database mutations across all collections (including AuditLog)
+      for (const [name, col] of Object.entries(collections)) {
+        const countAfter = await col.countDocuments({});
+        expect(countAfter).toBe(countsBefore[name]);
+      }
+    });
   });
 
   describe('4. Order Model Legacy Identifier Safety', () => {

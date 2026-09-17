@@ -130,63 +130,397 @@ function findIndexMatch(existingIndexes, targetIndex, targetName = null) {
   }) || null;
 }
 
+function isValidExactMoney(money) {
+  if (!money || typeof money !== 'object') return false;
+  let amountStr = '';
+  if (money.amountMinor != null) {
+    if (typeof money.amountMinor === 'object' && typeof money.amountMinor.toString === 'function') {
+      amountStr = money.amountMinor.toString().trim();
+    } else {
+      amountStr = String(money.amountMinor).trim();
+    }
+  } else {
+    return false;
+  }
+  if (!/^\d+$/.test(amountStr)) return false;
+  if (typeof money.currency !== 'string' || !/^[A-Z]{3}$/.test(money.currency.trim())) return false;
+  if (money.exponent == null || typeof money.exponent !== 'number' || !Number.isInteger(money.exponent) || money.exponent < 0 || money.exponent > 4) return false;
+  return true;
+}
+
 async function inspectPreflightAnomalies(dbOrRules) {
   const anomalies = [];
   let configs = [];
 
   if (Array.isArray(dbOrRules)) {
-    configs = [{ version: 1, shippingRules: dbOrRules }];
+    configs = [{ version: 1, merchantScopeId: 'default', shippingRules: dbOrRules }];
   } else if (dbOrRules && typeof dbOrRules.collection === 'function') {
     const configCol = dbOrRules.collection('commerceconfigurationversions');
     configs = await configCol.find({ status: 'active' }).toArray();
-  } else if (dbOrRules && Array.isArray(dbOrRules.shippingRules)) {
+  } else if (dbOrRules && (Array.isArray(dbOrRules.shippingRules) || dbOrRules.version != null)) {
     configs = [dbOrRules];
   }
 
   for (const cfg of configs) {
+    const merchantScopeId = cfg.merchantScopeId || 'default';
+    const configVersion = cfg.version != null ? cfg.version : 1;
+    const enabledCountries = Array.isArray(cfg.merchantProfile?.enabledCountries) ? cfg.merchantProfile.enabledCountries : null;
+    const enabledCurrencies = Array.isArray(cfg.merchantProfile?.enabledCurrencies) ? new Set(cfg.merchantProfile.enabledCurrencies) : null;
+
+    if (enabledCountries && enabledCountries.length > 0) {
+      const activeRules = (cfg.shippingRules || []).filter((r) => r.enabled !== false);
+      for (const country of enabledCountries) {
+        const hasMatch = activeRules.some((r) => r.destinationCountry === country);
+        if (!hasMatch) {
+          anomalies.push({
+            type: 'MISSING_MATCHING_RULE_FOR_ENABLED_DESTINATION',
+            severity: 'HIGH',
+            merchantScopeId,
+            configVersion,
+            country,
+            message: `Enabled destination country '${country}' has no matching enabled shipping rule`
+          });
+        }
+      }
+    }
+
     const seenRuleIds = new Set();
     for (const rule of (cfg.shippingRules || [])) {
       if (seenRuleIds.has(rule.ruleId)) {
         anomalies.push({
           type: 'DUPLICATE_RULE_ID',
-          configVersion: cfg.version,
-          ruleId: rule.ruleId
+          severity: 'CRITICAL',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          message: `Duplicate rule ID '${rule.ruleId}' in configuration version ${configVersion}`
         });
       }
       seenRuleIds.add(rule.ruleId);
 
-      if (!CountryRegistry.hasCountry(rule.destinationCountry)) {
+      if (!rule.serviceCode || typeof rule.serviceCode !== 'string' || !rule.serviceCode.trim()) {
         anomalies.push({
-          type: 'INVALID_DESTINATION_COUNTRY',
-          configVersion: cfg.version,
+          type: 'MISSING_SERVICE_CODE',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
           ruleId: rule.ruleId,
-          country: rule.destinationCountry
+          message: `Rule '${rule.ruleId}' is missing serviceCode`
         });
       }
+
+      if (!rule.destinationCountry || !CountryRegistry.hasCountry(rule.destinationCountry)) {
+        anomalies.push({
+          type: 'INVALID_DESTINATION_COUNTRY',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          country: rule.destinationCountry,
+          message: `Rule '${rule.ruleId}' has invalid destination country '${rule.destinationCountry}'`
+        });
+      }
+
       if (rule.originCountry && !CountryRegistry.hasCountry(rule.originCountry)) {
         anomalies.push({
           type: 'INVALID_ORIGIN_COUNTRY',
-          configVersion: cfg.version,
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
           ruleId: rule.ruleId,
-          country: rule.originCountry
+          country: rule.originCountry,
+          message: `Rule '${rule.ruleId}' has invalid origin country '${rule.originCountry}'`
+        });
+      }
+
+      // Governed processing cutoff
+      if (rule.processingCutoffLocal != null || rule.enabled) {
+        if (!rule.processingCutoffLocal || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(rule.processingCutoffLocal).trim())) {
+          anomalies.push({
+            type: 'INVALID_PROCESSING_CUTOFF',
+            severity: 'HIGH',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            cutoff: rule.processingCutoffLocal,
+            message: `Rule '${rule.ruleId}' has missing or malformed processingCutoffLocal: '${rule.processingCutoffLocal}'`
+          });
+        }
+      }
+
+      // Governed working days
+      if (rule.workingDays != null || rule.enabled) {
+        if (!Array.isArray(rule.workingDays) || rule.workingDays.length === 0 || rule.workingDays.some((d) => typeof d !== 'number' || !Number.isInteger(d) || d < 1 || d > 7)) {
+          anomalies.push({
+            type: 'INVALID_WORKING_DAYS',
+            severity: 'HIGH',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            workingDays: rule.workingDays,
+            message: `Rule '${rule.ruleId}' has missing or invalid workingDays`
+          });
+        } else if (new Set(rule.workingDays).size !== rule.workingDays.length) {
+          anomalies.push({
+            type: 'DUPLICATE_WORKING_DAYS',
+            severity: 'HIGH',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            workingDays: rule.workingDays,
+            message: `Rule '${rule.ruleId}' contains duplicate workingDays`
+          });
+        }
+      }
+
+      // Processing envelopes
+      if (rule.processingMinBusinessDays != null && (typeof rule.processingMinBusinessDays !== 'number' || !Number.isInteger(rule.processingMinBusinessDays) || rule.processingMinBusinessDays < 0)) {
+        anomalies.push({
+          type: 'INVALID_PROCESSING_MIN_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          days: rule.processingMinBusinessDays,
+          message: `Rule '${rule.ruleId}' has invalid processingMinBusinessDays: ${rule.processingMinBusinessDays}`
+        });
+      }
+      if (rule.processingMaxBusinessDays != null && (typeof rule.processingMaxBusinessDays !== 'number' || !Number.isInteger(rule.processingMaxBusinessDays) || rule.processingMaxBusinessDays < 0)) {
+        anomalies.push({
+          type: 'INVALID_PROCESSING_MAX_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          days: rule.processingMaxBusinessDays,
+          message: `Rule '${rule.ruleId}' has invalid processingMaxBusinessDays: ${rule.processingMaxBusinessDays}`
+        });
+      }
+      if (typeof rule.processingMinBusinessDays === 'number' && typeof rule.processingMaxBusinessDays === 'number' && rule.processingMaxBusinessDays < rule.processingMinBusinessDays) {
+        anomalies.push({
+          type: 'INVERTED_PROCESSING_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          min: rule.processingMinBusinessDays,
+          max: rule.processingMaxBusinessDays,
+          message: `Rule '${rule.ruleId}' has processingMaxBusinessDays (${rule.processingMaxBusinessDays}) < processingMinBusinessDays (${rule.processingMinBusinessDays})`
+        });
+      }
+
+      // Delivery envelopes
+      if (rule.deliveryMinDays != null && (typeof rule.deliveryMinDays !== 'number' || !Number.isInteger(rule.deliveryMinDays) || rule.deliveryMinDays < 0)) {
+        anomalies.push({
+          type: 'INVALID_DELIVERY_MIN_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          days: rule.deliveryMinDays,
+          message: `Rule '${rule.ruleId}' has invalid deliveryMinDays: ${rule.deliveryMinDays}`
+        });
+      }
+      if (rule.deliveryMaxDays != null && (typeof rule.deliveryMaxDays !== 'number' || !Number.isInteger(rule.deliveryMaxDays) || rule.deliveryMaxDays < 0)) {
+        anomalies.push({
+          type: 'INVALID_DELIVERY_MAX_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          days: rule.deliveryMaxDays,
+          message: `Rule '${rule.ruleId}' has invalid deliveryMaxDays: ${rule.deliveryMaxDays}`
         });
       }
       if (rule.deliveryMaxDays != null && rule.deliveryMinDays != null && rule.deliveryMaxDays < rule.deliveryMinDays) {
         anomalies.push({
           type: 'INVERTED_DELIVERY_DAYS',
-          configVersion: cfg.version,
-          ruleId: rule.ruleId
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          min: rule.deliveryMinDays,
+          max: rule.deliveryMaxDays,
+          message: `Rule '${rule.ruleId}' has deliveryMaxDays (${rule.deliveryMaxDays}) < deliveryMinDays (${rule.deliveryMinDays})`
         });
       }
-      for (const band of (rule.weightBands || [])) {
-        if (band.maxWeightGrams <= band.minWeightGrams) {
+
+      // Remote delivery envelopes
+      if (rule.remoteDeliveryMinDays != null && (typeof rule.remoteDeliveryMinDays !== 'number' || !Number.isInteger(rule.remoteDeliveryMinDays) || rule.remoteDeliveryMinDays < 0)) {
+        anomalies.push({
+          type: 'INVALID_REMOTE_DELIVERY_MIN_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          days: rule.remoteDeliveryMinDays,
+          message: `Rule '${rule.ruleId}' has invalid remoteDeliveryMinDays: ${rule.remoteDeliveryMinDays}`
+        });
+      }
+      if (rule.remoteDeliveryMaxDays != null && (typeof rule.remoteDeliveryMaxDays !== 'number' || !Number.isInteger(rule.remoteDeliveryMaxDays) || rule.remoteDeliveryMaxDays < 0)) {
+        anomalies.push({
+          type: 'INVALID_REMOTE_DELIVERY_MAX_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          days: rule.remoteDeliveryMaxDays,
+          message: `Rule '${rule.ruleId}' has invalid remoteDeliveryMaxDays: ${rule.remoteDeliveryMaxDays}`
+        });
+      }
+      if (rule.remoteDeliveryMinDays != null && rule.remoteDeliveryMaxDays != null && rule.remoteDeliveryMaxDays < rule.remoteDeliveryMinDays) {
+        anomalies.push({
+          type: 'INVERTED_REMOTE_DELIVERY_DAYS',
+          severity: 'HIGH',
+          merchantScopeId,
+          configVersion,
+          ruleId: rule.ruleId,
+          min: rule.remoteDeliveryMinDays,
+          max: rule.remoteDeliveryMaxDays,
+          message: `Rule '${rule.ruleId}' has remoteDeliveryMaxDays (${rule.remoteDeliveryMaxDays}) < remoteDeliveryMinDays (${rule.remoteDeliveryMinDays})`
+        });
+      }
+
+      // Exact money checks
+      if (rule.baseRateExact) {
+        if (!isValidExactMoney(rule.baseRateExact)) {
+          anomalies.push({
+            type: 'INVALID_EXACT_MONEY',
+            severity: 'CRITICAL',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            field: 'baseRateExact',
+            message: `Rule '${rule.ruleId}' has invalid baseRateExact exact money structure`
+          });
+        } else if (enabledCurrencies && !enabledCurrencies.has(rule.baseRateExact.currency)) {
+          anomalies.push({
+            type: 'CURRENCY_NOT_ENABLED',
+            severity: 'HIGH',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            currency: rule.baseRateExact.currency,
+            message: `Rule '${rule.ruleId}' uses currency '${rule.baseRateExact.currency}' which is not enabled in merchant profile`
+          });
+        }
+      }
+
+      const remoteMoney = rule.remoteRateExact || rule.remoteSurchargeExact;
+      if (remoteMoney) {
+        if (!isValidExactMoney(remoteMoney)) {
+          anomalies.push({
+            type: 'INVALID_EXACT_MONEY',
+            severity: 'CRITICAL',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            field: 'remoteRateExact',
+            message: `Rule '${rule.ruleId}' has invalid remoteRateExact exact money structure`
+          });
+        } else if (rule.baseRateExact && isValidExactMoney(rule.baseRateExact)) {
+          if (remoteMoney.currency !== rule.baseRateExact.currency || remoteMoney.exponent !== rule.baseRateExact.exponent) {
+            anomalies.push({
+              type: 'MONEY_CURRENCY_EXPONENT_MISMATCH',
+              severity: 'CRITICAL',
+              merchantScopeId,
+              configVersion,
+              ruleId: rule.ruleId,
+              field: 'remoteRateExact',
+              message: `Rule '${rule.ruleId}' remote rate money (${remoteMoney.currency}/${remoteMoney.exponent}) does not match base rate (${rule.baseRateExact.currency}/${rule.baseRateExact.exponent})`
+            });
+          }
+        }
+      }
+
+      if (rule.freeShippingThresholdExact) {
+        if (!isValidExactMoney(rule.freeShippingThresholdExact)) {
+          anomalies.push({
+            type: 'INVALID_EXACT_MONEY',
+            severity: 'CRITICAL',
+            merchantScopeId,
+            configVersion,
+            ruleId: rule.ruleId,
+            field: 'freeShippingThresholdExact',
+            message: `Rule '${rule.ruleId}' has invalid freeShippingThresholdExact exact money structure`
+          });
+        } else if (rule.baseRateExact && isValidExactMoney(rule.baseRateExact)) {
+          if (rule.freeShippingThresholdExact.currency !== rule.baseRateExact.currency || rule.freeShippingThresholdExact.exponent !== rule.baseRateExact.exponent) {
+            anomalies.push({
+              type: 'MONEY_CURRENCY_EXPONENT_MISMATCH',
+              severity: 'CRITICAL',
+              merchantScopeId,
+              configVersion,
+              ruleId: rule.ruleId,
+              field: 'freeShippingThresholdExact',
+              message: `Rule '${rule.ruleId}' free shipping threshold money (${rule.freeShippingThresholdExact.currency}/${rule.freeShippingThresholdExact.exponent}) does not match base rate (${rule.baseRateExact.currency}/${rule.baseRateExact.exponent})`
+            });
+          }
+        }
+      }
+
+      // Weight bands
+      const bands = rule.weightBands || [];
+      const validBands = [];
+      for (const band of bands) {
+        if (band.minWeightGrams == null || band.maxWeightGrams == null || typeof band.minWeightGrams !== 'number' || typeof band.maxWeightGrams !== 'number' || band.minWeightGrams < 0 || band.maxWeightGrams <= band.minWeightGrams) {
           anomalies.push({
             type: 'INVALID_WEIGHT_BAND_BOUNDS',
-            configVersion: cfg.version,
+            severity: 'HIGH',
+            merchantScopeId,
+            configVersion,
             ruleId: rule.ruleId,
             min: band.minWeightGrams,
-            max: band.maxWeightGrams
+            max: band.maxWeightGrams,
+            message: `Rule '${rule.ruleId}' has invalid weight band bounds: ${band.minWeightGrams}g - ${band.maxWeightGrams}g`
           });
+        } else {
+          validBands.push(band);
+        }
+
+        const bandMoney = band.adjustmentExact || band.rateExact;
+        if (bandMoney) {
+          if (!isValidExactMoney(bandMoney)) {
+            anomalies.push({
+              type: 'INVALID_EXACT_MONEY',
+              severity: 'CRITICAL',
+              merchantScopeId,
+              configVersion,
+              ruleId: rule.ruleId,
+              field: 'weightBandMoney',
+              message: `Rule '${rule.ruleId}' weight band has invalid exact money structure`
+            });
+          } else if (rule.baseRateExact && isValidExactMoney(rule.baseRateExact)) {
+            if (bandMoney.currency !== rule.baseRateExact.currency || bandMoney.exponent !== rule.baseRateExact.exponent) {
+              anomalies.push({
+                type: 'MONEY_CURRENCY_EXPONENT_MISMATCH',
+                severity: 'CRITICAL',
+                merchantScopeId,
+                configVersion,
+                ruleId: rule.ruleId,
+                field: 'weightBandMoney',
+                message: `Rule '${rule.ruleId}' weight band money (${bandMoney.currency}/${bandMoney.exponent}) does not match base rate (${rule.baseRateExact.currency}/${rule.baseRateExact.exponent})`
+              });
+            }
+          }
+        }
+      }
+
+      if (validBands.length > 1) {
+        const sortedBands = [...validBands].sort((a, b) => a.minWeightGrams - b.minWeightGrams);
+        for (let i = 0; i < sortedBands.length - 1; i++) {
+          if (sortedBands[i].maxWeightGrams > sortedBands[i + 1].minWeightGrams) {
+            anomalies.push({
+              type: 'OVERLAPPING_WEIGHT_BANDS',
+              severity: 'HIGH',
+              merchantScopeId,
+              configVersion,
+              ruleId: rule.ruleId,
+              band1: { min: sortedBands[i].minWeightGrams, max: sortedBands[i].maxWeightGrams },
+              band2: { min: sortedBands[i + 1].minWeightGrams, max: sortedBands[i + 1].maxWeightGrams },
+              message: `Rule '${rule.ruleId}' has overlapping weight bands: (${sortedBands[i].minWeightGrams}-${sortedBands[i].maxWeightGrams}) and (${sortedBands[i + 1].minWeightGrams}-${sortedBands[i + 1].maxWeightGrams})`
+            });
+          }
         }
       }
     }
@@ -237,7 +571,7 @@ async function runInventory(db) {
   };
 }
 
-async function runApply(db) {
+async function runApply(db, { target = 'staging' } = {}) {
   const collections = await db.listCollections().toArray();
   const collectionNames = new Set(collections.map((c) => c.name));
 
@@ -262,33 +596,67 @@ async function runApply(db) {
     }
   }
 
+  try {
+    let state = await MigrationState.findOne({ migrationId: MIGRATION_ID, target });
+    if (!state) {
+      state = new MigrationState({ migrationId: MIGRATION_ID, target });
+    }
+    const existingCreated = Array.isArray(state.createdIndexes) ? state.createdIndexes : [];
+    const newlyCreated = applied.map((a) => `${a.collection}.${a.name}`);
+    state.createdIndexes = Array.from(new Set([...existingCreated, ...newlyCreated]));
+    state.status = 'APPLIED';
+    state.metadata = {
+      targetIndexes: TARGET_INDEXES.map((t) => t.name),
+      appliedCount: applied.length,
+      skippedCount: skipped.length,
+      lastAppliedAt: new Date()
+    };
+    await state.save();
+  } catch (_err) {
+    // MigrationState tracking is skipped in unit tests / detached mode without collection
+  }
+
   return { applied, skipped };
 }
 
-async function runRollback(db) {
+async function runRollback(db, { target = 'staging' } = {}) {
+  const state = await MigrationState.findOne({ migrationId: MIGRATION_ID, target });
+  if (!state || !Array.isArray(state.createdIndexes) || state.createdIndexes.length === 0) {
+    throw new Error(`Rollback refused: Rollout ownership cannot be proven (no record in MigrationState of indexes created for migration '${MIGRATION_ID}' on target '${target}'). Manual operator review required.`);
+  }
+
   const collections = await db.listCollections().toArray();
   const collectionNames = new Set(collections.map((c) => c.name));
 
   const dropped = [];
   const skipped = [];
 
-  for (const targetIndex of TARGET_INDEXES) {
-    if (!collectionNames.has(targetIndex.collectionName)) {
-      skipped.push({ name: targetIndex.name, reason: 'COLLECTION_NOT_FOUND' });
+  for (const entry of state.createdIndexes) {
+    const [collName, indexName] = entry.split('.');
+    if (indexName === '_id_') {
+      skipped.push({ name: '_id_', reason: 'PRIMARY_INDEX' });
+      continue;
+    }
+    if (!collectionNames.has(collName)) {
+      skipped.push({ name: indexName, collection: collName, reason: 'COLLECTION_NOT_FOUND' });
       continue;
     }
 
-    const col = db.collection(targetIndex.collectionName);
+    const col = db.collection(collName);
     const existingIndexes = await col.indexes();
-    const match = findIndexMatch(existingIndexes, targetIndex);
+    const match = existingIndexes.find((idx) => idx.name === indexName);
 
-    if (match && match.name !== '_id_') {
+    if (match) {
       await col.dropIndex(match.name);
-      dropped.push({ name: match.name, collection: targetIndex.collectionName });
+      dropped.push({ name: match.name, collection: collName });
     } else {
-      skipped.push({ name: targetIndex.name, reason: 'NOT_FOUND_OR_PRIMARY' });
+      skipped.push({ name: indexName, collection: collName, reason: 'NOT_FOUND' });
     }
   }
+
+  state.status = 'ROLLED_BACK';
+  state.rolledBackAt = new Date();
+  await state.save();
 
   return { dropped, skipped };
 }
@@ -336,7 +704,7 @@ async function runMigration(cliArgs = process.argv.slice(2)) {
     }
 
     if (mode === 'apply') {
-      const applyResult = await runApply(db);
+      const applyResult = await runApply(db, { target });
       return { mode, target, success: true, applyResult };
     }
 
@@ -368,17 +736,7 @@ async function runMigration(cliArgs = process.argv.slice(2)) {
     }
 
     if (mode === 'rollback') {
-      const rollbackResult = await runRollback(db);
-      await MigrationState.findOneAndUpdate(
-        { migrationId: MIGRATION_ID, target },
-        {
-          migrationId: MIGRATION_ID,
-          target,
-          status: 'ROLLED_BACK',
-          rolledBackAt: new Date()
-        },
-        { upsert: true, new: true }
-      );
+      const rollbackResult = await runRollback(db, { target });
       return { mode, target, success: true, rollbackResult };
     }
 

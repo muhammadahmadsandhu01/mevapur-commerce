@@ -230,23 +230,6 @@ class CommerceGovernanceController {
         shippingServiceLevel
       });
 
-      await AuditService.log({
-        requestId: req.headers['x-request-id'] || null,
-        userId: req.user?._id || null,
-        eventName: 'COMMERCE.CONFIG.PREVIEWED',
-        action: 'COMMERCE.CONFIG.PREVIEWED',
-        status: 'SUCCESS',
-        ipAddress: req.ip || 'unknown',
-        userAgent: req.headers['user-agent'] || 'unknown',
-        metadata: {
-          configId,
-          merchantScopeId,
-          destinationCountry: destination?.countryCode,
-          itemCount: (items || []).length,
-          grandTotal: preview.totals.grandTotal
-        }
-      });
-
       res.json({ success: true, data: { preview } });
     } catch (error) {
       next(error);
