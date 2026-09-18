@@ -149,13 +149,47 @@ function isValidExactMoney(money) {
   return true;
 }
 
+const PHASE6D4_ALLOWED_FIELD_PATHS = Object.freeze(['subtotalExact', 'totalAmountExact']);
+const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function validateAllowedFieldPath(fieldPath) {
+  if (typeof fieldPath !== 'string' || !fieldPath.trim()) {
+    throw new Error('Invalid field path: field path must be a non-empty string');
+  }
+  const trimmed = fieldPath.trim();
+  if (
+    trimmed.startsWith('.') ||
+    trimmed.endsWith('.') ||
+    trimmed.includes('..') ||
+    trimmed.includes('$') ||
+    trimmed.includes('\0')
+  ) {
+    throw new Error(`Invalid field path '${fieldPath}': contains invalid characters or malformed dot segments`);
+  }
+  const segments = trimmed.split('.');
+  for (const segment of segments) {
+    if (!segment || FORBIDDEN_PATH_SEGMENTS.has(segment) || segment.startsWith('$')) {
+      throw new Error(`Invalid field path '${fieldPath}': contains forbidden path segment '${segment}'`);
+    }
+  }
+  if (!PHASE6D4_ALLOWED_FIELD_PATHS.includes(trimmed)) {
+    throw new Error(`Forbidden field path '${fieldPath}': not in Phase 6D-4 recoverable field allowlist [${PHASE6D4_ALLOWED_FIELD_PATHS.join(', ')}]`);
+  }
+  return trimmed;
+}
+
+function getDeterministicOperationId(migrationId, merchantScopeId = null) {
+  const scope = (merchantScopeId && String(merchantScopeId).trim()) || 'global';
+  return `op_${migrationId}_${scope}`;
+}
+
 /**
  * Computes deterministic SHA-256 integrity checksum for a migration checkpoint entry.
  * Excludes non-deterministic timestamps and volatile runtime fields.
  */
 function computeCheckpointChecksum(payload) {
   const canonicalBefore = (payload.beforeFields || []).map((f) => ({
-    fieldPath: f.fieldPath,
+    fieldPath: validateAllowedFieldPath(f.fieldPath),
     exists: Boolean(f.exists),
     valueExact: f.valueExact ? {
       amountMinor: f.valueExact.amountMinor != null ? String(f.valueExact.amountMinor) : null,
@@ -165,7 +199,7 @@ function computeCheckpointChecksum(payload) {
   })).sort((a, b) => a.fieldPath.localeCompare(b.fieldPath));
 
   const canonicalApplied = (payload.appliedFields || []).map((f) => ({
-    fieldPath: f.fieldPath,
+    fieldPath: validateAllowedFieldPath(f.fieldPath),
     exists: Boolean(f.exists),
     valueExact: f.valueExact ? {
       amountMinor: f.valueExact.amountMinor != null ? String(f.valueExact.amountMinor) : null,
@@ -174,7 +208,9 @@ function computeCheckpointChecksum(payload) {
     } : null
   })).sort((a, b) => a.fieldPath.localeCompare(b.fieldPath));
 
-  const sortedFieldsWritten = [...(payload.fieldsWritten || [])].sort();
+  const sortedFieldsWritten = [...(payload.fieldsWritten || [])]
+    .map(validateAllowedFieldPath)
+    .sort();
 
   const canonicalObject = {
     appliedFields: canonicalApplied,
@@ -567,7 +603,7 @@ async function migrateOrdersBatch({
       if (needsUpdate) {
         result.eligible++;
         if (isApply) {
-          const fieldsWritten = Object.keys(updates);
+          const fieldsWritten = Object.keys(updates).map(validateAllowedFieldPath);
           const beforeFields = [];
           const appliedFields = [];
 
@@ -599,7 +635,7 @@ async function migrateOrdersBatch({
             });
           }
 
-          const opId = operationId || `op_p6d4_${Date.now()}_${order._id}`;
+          const opId = operationId || getDeterministicOperationId(MIGRATION_ID, scope);
           const precFingerprint = computePreconditionFingerprint(order, fieldsWritten);
           const postFingerprint = computePostWriteFingerprint(updates);
 
@@ -641,7 +677,27 @@ async function migrateOrdersBatch({
           try {
             const sessionOpt = session ? { session } : {};
 
-            // 1. Persist Before-Image Checkpoint in journal first
+            // 1. Check existing journal entry to prevent silent cross-operation or conflicted checkpoint overwrite
+            const existingJournal = await journalModel.findOne(
+              {
+                migrationId: MIGRATION_ID,
+                collectionName: 'orders',
+                documentId: order._id
+              },
+              null,
+              sessionOpt
+            );
+
+            if (existingJournal) {
+              if (existingJournal.operationId && existingJournal.operationId !== opId) {
+                throw new Error(`Cannot overwrite checkpoint for order ${order._id}: already journaled under different operation '${existingJournal.operationId}'`);
+              }
+              if (existingJournal.status === 'conflict') {
+                throw new Error(`Cannot apply migration to order ${order._id}: document has an existing conflict checkpoint`);
+              }
+            }
+
+            // 2. Persist Before-Image Checkpoint in journal first
             await journalModel.findOneAndUpdate(
               {
                 migrationId: MIGRATION_ID,
@@ -891,23 +947,41 @@ async function runMigration(argv = process.argv.slice(2)) {
           continue;
         }
 
-        // 4. Verify post-state match (refuse if document changed after migration)
+        // 4. Verify post-state match (refuse if ANY applied field changed after migration)
         let hasConcurrentPostChange = false;
-        for (const app of (entry.appliedFields || [])) {
-          const currentVal = doc[app.fieldPath];
-          if (!currentVal || typeof currentVal !== 'object') {
-            hasConcurrentPostChange = true;
-            break;
-          }
-          const currentMinor = currentVal.amountMinor != null ? String(currentVal.amountMinor) : null;
-          const currentCurrency = currentVal.currency ? String(currentVal.currency) : null;
-          const currentExponent = currentVal.exponent != null ? Number(currentVal.exponent) : null;
+        const appliedList = Array.isArray(entry.appliedFields) && entry.appliedFields.length > 0
+          ? entry.appliedFields
+          : [];
 
-          if (
-            currentMinor !== app.valueExact.amountMinor ||
-            currentCurrency !== app.valueExact.currency ||
-            currentExponent !== app.valueExact.exponent
-          ) {
+        if (appliedList.length === 0) {
+          hasConcurrentPostChange = true;
+        }
+
+        for (const app of appliedList) {
+          try {
+            const fieldPath = validateAllowedFieldPath(app.fieldPath);
+            const currentVal = doc[fieldPath];
+            if (!currentVal || typeof currentVal !== 'object') {
+              hasConcurrentPostChange = true;
+              break;
+            }
+            const currentMinor = currentVal.amountMinor != null ? String(currentVal.amountMinor) : null;
+            const currentCurrency = currentVal.currency ? String(currentVal.currency) : null;
+            const currentExponent = currentVal.exponent != null ? Number(currentVal.exponent) : null;
+
+            const expectedMinor = app.valueExact?.amountMinor != null ? String(app.valueExact.amountMinor) : null;
+            const expectedCurrency = app.valueExact?.currency ? String(app.valueExact.currency) : null;
+            const expectedExponent = app.valueExact?.exponent != null ? Number(app.valueExact.exponent) : null;
+
+            if (
+              currentMinor !== expectedMinor ||
+              currentCurrency !== expectedCurrency ||
+              currentExponent !== expectedExponent
+            ) {
+              hasConcurrentPostChange = true;
+              break;
+            }
+          } catch (_err) {
             hasConcurrentPostChange = true;
             break;
           }
@@ -928,34 +1002,48 @@ async function runMigration(argv = process.argv.slice(2)) {
         const unsets = {};
         const sets = {};
 
-        if (Array.isArray(entry.beforeFields) && entry.beforeFields.length > 0) {
-          for (const bf of entry.beforeFields) {
-            if (bf.exists === false) {
-              unsets[bf.fieldPath] = 1;
-            } else if (bf.valueExact === null) {
-              sets[bf.fieldPath] = null;
-            } else {
-              sets[bf.fieldPath] = {
-                amountMinor: bf.valueExact.amountMinor,
-                currency: bf.valueExact.currency,
-                exponent: bf.valueExact.exponent
-              };
+        try {
+          if (Array.isArray(entry.beforeFields) && entry.beforeFields.length > 0) {
+            for (const bf of entry.beforeFields) {
+              const fieldPath = validateAllowedFieldPath(bf.fieldPath);
+              if (bf.exists === false) {
+                unsets[fieldPath] = 1;
+              } else if (bf.valueExact === null) {
+                sets[fieldPath] = null;
+              } else {
+                sets[fieldPath] = {
+                  amountMinor: bf.valueExact.amountMinor,
+                  currency: bf.valueExact.currency,
+                  exponent: bf.valueExact.exponent
+                };
+              }
+            }
+          } else {
+            for (const f of (entry.fieldsWritten || [])) {
+              const fieldPath = validateAllowedFieldPath(f);
+              unsets[fieldPath] = 1;
             }
           }
-        } else {
-          for (const f of (entry.fieldsWritten || [])) {
-            unsets[f] = 1;
-          }
+        } catch (pathErr) {
+          conflictCount++;
+          rollbackAnomalies.push({
+            type: 'INVALID_ROLLBACK_FIELD_PATH',
+            documentId: String(entry.documentId),
+            message: pathErr.message
+          });
+          await journalModel.updateOne({ _id: entry._id }, { $set: { status: 'conflict' } });
+          continue;
         }
 
         const restoreFilter = {
           _id: entry.documentId,
           'quote.merchantScopeId': entry.merchantScopeId
         };
-        for (const app of (entry.appliedFields || [])) {
-          restoreFilter[`${app.fieldPath}.amountMinor`] = app.valueExact.amountMinor;
-          restoreFilter[`${app.fieldPath}.currency`] = app.valueExact.currency;
-          restoreFilter[`${app.fieldPath}.exponent`] = app.valueExact.exponent;
+        for (const app of appliedList) {
+          const fieldPath = validateAllowedFieldPath(app.fieldPath);
+          restoreFilter[`${fieldPath}.amountMinor`] = app.valueExact.amountMinor;
+          restoreFilter[`${fieldPath}.currency`] = app.valueExact.currency;
+          restoreFilter[`${fieldPath}.exponent`] = app.valueExact.exponent;
         }
 
         const updateDoc = {};
@@ -1150,13 +1238,40 @@ async function runMigration(argv = process.argv.slice(2)) {
       }
 
       const journalModel = (db && typeof db.model === 'function') ? db.model('MigrationJournal') : (mongoose.models.MigrationJournal || MigrationJournal);
-      const conflictJournalCount = await journalModel.countDocuments({
-        migrationId: MIGRATION_ID,
-        status: 'conflict'
-      });
+      const journalQuery = { migrationId: MIGRATION_ID };
+      if (merchantScopeId) {
+        journalQuery.merchantScopeId = merchantScopeId;
+      }
 
-      if (conflictJournalCount > 0) {
-        throw new Error(`Cannot finalize migration: ${conflictJournalCount} unresolved conflict checkpoints exist in MigrationJournal.`);
+      const journals = await journalModel.find(journalQuery);
+
+      const conflictJournals = journals.filter((j) => j.status === 'conflict');
+      if (conflictJournals.length > 0) {
+        throw new Error(`Cannot finalize migration: ${conflictJournals.length} unresolved conflict checkpoints exist in MigrationJournal.`);
+      }
+
+      for (const j of journals) {
+        if (j.status !== 'applied') {
+          throw new Error(`Cannot finalize migration: found non-applied journal record with status '${j.status}' for document ${j.documentId}.`);
+        }
+        const computedChecksum = computeCheckpointChecksum(j);
+        if (j.checksum && j.checksum !== computedChecksum) {
+          throw new Error(`Cannot finalize migration: checkpoint checksum mismatch on document ${j.documentId}.`);
+        }
+      }
+
+      const state = await MigrationState.findOne({ migrationId: MIGRATION_ID });
+      if (!state || (state.status !== 'applied' && state.status !== 'completed')) {
+        throw new Error('Cannot finalize migration: MigrationState is not in applied state.');
+      }
+
+      if (merchantScopeId && state.metadata?.merchantScopeId && state.metadata.merchantScopeId !== merchantScopeId) {
+        throw new Error(`Cannot finalize migration: scope mismatch between state (${state.metadata.merchantScopeId}) and requested scope (${merchantScopeId}).`);
+      }
+
+      const appliedCount = journals.length;
+      if (state.updatedCount != null && state.updatedCount !== appliedCount) {
+        throw new Error(`Cannot finalize migration: MigrationState updatedCount (${state.updatedCount}) does not match applied MigrationJournal count (${appliedCount}).`);
       }
 
       if (cli.isApply) {
@@ -1168,6 +1283,7 @@ async function runMigration(argv = process.argv.slice(2)) {
               completedAt: new Date(),
               metadata: {
                 target: cli.target,
+                merchantScopeId,
                 indexesCreated: report.indexes.created,
                 ordersMigrated: report.orders.changed,
                 finalizedAt: new Date()

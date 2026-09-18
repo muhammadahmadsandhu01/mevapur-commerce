@@ -43,12 +43,22 @@ if (mongoose.models.MigrationJournal) {
     }
   }, { _id: false });
 
+  const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+  function isSafeFieldPath(p) {
+    if (typeof p !== 'string' || !p.trim() || p.startsWith('$') || p.includes('\0')) return false;
+    const trimmed = p.trim();
+    if (trimmed.startsWith('.') || trimmed.endsWith('.') || trimmed.includes('..')) return false;
+    const segments = trimmed.split('.');
+    return segments.every(seg => seg.length > 0 && !FORBIDDEN_PATH_SEGMENTS.has(seg) && !seg.startsWith('$'));
+  }
+
   const journalFieldEntrySchema = new mongoose.Schema({
     fieldPath: {
       type: String,
       required: true,
       validate: {
-        validator: (p) => typeof p === 'string' && p.trim().length > 0 && !p.startsWith('$') && !p.includes('\0'),
+        validator: isSafeFieldPath,
         message: 'Invalid field path in checkpoint entry'
       }
     },
@@ -100,9 +110,7 @@ if (mongoose.models.MigrationJournal) {
       type: [String],
       required: true,
       validate: {
-        validator: (paths) => Array.isArray(paths) && paths.every(
-          p => typeof p === 'string' && p.trim().length > 0 && !p.startsWith('$') && !p.includes('\0')
-        ),
+        validator: (paths) => Array.isArray(paths) && paths.length > 0 && paths.every(isSafeFieldPath),
         message: 'Invalid field paths in fieldsWritten'
       }
     },

@@ -757,5 +757,233 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(historicalEntry.checksum).toBeNull();
       expect(historicalEntry.schemaVersion).toBe('1.0.0');
     });
+
+    it('20.10 Gap 1: Non-allowlisted or forbidden field paths fail closed in checksum and persistence', () => {
+      // Non-allowlisted dotted path
+      expect(() => {
+        computeCheckpointChecksum({
+          migrationId: MIGRATION_ID,
+          collectionName: 'orders',
+          documentId: new mongoose.Types.ObjectId(),
+          fieldsWritten: ['subtotalExact', 'shippingAddress.city'],
+          beforeFields: [{ fieldPath: 'shippingAddress.city', exists: true, valueExact: null }],
+          appliedFields: []
+        });
+      }).toThrow(/Forbidden field path/i);
+
+      // Forbidden prototype segment
+      expect(() => {
+        computeCheckpointChecksum({
+          migrationId: MIGRATION_ID,
+          collectionName: 'orders',
+          documentId: new mongoose.Types.ObjectId(),
+          fieldsWritten: ['__proto__.polluted'],
+          beforeFields: [],
+          appliedFields: []
+        });
+      }).toThrow(/forbidden path segment/i);
+
+      // Malformed dot segment
+      expect(() => {
+        computeCheckpointChecksum({
+          migrationId: MIGRATION_ID,
+          collectionName: 'orders',
+          documentId: new mongoose.Types.ObjectId(),
+          fieldsWritten: ['.leadingDot'],
+          beforeFields: [],
+          appliedFields: []
+        });
+      }).toThrow(/malformed dot segments/i);
+    });
+
+    it('20.11 Gap 2: Concurrency rejection when totalAmountExact is modified post-migration (subtotalExact unchanged)', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `concur-tot-ord-${userSeq}`,
+        requestHash: `concur-tot-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_concur_tot' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 100, quantity: 1, lineTotal: 100 }],
+        subtotal: 100,
+        totalAmount: 100,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_concur_tot' });
+
+      // Modify only totalAmountExact
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { totalAmountExact: MoneyMapper.fromLegacy(500, 'PKR') } }
+      );
+
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_concur_tot'
+      ]);
+
+      expect(report.success).toBe(false);
+      expect(report.rollbackResult.conflictCount).toBe(1);
+
+      // Verify zero restoration occurred on subtotalExact
+      const check = await Order.findById(order._id);
+      expect(check.subtotalExact.amountMinor.toString()).toBe('10000');
+      expect(check.totalAmountExact.amountMinor.toString()).toBe('50000');
+    });
+
+    it('20.12 Gap 2: Concurrency rejection on currency-only or exponent-only divergence', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `concur-cur-ord-${userSeq}`,
+        requestHash: `concur-cur-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_concur_cur' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 100, quantity: 1, lineTotal: 100 }],
+        subtotal: 100,
+        totalAmount: 100,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_concur_cur' });
+
+      // Change only currency on subtotalExact
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { 'subtotalExact.currency': 'USD' } }
+      );
+
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_concur_cur'
+      ]);
+
+      expect(report.success).toBe(false);
+      expect(report.rollbackResult.conflictCount).toBe(1);
+
+      const check = await Order.findById(order._id);
+      expect(check.subtotalExact.currency).toBe('USD');
+      expect(check.totalAmountExact).not.toBeNull();
+    });
+
+    it('20.13 Gap 3: Finalize rejects when non-applied journals exist or counters mismatch', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `fin-chk-ord-${userSeq}`,
+        requestHash: `fin-chk-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_fin_chk' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 50, quantity: 1, lineTotal: 50 }],
+        subtotal: 50,
+        totalAmount: 50,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_fin_chk' });
+
+      // Simulate counter mismatch in MigrationState
+      await MigrationState.updateOne(
+        { migrationId: MIGRATION_ID },
+        { $set: { status: 'applied', updatedCount: 999, metadata: { merchantScopeId: 'tenant_fin_chk' } } },
+        { upsert: true }
+      );
+
+      await expect(
+        runMigration([
+          '--target=local',
+          '--allow-local',
+          '--finalize',
+          '--confirm-phase6d4-finalize',
+          '--merchant-scope=tenant_fin_chk'
+        ])
+      ).rejects.toThrow(/updatedCount \(999\) does not match applied MigrationJournal count/i);
+    });
+
+    it('20.14 Gap 3: Successful finalize preserves recovery evidence in MigrationJournal', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `fin-succ-ord-${userSeq}`,
+        requestHash: `fin-succ-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_fin_succ' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 60, quantity: 1, lineTotal: 60 }],
+        subtotal: 60,
+        totalAmount: 60,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_fin_succ' });
+      await MigrationState.updateOne(
+        { migrationId: MIGRATION_ID },
+        { $set: { status: 'applied', updatedCount: 1, metadata: { merchantScopeId: 'tenant_fin_succ' } } },
+        { upsert: true }
+      );
+
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--finalize',
+        '--confirm-phase6d4-finalize',
+        '--merchant-scope=tenant_fin_succ'
+      ]);
+
+      expect(report.success).toBe(true);
+
+      // Verify journal entry was NOT deleted
+      const journal = await MigrationJournal.findOne({ migrationId: MIGRATION_ID, documentId: order._id });
+      expect(journal).not.toBeNull();
+      expect(journal.status).toBe('applied');
+      expect(journal.beforeFields.length).toBeGreaterThan(0);
+    });
+
+    it('20.15 Gap 4: Different operation cannot overwrite existing checkpoint', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `diff-op-ord-${userSeq}`,
+        requestHash: `diff-op-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_diff_op' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 70, quantity: 1, lineTotal: 70 }],
+        subtotal: 70,
+        totalAmount: 70,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_diff_op', operationId: 'op_initial_run' });
+
+      // Reset order subtotalExact to null to simulate re-apply attempt under a different operation ID
+      await Order.updateOne({ _id: order._id }, { $set: { subtotalExact: null } });
+
+      // Attempt apply with different operation ID on same order
+      const res = await migrateOrdersBatch({
+        isApply: true,
+        batchSize: 10,
+        merchantScopeId: 'tenant_diff_op',
+        operationId: 'op_rogue_different_run'
+      });
+
+      expect(res.failed).toBe(1);
+      expect(res.anomalies[0].message).toMatch(/already journaled under different operation 'op_initial_run'/i);
+    });
   });
 });
