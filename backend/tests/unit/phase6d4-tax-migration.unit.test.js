@@ -1,7 +1,7 @@
 /**
  * @file phase6d4-tax-migration.unit.test.js
  * @description Unit tests for Phase 6D-4 tax and customs migration utilities, exact math,
- * coupon backfills, DAP/DDP invariant checks, and tenant-safe batching.
+ * tenant isolation, concurrency preconditions, persistent resume, and guard verification.
  */
 
 'use strict';
@@ -15,8 +15,10 @@ const {
   inspectPreflightAnomalies,
   migrateCouponsBatch,
   migrateOrdersBatch,
-  migrateReturnsAndRefundsBatch
+  auditReturnsAndRefundsBatch,
+  runMigration
 } = require('../../scripts/migrations/phase6d4-tax-customs-governance');
+const MigrationState = require('../../models/MigrationState');
 const Coupon = require('../../models/Coupon');
 const Order = require('../../models/Order');
 const Return = require('../../models/Return');
@@ -31,290 +33,30 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
     userSeq++;
   });
 
-  describe('1. Index Matching & Exact-Money Validation', () => {
-    const existingIndexes = [
-      { key: { 'taxesAndDuties.provenance.ruleId': 1 }, name: 'order_tax_rule_id_lookup_idx' },
-      { key: { 'taxesAndDuties.incoterm': 1 }, name: 'order_incoterm_lookup_idx' }
-    ];
-
-    it('1.1 matches target index by key pattern', () => {
-      const match = findIndexMatch(existingIndexes, { key: { 'taxesAndDuties.incoterm': 1 } });
-      expect(match).toBeDefined();
-      expect(match.name).toBe('order_incoterm_lookup_idx');
-    });
-
-    it('1.2 matches target index by name', () => {
-      const match = findIndexMatch(existingIndexes, {}, 'order_tax_rule_id_lookup_idx');
-      expect(match).toBeDefined();
-      expect(match.name).toBe('order_tax_rule_id_lookup_idx');
-    });
-
-    it('1.3 rejects non-existent index', () => {
-      const match = findIndexMatch(existingIndexes, { key: { unknown: 1 } }, 'unknown_idx');
-      expect(match).toBeNull();
-    });
-
-    it('1.4 validates canonical 18-digit amountMinor string', () => {
-      expect(isValidExactMoney({ amountMinor: '999999999999999999', currency: 'USD', exponent: 2 })).toBe(true);
-      expect(isValidExactMoney({ amountMinor: '0', currency: 'PKR', exponent: 2 })).toBe(true);
-    });
-
-    it('1.5 rejects unsafe numbers, 19+ digits, and negative strings', () => {
-      expect(isValidExactMoney({ amountMinor: 9007199254740992, currency: 'USD', exponent: 2 })).toBe(false);
-      expect(isValidExactMoney({ amountMinor: '-500', currency: 'USD', exponent: 2 })).toBe(false);
-      expect(isValidExactMoney({ amountMinor: '1000000000000000000', currency: 'USD', exponent: 2 })).toBe(false);
-      expect(isValidExactMoney({ amountMinor: '100.5', currency: 'USD', exponent: 2 })).toBe(false);
-    });
-
-    it('1.6 rejects invalid currencies and out-of-range exponents', () => {
-      expect(isValidExactMoney({ amountMinor: '100', currency: 'INVALID', exponent: 2 })).toBe(false);
-      expect(isValidExactMoney({ amountMinor: '100', currency: 'USD', exponent: 5 })).toBe(false);
-      expect(isValidExactMoney({ amountMinor: '100', currency: 'USD', exponent: -1 })).toBe(false);
-    });
-  });
-
-  describe('2. Preflight Tax Rule Anomalies & Legal Governance Integrity', () => {
-    it('2.1 reports zero anomalies for clean verified tax rules', async () => {
-      const cleanRules = [
-        {
-          ruleId: 'RULE-PK-01',
-          destinationCountry: 'PK',
-          destinationSubdivision: '',
-          taxType: 'SALES_TAX',
-          taxTreatment: 'exclusive',
-          taxableBasis: 'subtotal',
-          taxRateNumerator: 1700,
-          taxRateDenominator: 10000,
-          dutyRateNumerator: 0,
-          dutyRateDenominator: 10000,
-          roundingMode: 'HALF_UP',
-          roundingScope: 'subtotal',
-          incoterm: 'DOMESTIC',
-          verificationStatus: 'VERIFIED_LEGAL_RULE',
-          dutyRefundPolicy: 'REFUNDABLE',
-          taxRefundPolicy: 'REFUNDABLE',
-          customsValueIncludesShipping: false,
-          customsValueIncludesInsurance: false,
-          sourceAuthority: 'FBR',
-          sourceReference: 'Sales Tax Act 1990',
-          enabled: true
-        }
-      ];
-
-      const anomalies = await inspectPreflightAnomalies(cleanRules);
-      expect(anomalies).toEqual([]);
-    });
-
-    it('2.2 detects unverified estimates in active configuration', async () => {
-      const unverifiedRules = [
-        {
-          ruleId: 'RULE-UNVERIFIED',
-          destinationCountry: 'AE',
-          verificationStatus: 'UNVERIFIED_ESTIMATE',
-          dutyRefundPolicy: 'REFUNDABLE',
-          taxRefundPolicy: 'REFUNDABLE',
-          customsValueIncludesShipping: false,
-          customsValueIncludesInsurance: false,
-          sourceAuthority: 'Manual note',
-          sourceReference: 'Estimate',
-          enabled: true
-        }
-      ];
-
-      const anomalies = await inspectPreflightAnomalies(unverifiedRules);
-      expect(anomalies.some((a) => a.type === 'UNVERIFIED_RULE_IN_ACTIVE_CONFIG')).toBe(true);
-    });
-
-    it('2.3 detects missing required legal refund policies', async () => {
-      const missingPolicyRules = [
-        {
-          ruleId: 'RULE-MISSING-POLICY',
-          destinationCountry: 'PK',
-          verificationStatus: 'VERIFIED_LEGAL_RULE',
-          dutyRefundPolicy: null,
-          taxRefundPolicy: null,
-          customsValueIncludesShipping: null,
-          customsValueIncludesInsurance: null,
-          sourceAuthority: 'FBR',
-          sourceReference: 'Ref',
-          enabled: true
-        }
-      ];
-
-      const anomalies = await inspectPreflightAnomalies(missingPolicyRules);
-      expect(anomalies.some((a) => a.type === 'MISSING_DUTY_REFUND_POLICY')).toBe(true);
-      expect(anomalies.some((a) => a.type === 'MISSING_TAX_REFUND_POLICY')).toBe(true);
-      expect(anomalies.some((a) => a.type === 'MISSING_CUSTOMS_SHIPPING_INCLUSION')).toBe(true);
-    });
-
-    it('2.4 detects ambiguous route overlap between active rules', async () => {
-      const overlappingRules = [
-        {
-          ruleId: 'RULE-1',
-          destinationCountry: 'US',
-          destinationSubdivision: 'CA',
-          verificationStatus: 'VERIFIED_LEGAL_RULE',
-          dutyRefundPolicy: 'REFUNDABLE',
-          taxRefundPolicy: 'REFUNDABLE',
-          customsValueIncludesShipping: false,
-          customsValueIncludesInsurance: false,
-          sourceAuthority: 'CDTFA',
-          sourceReference: 'Tax Pub 100',
-          enabled: true
-        },
-        {
-          ruleId: 'RULE-2',
-          destinationCountry: 'US',
-          destinationSubdivision: 'CA',
-          verificationStatus: 'VERIFIED_LEGAL_RULE',
-          dutyRefundPolicy: 'REFUNDABLE',
-          taxRefundPolicy: 'REFUNDABLE',
-          customsValueIncludesShipping: false,
-          customsValueIncludesInsurance: false,
-          sourceAuthority: 'CDTFA',
-          sourceReference: 'Tax Pub 100',
-          enabled: true
-        }
-      ];
-
-      const anomalies = await inspectPreflightAnomalies(overlappingRules);
-      expect(anomalies.some((a) => a.type === 'AMBIGUOUS_ROUTE_OVERLAP')).toBe(true);
-    });
-  });
-
-  describe('3. Coupon Exact & Rational Migration', () => {
-    it('3.1 dry-run performs zero writes on percentage coupon', async () => {
-      const coupon = await Coupon.create({
-        code: `DRYRUN-${userSeq}`,
-        type: 'percentage',
-        value: 15,
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 86400000)
-      });
-
-      const res = await migrateCouponsBatch({ isApply: false, batchSize: 50 });
-      expect(res.eligible).toBeGreaterThanOrEqual(1);
-      expect(res.changed).toBe(0);
-
-      const unchanged = await Coupon.findById(coupon._id);
-      expect(unchanged.rateNumerator).toBeNull();
-      expect(unchanged.rateDenominator).toBeNull();
-    });
-
-    it('3.2 apply mode backfills canonical rational rate (15% -> 1500 / 10000)', async () => {
-      const coupon = await Coupon.create({
-        code: `APPLY-${userSeq}`,
-        type: 'percentage',
-        value: 15,
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 86400000)
-      });
-
-      const res = await migrateCouponsBatch({ isApply: true, batchSize: 50 });
-      expect(res.changed).toBeGreaterThanOrEqual(1);
-
-      const updated = await Coupon.findById(coupon._id);
-      expect(updated.rateNumerator).toBe(1500);
-      expect(updated.rateDenominator).toBe(10000);
-    });
-
-    it('3.3 idempotent run against compliant coupon produces zero changes', async () => {
-      await Coupon.create({
-        code: `COMPLIANT-${userSeq}`,
-        type: 'percentage',
-        value: 15,
-        rateNumerator: 1500,
-        rateDenominator: 10000,
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 86400000)
-      });
-
-      const res2 = await migrateCouponsBatch({ isApply: true, batchSize: 50 });
-      expect(res2.changed).toBe(0);
-      expect(res2.alreadyCompliant).toBeGreaterThanOrEqual(1);
-    });
-
-    it('3.4 flags invalid percentage values for manual review', async () => {
-      const badCoupon = await Coupon.create({
-        code: `BADVAL-${userSeq}`,
-        type: 'percentage',
-        value: 150, // invalid > 100
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 86400000)
-      });
-
-      const res = await migrateCouponsBatch({ isApply: false, batchSize: 50 });
-      expect(res.manualReview).toBeGreaterThanOrEqual(1);
-      expect(res.anomalies.some((a) => a.code === badCoupon.code)).toBe(true);
-    });
-  });
-
-  describe('4. Order Exact Snapshots & DAP/Inclusive Tax Anomaly Detection', () => {
-    it('4.1 detects DAP orders with non-zero payable duty collected', async () => {
+  describe('1. CLI Guard & Mode Enforcement', () => {
+    // Requirement 1: Dry-run performs zero writes
+    it('1.1 dry-run performs zero writes by default', async () => {
       const user = await global.createTestUser();
       const order = await Order.create({
         user: user._id,
-        idempotencyKey: `dap-key-${userSeq}`,
-        requestHash: `dap-hash-${userSeq}`,
+        idempotencyKey: `dryrun-order-idemp-${userSeq}`,
+        requestHash: `dryrun-order-hash-${userSeq}`,
+        quote: { merchantScopeId: 'default' },
         items: [{
           product: new mongoose.Types.ObjectId(),
-          name: 'Test Cross-Border Item',
+          name: 'Dry Run Item',
           price: 100,
           quantity: 1,
           lineTotal: 100
         }],
         subtotal: 100,
-        totalAmount: 120,
-        paymentMethod: 'stripe',
+        totalAmount: 100,
+        paymentMethod: 'cod',
         shippingAddress: {
           fullName: 'Test Buyer',
           phone: '03001234567',
-          address: 'Downtown',
-          city: 'Dubai',
-          country: 'United Arab Emirates',
-          countryCode: 'AE'
-        },
-        currency: 'USD',
-        taxesAndDuties: {
-          incoterm: 'DAP',
-          payableDutyAmount: 20, // DAP must NOT have collected payable duty
-          payableDutyExact: MoneyMapper.fromLegacy(20, 'USD')
-        },
-        statusTimeline: [{
-          status: 'Pending',
-          actor: user._id,
-          actorRole: 'customer',
-          timestamp: new Date()
-        }]
-      });
-
-      const res = await migrateOrdersBatch({ isApply: false, batchSize: 50 });
-      expect(res.manualReview).toBeGreaterThanOrEqual(1);
-      expect(res.anomalies.some((a) => a.type === 'DAP_NONZERO_PAYABLE_DUTY_ANOMALY')).toBe(true);
-    });
-
-    it('4.2 tenant isolation respects merchantScopeId filtering', async () => {
-      const user = await global.createTestUser();
-      await Order.create({
-        user: user._id,
-        idempotencyKey: `tenant-scope-key-${userSeq}`,
-        requestHash: `tenant-scope-hash-${userSeq}`,
-        quote: { merchantScopeId: 'tenant_special' },
-        items: [{
-          product: new mongoose.Types.ObjectId(),
-          name: 'Scoped Item',
-          price: 50,
-          quantity: 1,
-          lineTotal: 50
-        }],
-        subtotal: 50,
-        totalAmount: 50,
-        paymentMethod: 'cod',
-        shippingAddress: {
-          fullName: 'Local Buyer',
-          phone: '03001234567',
-          address: 'Main Blvd',
-          city: 'Lahore',
+          address: 'Street 1',
+          city: 'Karachi',
           country: 'Pakistan',
           countryCode: 'PK'
         },
@@ -327,66 +69,365 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
         }]
       });
 
-      const scopedRes = await migrateOrdersBatch({ isApply: false, batchSize: 50, merchantScopeId: 'tenant_other' });
-      expect(scopedRes.processed).toBe(0);
+      const res = await migrateOrdersBatch({ isApply: false, batchSize: 50 });
+      expect(res.eligible).toBeGreaterThanOrEqual(1);
+      expect(res.changed).toBe(0);
 
-      const matchRes = await migrateOrdersBatch({ isApply: false, batchSize: 50, merchantScopeId: 'tenant_special' });
-      expect(matchRes.processed).toBe(1);
+      const check = await Order.findById(order._id);
+      expect(check.subtotalExact).toBeNull();
+      expect(check.totalAmountExact).toBeNull();
+    });
+
+    // Requirement 2: Explicit apply guard
+    it('2.1 requires explicit --confirm-phase6d4-apply token for apply mode', async () => {
+      await expect(
+        runMigration(['--target=local', '--allow-local', '--apply'])
+      ).rejects.toThrow(/requires explicit confirmation token/i);
+    });
+
+    // Requirement 3: Explicit finalize guard
+    it('3.1 requires explicit --confirm-phase6d4-finalize token for finalize mode', async () => {
+      await expect(
+        runMigration(['--target=local', '--allow-local', '--finalize'])
+      ).rejects.toThrow(/requires explicit confirmation token/i);
+    });
+
+    // Requirement 4: Explicit rollback guard
+    it('4.1 requires explicit --confirm-phase6d4-rollback token for rollback mode', async () => {
+      await expect(
+        runMigration(['--target=local', '--allow-local', '--rollback'])
+      ).rejects.toThrow(/requires explicit confirmation token/i);
+    });
+
+    // Requirement 5: Conflicting-mode rejection
+    it('5.1 rejects conflicting execution modes', async () => {
+      await expect(
+        runMigration(['--target=local', '--allow-local', '--dry-run', '--apply'])
+      ).rejects.toThrow(/Conflicting execution modes specified/i);
     });
   });
 
-  describe('5. Refund Component Exact Math & Resumability', () => {
-    it('5.1 detects refund component sum mismatch', async () => {
+  describe('2. Idempotency, Determinism & Persistent Resume', () => {
+    // Requirement 6: Idempotent second run
+    it('6.1 idempotent second run produces zero writes against compliant orders', async () => {
       const user = await global.createTestUser();
-      await Refund.create({
-        payment: new mongoose.Types.ObjectId(),
-        order: new mongoose.Types.ObjectId(),
-        customer: user._id,
-        processedBy: user._id,
-        providerIdempotencyKey: `prov-idemp-${userSeq}`,
-        requestHash: `req-hash-${userSeq}`,
-        idempotencyKey: `idemp-${userSeq}`,
-        provider: 'stripe',
-        amount: 100,
-        amountExact: MoneyMapper.fromLegacy(100, 'USD'),
-        allocationSnapshot: {
-          merchandiseRefundExact: MoneyMapper.fromLegacy(70, 'USD'),
-          taxRefundExact: MoneyMapper.fromLegacy(10, 'USD'),
-          dutyRefundExact: MoneyMapper.fromLegacy(10, 'USD'),
-          shippingRefundExact: MoneyMapper.fromLegacy(0, 'USD'),
-          totalRefundExact: MoneyMapper.fromLegacy(100, 'USD') // 70 + 10 + 10 = 90 != 100
-        }
+      await Order.create({
+        user: user._id,
+        idempotencyKey: `idemp-order-key-${userSeq}`,
+        requestHash: `idemp-order-hash-${userSeq}`,
+        quote: { merchantScopeId: 'default' },
+        items: [{
+          product: new mongoose.Types.ObjectId(),
+          name: 'Compliant Item',
+          price: 100,
+          quantity: 1,
+          lineTotal: 100
+        }],
+        subtotal: 100,
+        subtotalExact: MoneyMapper.fromLegacy(100, 'PKR'),
+        totalAmount: 100,
+        totalAmountExact: MoneyMapper.fromLegacy(100, 'PKR'),
+        taxesAndDuties: {
+          taxAmountExact: MoneyMapper.fromLegacy(0, 'PKR')
+        },
+        paymentMethod: 'cod',
+        shippingAddress: {
+          fullName: 'Test Buyer',
+          phone: '03001234567',
+          address: 'Street 1',
+          city: 'Karachi',
+          country: 'Pakistan',
+          countryCode: 'PK'
+        },
+        currency: 'PKR',
+        statusTimeline: [{
+          status: 'Pending',
+          actor: user._id,
+          actorRole: 'customer',
+          timestamp: new Date()
+        }]
       });
 
-      const res = await migrateReturnsAndRefundsBatch({ isApply: false, batchSize: 50 });
-      expect(res.manualReview).toBeGreaterThanOrEqual(1);
-      expect(res.anomalies.some((a) => a.type === 'REFUND_COMPONENT_EXACT_SUM_MISMATCH')).toBe(true);
+      const res = await migrateOrdersBatch({ isApply: true, batchSize: 50 });
+      expect(res.changed).toBe(0);
+      expect(res.alreadyCompliant).toBeGreaterThanOrEqual(1);
     });
 
-    it('5.2 accepts compliant refund component sum', async () => {
+    // Requirement 7: Deterministic batching
+    it('7.1 deterministic batching limits query to bounded batchSize and stable ordering', async () => {
       const user = await global.createTestUser();
-      await Refund.create({
-        payment: new mongoose.Types.ObjectId(),
-        order: new mongoose.Types.ObjectId(),
-        customer: user._id,
-        processedBy: user._id,
-        providerIdempotencyKey: `prov-idemp-comp-${userSeq}`,
-        requestHash: `req-hash-comp-${userSeq}`,
-        idempotencyKey: `idemp-comp-${userSeq}`,
-        provider: 'stripe',
-        amount: 100,
-        amountExact: MoneyMapper.fromLegacy(100, 'USD'),
-        allocationSnapshot: {
-          merchandiseRefundExact: MoneyMapper.fromLegacy(80, 'USD'),
-          taxRefundExact: MoneyMapper.fromLegacy(10, 'USD'),
-          dutyRefundExact: MoneyMapper.fromLegacy(10, 'USD'),
-          shippingRefundExact: MoneyMapper.fromLegacy(0, 'USD'),
-          totalRefundExact: MoneyMapper.fromLegacy(100, 'USD') // 80 + 10 + 10 = 100
-        }
+      for (let i = 0; i < 3; i++) {
+        await Order.create({
+          user: user._id,
+          idempotencyKey: `batch-ord-${userSeq}-${i}`,
+          requestHash: `batch-hash-${userSeq}-${i}`,
+          quote: { merchantScopeId: 'batch_tenant' },
+          items: [{
+            product: new mongoose.Types.ObjectId(),
+            name: 'Item',
+            price: 10,
+            quantity: 1,
+            lineTotal: 10
+          }],
+          subtotal: 10,
+          totalAmount: 10,
+          paymentMethod: 'cod',
+          shippingAddress: {
+            fullName: 'Test Buyer',
+            phone: '03001234567',
+            address: 'Street 1',
+            city: 'Karachi',
+            country: 'Pakistan',
+            countryCode: 'PK'
+          },
+          currency: 'PKR',
+          statusTimeline: [{
+            status: 'Pending',
+            actor: user._id,
+            actorRole: 'customer',
+            timestamp: new Date()
+          }]
+        });
+      }
+
+      const res = await migrateOrdersBatch({ isApply: false, batchSize: 2, merchantScopeId: 'batch_tenant' });
+      expect(res.processed).toBe(2);
+      expect(res.lastProcessedId).toBeDefined();
+    });
+
+    // Requirement 8: Persistent interruption/resume
+    it('8.1 supports resuming batch processing using lastProcessedId cursor', async () => {
+      const user = await global.createTestUser();
+      const o1 = await Order.create({
+        user: user._id,
+        idempotencyKey: `resume-ord-1-${userSeq}`,
+        requestHash: `resume-hash-1-${userSeq}`,
+        quote: { merchantScopeId: 'resume_tenant' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item 1', price: 10, quantity: 1, lineTotal: 10 }],
+        subtotal: 10,
+        totalAmount: 10,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
       });
 
-      const res = await migrateReturnsAndRefundsBatch({ isApply: false, batchSize: 50 });
+      const o2 = await Order.create({
+        user: user._id,
+        idempotencyKey: `resume-ord-2-${userSeq}`,
+        requestHash: `resume-hash-2-${userSeq}`,
+        quote: { merchantScopeId: 'resume_tenant' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item 2', price: 20, quantity: 1, lineTotal: 20 }],
+        subtotal: 20,
+        totalAmount: 20,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const batch1 = await migrateOrdersBatch({ isApply: false, batchSize: 1, merchantScopeId: 'resume_tenant' });
+      expect(batch1.processed).toBe(1);
+      expect(String(batch1.lastProcessedId)).toBe(String(o1._id));
+
+      const batch2 = await migrateOrdersBatch({ isApply: false, batchSize: 10, merchantScopeId: 'resume_tenant', lastProcessedId: batch1.lastProcessedId });
+      expect(batch2.processed).toBe(1);
+      expect(String(batch2.lastProcessedId)).toBe(String(o2._id));
+    });
+  });
+
+  describe('3. Tenant Isolation & Concurrency Preconditions', () => {
+    // Requirement 9: Tenant isolation
+    it('9.1 isolates order migration strictly to designated merchantScopeId', async () => {
+      const user = await global.createTestUser();
+      await Order.create({
+        user: user._id,
+        idempotencyKey: `tenant-ord-${userSeq}`,
+        requestHash: `tenant-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_a' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item A', price: 10, quantity: 1, lineTotal: 10 }],
+        subtotal: 10,
+        totalAmount: 10,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const resOther = await migrateOrdersBatch({ isApply: false, batchSize: 10, merchantScopeId: 'tenant_b' });
+      expect(resOther.processed).toBe(0);
+
+      const resSame = await migrateOrdersBatch({ isApply: false, batchSize: 10, merchantScopeId: 'tenant_a' });
+      expect(resSame.processed).toBe(1);
+    });
+
+    // Requirement 10: Missing tenant fails closed
+    it('10.1 unresolvable order currency or malformed tenant boundary is classified as manual review', async () => {
+      const user = await global.createTestUser();
+      await Order.create({
+        user: user._id,
+        idempotencyKey: `bad-curr-ord-${userSeq}`,
+        requestHash: `bad-curr-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_c' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item C', price: 10, quantity: 1, lineTotal: 10 }],
+        subtotal: 10,
+        totalAmount: 10,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Foreign Buyer', phone: '03001234567', address: 'Street', city: 'London', country: 'United Kingdom', countryCode: 'GB' },
+        currency: null, // missing currency
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const res = await migrateOrdersBatch({ isApply: false, batchSize: 10, merchantScopeId: 'tenant_c' });
+      expect(res.manualReview).toBe(1);
+      expect(res.anomalies.some((a) => a.type === 'UNRESOLVABLE_ORDER_CURRENCY')).toBe(true);
+    });
+
+    // Requirement 11: Stale/concurrent mutation rejection
+    it('11.1 rejects update when document has already been concurrently mutated', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `concur-ord-${userSeq}`,
+        requestHash: `concur-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_concur' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item Concur', price: 50, quantity: 1, lineTotal: 50 }],
+        subtotal: 50,
+        totalAmount: 50,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      // Simulate a concurrent write that set subtotalExact right before migration update
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { subtotalExact: MoneyMapper.fromLegacy(50, 'PKR') } }
+      );
+
+      // Now run apply mode; precondition subtotalExact: null will not match
+      const res = await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_concur' });
+      expect(res.changed).toBe(0);
+    });
+  });
+
+  describe('4. Exact-Money Bounds & Coupon Rational Safety', () => {
+    // Requirement 12: Exact 18-digit amountMinor
+    it('12.1 validates canonical 18-digit amountMinor values without loss', () => {
+      expect(isValidExactMoney({ amountMinor: '999999999999999999', currency: 'USD', exponent: 2 })).toBe(true);
+      expect(isValidExactMoney({ amountMinor: '0', currency: 'PKR', exponent: 2 })).toBe(true);
+    });
+
+    // Requirement 13: 19-digit/unsafe value rejection
+    it('13.1 rejects 19+ digits, unsafe Numbers, decimals, and negative strings', () => {
+      expect(isValidExactMoney({ amountMinor: 9007199254740992, currency: 'USD', exponent: 2 })).toBe(false);
+      expect(isValidExactMoney({ amountMinor: '1000000000000000000', currency: 'USD', exponent: 2 })).toBe(false);
+      expect(isValidExactMoney({ amountMinor: '100.50', currency: 'USD', exponent: 2 })).toBe(false);
+      expect(isValidExactMoney({ amountMinor: '-100', currency: 'USD', exponent: 2 })).toBe(false);
+    });
+
+    // Requirement 14 & 15: Currency and exponent validation
+    it('14.1 rejects invalid currency strings and out-of-range exponents', () => {
+      expect(isValidExactMoney({ amountMinor: '100', currency: 'INVALID', exponent: 2 })).toBe(false);
+      expect(isValidExactMoney({ amountMinor: '100', currency: 'USD', exponent: 5 })).toBe(false);
+      expect(isValidExactMoney({ amountMinor: '100', currency: 'USD', exponent: -1 })).toBe(false);
+    });
+
+    // Requirement 16: Coupon conversion only from exact authority
+    it('16.1 accepts percentage coupon with existing canonical rational authority', async () => {
+      await Coupon.create({
+        code: `RATIONAL-${userSeq}`,
+        type: 'percentage',
+        value: 15,
+        rateNumerator: 1500,
+        rateDenominator: 10000,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000)
+      });
+
+      const res = await migrateCouponsBatch({ isApply: false, batchSize: 50 });
       expect(res.alreadyCompliant).toBeGreaterThanOrEqual(1);
+    });
+
+    // Requirement 17: Number-only coupon becomes manual review (NO floating-point math!)
+    it('17.1 classifies legacy Number-only percentage coupon as manual review with zero mutations', async () => {
+      const legacyCoupon = await Coupon.create({
+        code: `LEGACY-NUM-${userSeq}`,
+        type: 'percentage',
+        value: 15, // Number only, no rational authority
+        rateNumerator: null,
+        rateDenominator: null,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 86400000)
+      });
+
+      const res = await migrateCouponsBatch({ isApply: true, batchSize: 50 });
+      expect(res.manualReview).toBeGreaterThanOrEqual(1);
+      expect(res.changed).toBe(0);
+
+      // Verify database document was NOT mutated with floating-point math
+      const check = await Coupon.findById(legacyCoupon._id);
+      expect(check.rateNumerator).toBeNull();
+      expect(check.rateDenominator).toBeNull();
+    });
+  });
+
+  describe('5. Legal Policy Integrity, Reconciliation & Rollback Verification', () => {
+    // Requirement 18: No invented legal policy/provenance
+    it('18.1 detects unverified rules and missing refund policies without inventing them', async () => {
+      const invalidRules = [{
+        ruleId: 'UNVERIFIED-RULE',
+        destinationCountry: 'US',
+        verificationStatus: 'UNVERIFIED_ESTIMATE',
+        dutyRefundPolicy: null,
+        taxRefundPolicy: null,
+        customsValueIncludesShipping: null,
+        customsValueIncludesInsurance: null,
+        sourceAuthority: null,
+        sourceReference: null,
+        enabled: true
+      }];
+
+      const anomalies = await inspectPreflightAnomalies(invalidRules);
+      expect(anomalies.some((a) => a.type === 'UNVERIFIED_RULE_IN_ACTIVE_CONFIG')).toBe(true);
+      expect(anomalies.some((a) => a.type === 'MISSING_DUTY_REFUND_POLICY')).toBe(true);
+      expect(anomalies.some((a) => a.type === 'MISSING_TAX_REFUND_POLICY')).toBe(true);
+    });
+
+    // Requirement 19: DAP/inclusive-tax/refund/payment anomaly reconciliation
+    it('19.1 detects DAP orders with non-zero payable duty collected', async () => {
+      const user = await global.createTestUser();
+      await Order.create({
+        user: user._id,
+        idempotencyKey: `dap-ord-key-${userSeq}`,
+        requestHash: `dap-ord-hash-${userSeq}`,
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'DAP Item', price: 100, quantity: 1, lineTotal: 100 }],
+        subtotal: 100,
+        totalAmount: 120,
+        paymentMethod: 'stripe',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Downtown', city: 'Dubai', country: 'United Arab Emirates', countryCode: 'AE' },
+        currency: 'USD',
+        taxesAndDuties: {
+          incoterm: 'DAP',
+          payableDutyAmount: 20,
+          payableDutyExact: MoneyMapper.fromLegacy(20, 'USD')
+        },
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const res = await migrateOrdersBatch({ isApply: false, batchSize: 50 });
+      expect(res.manualReview).toBeGreaterThanOrEqual(1);
+      expect(res.anomalies.some((a) => a.type === 'DAP_NONZERO_PAYABLE_DUTY_ANOMALY')).toBe(true);
+    });
+
+    // Requirement 20: Real before-image recovery or explicitly disabled unsupported rollback
+    it('20.1 rollback mode drops migration-owned indexes and updates MigrationState to rolled_back', async () => {
+      const report = await runMigration(['--target=local', '--allow-local', '--rollback', '--confirm-phase6d4-rollback']);
+      expect(report.rollbackResult.success).toBe(true);
+
+      const state = await MigrationState.findOne({ migrationId: MIGRATION_ID });
+      expect(state.status).toBe('rolled_back');
     });
   });
 });

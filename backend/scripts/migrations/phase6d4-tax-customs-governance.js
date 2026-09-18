@@ -3,16 +3,16 @@
 
 /**
  * @file phase6d4-tax-customs-governance.js
- * @description Guarded, idempotent index and invariant migration for Phase 6D-4 Tax and Customs Governance,
+ * @description Guarded, idempotent, tenant-isolated index and invariant migration for Phase 6D-4 Tax and Customs Governance,
  * Multi-Service Rate Calculation, Incoterms, and De-Minimis Decisions.
  *
  * Supported modes:
  *   --inventory : Read-only evaluation and status breakdown.
  *   --dry-run   : Read-only simulation of index creations and document migrations (default).
- *   --apply     : Bounded creation of scoped indexes and exact-money backfills.
+ *   --apply     : Bounded, tenant-isolated creation of scoped indexes and exact-money backfills.
  *   --verify    : Read-only verification scan.
  *   --finalize  : Separately authorized write of MigrationState completion evidence.
- *   --rollback  : Idempotent rollback of migration-owned indexes only (no data deleted).
+ *   --rollback  : Idempotent rollback of migration-owned indexes and migration state tracking.
  */
 
 const mongoose = require('mongoose');
@@ -41,7 +41,8 @@ const ALLOWED_FLAGS = [
   '--allow-local',
   '--batch-size=',
   '--merchant-scope=',
-  '--json'
+  '--json',
+  '--resume'
 ];
 
 const REQUIRED_CONFIRMATION_MAP = {
@@ -286,8 +287,13 @@ async function inspectPreflightAnomalies(dbOrRules) {
 }
 
 /**
- * Reconciles/backfills legacy coupons with canonical rational and exact fields.
- * Strictly idempotent, tenant-safe, and bounded.
+ * Audits and reconciles promotional coupons.
+ *
+ * SAFETY INVARIANT:
+ * Zero floating-point conversions (e.g. Math.round(value * 100)) are permitted.
+ * If a percentage coupon lacks pre-existing canonical rational rate (rateNumerator/rateDenominator),
+ * or a fixed coupon lacks exact Money representation, it is strictly classified as manual-review.
+ * Zero database writes are performed for Number-only legacy coupons.
  *
  * @param {object} options
  * @param {boolean} options.isApply
@@ -298,6 +304,7 @@ async function inspectPreflightAnomalies(dbOrRules) {
 async function migrateCouponsBatch({ isApply = false, batchSize = 100, db = null } = {}) {
   const result = {
     entity: 'Coupon',
+    ownershipModel: 'GLOBAL_PLATFORM_PROMOTION',
     processed: 0,
     eligible: 0,
     changed: 0,
@@ -314,75 +321,49 @@ async function migrateCouponsBatch({ isApply = false, batchSize = 100, db = null
 
   for (const coupon of coupons) {
     result.processed++;
-    let needsUpdate = false;
-    const updates = {};
 
     if (coupon.type === 'percentage') {
       if (coupon.rateNumerator != null && coupon.rateDenominator != null) {
-        result.alreadyCompliant++;
-      } else if (typeof coupon.value === 'number' && Number.isFinite(coupon.value) && coupon.value >= 0 && coupon.value <= 100) {
-        // Safe integer percentage conversion without floating-point errors
-        const percentageScaled = Math.round(coupon.value * 100);
-        if (Number.isInteger(percentageScaled) && percentageScaled >= 0 && percentageScaled <= 10000) {
-          updates.rateNumerator = percentageScaled;
-          updates.rateDenominator = 10000;
-          needsUpdate = true;
-          result.eligible++;
+        if (coupon.rateNumerator >= 0 && coupon.rateDenominator > 0 && Number.isInteger(coupon.rateNumerator) && Number.isInteger(coupon.rateDenominator)) {
+          result.alreadyCompliant++;
         } else {
           result.manualReview++;
           result.anomalies.push({
-            type: 'UNSAFE_COUPON_PERCENTAGE_VALUE',
+            type: 'INVALID_COUPON_RATIONAL_RATE',
             couponId: String(coupon._id),
             code: coupon.code,
-            value: coupon.value
+            rateNumerator: coupon.rateNumerator,
+            rateDenominator: coupon.rateDenominator
           });
         }
       } else {
+        // Legacy Number-only coupon: Zero floating math conversion allowed.
+        // Must be reviewed manually by an administrator to define authoritative legal rational rate.
         result.manualReview++;
         result.anomalies.push({
-          type: 'INVALID_COUPON_PERCENTAGE_VALUE',
+          type: 'COUPON_MISSING_RATIONAL_AUTHORITY',
           couponId: String(coupon._id),
           code: coupon.code,
-          value: coupon.value
+          legacyValue: coupon.value,
+          message: 'Percentage coupon lacks canonical rateNumerator/rateDenominator; classified for manual review'
         });
       }
     } else if (coupon.type === 'fixed') {
       if (isValidExactMoney(coupon.valueExact)) {
         result.alreadyCompliant++;
       } else {
-        const currency = coupon.currency || 'PKR';
-        if (!CurrencyRegistry.hasCurrency(currency)) {
-          result.manualReview++;
-          result.anomalies.push({
-            type: 'INVALID_COUPON_CURRENCY',
-            couponId: String(coupon._id),
-            code: coupon.code,
-            currency
-          });
-        } else if (typeof coupon.value === 'number' && Number.isFinite(coupon.value) && coupon.value >= 0) {
-          try {
-            updates.valueExact = MoneyMapper.fromLegacy(coupon.value, currency);
-            needsUpdate = true;
-            result.eligible++;
-          } catch (_err) {
-            result.manualReview++;
-          }
-        } else {
-          result.manualReview++;
-        }
+        result.manualReview++;
+        result.anomalies.push({
+          type: 'COUPON_MISSING_EXACT_MONEY',
+          couponId: String(coupon._id),
+          code: coupon.code,
+          legacyValue: coupon.value,
+          currency: coupon.currency,
+          message: 'Fixed coupon lacks authoritative valueExact exact money object; classified for manual review'
+        });
       }
     } else if (coupon.type === 'freeshipping') {
       result.alreadyCompliant++;
-    }
-
-    if (needsUpdate) {
-      if (isApply) {
-        await couponModel.updateOne({ _id: coupon._id }, { $set: updates });
-        result.changed++;
-      } else {
-        // Dry-run mode: count as eligible but zero database writes
-        result.skipped++;
-      }
     }
   }
 
@@ -391,18 +372,26 @@ async function migrateCouponsBatch({ isApply = false, batchSize = 100, db = null
 
 /**
  * Reconciles/backfills legacy orders with canonical tax and customs snapshots where unambiguous.
- * Strictly idempotent, tenant-isolated, and bounded.
+ * Strictly tenant-isolated, concurrency-preconditioned, bounded, and resumable.
  *
  * @param {object} options
  * @param {boolean} options.isApply
  * @param {number} [options.batchSize=100]
  * @param {string} [options.merchantScopeId]
+ * @param {mongoose.Types.ObjectId} [options.lastProcessedId=null]
  * @param {object} [options.db]
  * @returns {Promise<object>}
  */
-async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantScopeId = null, db = null } = {}) {
+async function migrateOrdersBatch({
+  isApply = false,
+  batchSize = 100,
+  merchantScopeId = null,
+  lastProcessedId = null,
+  db = null
+} = {}) {
   const result = {
     entity: 'Order',
+    ownershipModel: 'TENANT_SCOPED',
     processed: 0,
     eligible: 0,
     changed: 0,
@@ -410,13 +399,18 @@ async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantSc
     failed: 0,
     alreadyCompliant: 0,
     manualReview: 0,
+    lastProcessedId: null,
     anomalies: []
   };
 
   const orderModel = db ? db.model('Order') : Order;
   const query = {};
+
   if (merchantScopeId) {
     query['quote.merchantScopeId'] = merchantScopeId;
+  }
+  if (lastProcessedId) {
+    query._id = { $gt: lastProcessedId };
   }
 
   const cursor = orderModel.find(query).sort({ _id: 1 }).limit(batchSize);
@@ -424,8 +418,11 @@ async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantSc
 
   for (const order of orders) {
     result.processed++;
+    result.lastProcessedId = order._id;
     let needsUpdate = false;
     const updates = {};
+
+    const scope = order.quote?.merchantScopeId || 'default';
 
     const currency = order.currency || (order.shippingAddress && order.shippingAddress.countryCode === 'PK' ? 'PKR' : null);
     if (!currency || !CurrencyRegistry.hasCurrency(currency)) {
@@ -433,7 +430,8 @@ async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantSc
       result.anomalies.push({
         type: 'UNRESOLVABLE_ORDER_CURRENCY',
         orderId: order.orderId || String(order._id),
-        currency: order.currency
+        currency: order.currency,
+        merchantScopeId: scope
       });
       continue;
     }
@@ -450,6 +448,7 @@ async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantSc
         result.anomalies.push({
           type: 'DAP_NONZERO_PAYABLE_DUTY_ANOMALY',
           orderId: order.orderId || String(order._id),
+          merchantScopeId: scope,
           payableDutyAmount: payableDutyNum,
           payableDutyExactMinor: String(payableDutyExactMinor),
           message: 'DAP order has non-zero payable duty collected; requires manual financial review'
@@ -487,8 +486,26 @@ async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantSc
       if (needsUpdate) {
         result.eligible++;
         if (isApply) {
-          await orderModel.updateOne({ _id: order._id }, { $set: updates });
-          result.changed++;
+          // TENANT-ISOLATED & CONCURRENCY-PRECONDITIONED MUTATION
+          const mutationFilter = {
+            _id: order._id,
+            'quote.merchantScopeId': scope,
+            // Concurrency precondition: ensure subtotalExact is still null before updating
+            subtotalExact: null
+          };
+
+          const updateResult = await orderModel.updateOne(mutationFilter, { $set: updates });
+          if (updateResult.matchedCount === 1) {
+            result.changed++;
+          } else {
+            // Concurrently updated or tenant mismatched
+            result.failed++;
+            result.anomalies.push({
+              type: 'CONCURRENT_OR_CROSS_TENANT_MUTATION_REJECTED',
+              orderId: order.orderId || String(order._id),
+              merchantScopeId: scope
+            });
+          }
         } else {
           result.skipped++;
         }
@@ -502,11 +519,12 @@ async function migrateOrdersBatch({ isApply = false, batchSize = 100, merchantSc
 }
 
 /**
- * Reconciles/backfills Returns and Refunds for exact math integrity.
+ * Audits Returns and Refunds for exact math and component sum integrity (Read-Only).
  */
-async function migrateReturnsAndRefundsBatch({ isApply = false, batchSize = 100, db = null } = {}) {
+async function auditReturnsAndRefundsBatch({ batchSize = 100, db = null } = {}) {
   const result = {
     entity: 'Return/Refund',
+    ownershipModel: 'READ_ONLY_AUDIT',
     processed: 0,
     eligible: 0,
     changed: 0,
@@ -524,7 +542,6 @@ async function migrateReturnsAndRefundsBatch({ isApply = false, batchSize = 100,
   for (const ref of refunds) {
     result.processed++;
     if (isValidExactMoney(ref.amountExact)) {
-      // Validate component exact sum if snapshot exists
       if (ref.allocationSnapshot && isValidExactMoney(ref.allocationSnapshot.totalRefundExact)) {
         const merch = ref.allocationSnapshot.merchandiseRefundExact?.amountMinor ? BigInt(ref.allocationSnapshot.merchandiseRefundExact.amountMinor) : 0n;
         const tax = ref.allocationSnapshot.taxRefundExact?.amountMinor ? BigInt(ref.allocationSnapshot.taxRefundExact.amountMinor) : 0n;
@@ -592,6 +609,7 @@ async function runMigration(argv = process.argv.slice(2)) {
   }
 
   const isJson = cli.hasFlag('--json');
+  const isResume = cli.hasFlag('--resume');
 
   if (cli.isDryRun) {
     console.log('[Phase 6D-4 Migration] DRY RUN MODE: No writes will be performed.');
@@ -619,7 +637,6 @@ async function runMigration(argv = process.argv.slice(2)) {
     success: true
   };
 
-  // Connect to DB if not already connected
   let didConnect = false;
   if (mongoose.connection.readyState !== 1) {
     await mongoose.connect(dbConfig.mongoUri, { serverSelectionTimeoutMS: 15000 });
@@ -629,10 +646,54 @@ async function runMigration(argv = process.argv.slice(2)) {
   try {
     const db = mongoose.connection.db;
 
+    // Handle Rollback Mode
+    if (cli.isRollback || cli.mode === '--rollback') {
+      const state = await MigrationState.findOne({ migrationId: MIGRATION_ID });
+      const collections = await db.listCollections().toArray();
+      const collectionNames = new Set(collections.map((c) => c.name));
+      const droppedIndexes = [];
+
+      for (const targetIdx of TARGET_INDEXES) {
+        if (collectionNames.has(targetIdx.collectionName)) {
+          const col = db.collection(targetIdx.collectionName);
+          const existingIndexes = await col.indexes();
+          const match = findIndexMatch(existingIndexes, targetIdx, targetIdx.name);
+          if (match) {
+            await col.dropIndex(match.name);
+            droppedIndexes.push(`${targetIdx.collectionName}.${match.name}`);
+          }
+        }
+      }
+
+      await MigrationState.updateOne(
+        { migrationId: MIGRATION_ID },
+        {
+          $set: {
+            status: 'rolled_back',
+            metadata: {
+              target: cli.target,
+              droppedIndexes,
+              rolledBackAt: new Date()
+            }
+          }
+        },
+        { upsert: true }
+      );
+
+      report.rollbackResult = { droppedIndexes, success: true };
+      if (isJson) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log(`[Phase 6D-4 Migration] Rollback completed. Dropped ${droppedIndexes.length} migration indexes.`);
+      }
+      return report;
+    }
+
     // 1. Inspect preflight tax rule configuration anomalies
     report.preflightAnomalies = await inspectPreflightAnomalies(db);
 
     // 2. Index Management
+    const createdIndexes = [];
     for (const targetIdx of TARGET_INDEXES) {
       try {
         const col = db.collection(targetIdx.collectionName);
@@ -646,6 +707,7 @@ async function runMigration(argv = process.argv.slice(2)) {
           if (cli.isApply) {
             await col.createIndex(targetIdx.key, targetIdx.options);
             report.indexes.created++;
+            createdIndexes.push(`${targetIdx.collectionName}.${targetIdx.name}`);
           }
         }
       } catch (err) {
@@ -654,12 +716,47 @@ async function runMigration(argv = process.argv.slice(2)) {
       }
     }
 
-    // 3. Document Migrations
-    report.coupons = await migrateCouponsBatch({ isApply: cli.isApply, batchSize });
-    report.orders = await migrateOrdersBatch({ isApply: cli.isApply, batchSize, merchantScopeId });
-    report.refunds = await migrateReturnsAndRefundsBatch({ isApply: cli.isApply, batchSize });
+    // 3. Persistent Resume Checkpoint
+    let lastProcessedId = null;
+    if (isResume && cli.isApply) {
+      const existingState = await MigrationState.findOne({ migrationId: MIGRATION_ID });
+      if (existingState && existingState.lastProcessedId) {
+        lastProcessedId = existingState.lastProcessedId;
+      }
+    }
 
-    // 4. Finalize Mode
+    // 4. Document Migrations & Audits
+    report.coupons = await migrateCouponsBatch({ isApply: cli.isApply, batchSize });
+    report.orders = await migrateOrdersBatch({ isApply: cli.isApply, batchSize, merchantScopeId, lastProcessedId });
+    report.refunds = await auditReturnsAndRefundsBatch({ batchSize });
+
+    // 5. Checkpoint State Recording
+    if (cli.isApply) {
+      await MigrationState.updateOne(
+        { migrationId: MIGRATION_ID },
+        {
+          $set: {
+            status: 'applied',
+            lastProcessedId: report.orders.lastProcessedId,
+            processedCount: (report.orders.processed || 0) + (report.coupons.processed || 0),
+            updatedCount: report.orders.changed || 0,
+            conflictCount: report.orders.failed || 0,
+            createdIndexes,
+            metadata: {
+              target: cli.target,
+              merchantScopeId,
+              ordersProcessed: report.orders.processed,
+              ordersMigrated: report.orders.changed,
+              couponsAudited: report.coupons.processed,
+              lastCheckpointAt: new Date()
+            }
+          }
+        },
+        { upsert: true }
+      );
+    }
+
+    // 6. Finalize Mode
     if (cli.hasFlag('--finalize') || (cli.mode === '--finalize')) {
       if (report.preflightAnomalies.filter((a) => a.severity === 'CRITICAL').length > 0) {
         throw new Error('Cannot finalize migration with critical preflight anomalies.');
@@ -669,13 +766,13 @@ async function runMigration(argv = process.argv.slice(2)) {
           { migrationId: MIGRATION_ID },
           {
             $set: {
-              status: 'COMPLETED',
+              status: 'completed',
               completedAt: new Date(),
               metadata: {
                 target: cli.target,
                 indexesCreated: report.indexes.created,
-                couponsMigrated: report.coupons.changed,
-                ordersMigrated: report.orders.changed
+                ordersMigrated: report.orders.changed,
+                finalizedAt: new Date()
               }
             }
           },
@@ -689,7 +786,7 @@ async function runMigration(argv = process.argv.slice(2)) {
     } else {
       console.log(`[Phase 6D-4 Migration] Completed with status: ${report.success ? 'SUCCESS' : 'FAILED'}`);
       console.log(`  Indexes: ${report.indexes.verified} verified, ${report.indexes.missing} missing, ${report.indexes.created} created`);
-      console.log(`  Coupons: processed=${report.coupons.processed}, changed=${report.coupons.changed}, manualReview=${report.coupons.manualReview}`);
+      console.log(`  Coupons: processed=${report.coupons.processed}, manualReview=${report.coupons.manualReview}`);
       console.log(`  Orders: processed=${report.orders.processed}, changed=${report.orders.changed}, manualReview=${report.orders.manualReview}`);
       console.log(`  Refunds: processed=${report.refunds.processed}, alreadyCompliant=${report.refunds.alreadyCompliant}, manualReview=${report.refunds.manualReview}`);
     }
@@ -721,6 +818,6 @@ module.exports = {
   inspectPreflightAnomalies,
   migrateCouponsBatch,
   migrateOrdersBatch,
-  migrateReturnsAndRefundsBatch,
+  auditReturnsAndRefundsBatch,
   runMigration
 };
