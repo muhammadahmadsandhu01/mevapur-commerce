@@ -8,6 +8,36 @@ const generateReturnNumber = () => {
   return `RET-${date}-${entropy}`;
 };
 
+const returnRefundAllocationSnapshotSchema = new mongoose.Schema({
+  merchandiseRefundExact: { type: MoneySchema, default: null },
+  taxRefundExact: { type: MoneySchema, default: null },
+  dutyRefundExact: { type: MoneySchema, default: null },
+  shippingRefundExact: { type: MoneySchema, default: null },
+  totalRefundExact: { type: MoneySchema, default: null },
+  taxRefundPolicy: {
+    type: String,
+    enum: ['REFUNDABLE', 'NON_REFUNDABLE', 'PROPORTIONAL', 'MANUAL_REVIEW', null],
+    default: null
+  },
+  dutyRefundPolicy: {
+    type: String,
+    enum: ['REFUNDABLE', 'NON_REFUNDABLE', 'MANUAL_REVIEW', null],
+    default: null
+  },
+  taxTreatment: {
+    type: String,
+    enum: ['INCLUSIVE', 'EXCLUSIVE', null],
+    default: null
+  },
+  incoterm: {
+    type: String,
+    enum: ['DDP', 'DAP', 'DOMESTIC', null],
+    default: null
+  },
+  allocationVersion: { type: String, default: '6D-4C' },
+  calculatedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
 const returnSchema = new mongoose.Schema({
   returnNumber: {
     type: String,
@@ -41,6 +71,10 @@ const returnSchema = new mongoose.Schema({
     priceExact: { type: MoneySchema, default: null },
     refundAmount: { type: Number, min: 0, default: 0 },
     refundAmountExact: { type: MoneySchema, default: null },
+    merchandiseRefundExact: { type: MoneySchema, default: null },
+    taxRefundExact: { type: MoneySchema, default: null },
+    dutyRefundExact: { type: MoneySchema, default: null },
+    includedTaxExact: { type: MoneySchema, default: null },
     reason: {
       type: String,
       enum: ['damaged', 'wrong_item', 'not_as_described', 'not_satisfied', 'duplicate', 'other'],
@@ -78,6 +112,11 @@ const returnSchema = new mongoose.Schema({
     default: 0
   },
   refundAmountExact: { type: MoneySchema, default: null },
+  merchandiseRefundExact: { type: MoneySchema, default: null },
+  taxRefundExact: { type: MoneySchema, default: null },
+  dutyRefundExact: { type: MoneySchema, default: null },
+  shippingRefundExact: { type: MoneySchema, default: null },
+  refundAllocationSnapshot: { type: returnRefundAllocationSnapshotSchema, default: null },
   shippingCost: {
     type: Number,
     default: 0
@@ -116,8 +155,6 @@ const returnSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
-
-
 
 returnSchema.index({ status: 1, createdAt: -1 });
 returnSchema.index({ customer: 1, createdAt: -1 });

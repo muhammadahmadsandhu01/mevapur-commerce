@@ -34,8 +34,84 @@ const MISSING_INVENTORY_CODES = new Set([
 ]);
 
 const { Money, MoneyMapper, CurrencyRegistry, RolloutAuthority, OrderCurrencyResolver } = require('../../modules/commerce');
+const {
+  parseLegacyDecimalToMinorUnits,
+  toBigIntMinorExact
+} = require('../ReturnMoneyAllocationService');
 
 class RefundService {
+  /**
+   * Validates exact reconciliation between total refund and breakdown components (merchandise, tax, duty, shipping).
+   */
+  validateRefundAllocationReconciliation({
+    amount,
+    amountExact,
+    merchandiseRefundExact,
+    taxRefundExact,
+    dutyRefundExact,
+    shippingRefundExact,
+    allocationSnapshot,
+    resolvedCurrency
+  }) {
+    if (!amountExact && !allocationSnapshot && !merchandiseRefundExact) {
+      return;
+    }
+
+    const targetMoney = amountExact
+      ? (typeof amountExact === 'object' && amountExact.amountMinor !== undefined
+        ? MoneyMapper.toMoney(amountExact)
+        : MoneyMapper.toMoney(MoneyMapper.toPersistence(amountExact)))
+      : MoneyMapper.fromLegacy(amount, resolvedCurrency);
+
+    if (targetMoney.currency !== resolvedCurrency) {
+      throw new AppError(
+        `Refund currency '${targetMoney.currency}' does not match resolved payment currency '${resolvedCurrency}'`,
+        400,
+        'CURRENCY_MISMATCH'
+      );
+    }
+
+    if (allocationSnapshot) {
+      if (allocationSnapshot.taxRefundPolicy && !['REFUNDABLE', 'NON_REFUNDABLE', 'PROPORTIONAL', 'MANUAL_REVIEW'].includes(allocationSnapshot.taxRefundPolicy)) {
+        throw new AppError(`Invalid taxRefundPolicy: '${allocationSnapshot.taxRefundPolicy}'`, 400, 'INVALID_TAX_REFUND_POLICY');
+      }
+      if (allocationSnapshot.dutyRefundPolicy && !['REFUNDABLE', 'NON_REFUNDABLE', 'MANUAL_REVIEW'].includes(allocationSnapshot.dutyRefundPolicy)) {
+        throw new AppError(`Invalid dutyRefundPolicy: '${allocationSnapshot.dutyRefundPolicy}'`, 400, 'INVALID_DUTY_REFUND_POLICY');
+      }
+      if (allocationSnapshot.incoterm === 'DAP' && dutyRefundExact) {
+        const dutyMoney = MoneyMapper.toMoney(dutyRefundExact);
+        if (dutyMoney.amountMinor > 0n) {
+          throw new AppError('DAP estimated customs duty cannot be refunded as payable duty', 400, 'REFUND_ALLOCATION_RECONCILIATION_FAILED');
+        }
+      }
+    }
+
+    if (merchandiseRefundExact || taxRefundExact || dutyRefundExact || shippingRefundExact) {
+      const merch = merchandiseRefundExact ? MoneyMapper.toMoney(merchandiseRefundExact) : Money.fromMinor(0n, resolvedCurrency);
+      const tax = taxRefundExact ? MoneyMapper.toMoney(taxRefundExact) : Money.fromMinor(0n, resolvedCurrency);
+      const duty = dutyRefundExact ? MoneyMapper.toMoney(dutyRefundExact) : Money.fromMinor(0n, resolvedCurrency);
+      const shipping = shippingRefundExact ? MoneyMapper.toMoney(shippingRefundExact) : Money.fromMinor(0n, resolvedCurrency);
+
+      const components = [merch, tax, duty, shipping];
+      for (const comp of components) {
+        if (comp.currency !== resolvedCurrency) {
+          throw new AppError(`Component currency mismatch: expected ${resolvedCurrency} but got ${comp.currency}`, 400, 'CURRENCY_MISMATCH');
+        }
+        if (comp.exponent !== targetMoney.exponent) {
+          throw new AppError(`Component exponent mismatch: expected ${targetMoney.exponent} but got ${comp.exponent}`, 400, 'EXPONENT_MISMATCH');
+        }
+      }
+
+      const componentSumMinor = merch.amountMinor + tax.amountMinor + duty.amountMinor + shipping.amountMinor;
+      if (componentSumMinor !== targetMoney.amountMinor) {
+        throw new AppError(
+          `Refund breakdown sum (${componentSumMinor}) does not reconcile with total refund amount (${targetMoney.amountMinor})`,
+          400,
+          'REFUND_ALLOCATION_RECONCILIATION_FAILED'
+        );
+      }
+    }
+  }
   /**
    * Authoritatively resolves payment currency with strict multi-source consistency and fail-closed mismatch guards.
    * @param {Object} payment
@@ -75,6 +151,12 @@ class RefundService {
   async createRefund({
     paymentId,
     amount,
+    amountExact,
+    merchandiseRefundExact,
+    taxRefundExact,
+    dutyRefundExact,
+    shippingRefundExact,
+    allocationSnapshot,
     reason = '',
     adminId,
     idempotencyKey,
@@ -84,6 +166,12 @@ class RefundService {
     return this.createRefundRecord({
       paymentId,
       amount,
+      amountExact,
+      merchandiseRefundExact,
+      taxRefundExact,
+      dutyRefundExact,
+      shippingRefundExact,
+      allocationSnapshot,
       reason,
       adminId,
       idempotencyKey,
@@ -95,6 +183,12 @@ class RefundService {
   async createManualRefund({
     paymentId,
     amount,
+    amountExact,
+    merchandiseRefundExact,
+    taxRefundExact,
+    dutyRefundExact,
+    shippingRefundExact,
+    allocationSnapshot,
     reason = '',
     adminId,
     idempotencyKey,
@@ -111,6 +205,12 @@ class RefundService {
     return this.createRefundRecord({
       paymentId,
       amount,
+      amountExact,
+      merchandiseRefundExact,
+      taxRefundExact,
+      dutyRefundExact,
+      shippingRefundExact,
+      allocationSnapshot,
       reason,
       adminId,
       idempotencyKey,
@@ -122,6 +222,12 @@ class RefundService {
   async createRefundRecord({
     paymentId,
     amount,
+    amountExact,
+    merchandiseRefundExact,
+    taxRefundExact,
+    dutyRefundExact,
+    shippingRefundExact,
+    allocationSnapshot,
     reason,
     adminId,
     idempotencyKey,
@@ -188,6 +294,23 @@ class RefundService {
       }
     }
 
+    const resolvedAmountExact = amountExact
+      ? (typeof amountExact === 'object' && amountExact.amountMinor !== undefined
+        ? MoneyMapper.toPersistence(MoneyMapper.toMoney(amountExact))
+        : amountExact)
+      : MoneyMapper.fromLegacy(amount, resolvedCurrency);
+
+    this.validateRefundAllocationReconciliation({
+      amount,
+      amountExact: resolvedAmountExact,
+      merchandiseRefundExact,
+      taxRefundExact,
+      dutyRefundExact,
+      shippingRefundExact,
+      allocationSnapshot,
+      resolvedCurrency
+    });
+
     try {
       refund = await Refund.create({
         payment: payment._id,
@@ -195,7 +318,12 @@ class RefundService {
         customer: payment.user,
         provider: payment.provider,
         amount,
-        amountExact: MoneyMapper.fromLegacy(amount, resolvedCurrency),
+        amountExact: resolvedAmountExact,
+        merchandiseRefundExact: merchandiseRefundExact || null,
+        taxRefundExact: taxRefundExact || null,
+        dutyRefundExact: dutyRefundExact || null,
+        shippingRefundExact: shippingRefundExact || null,
+        allocationSnapshot: allocationSnapshot || null,
         currency: resolvedCurrency,
         status: REFUND_STATUSES.PENDING,
         idempotencyKey,
@@ -302,8 +430,8 @@ class RefundService {
             || (returnEntry.refundAmount !== undefined && refund.amount !== undefined
               && (returnEntry.refundAmountExact && refund.amountExact
                 ? MoneyMapper.toMoney(returnEntry.refundAmountExact).amountMinor !== MoneyMapper.toMoney(refund.amountExact).amountMinor
-                : Money.fromLegacyNumber(returnEntry.refundAmount, refund.currency || 'PKR').amountMinor
-                  !== Money.fromLegacyNumber(refund.amount, refund.currency || 'PKR').amountMinor))
+                : (parseLegacyDecimalToMinorUnits(returnEntry.refundAmount, refund.currency)
+                  !== parseLegacyDecimalToMinorUnits(refund.amount, refund.currency))))
             || (returnEntry.refund
               && String(returnEntry.refund) !== String(refund._id))
           ) {
@@ -652,8 +780,8 @@ class RefundService {
         || (returnEntry.refundAmount !== undefined && refund.amount !== undefined
           && (returnEntry.refundAmountExact && refund.amountExact
             ? MoneyMapper.toMoney(returnEntry.refundAmountExact).amountMinor !== MoneyMapper.toMoney(refund.amountExact).amountMinor
-            : Money.fromLegacyNumber(returnEntry.refundAmount, refund.currency || 'PKR').amountMinor
-              !== Money.fromLegacyNumber(refund.amount, refund.currency || 'PKR').amountMinor))
+            : (parseLegacyDecimalToMinorUnits(returnEntry.refundAmount, refund.currency)
+              !== parseLegacyDecimalToMinorUnits(refund.amount, refund.currency))))
       ))
     ) {
       throw new AppError(

@@ -15,13 +15,14 @@ const line = (product, price, quantity = 1, extra = {}) => ({
 const amountsByProduct = (allocation) => Object.fromEntries(
   allocation.lines.map((entry) => [
     String(entry.item.product),
-    fromMinorUnits(entry.refundableMinor)
+    fromMinorUnits(entry.refundableMinor, allocation.currency || 'PKR')
   ])
 );
 
 describe('ReturnMoneyAllocationService', () => {
   test('allocates two Rs.100 lines against a Rs.50 discount exactly', () => {
     const allocation = allocateOrderMerchandise({
+      currency: 'PKR',
       items: [line('product-a', 100), line('product-b', 100)],
       subtotal: 200,
       discount: 50,
@@ -39,6 +40,7 @@ describe('ReturnMoneyAllocationService', () => {
 
   test('assigns indivisible remainder cents by stable identity, not array order', () => {
     const monetarySnapshot = {
+      currency: 'PKR',
       subtotal: 200,
       discount: 33.33,
       shippingCost: 0,
@@ -67,6 +69,7 @@ describe('ReturnMoneyAllocationService', () => {
 
   test('allocates partial quantities without losing or creating a cent', () => {
     const allocation = allocateOrderMerchandise({
+      currency: 'PKR',
       items: [line('product-a', 100, 3)],
       subtotal: 300,
       discount: 100,
@@ -77,13 +80,15 @@ describe('ReturnMoneyAllocationService', () => {
     const allocatedLine = allocation.lines[0];
 
     expect([0, 1, 2].map((start) => fromMinorUnits(
-      amountForQuantityRange(allocatedLine, start, 1)
+      amountForQuantityRange(allocatedLine, start, 1),
+      'PKR'
     ))).toEqual([66.67, 66.67, 66.66]);
     expect(amountForQuantityRange(allocatedLine, 0, 3)).toBe(20000);
   });
 
   test('keeps zero-discount line behavior and excludes shipping and tax', () => {
     const allocation = allocateOrderMerchandise({
+      currency: 'PKR',
       items: [line('product-a', 125, 2)],
       subtotal: 250,
       discount: 0,
@@ -98,6 +103,7 @@ describe('ReturnMoneyAllocationService', () => {
 
   test('supports a legacy line without lineTotal and fails closed on lower totals', () => {
     const allocation = allocateOrderMerchandise({
+      currency: 'PKR',
       items: [{ product: 'product-a', price: 100, quantity: 2 }],
       subtotal: 200,
       discount: 25,

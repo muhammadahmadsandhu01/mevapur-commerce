@@ -411,6 +411,7 @@ describe('HZ-001/HZ-002 return and refund financial integrity', () => {
       _id: orderId,
       orderId: `LEGACY-${orderId}`,
       user: owner.user._id,
+      currency: 'PKR',
       items: [{
         product: first._id, name: first.name, price: 100, quantity: 1
       }, {

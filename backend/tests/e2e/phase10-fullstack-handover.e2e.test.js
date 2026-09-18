@@ -780,6 +780,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
     // 1. Order delivered 5 days ago (ELIGIBLE within 30-day window)
     const eligibleOrder = await Order.create({
       user: customer.user._id,
+      currency: 'PKR',
       idempotencyKey: crypto.randomUUID(),
       requestHash: crypto.randomBytes(32).toString('hex'),
       items: [
@@ -849,6 +850,7 @@ describe('Storefront Phase 10 — Full-Stack E2E, Security and Client-Handover A
     // 2. Order delivered 40 days ago (INELIGIBLE — beyond 30-day window)
     const expiredOrder = await Order.create({
       user: customer.user._id,
+      currency: 'PKR',
       idempotencyKey: crypto.randomUUID(),
       requestHash: crypto.randomBytes(32).toString('hex'),
       items: [

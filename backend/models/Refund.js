@@ -26,6 +26,36 @@ const refundHistorySchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now, required: true }
 }, { _id: false });
 
+const refundAllocationSnapshotSchema = new mongoose.Schema({
+  merchandiseRefundExact: { type: MoneySchema, default: null },
+  taxRefundExact: { type: MoneySchema, default: null },
+  dutyRefundExact: { type: MoneySchema, default: null },
+  shippingRefundExact: { type: MoneySchema, default: null },
+  totalRefundExact: { type: MoneySchema, default: null },
+  taxRefundPolicy: {
+    type: String,
+    enum: ['REFUNDABLE', 'NON_REFUNDABLE', 'PROPORTIONAL', 'MANUAL_REVIEW', null],
+    default: null
+  },
+  dutyRefundPolicy: {
+    type: String,
+    enum: ['REFUNDABLE', 'NON_REFUNDABLE', 'MANUAL_REVIEW', null],
+    default: null
+  },
+  taxTreatment: {
+    type: String,
+    enum: ['INCLUSIVE', 'EXCLUSIVE', null],
+    default: null
+  },
+  incoterm: {
+    type: String,
+    enum: ['DDP', 'DAP', 'DOMESTIC', null],
+    default: null
+  },
+  allocationVersion: { type: String, default: '6D-4C' },
+  calculatedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
 const refundSchema = new mongoose.Schema({
   refundNumber: {
     type: String,
@@ -63,6 +93,11 @@ const refundSchema = new mongoose.Schema({
   },
   amount: { type: Number, required: true, min: 0.01 },
   amountExact: { type: MoneySchema, default: null },
+  merchandiseRefundExact: { type: MoneySchema, default: null },
+  taxRefundExact: { type: MoneySchema, default: null },
+  dutyRefundExact: { type: MoneySchema, default: null },
+  shippingRefundExact: { type: MoneySchema, default: null },
+  allocationSnapshot: { type: refundAllocationSnapshotSchema, default: null },
   currency: {
     type: String,
     required: true,

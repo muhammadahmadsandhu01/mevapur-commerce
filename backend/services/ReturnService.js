@@ -9,11 +9,18 @@ const paymentProviderRegistry = require('../modules/payments/core/providerRegist
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 const { PAYMENT_STATUSES } = require('../constants/paymentConstants');
+const { Money, MoneyMapper } = require('../modules/commerce');
 const {
   allocateOrderMerchandise,
   amountForQuantityRange,
+  amountMinorExactForQuantityRange,
   fromMinorUnits,
+  fromMinorUnitsDisplayOnly,
   orderLineKey: lineKey,
+  parseLegacyDecimalToMinorUnits,
+  resolveOrderCurrency,
+  toBigIntMinor,
+  toBigIntMinorExact,
   toMinorUnits
 } = require('./ReturnMoneyAllocationService');
 
@@ -34,7 +41,12 @@ const ACTIVE_RETURN_STATUSES = Object.freeze([
 ]);
 const REFUNDABLE_RETURN_STATUSES = Object.freeze(['approved', 'inspected']);
 
-const roundMoney = (value) => fromMinorUnits(toMinorUnits(value));
+const roundMoney = (value, currency) => {
+  if (!currency) {
+    throw new AppError('Currency is required for rounding money', 400, 'REFUND_CURRENCY_REQUIRED');
+  }
+  return fromMinorUnitsDisplayOnly(toMinorUnits(value, currency), currency);
+};
 
 const referenceQuery = (reference) => (
   mongoose.isObjectIdOrHexString(reference)
@@ -67,8 +79,11 @@ class ReturnService {
 
   priorQuantityForLine(priorReturns, orderItem) {
     const canonicalKey = lineKey(orderItem.product, orderItem.variantId);
-    return priorReturns.reduce((total, priorReturn) => (
-      total + priorReturn.items.reduce((itemTotal, item) => {
+    return priorReturns.reduce((total, priorReturn) => {
+      if (priorReturn.status && !RESERVED_RETURN_STATUSES.includes(priorReturn.status)) {
+        return total;
+      }
+      return total + priorReturn.items.reduce((itemTotal, item) => {
         if (item.orderLineKey) {
           return item.orderLineKey === canonicalKey
             ? itemTotal + item.quantity
@@ -81,14 +96,56 @@ class ReturnService {
         // Historical return rows did not retain variant identity. Counting them
         // conservatively prevents a legacy row from enabling an over-return.
         return itemTotal + item.quantity;
-      }, 0)
-    ), 0);
+      }, 0);
+    }, 0);
   }
 
   canonicalizeItems(order, requestedItems, priorReturns) {
     const allocation = allocateOrderMerchandise(order);
+    const currency = allocation.currency;
     const seen = new Set();
-    let requestedRefundMinor = 0;
+
+    let totalMerchandiseRefundMinor = 0n;
+    let totalTaxRefundMinor = 0n;
+    let totalDutyRefundMinor = 0n;
+    let totalIncludedTaxMinor = 0n;
+
+    const orderHasNonZeroTax = allocation.totalAssessedTaxMinorExact > 0n || allocation.additionalTaxMinorExact > 0n;
+    const orderHasNonZeroDuty = allocation.payableDutyMinorExact > 0n;
+
+    // Strict policy snapshot requirement on non-zero tax / duties
+    if (orderHasNonZeroTax && !allocation.taxRefundPolicy) {
+      throw new AppError(
+        'Governed tax refund policy snapshot is required for order with tax reversal',
+        409,
+        'GOVERNED_TAX_POLICY_SNAPSHOT_REQUIRED'
+      );
+    }
+
+    if (orderHasNonZeroDuty && !allocation.dutyRefundPolicy) {
+      throw new AppError(
+        'Governed duty refund policy snapshot is required for order with duty reversal',
+        409,
+        'GOVERNED_DUTY_POLICY_SNAPSHOT_REQUIRED'
+      );
+    }
+
+    if (allocation.taxRefundPolicy === 'MANUAL_REVIEW') {
+      throw new AppError(
+        'Tax refund requires manual review for this order',
+        409,
+        'TAX_REFUND_MANUAL_REVIEW_REQUIRED'
+      );
+    }
+
+    if (allocation.dutyRefundPolicy === 'MANUAL_REVIEW') {
+      throw new AppError(
+        'Customs duty refund requires manual review for this order',
+        409,
+        'DUTY_REFUND_MANUAL_REVIEW_REQUIRED'
+      );
+    }
+
     const items = requestedItems.map((requestItem) => {
       if (!Number.isInteger(requestItem.quantity) || requestItem.quantity <= 0) {
         throw new AppError(
@@ -129,12 +186,69 @@ class ReturnService {
           'RETURN_REFUND_STATE_UNAVAILABLE'
         );
       }
-      const itemRefundMinor = amountForQuantityRange(
-        allocatedLine,
+
+      // Exact components per item
+      const itemMerchandiseMinor = amountMinorExactForQuantityRange(
+        allocatedLine.merchandiseNetMinor,
+        allocatedLine.quantity,
         priorQuantity,
         requestItem.quantity
       );
-      requestedRefundMinor += itemRefundMinor;
+      totalMerchandiseRefundMinor += itemMerchandiseMinor;
+
+      const itemIncludedTaxMinor = amountMinorExactForQuantityRange(
+        allocatedLine.includedTaxMinorExact,
+        allocatedLine.quantity,
+        priorQuantity,
+        requestItem.quantity
+      );
+      totalIncludedTaxMinor += itemIncludedTaxMinor;
+
+      let itemTaxRefundMinor = 0n;
+      if (allocation.taxRefundPolicy === 'REFUNDABLE') {
+        if (orderItem.taxAmountExact) {
+          const itemAssignedTax = toBigIntMinorExact(orderItem.taxAmountExact, currency);
+          itemTaxRefundMinor = amountMinorExactForQuantityRange(
+            itemAssignedTax,
+            allocatedLine.quantity,
+            priorQuantity,
+            requestItem.quantity
+          );
+        } else {
+          itemTaxRefundMinor = amountMinorExactForQuantityRange(
+            allocatedLine.additionalTaxMinorExact,
+            allocatedLine.quantity,
+            priorQuantity,
+            requestItem.quantity
+          );
+        }
+        totalTaxRefundMinor += itemTaxRefundMinor;
+      } else if (allocation.taxRefundPolicy === 'PROPORTIONAL') {
+        itemTaxRefundMinor = amountMinorExactForQuantityRange(
+          allocatedLine.additionalTaxMinorExact,
+          allocatedLine.quantity,
+          priorQuantity,
+          requestItem.quantity
+        );
+        totalTaxRefundMinor += itemTaxRefundMinor;
+      }
+
+      let itemDutyRefundMinor = 0n;
+      if (allocation.incoterm === 'DDP' && allocation.dutyRefundPolicy === 'REFUNDABLE') {
+        itemDutyRefundMinor = amountMinorExactForQuantityRange(
+          allocatedLine.payableDutyMinorExact,
+          allocatedLine.quantity,
+          priorQuantity,
+          requestItem.quantity
+        );
+        totalDutyRefundMinor += itemDutyRefundMinor;
+      }
+
+      const itemTotalRefundMinor = itemMerchandiseMinor + itemTaxRefundMinor + itemDutyRefundMinor;
+      const itemTotalRefundMoney = Money.fromMinor(itemTotalRefundMinor, currency);
+
+      const itemPriceExact = orderItem.priceExact || orderItem.unitPriceExact
+        || MoneyMapper.toPersistence(Money.fromLegacyNumber(orderItem.price, currency));
 
       return {
         product: orderItem.product,
@@ -144,7 +258,13 @@ class ReturnService {
         name: orderItem.name,
         quantity: requestItem.quantity,
         price: orderItem.price,
-        refundAmount: fromMinorUnits(itemRefundMinor),
+        priceExact: itemPriceExact,
+        refundAmount: fromMinorUnitsDisplayOnly(itemTotalRefundMinor, currency),
+        refundAmountExact: MoneyMapper.toPersistence(itemTotalRefundMoney),
+        merchandiseRefundExact: MoneyMapper.toPersistence(Money.fromMinor(itemMerchandiseMinor, currency)),
+        includedTaxExact: MoneyMapper.toPersistence(Money.fromMinor(itemIncludedTaxMinor, currency)),
+        taxRefundExact: MoneyMapper.toPersistence(Money.fromMinor(itemTaxRefundMinor, currency)),
+        dutyRefundExact: MoneyMapper.toPersistence(Money.fromMinor(itemDutyRefundMinor, currency)),
         reason: requestItem.reason,
         reasonDetails: requestItem.reasonDetails || '',
         images: requestItem.images || [],
@@ -164,24 +284,29 @@ class ReturnService {
           'RETURN_REFUND_STATE_UNAVAILABLE'
         );
       }
-      return total + amountForQuantityRange(
-        allocatedLine,
+      return total + amountMinorExactForQuantityRange(
+        allocatedLine.merchandiseNetMinor,
+        allocatedLine.quantity,
         0,
         priorQuantity
       );
-    }, 0);
+    }, 0n);
+
     const recordedPriorMinor = priorReturns.reduce(
-      (total, priorReturn) => total + toMinorUnits(priorReturn.refundAmount || 0),
-      0
+      (total, priorReturn) => {
+        if (priorReturn.merchandiseRefundExact) {
+          return total + toBigIntMinorExact(priorReturn.merchandiseRefundExact, currency);
+        }
+        if (priorReturn.refundAmountExact) {
+          return total + toBigIntMinorExact(priorReturn.refundAmountExact, currency);
+        }
+        return total + (parseLegacyDecimalToMinorUnits(priorReturn.refundAmount, currency) || 0n);
+      },
+      0n
     );
-    const consumedPriorMinor = Math.max(
-      allocatedPriorMinor,
-      recordedPriorMinor
-    );
-    if (
-      consumedPriorMinor + requestedRefundMinor
-      > allocation.allocatableMinor
-    ) {
+
+    const consumedPriorMinor = allocatedPriorMinor > recordedPriorMinor ? allocatedPriorMinor : recordedPriorMinor;
+    if (consumedPriorMinor + totalMerchandiseRefundMinor > allocation.allocatableMinorExact) {
       throw new AppError(
         'Return amount exceeds the remaining refundable merchandise amount',
         409,
@@ -189,9 +314,32 @@ class ReturnService {
       );
     }
 
+    const totalRefundMinor = totalMerchandiseRefundMinor + totalTaxRefundMinor + totalDutyRefundMinor;
+    const totalRefundMoney = Money.fromMinor(totalRefundMinor, currency);
+
+    const refundAllocationSnapshot = {
+      merchandiseRefundExact: MoneyMapper.toPersistence(Money.fromMinor(totalMerchandiseRefundMinor, currency)),
+      taxRefundExact: MoneyMapper.toPersistence(Money.fromMinor(totalTaxRefundMinor, currency)),
+      dutyRefundExact: MoneyMapper.toPersistence(Money.fromMinor(totalDutyRefundMinor, currency)),
+      shippingRefundExact: MoneyMapper.toPersistence(Money.fromMinor(0n, currency)),
+      totalRefundExact: MoneyMapper.toPersistence(totalRefundMoney),
+      taxRefundPolicy: allocation.taxRefundPolicy,
+      dutyRefundPolicy: allocation.dutyRefundPolicy,
+      taxTreatment: allocation.taxTreatment,
+      incoterm: allocation.incoterm,
+      allocationVersion: '6D-4C',
+      calculatedAt: new Date()
+    };
+
     return {
       items,
-      refundAmount: fromMinorUnits(requestedRefundMinor)
+      refundAmount: fromMinorUnitsDisplayOnly(totalRefundMinor, currency),
+      refundAmountExact: MoneyMapper.toPersistence(totalRefundMoney),
+      merchandiseRefundExact: MoneyMapper.toPersistence(Money.fromMinor(totalMerchandiseRefundMinor, currency)),
+      taxRefundExact: MoneyMapper.toPersistence(Money.fromMinor(totalTaxRefundMinor, currency)),
+      dutyRefundExact: MoneyMapper.toPersistence(Money.fromMinor(totalDutyRefundMinor, currency)),
+      shippingRefundExact: MoneyMapper.toPersistence(Money.fromMinor(0n, currency)),
+      refundAllocationSnapshot
     };
   }
 
@@ -258,6 +406,12 @@ class ReturnService {
           items: canonical.items,
           refundMethod: input.refundMethod || 'original_payment',
           refundAmount: canonical.refundAmount,
+          refundAmountExact: canonical.refundAmountExact,
+          merchandiseRefundExact: canonical.merchandiseRefundExact,
+          taxRefundExact: canonical.taxRefundExact,
+          dutyRefundExact: canonical.dutyRefundExact,
+          shippingRefundExact: canonical.shippingRefundExact,
+          refundAllocationSnapshot: canonical.refundAllocationSnapshot,
           customerNotes: input.customerNotes || ''
         }], { session });
       });
@@ -375,7 +529,13 @@ class ReturnService {
       }, {
         $set: {
           items: canonical.items,
-          refundAmount: canonical.refundAmount
+          refundAmount: canonical.refundAmount,
+          refundAmountExact: canonical.refundAmountExact,
+          merchandiseRefundExact: canonical.merchandiseRefundExact,
+          taxRefundExact: canonical.taxRefundExact,
+          dutyRefundExact: canonical.dutyRefundExact,
+          shippingRefundExact: canonical.shippingRefundExact,
+          refundAllocationSnapshot: canonical.refundAllocationSnapshot
         }
       }, { new: true }).select('+refund');
       if (!entry) {
@@ -385,15 +545,21 @@ class ReturnService {
           'RETURN_REFUND_CONFLICT'
         );
       }
-    } else if (
-      Number(entry.refundAmount.toFixed(2))
-      !== Number(canonical.refundAmount.toFixed(2))
-    ) {
-      throw new AppError(
-        'Return refund reconciliation state is unavailable',
-        503,
-        'RETURN_REFUND_STATE_UNAVAILABLE'
-      );
+    } else {
+      const refundCurrency = canonical.refundAmountExact?.currency || canonical.currency;
+      const entryRefundMinor = entry.refundAmountExact
+        ? toBigIntMinorExact(entry.refundAmountExact, refundCurrency)
+        : parseLegacyDecimalToMinorUnits(entry.refundAmount, refundCurrency);
+      const canonicalRefundMinor = canonical.refundAmountExact
+        ? toBigIntMinorExact(canonical.refundAmountExact, refundCurrency)
+        : parseLegacyDecimalToMinorUnits(canonical.refundAmount, refundCurrency);
+      if (entryRefundMinor !== canonicalRefundMinor) {
+        throw new AppError(
+          'Return refund reconciliation state is unavailable',
+          503,
+          'RETURN_REFUND_STATE_UNAVAILABLE'
+        );
+      }
     }
 
     let existingRefund = null;
@@ -462,6 +628,12 @@ class ReturnService {
     const refundInput = {
       paymentId: payment._id,
       amount: canonical.refundAmount,
+      amountExact: canonical.refundAmountExact,
+      merchandiseRefundExact: canonical.merchandiseRefundExact,
+      taxRefundExact: canonical.taxRefundExact,
+      dutyRefundExact: canonical.dutyRefundExact,
+      shippingRefundExact: canonical.shippingRefundExact,
+      allocationSnapshot: canonical.refundAllocationSnapshot,
       reason: `Approved return ${entry.returnNumber}`,
       adminId,
       idempotencyKey: `return:${entry._id}`,
