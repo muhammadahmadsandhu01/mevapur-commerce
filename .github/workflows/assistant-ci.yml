@@ -74,6 +74,14 @@ jobs:
           node --test tests/phase6cStorefrontCheckout.test.mts
           npx --no-install vitest run tests/phase6cStorefrontCheckout.dom.test.tsx
 
+      - name: Run Storefront Phase 6D-3 Shipping Checkout Tests
+        working-directory: frontend
+        run: npm run test:phase6d3
+
+      - name: Run Storefront Phase 6D-4 Tax and Customs Checkout Tests
+        working-directory: frontend
+        run: npm run test:phase6d4
+
       - name: Run Storefront Phase 6D-1 Registration and Full Aggregate Test Suite
         working-directory: frontend
         run: npm test
@@ -123,6 +131,10 @@ jobs:
       - name: Run Admin Phase 6D-3 Shipping Governance Tests
         working-directory: admin-panel
         run: npm run test:phase6d3
+
+      - name: Run Admin Phase 6D-4 Tax and Customs Governance Tests
+        working-directory: admin-panel
+        run: npm run test:phase6d4
 
       - name: Build Admin Panel Application
         working-directory: admin-panel

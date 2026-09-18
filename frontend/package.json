@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:vitest": "vitest run",
-    "test:unit": "node --test tests/authContracts.test.mts tests/cartContracts.test.mts tests/catalogContracts.test.mts tests/categoryPublicVisibilityDef26.test.mts tests/deploymentConfigContract.test.mts tests/helpAssistantComponent.test.mts tests/invoicePrintContracts.test.mts tests/paymentOrderContracts.test.mts tests/phase5ClosureAndSecurity.test.mts tests/phase6AccountCommerceContracts.test.mts tests/phase6CmsContracts.test.mts tests/phase6cStorefrontCheckout.test.mts tests/phase6d3ShippingCheckout.test.mts tests/whiteLabelBrandIsolation.test.mts",
+    "test:unit": "node --test tests/authContracts.test.mts tests/cartContracts.test.mts tests/catalogContracts.test.mts tests/categoryPublicVisibilityDef26.test.mts tests/deploymentConfigContract.test.mts tests/helpAssistantComponent.test.mts tests/invoicePrintContracts.test.mts tests/paymentOrderContracts.test.mts tests/phase5ClosureAndSecurity.test.mts tests/phase6AccountCommerceContracts.test.mts tests/phase6CmsContracts.test.mts tests/phase6cStorefrontCheckout.test.mts tests/phase6d3ShippingCheckout.test.mts tests/phase6d4TaxCheckout.test.mts tests/whiteLabelBrandIsolation.test.mts",
     "test:browser": "node --test tests/browserAccountUXAcceptance.test.mts tests/browserAuthAcceptance.test.mts tests/browserCartAcceptance.test.mts tests/browserCatalogAcceptance.test.mts tests/browserCmsUXAcceptance.test.mts tests/browserPaymentOrderAcceptance.test.mts tests/browserPhase7AccessibilityAcceptance.test.mts tests/browserPhase8PerformanceSeoAcceptance.test.mts",
     "test:cms-semantics": "node --test tests/cmsDocumentHttpSemantics.test.mts",
     "test:production-csp": "node --test tests/productionCspServerSmoke.test.mts",
@@ -22,6 +22,7 @@
     "test:phase6c": "node --test tests/phase6cStorefrontCheckout.test.mts && vitest run tests/phase6cStorefrontCheckout.dom.test.tsx",
     "test:phase6d": "vitest run tests/registerAndProfile.dom.test.tsx",
     "test:phase6d3": "node --test tests/phase6d3ShippingCheckout.test.mts && vitest run tests/phase6d3ShippingCheckout.dom.test.tsx",
+    "test:phase6d4": "node --test tests/phase6d4TaxCheckout.test.mts && vitest run tests/phase6d4TaxCheckout.dom.test.tsx",
     "test": "npm run test:vitest && npm run test:unit",
     "test:all": "npm run test && npm run test:postbuild && npm run test:browser"
   },
