@@ -1,7 +1,7 @@
 /**
  * @file two-phase-checkout.integration.test.js
- * @description Integration Test Suite for Phase 6D-5A Two-Phase Prepaid Checkout Sessions,
- * Expiring Stock Holds, Capture-vs-Expiry Racing, and Domestic Pakistan COD Compatibility.
+ * @description Comprehensive Integration Test Suite for Phase 6D-5A Two-Phase Prepaid Checkout Sessions,
+ * Stock Hold Leasing, Crash Recovery, Idempotency Replays, and Domestic Pakistan COD Compatibility.
  */
 
 'use strict';
@@ -18,9 +18,11 @@ const Product = require('../../../models/Product');
 const FulfillmentLocation = require('../../../models/FulfillmentLocation');
 const StockHoldLeaseService = require('../../../services/inventory/StockHoldLeaseService');
 const CheckoutSessionService = require('../../../services/order/CheckoutSessionService');
-const PaymentWebhookProcessor = require('../../../services/payment/webhooks/PaymentWebhookProcessor');
-const { Money, MoneyMapper } = require('../../../modules/commerce');
+const CheckoutQuoteService = require('../../../services/checkout/CheckoutQuoteService');
+const CommerceConfigurationVersion = require('../../../models/CommerceConfigurationVersion');
+const paymentProviderRegistry = require('../../../modules/payments/core/providerRegistry');
 const { reconcileExpiredCheckoutSessions } = require('../../../scripts/workers/reconcileExpiredCheckoutSessions');
+const { Money, MoneyMapper } = require('../../../modules/commerce');
 
 describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () => {
   let testUser;
@@ -29,6 +31,140 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
   let testPosition;
 
   beforeEach(async () => {
+    await CommerceConfigurationVersion.create({
+      merchantScopeId: 'default',
+      version: Math.floor(Math.random() * 100000) + 1,
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      merchantProfile: {
+        merchantCountry: 'PK',
+        baseCurrency: 'PKR',
+        defaultCurrency: 'PKR',
+        sellingMode: 'international',
+        enabledCountries: ['PK', 'US', 'GB', 'AE'],
+        enabledCurrencies: ['PKR', 'USD', 'GBP', 'AED'],
+        defaultLocale: 'en-PK',
+        defaultTimeZone: 'Asia/Karachi',
+        supportedIncoterms: ['DOMESTIC', 'DAP', 'DDP'],
+        taxCalculationMode: 'exact_rational',
+        fulfillmentOrigins: [
+          {
+            originId: 'origin-pk-central',
+            name: 'Pakistan Central Warehouse',
+            country: 'PK',
+            city: 'Karachi',
+            timeZone: 'Asia/Karachi',
+            enabled: true,
+            isDefault: true
+          }
+        ]
+      },
+      shippingRules: [
+        {
+          ruleId: 'GOV-SHIP-PK-STD',
+          name: 'Pakistan Domestic Standard',
+          serviceCode: 'standard',
+          displayName: 'TCS Ground Standard',
+          originCountry: 'PK',
+          destinationCountry: 'PK',
+          currency: 'PKR',
+          baseRateExact: MoneyMapper.fromLegacy(250, 'PKR'),
+          freeShippingThresholdExact: MoneyMapper.fromLegacy(5000, 'PKR'),
+          remoteRateExact: MoneyMapper.fromLegacy(350, 'PKR'),
+          deliveryMinDays: 2,
+          deliveryMaxDays: 4,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [],
+          supportedIncoterms: ['DOMESTIC'],
+          priority: 10,
+          enabled: true
+        },
+        {
+          ruleId: 'GOV-SHIP-US-STD',
+          name: 'US Cross Border Standard',
+          serviceCode: 'standard',
+          displayName: 'DHL Express US',
+          originCountry: 'PK',
+          destinationCountry: 'US',
+          currency: 'USD',
+          baseRateExact: MoneyMapper.fromLegacy(0, 'USD'),
+          freeShippingThresholdExact: null,
+          remoteRateExact: MoneyMapper.fromLegacy(0, 'USD'),
+          deliveryMinDays: 3,
+          deliveryMaxDays: 7,
+          processingCutoffLocal: '14:00',
+          workingDays: [1, 2, 3, 4, 5],
+          processingMinBusinessDays: 0,
+          processingMaxBusinessDays: 1,
+          weightBands: [],
+          supportedIncoterms: ['DOMESTIC', 'DAP', 'DDP'],
+          priority: 10,
+          enabled: true
+        }
+      ],
+      taxRules: [
+        {
+          ruleId: 'TAX-PK-DOMESTIC',
+          name: 'Pakistan Domestic Tax Rule',
+          destinationCountry: 'PK',
+          destinationSubdivision: '',
+          taxType: 'GST',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 10000,
+          dutyRateNumerator: 0,
+          dutyRateDenominator: 10000,
+          roundingMode: 'HALF_UP',
+          roundingScope: 'subtotal',
+          incoterm: 'DOMESTIC',
+          priority: 10,
+          requiresTax: false,
+          requiresDuty: false,
+          customsValueIncludesShipping: false,
+          customsValueIncludesInsurance: false,
+          dutyRefundPolicy: 'REFUNDABLE',
+          taxRefundPolicy: 'REFUNDABLE',
+          providerType: 'MANUAL_GOVERNED',
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          sourceAuthority: 'STATUTE',
+          sourceReference: 'DEFAULT-DOMESTIC-TAX-2026',
+          enabled: true
+        },
+        {
+          ruleId: 'TAX-US-TX',
+          name: 'US Texas Sales Tax Rule',
+          destinationCountry: 'US',
+          destinationSubdivision: 'TX',
+          taxType: 'SALES_TAX',
+          taxTreatment: 'exclusive',
+          taxableBasis: 'subtotal',
+          taxRateNumerator: 0,
+          taxRateDenominator: 10000,
+          dutyRateNumerator: 0,
+          dutyRateDenominator: 10000,
+          roundingMode: 'HALF_UP',
+          roundingScope: 'subtotal',
+          incoterm: 'DDP',
+          priority: 10,
+          requiresTax: false,
+          requiresDuty: false,
+          customsValueIncludesShipping: false,
+          customsValueIncludesInsurance: false,
+          dutyRefundPolicy: 'REFUNDABLE',
+          taxRefundPolicy: 'REFUNDABLE',
+          providerType: 'MANUAL_GOVERNED',
+          verificationStatus: 'VERIFIED_LEGAL_RULE',
+          sourceAuthority: 'STATUTE',
+          sourceReference: 'US-TX-TAX-2026',
+          enabled: true
+        }
+      ]
+    });
+
     testUser = await User.create({
       fullName: 'Integration Test User',
       email: `test-checkout-${Date.now()}@example.com`,
@@ -51,13 +187,54 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       effectiveFrom: new Date(Date.now() - 60000)
     });
 
+    const Category = require('../../../models/Category');
+    const testCat = await Category.create({
+      name: 'Test Global Category',
+      slug: `test-global-cat-${Date.now()}`,
+      isActive: true
+    });
+
     testProduct = await Product.create({
       name: 'Global Widget',
       slug: `global-widget-${Date.now()}`,
       price: 50,
       countInStock: 20,
       description: 'High quality global widget',
-      sku: `SKU-WIDGET-${Date.now()}`
+      sku: `SKU-WIDGET-${Date.now()}`,
+      isActive: true,
+      status: 'published',
+      category: testCat._id,
+      weightGrams: 500
+    });
+
+    const ProductMarketOffering = require('../../../models/ProductMarketOffering');
+    const MarketPriceBook = require('../../../models/MarketPriceBook');
+
+    await ProductMarketOffering.create({
+      merchantScopeId: 'default',
+      productId: testProduct._id,
+      marketCountry: 'US',
+      currency: 'USD',
+      status: 'active',
+      pricingPolicy: 'inherit_product_price',
+      fulfillmentMode: 'local',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
+    });
+
+    await MarketPriceBook.create({
+      merchantScopeId: 'default',
+      productId: testProduct._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: 'US',
+      currency: 'USD',
+      currencyExponent: 2,
+      amountMinor: MoneyMapper.fromLegacy(50, 'USD').amountMinor.toString(),
+      priceSource: 'manual',
+      status: 'active',
+      effectiveFrom: new Date(Date.now() - 60000),
+      lockVersion: 1
     });
 
     testPosition = await InventoryPosition.create({
@@ -77,6 +254,91 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
     });
   });
 
+  function generateValidQuoteToken({
+    destinationCountry = 'US',
+    destinationSubdivision = 'TX',
+    currency = 'USD',
+    subtotalMinor = '5000',
+    totalMinor = '5000'
+  } = {}) {
+    const rawQuote = {
+      quoteId: `QUO-${Date.now()}`,
+      kid: 'v2',
+      configVersionId: 'cfg-v1',
+      merchantScopeId: 'default',
+      merchantCountry: 'PK',
+      destinationCountry,
+      destinationSubdivision,
+      destinationPostalFingerprint: '75201',
+      currency,
+      itemsHash: CheckoutQuoteService.hashItems([{
+        productId: String(testProduct._id),
+        variantId: null,
+        quantity: 1,
+        priceMinor: subtotalMinor
+      }]),
+      subtotalMinor,
+      discountMinor: '0',
+      shippingMinor: '0',
+      insuranceMinor: '0',
+      insuranceProvenance: 'NO_INSURANCE_CHARGE',
+      taxMinor: '0',
+      additionalTaxMinor: '0',
+      taxIncludedMinor: '0',
+      dutyEstimatedMinor: '0',
+      dutyPayableMinor: '0',
+      customsGoodsValueMinor: subtotalMinor,
+      items: [{
+        productId: String(testProduct._id),
+        quantity: 1,
+        hsCode: '9000.00',
+        countryOfOrigin: 'US',
+        itemValueMinor: subtotalMinor
+      }],
+      dutyDeMinimis: {
+        configured: false,
+        thresholdExact: null,
+        basisType: 'GOODS_VALUE',
+        basisAmountExact: { amountMinor: subtotalMinor, currency, exponent: 2 },
+        comparison: 'LT',
+        exempt: false,
+        reasonCode: 'NO_THRESHOLD_CONFIGURED'
+      },
+      taxDeMinimis: {
+        configured: false,
+        thresholdExact: null,
+        basisType: 'GOODS_VALUE',
+        basisAmountExact: { amountMinor: subtotalMinor, currency, exponent: 2 },
+        comparison: 'LT',
+        exempt: false,
+        reasonCode: 'NO_THRESHOLD_CONFIGURED'
+      },
+      grandTotalMinor: totalMinor,
+      taxRuleId: 'TAX-US-01',
+      taxRateNumerator: 0,
+      taxRateDenominator: 10000,
+      dutyRateNumerator: 0,
+      dutyRateDenominator: 10000,
+      roundingMode: 'HALF_UP',
+      roundingScope: 'subtotal',
+      incoterm: 'DDP',
+      providerType: 'MANUAL_GOVERNED',
+      sourceAuthority: 'TEST_AUTH',
+      sourceReference: 'TEST_REF',
+      verificationStatus: 'VERIFIED_LEGAL_RULE',
+      dutyRefundPolicy: 'FULL',
+      taxRefundPolicy: 'FULL',
+      shippingServiceLevel: 'standard',
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+    };
+
+    const signable = CheckoutQuoteService.buildSignablePayload(rawQuote);
+    const sig = CheckoutQuoteService.signQuote(signable);
+    const envelope = { ...signable, quoteSignature: sig };
+    return { token: Buffer.from(JSON.stringify(envelope)).toString('base64url'), rawQuote };
+  }
+
   describe('Feature Flag Disablement Contract', () => {
     it('blocks new session creation when COMMERCE_TWO_PHASE_CHECKOUT_ENABLED is false', async () => {
       const originalEnv = process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED;
@@ -94,6 +356,185 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
         })).rejects.toThrow(/disabled/i);
       } finally {
         process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = originalEnv;
+      }
+    });
+  });
+
+  describe('Session-Bound Payment Initiation Lifecycle', () => {
+    let originalEnv;
+
+    beforeEach(() => {
+      originalEnv = process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED;
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+    });
+
+    afterEach(() => {
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = originalEnv;
+    });
+
+    it('creates CheckoutSession, acquires InventoryHold, and binds Payment before capture with zero Order created', async () => {
+      const { token } = generateValidQuoteToken();
+      const idempotencyKey = `session_create_${Date.now()}`;
+
+      const originalResolve = paymentProviderRegistry.resolve.bind(paymentProviderRegistry);
+      jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+        const adapter = originalResolve(providerName, context);
+        return {
+          ...adapter,
+          createPayment: jest.fn().mockResolvedValue({
+            providerPaymentId: `pi_test_${Date.now()}`,
+            clientSecret: `pi_test_secret_${Date.now()}`,
+            status: 'requires_capture',
+            raw: {}
+          })
+        };
+      });
+
+      try {
+        const sessionResult = await CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData: {
+            quoteToken: token,
+            items: [{ productId: testProduct._id, quantity: 1 }],
+            shippingAddress: {
+              fullName: 'Prepaid Customer',
+              addressLine1: '100 Logistics Blvd',
+              locality: 'Dallas',
+              administrativeArea: 'TX',
+              postalCode: '75201',
+              countryCode: 'US',
+              phone: '+15551234567'
+            },
+            paymentMethod: 'stripe',
+            currency: 'USD'
+          },
+          idempotencyKey
+        });
+
+        expect(sessionResult.sessionId).toBeDefined();
+        expect(sessionResult.session.status).toBe(CheckoutSession.STATUSES.PAYMENT_PENDING);
+
+        // Verify no permanent Order exists before payment capture
+        const order = await Order.findOne({ checkoutSessionObjectId: sessionResult.session._id });
+        expect(order).toBeNull();
+
+        // Verify InventoryHold is created and active
+        const hold = await InventoryHold.findOne({ sessionId: sessionResult.sessionId });
+        expect(hold).toBeDefined();
+        expect(hold.status).toBe(InventoryHold.STATUSES.ACTIVE);
+        expect(hold.allocations[0].physicalReservedQuantity).toBe(1);
+
+        // Verify InventoryPosition reserved count increased
+        const pos = await InventoryPosition.findById(testPosition._id);
+        expect(pos.reserved).toBe(1);
+
+        // Verify Payment document exists and is bound to CheckoutSession with NO Order
+        const payment = await Payment.findOne({ checkoutSessionObjectId: sessionResult.session._id });
+        expect(payment).toBeDefined();
+        expect(payment.order).toBeNull();
+        expect(payment.checkoutSessionId).toBe(sessionResult.sessionId);
+        expect(payment.status).toBe('Pending');
+
+        // Verify raw quote token is not persisted in session doc (only hash stored)
+        const sessionDoc = await CheckoutSession.findById(sessionResult.session._id);
+        expect(sessionDoc.quoteToken).toBeUndefined();
+        expect(sessionDoc.quoteTokenHash).toBeDefined();
+
+        // Verify idempotency replay returns same session and payment
+        const replayResult = await CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData: {
+            quoteToken: token,
+            items: [{ productId: testProduct._id, quantity: 1 }],
+            shippingAddress: {
+              fullName: 'Prepaid Customer',
+              addressLine1: '100 Logistics Blvd',
+              locality: 'Dallas',
+              administrativeArea: 'TX',
+              postalCode: '75201',
+              countryCode: 'US',
+              phone: '+15551234567'
+            },
+            paymentMethod: 'stripe',
+            currency: 'USD'
+          },
+          idempotencyKey
+        });
+
+        expect(replayResult.isReplay).toBe(true);
+        expect(replayResult.sessionId).toBe(sessionResult.sessionId);
+        expect(replayResult.paymentAttempt.provider).toBe('stripe');
+
+        // Replaying with different payload using same idempotency key fails closed (409)
+        await expect(CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData: {
+            quoteToken: token,
+            items: [{ productId: testProduct._id, quantity: 2 }], // tampered quantity
+            shippingAddress: {
+              fullName: 'Prepaid Customer',
+              addressLine1: '100 Logistics Blvd',
+              locality: 'Dallas',
+              administrativeArea: 'TX',
+              postalCode: '75201',
+              countryCode: 'US',
+              phone: '+15551234567'
+            },
+            paymentMethod: 'stripe',
+            currency: 'USD'
+          },
+          idempotencyKey
+        })).rejects.toThrow(/Idempotency-Key was already used with a different session request/i);
+      } finally {
+        paymentProviderRegistry.resolve.mockRestore();
+      }
+    });
+
+    it('releases hold and marks session failed if payment provider initiation throws', async () => {
+      const { token } = generateValidQuoteToken();
+      const idempotencyKey = `session_fail_${Date.now()}`;
+
+      // Mock provider adapter to throw during createPayment
+      const originalResolve = paymentProviderRegistry.resolve.bind(paymentProviderRegistry);
+      jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+        const adapter = originalResolve(providerName, context);
+        return {
+          ...adapter,
+          createPayment: jest.fn().mockRejectedValue(new Error('Stripe Provider Network Timeout'))
+        };
+      });
+
+      try {
+        await expect(CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData: {
+            quoteToken: token,
+            items: [{ productId: testProduct._id, quantity: 1 }],
+            shippingAddress: {
+              fullName: 'Prepaid Customer',
+              addressLine1: '100 Logistics Blvd',
+              locality: 'Dallas',
+              administrativeArea: 'TX',
+              postalCode: '75201',
+              countryCode: 'US',
+              phone: '+15551234567'
+            },
+            paymentMethod: 'stripe',
+            currency: 'USD'
+          },
+          idempotencyKey
+        })).rejects.toThrow(/Stripe Provider Network Timeout/i);
+
+        // Proves hold was released
+        const hold = await InventoryHold.findOne({ idempotencyKey: `hold:default:${idempotencyKey}` });
+        const pos = await InventoryPosition.findById(testPosition._id);
+        expect(pos.reserved).toBe(0);
+
+        // Proves session was marked failed
+        const sessionDoc = await CheckoutSession.findOne({ idempotencyKey });
+        expect(sessionDoc.status).toBe(CheckoutSession.STATUSES.FAILED);
+      } finally {
+        paymentProviderRegistry.resolve.mockRestore();
       }
     });
   });

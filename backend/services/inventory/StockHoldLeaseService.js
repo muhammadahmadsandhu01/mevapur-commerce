@@ -402,6 +402,52 @@ class StockHoldLeaseService {
   }
 
   /**
+   * Transition an active hold to capture_committed upon verified payment capture.
+   * Prevents the expiry worker from releasing the hold during order conversion.
+   */
+  async protectHoldForCapture({ holdId, sessionId, merchantScopeId = 'default', session = null }) {
+    const query = holdId ? { _id: holdId } : { merchantScopeId, sessionId };
+    let findQuery = InventoryHold.findOne(query);
+    if (session) findQuery = findQuery.session(session);
+    const hold = await findQuery;
+
+    if (!hold) {
+      throw new AppError('Stock hold not found', 404, 'HOLD_NOT_FOUND');
+    }
+
+    if (
+      hold.status === InventoryHold.STATUSES.CAPTURE_COMMITTED ||
+      hold.status === InventoryHold.STATUSES.CONVERTED
+    ) {
+      return hold;
+    }
+
+    if (hold.status !== InventoryHold.STATUSES.ACTIVE) {
+      throw new AppError(`Cannot protect hold in '${hold.status}' status for capture`, 409, 'HOLD_STATUS_INVALID');
+    }
+
+    const updateFilter = {
+      _id: hold._id,
+      status: InventoryHold.STATUSES.ACTIVE,
+      lockVersion: hold.lockVersion
+    };
+    const updatePayload = {
+      $set: { status: InventoryHold.STATUSES.CAPTURE_COMMITTED },
+      $inc: { lockVersion: 1 }
+    };
+
+    let updateQuery = InventoryHold.findOneAndUpdate(updateFilter, updatePayload, { new: true });
+    if (session) updateQuery = updateQuery.session(session);
+    const updatedHold = await updateQuery;
+
+    if (!updatedHold) {
+      throw new AppError('Concurrent modification while protecting hold for capture', 409, 'CONCURRENT_HOLD_MUTATION');
+    }
+
+    return updatedHold;
+  }
+
+  /**
    * Atomically release a stock hold and restore sellable ATP.
    */
   async releaseHold({
@@ -425,11 +471,15 @@ class StockHoldLeaseService {
       hold.status === InventoryHold.STATUSES.RELEASED ||
       hold.status === InventoryHold.STATUSES.EXPIRED
     ) {
-      return { hold, isReplay: true };
+      return { hold, released: false, isReplay: true };
     }
 
     if (hold.status === InventoryHold.STATUSES.CONVERTED) {
       throw new AppError('Cannot release an already converted stock hold', 409, 'HOLD_ALREADY_CONVERTED');
+    }
+
+    if (hold.status === InventoryHold.STATUSES.CAPTURE_COMMITTED) {
+      throw new AppError('Cannot release a stock hold that is already capture committed', 409, 'HOLD_CAPTURE_COMMITTED');
     }
 
     // Hardened position decrement with strict preconditions
@@ -534,7 +584,7 @@ class StockHoldLeaseService {
       await hold.save();
     }
 
-    return { hold, isReplay: false };
+    return { hold, released: true, isReplay: false };
   }
 
   /**

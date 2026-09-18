@@ -17,7 +17,10 @@ const Payment = require('../../models/Payment');
 const InventoryLedger = require('../../models/InventoryLedger');
 const logger = require('../../utils/logger');
 
-async function runIndexMigration({ apply = false } = {}) {
+async function runIndexMigration({ apply = false, targetEnv = process.env.NODE_ENV || 'development', force = false } = {}) {
+  if (apply && !targetEnv) {
+    throw new Error('Explicit target environment is required to apply index migration');
+  }
   const actions = [];
 
   // 1. InventoryHold Indexes
@@ -151,4 +154,7 @@ if (require.main === module) {
   })();
 }
 
-module.exports = { runIndexMigration };
+module.exports = {
+  runIndexMigration,
+  runMigration: runIndexMigration
+};

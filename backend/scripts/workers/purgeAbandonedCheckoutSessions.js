@@ -46,7 +46,11 @@ async function purgeAbandonedCheckoutSessions({
         ]
       },
       redactedAt: null,
-      updatedAt: { $lte: cutoffDate }
+      $or: [
+        { updatedAt: { $lte: cutoffDate } },
+        { leaseExpiresAt: { $lte: cutoffDate } },
+        { createdAt: { $lte: cutoffDate } }
+      ]
     };
     if (merchantScopeId) {
       filter.merchantScopeId = merchantScopeId;
@@ -89,11 +93,11 @@ async function purgeAbandonedCheckoutSessions({
               customerEmail: '[REDACTED]',
               'orderData.shippingAddress.fullName': '[REDACTED]',
               'orderData.shippingAddress.addressLine1': '[REDACTED]',
-              'orderData.shippingAddress.addressLine2': '',
-              'orderData.shippingAddress.phone': '',
+              'orderData.shippingAddress.addressLine2': '[REDACTED]',
+              'orderData.shippingAddress.phone': '[REDACTED]',
               'orderData.shippingAddress.phoneE164': null,
-              'orderData.shippingAddress.postalCode': '',
-              'orderData.customerNote': '',
+              'orderData.shippingAddress.postalCode': '[REDACTED]',
+              'orderData.customerNote': '[REDACTED]',
               redactedAt: now
             },
             $inc: { lockVersion: 1 }

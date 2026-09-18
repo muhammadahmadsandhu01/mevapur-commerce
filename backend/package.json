@@ -9,6 +9,7 @@
     "test": "jest --watchAll --verbose",
     "test:ci": "npm run assistant:knowledge:check && jest --coverage --forceExit --runInBand",
     "test:phase6d4": "npm run assistant:knowledge:check && jest tests/unit/commerce/phase6d4-tax-governance.unit.test.js tests/unit/commerce/phase6d4b-tax-runtime.unit.test.js tests/unit/commerce/phase6d4c-return-tax-duty.unit.test.js tests/unit/commerce/taxDutyConfiguration.test.js tests/unit/services/return-money-allocation.service.test.js tests/unit/services/return-state-machine.service.test.js tests/integration/return-refund-integrity.integration.test.js tests/unit/phase6d4-tax-migration.unit.test.js tests/unit/tax-governance-reconciliation.unit.test.js --runInBand --watchAll=false",
+    "test:phase6d5a": "npm run assistant:knowledge:check && jest tests/unit/commerce/stock-hold-lease.unit.test.js tests/integration/commerce/two-phase-checkout.integration.test.js tests/integration/commerce/session-webhook-conversion.integration.test.js tests/integration/commerce/stock-hold-concurrency.integration.test.js tests/integration/commerce/checkout-session-races.integration.test.js tests/unit/commerce/checkout-session-workers.unit.test.js tests/unit/commerce/checkout-session-migration.unit.test.js --runInBand --watchAll=false",
     "test:assistant": "npm run assistant:knowledge:check && jest tests/unit/assistant tests/integration/assistant.integration.test.js --runInBand --watchAll=false",
     "ci:assistant": "npm run test:assistant",
     "reconcile:tax": "node scripts/reconciliation/taxGovernanceReconciliation.js",

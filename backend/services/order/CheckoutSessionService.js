@@ -20,6 +20,7 @@ const StockHoldLeaseService = require('../inventory/StockHoldLeaseService');
 const CheckoutQuoteService = require('../checkout/CheckoutQuoteService');
 const MarketService = require('../MarketService');
 const CommerceConfigurationService = require('../commerce/CommerceConfigurationService');
+const { PAYMENT_STATUSES } = require('../../constants/paymentConstants');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
 const CouponService = require('./CouponService');
@@ -42,11 +43,14 @@ class CheckoutSessionService {
    * Check if the two-phase checkout feature flag is enabled.
    */
   isFeatureEnabled() {
+    if (process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED !== undefined) {
+      return String(process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED).trim().toLowerCase() === 'true';
+    }
     try {
       const { getRuntimeConfig } = require('../../config/runtime.config');
       return Boolean(getRuntimeConfig().commerceTwoPhaseCheckoutEnabled);
     } catch {
-      return String(process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED || '').toLowerCase() === 'true';
+      return false;
     }
   }
 
@@ -115,7 +119,35 @@ class CheckoutSessionService {
       if (existing.requestHash !== requestHash) {
         throw new AppError('Idempotency-Key was already used with a different session request', 409, 'IDEMPOTENCY_CONFLICT');
       }
-      return { session: existing, isReplay: true };
+
+      // Check for bound payment (including orphaned payments from a process crash before session linking)
+      let existingPayment = null;
+      if (existing.paymentId) {
+        existingPayment = await Payment.findById(existing.paymentId);
+      } else {
+        existingPayment = await Payment.findOne({ checkoutSessionObjectId: existing._id });
+        if (existingPayment) {
+          await CheckoutSession.updateOne(
+            { _id: existing._id },
+            { $set: { paymentId: existingPayment._id, status: CheckoutSession.STATUSES.PAYMENT_PENDING } }
+          );
+        }
+      }
+
+      return {
+        session: existing,
+        sessionId: existing.sessionId,
+        leaseExpiresAt: existing.leaseExpiresAt,
+        paymentAttempt: existingPayment ? {
+          provider: existingPayment.provider,
+          providerPaymentId: existingPayment.providerPaymentId || '',
+          status: existingPayment.status
+        } : null,
+        amounts: existing.amounts,
+        currency: existing.currency,
+        destinationCountry: existing.destinationCountry,
+        isReplay: true
+      };
     }
 
     // 2. Authoritative Address Normalization
@@ -479,7 +511,9 @@ class CheckoutSessionService {
 
         clientSecret = providerResult.clientSecret || null;
         payment.providerPaymentId = providerResult.providerPaymentId || '';
-        payment.status = providerResult.status || 'Pending';
+        payment.status = Object.values(PAYMENT_STATUSES).includes(providerResult.status)
+          ? providerResult.status
+          : PAYMENT_STATUSES.PENDING;
         await payment.save();
       }
 
@@ -492,6 +526,8 @@ class CheckoutSessionService {
           }
         }
       );
+      createdSessionDoc.paymentId = payment._id;
+      createdSessionDoc.status = CheckoutSession.STATUSES.PAYMENT_PENDING;
     } catch (providerErr) {
       // Release hold on payment initiation failure
       await StockHoldLeaseService.releaseHold({
@@ -508,18 +544,16 @@ class CheckoutSessionService {
     }
 
     return {
-      session: {
-        sessionId: createdSessionDoc.sessionId,
-        status: CheckoutSession.STATUSES.PAYMENT_PENDING,
-        leaseExpiresAt: createdSessionDoc.leaseExpiresAt,
-        amounts: createdSessionDoc.amounts,
-        currency: createdSessionDoc.currency,
-        destinationCountry: createdSessionDoc.destinationCountry,
-        paymentAttempt: {
-          provider: sessionData.paymentMethod,
-          clientSecret
-        }
+      session: createdSessionDoc,
+      sessionId: createdSessionDoc.sessionId,
+      leaseExpiresAt: createdSessionDoc.leaseExpiresAt,
+      paymentAttempt: {
+        provider: sessionData.paymentMethod,
+        clientSecret
       },
+      amounts: createdSessionDoc.amounts,
+      currency: createdSessionDoc.currency,
+      destinationCountry: createdSessionDoc.destinationCountry,
       isReplay: false
     };
   }
@@ -591,6 +625,25 @@ class CheckoutSessionService {
 
         // 5. Create Permanent Order Document with all governed snapshots
         const orderData = sessionDoc.orderData;
+        const mappedOrderItems = orderData.items.map((it) => {
+          const unitPriceDecimal = it.unitPriceExact ? Number(MoneyMapper.toMoney(it.unitPriceExact).toDecimalString()) : (it.price || 0);
+          const lineTotalDecimal = it.lineTotalExact ? Number(MoneyMapper.toMoney(it.lineTotalExact).toDecimalString()) : (it.lineTotal || (unitPriceDecimal * it.quantity));
+          return {
+            product: it.productId || it.product,
+            variantId: it.variantId || null,
+            name: it.name,
+            sku: it.canonicalSku || it.sku || '',
+            canonicalSku: it.canonicalSku || it.sku || '',
+            quantity: it.quantity,
+            price: unitPriceDecimal,
+            lineTotal: lineTotalDecimal,
+            unitPriceExact: it.unitPriceExact || null,
+            lineTotalExact: it.lineTotalExact || null,
+            weightGrams: it.weightGrams || 0,
+            inventoryReservationId: holdResult.reservation._id
+          };
+        });
+
         const [order] = await Order.create([{
           _id: newOrderObjectId,
           orderId: newOrderId,
@@ -599,7 +652,7 @@ class CheckoutSessionService {
           checkoutSessionId: sessionDoc.sessionId,
           idempotencyKey: sessionDoc.idempotencyKey,
           requestHash: sessionDoc.requestHash,
-          items: orderData.items,
+          items: mappedOrderItems,
           shippingAddress: {
             fullName: orderData.shippingAddress.fullName,
             address: orderData.shippingAddress.addressLine1,

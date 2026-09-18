@@ -125,6 +125,7 @@ async function reconcileExpiredCheckoutSessions({
 
     return {
       evaluated: expiredSessions.length,
+      processed: expiredSessions.length,
       expiredCount,
       failedCount
     };
