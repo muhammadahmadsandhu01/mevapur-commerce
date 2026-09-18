@@ -402,6 +402,19 @@ class PaymentWebhookProcessor {
       throw new AppError(`Payment not found for provider reference: ${providerPaymentId}`, 404, 'PAYMENT_NOT_FOUND');
     }
 
+    if (payment.checkoutSessionObjectId && !payment.order) {
+      return this.processSessionPaymentEvent({
+        payment,
+        claimedEvent,
+        eventType,
+        providerEventId,
+        amountMinor,
+        currency,
+        now,
+        session
+      });
+    }
+
     const orderQuery = Order.findById(payment.order);
     const order = session ? await orderQuery.session(session) : await orderQuery;
     if (!order) {
@@ -799,6 +812,157 @@ class PaymentWebhookProcessor {
       lastProcessedAt: lastProcessed?.processedAt || null,
       recentErrors
     };
+  }
+
+  async processSessionPaymentEvent({
+    payment,
+    claimedEvent,
+    eventType,
+    providerEventId,
+    amountMinor,
+    currency,
+    now,
+    session
+  }) {
+    const CheckoutSession = require('../../../models/CheckoutSession');
+    const InventoryHold = require('../../../models/InventoryHold');
+    const CheckoutSessionService = require('../../order/CheckoutSessionService');
+    const StockHoldLeaseService = require('../../inventory/StockHoldLeaseService');
+
+    const checkoutSessionQuery = CheckoutSession.findById(payment.checkoutSessionObjectId);
+    const checkoutSession = session ? await checkoutSessionQuery.session(session) : await checkoutSessionQuery;
+
+    if (!checkoutSession) {
+      const err = new AppError(`Linked CheckoutSession ${payment.checkoutSessionObjectId} not found for payment ${payment._id}`, 404, 'SESSION_NOT_FOUND');
+      err.isPermanent = true;
+      throw err;
+    }
+
+    // Cross-account isolation check
+    const eventMetadata = claimedEvent.eventData?.metadata || {};
+    if (eventMetadata.accountAlias && payment.capabilitySnapshot?.accountAlias && eventMetadata.accountAlias !== payment.capabilitySnapshot.accountAlias) {
+      const err = new AppError('Webhook event account scope does not match payment merchant account', 409, 'PAYMENT_ACCOUNT_MISMATCH');
+      err.isPermanent = true;
+      throw err;
+    }
+
+    // Currency validation
+    if (currency && checkoutSession.currency !== currency) {
+      const err = new AppError(`Event currency (${currency}) does not match session currency (${checkoutSession.currency})`, 409, 'PAYMENT_CURRENCY_MISMATCH');
+      err.isPermanent = true;
+      throw err;
+    }
+
+    // Amount validation
+    if (amountMinor > 0) {
+      let expectedMinor;
+      try {
+        expectedMinor = Number(checkoutSession.amounts.totalAmountExact.amountMinor);
+      } catch (_err) {
+        expectedMinor = 0;
+      }
+      if (expectedMinor > 0 && amountMinor !== expectedMinor) {
+        const err = new AppError(`Event amount (${amountMinor}) does not match session expected minor amount (${expectedMinor})`, 422, 'PAYMENT_AMOUNT_MISMATCH');
+        err.isPermanent = true;
+        throw err;
+      }
+    }
+
+    // Metadata validation
+    if (eventMetadata.sessionId && eventMetadata.sessionId.trim() !== '' && eventMetadata.sessionId !== checkoutSession.sessionId) {
+      const err = new AppError('Webhook event metadata sessionId does not match resolved session', 409, 'PAYMENT_METADATA_MISMATCH');
+      err.isPermanent = true;
+      throw err;
+    }
+
+    if (eventType === 'payment_intent.succeeded') {
+      if (checkoutSession.status === CheckoutSession.STATUSES.CONVERTED) {
+        return 'processed'; // Harmless duplicate
+      }
+
+      const providerCapturedAt = claimedEvent.providerCreatedAt || claimedEvent.eventData?.eventCreatedAt || now;
+      const isTimelyCapture = providerCapturedAt <= checkoutSession.leaseExpiresAt;
+
+      if (isTimelyCapture) {
+        // Atomic Hold Protection
+        const holdUpdate = await InventoryHold.findOneAndUpdate(
+          { _id: checkoutSession.inventoryHoldId, status: InventoryHold.STATUSES.ACTIVE },
+          { $set: { status: InventoryHold.STATUSES.CAPTURE_COMMITTED }, $inc: { lockVersion: 1 } },
+          { session, new: true }
+        );
+
+        if (holdUpdate || checkoutSession.status === CheckoutSession.STATUSES.PAYMENT_CAPTURED) {
+          checkoutSession.status = CheckoutSession.STATUSES.PAYMENT_CAPTURED;
+          await checkoutSession.save(session ? { session } : {});
+
+          payment.status = PAYMENT_STATUSES.COMPLETED;
+          payment.paidAmount = payment.amount;
+          payment.capturedAt = providerCapturedAt;
+          await payment.save(session ? { session } : {});
+
+          // Trigger conversion
+          await CheckoutSessionService.convertSessionToOrder({
+            sessionId: checkoutSession.sessionId,
+            paymentEvidence: {
+              amountExact: payment.amountExact,
+              currency: payment.currency,
+              providerPaymentId: payment.providerPaymentId
+            },
+            session
+          });
+
+          return 'processed';
+        }
+      }
+
+      // Late capture or hold already expired: fail closed into conflict reconciliation
+      checkoutSession.status = CheckoutSession.STATUSES.CONFLICT;
+      checkoutSession.reconciliation = {
+        reasonCode: 'LATE_CAPTURE_HOLD_EXPIRED',
+        capturedAmountExact: payment.amountExact,
+        capturedCurrency: payment.currency,
+        providerPaymentId: payment.providerPaymentId,
+        detectedAt: now,
+        reconciliationActionRequired: 'MANUAL_REVIEW',
+        reconciliationStatus: 'UNRESOLVED',
+        notes: 'Payment captured after lease expired. Fails closed without creating unbacked order.'
+      };
+      await checkoutSession.save(session ? { session } : {});
+
+      payment.status = PAYMENT_STATUSES.COMPLETED;
+      payment.capturedAt = providerCapturedAt;
+      await payment.save(session ? { session } : {});
+
+      return 'processed';
+    }
+
+    if (eventType === 'payment_intent.payment_failed' || eventType === 'payment_intent.canceled') {
+      if (checkoutSession.status === CheckoutSession.STATUSES.CONVERTED) {
+        return 'ignored';
+      }
+
+      await StockHoldLeaseService.releaseHold({
+        holdId: checkoutSession.inventoryHoldId,
+        sessionId: checkoutSession.sessionId,
+        merchantScopeId: checkoutSession.merchantScopeId,
+        releaseReason: eventType === 'payment_intent.payment_failed' ? 'PAYMENT_FAILED' : 'CUSTOMER_CANCELLED',
+        session
+      });
+
+      checkoutSession.status = eventType === 'payment_intent.payment_failed'
+        ? CheckoutSession.STATUSES.FAILED
+        : CheckoutSession.STATUSES.CANCELLED;
+      await checkoutSession.save(session ? { session } : {});
+
+      payment.status = eventType === 'payment_intent.payment_failed'
+        ? PAYMENT_STATUSES.FAILED
+        : PAYMENT_STATUSES.CANCELLED;
+      await payment.save(session ? { session } : {});
+
+      return 'processed';
+    }
+
+    return 'ignored';
   }
 }
 

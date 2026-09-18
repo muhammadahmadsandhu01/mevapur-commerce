@@ -24,6 +24,43 @@ router.delete('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'p
 // Phase 6A: Global Checkout Eligibility & Atomic Quote Orchestration Routes
 router.post('/checkout/quote', validation(createCheckoutQuoteSchema), checkoutQuoteController.createQuote);
 
+// Phase 6D-5A: Two-Phase Checkout Session Routes
+const checkoutSessionController = require('../controllers/checkoutSessionController');
+const {
+  createCheckoutSessionSchema,
+  sessionIdParamSchema,
+  cancelSessionSchema
+} = require('../validators/checkoutSessionValidator');
+
+router.post(
+  '/checkout/session',
+  protect,
+  validation(createCheckoutSessionSchema),
+  checkoutSessionController.createSession
+);
+
+router.get(
+  '/checkout/session/:sessionId',
+  protect,
+  validation(sessionIdParamSchema, 'params'),
+  checkoutSessionController.getSession
+);
+
+router.post(
+  '/checkout/session/:sessionId/cancel',
+  protect,
+  validation(sessionIdParamSchema, 'params'),
+  validation(cancelSessionSchema),
+  checkoutSessionController.cancelSession
+);
+
+router.get(
+  '/admin/checkout/conflicts',
+  protect,
+  admin,
+  checkoutSessionController.listConflicts
+);
+
 // Phase 6B: Global Market, Shipping, Tax and Customs Configuration Governance Routes
 const commerceGovernanceRoutes = require('./commerceGovernanceRoutes');
 router.use('/admin/config', commerceGovernanceRoutes);

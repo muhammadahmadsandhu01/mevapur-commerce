@@ -21,6 +21,9 @@ const MOVEMENT_TYPES = Object.freeze([
   'RESERVATION_CREATED',
   'RESERVATION_RELEASED',
   'RESERVATION_EXPIRED',
+  'HOLD_CREATED',
+  'HOLD_RELEASED',
+  'HOLD_EXPIRED',
   'SHIPMENT_CONSUMED',
   'ORDER_CANCELLED_RELEASE',
   'PAYMENT_FAILED_RELEASE',
@@ -109,7 +112,7 @@ const inventoryLedgerSchema = new mongoose.Schema({
   },
   sourceType: {
     type: String,
-    enum: ['order', 'reservation', 'adjustment', 'return', 'reconciliation', 'migration', 'transfer'],
+    enum: ['order', 'reservation', 'adjustment', 'return', 'reconciliation', 'migration', 'transfer', 'checkout_session'],
     required: true
   },
   sourceId: {

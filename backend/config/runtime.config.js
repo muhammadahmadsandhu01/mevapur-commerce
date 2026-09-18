@@ -468,6 +468,12 @@ const createRuntimeConfig = (environment = process.env) => {
     );
   }
 
+  const commerceTwoPhaseCheckoutEnabled = parseBoolean(
+    environment,
+    'COMMERCE_TWO_PHASE_CHECKOUT_ENABLED',
+    false
+  );
+
   return Object.freeze({
     initialized: true,
     environment: runtimeEnvironment,
@@ -475,8 +481,10 @@ const createRuntimeConfig = (environment = process.env) => {
     commerce: Object.freeze({
       moneyMode: commerceMoneyMode,
       exactReadReady: commerceExactReadReady,
-      allowLegacyHomeMarketOfferingCompatibility: allowLegacyOfferingsRaw
+      allowLegacyHomeMarketOfferingCompatibility: allowLegacyOfferingsRaw,
+      twoPhaseCheckoutEnabled: commerceTwoPhaseCheckoutEnabled
     }),
+    commerceTwoPhaseCheckoutEnabled,
     origins: Object.freeze({
       storefront,
       admin,

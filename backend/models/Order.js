@@ -120,64 +120,11 @@ const statusHistorySchema = new mongoose.Schema({
   note: { type: String, default: '', maxlength: 500 }
 }, { _id: false });
 
-const deMinimisDecisionSchema = new mongoose.Schema({
-  configured: { type: Boolean, default: false },
-  thresholdExact: { type: MoneySchema, default: null },
-  basisType: { type: String, default: null },
-  basisAmountExact: { type: MoneySchema, default: null },
-  comparison: {
-    type: String,
-    enum: ['LT', 'LTE', 'BELOW_OR_EQUAL_DEMINIMIS', 'ABOVE_DEMINIMIS', 'NOT_APPLICABLE', null],
-    default: null
-  },
-  exempt: { type: Boolean, default: false },
-  reasonCode: { type: String, default: null }
-}, { _id: false });
-
-const taxProvenanceSchema = new mongoose.Schema({
-  ruleId: { type: String, default: null },
-  priority: { type: Number, default: 100 },
-  taxType: { type: String, default: null },
-  taxTreatment: { type: String, default: null },
-  taxableBasis: { type: String, default: null },
-  taxRateNumerator: { type: Number, default: 0 },
-  taxRateDenominator: { type: Number, default: 10000 },
-  dutyRateNumerator: { type: Number, default: 0 },
-  dutyRateDenominator: { type: Number, default: 10000 },
-  roundingMode: { type: String, default: 'HALF_UP' },
-  roundingScope: { type: String, default: 'subtotal' },
-  incoterm: { type: String, default: null },
-  providerType: { type: String, default: 'MANUAL_GOVERNED' },
-  sourceAuthority: { type: String, default: null },
-  sourceReference: { type: String, default: null },
-  verificationStatus: { type: String, default: 'VERIFIED_LEGAL_RULE' },
-  dutyRefundPolicy: { type: String, default: null },
-  taxRefundPolicy: { type: String, default: null },
-  customsValueIncludesShipping: { type: Boolean, default: false },
-  customsValueIncludesInsurance: { type: Boolean, default: false },
-  insuranceAmountExact: { type: MoneySchema, default: null },
-  insuranceProvenance: {
-    type: String,
-    enum: ['NO_INSURANCE_CHARGE', 'EXPLICIT_INSURANCE_CHARGE', null],
-    default: null
-  },
-  calculatedAt: { type: String, default: null }
-}, { _id: false });
-
-const customsItemSnapshotSchema = new mongoose.Schema({
-  productId: { type: String, default: null },
-  variantId: { type: String, default: null },
-  quantity: { type: Number, default: 1 },
-  hsCode: { type: String, default: null },
-  countryOfOrigin: { type: String, default: null },
-  customsDescription: { type: String, default: '' },
-  declaredValueEligibility: { type: String, default: 'UNKNOWN' },
-  dangerousGoodsClassification: { type: String, default: 'UNKNOWN' },
-  weightGrams: { type: Number, default: 0 },
-  itemValueExact: { type: MoneySchema, default: null },
-  dutyAmountExact: { type: MoneySchema, default: null },
-  taxAmountExact: { type: MoneySchema, default: null }
-}, { _id: false });
+const {
+  deMinimisDecisionSchema,
+  taxProvenanceSchema,
+  customsItemSnapshotSchema
+} = require('./schemas/commerceSnapshotSchemas');
 
 const orderSchema = new mongoose.Schema({
   orderId: {
@@ -424,6 +371,17 @@ const orderSchema = new mongoose.Schema({
     ref: 'InventoryReservation',
     default: null
   },
+  checkoutSessionObjectId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CheckoutSession',
+    default: null
+  },
+  checkoutSessionId: {
+    type: String,
+    default: null,
+    trim: true,
+    maxlength: 128
+  },
   returnReservationVersion: { type: Number, default: 0, select: false }
 }, {
   timestamps: true,
@@ -439,6 +397,22 @@ const orderSchema = new mongoose.Schema({
 orderSchema.index(
   { user: 1, idempotencyKey: 1 },
   { unique: true, name: 'unique_user_order_idempotency' }
+);
+orderSchema.index(
+  { checkoutSessionObjectId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { checkoutSessionObjectId: { $type: 'objectId' } },
+    name: 'unique_order_checkout_session_object_id'
+  }
+);
+orderSchema.index(
+  { checkoutSessionId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { checkoutSessionId: { $type: 'string', $gt: '' } },
+    name: 'unique_order_checkout_session_id'
+  }
 );
 orderSchema.index({ user: 1, createdAt: -1, _id: -1 });
 orderSchema.index({ orderStatus: 1, createdAt: -1, _id: -1 });

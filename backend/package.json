@@ -12,6 +12,8 @@
     "test:assistant": "npm run assistant:knowledge:check && jest tests/unit/assistant tests/integration/assistant.integration.test.js --runInBand --watchAll=false",
     "ci:assistant": "npm run test:assistant",
     "reconcile:tax": "node scripts/reconciliation/taxGovernanceReconciliation.js",
+    "reconcile:checkout-sessions": "node scripts/workers/reconcileExpiredCheckoutSessions.js",
+    "purge:checkout-sessions": "node scripts/workers/purgeAbandonedCheckoutSessions.js",
     "migrate:phase6d4": "node scripts/migrations/phase6d4-tax-customs-governance.js",
     "lint": "eslint . --max-warnings=0",
     "seed": "node database/seeders/index.js",

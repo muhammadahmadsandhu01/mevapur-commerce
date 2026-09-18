@@ -27,11 +27,30 @@ const paymentHistorySchema = new mongoose.Schema({
 }, { _id: false });
 
 const paymentSchema = new mongoose.Schema({
+  merchantScopeId: {
+    type: String,
+    required: true,
+    trim: true,
+    default: 'default',
+    maxlength: 100
+  },
   order: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Order',
-    required: true,
+    default: null,
     index: true
+  },
+  checkoutSessionObjectId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CheckoutSession',
+    default: null,
+    index: true
+  },
+  checkoutSessionId: {
+    type: String,
+    default: null,
+    trim: true,
+    maxlength: 128
   },
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -294,6 +313,16 @@ const paymentSchema = new mongoose.Schema({
   }
 });
 
+paymentSchema.pre('validate', function ensureEntityBinding(next) {
+  const hasOrder = Boolean(this.order);
+  const hasSession = Boolean(this.checkoutSessionObjectId);
+
+  if (!hasOrder && !hasSession) {
+    return next(new Error('Payment must be associated with an Order or a CheckoutSession'));
+  }
+  next();
+});
+
 paymentSchema.index(
   { user: 1, idempotencyKey: 1 },
   { unique: true, name: 'unique_user_payment_idempotency' }
@@ -315,6 +344,26 @@ paymentSchema.index(
       }
     },
     name: 'unique_active_order_payment'
+  }
+);
+paymentSchema.index(
+  { checkoutSessionObjectId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      checkoutSessionObjectId: { $type: 'objectId' },
+      status: {
+        $in: [
+          'Pending',
+          'Processing',
+          'RequiresCustomerAction',
+          'Authorized',
+          'AwaitingCustomerPayment',
+          'AwaitingVerification'
+        ]
+      }
+    },
+    name: 'unique_active_session_payment'
   }
 );
 paymentSchema.index(
