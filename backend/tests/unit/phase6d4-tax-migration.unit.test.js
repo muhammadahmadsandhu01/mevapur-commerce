@@ -1,17 +1,20 @@
 /**
  * @file phase6d4-tax-migration.unit.test.js
  * @description Unit tests for Phase 6D-4 tax and customs migration utilities, exact math,
- * tenant isolation, concurrency preconditions, persistent resume, and guard verification.
+ * tenant isolation, concurrency preconditions, persistent resume, before-image checkpointing,
+ * tamper-evident checksums, and genuine document rollback.
  */
 
 'use strict';
 
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const {
   MIGRATION_ID,
   TARGET_INDEXES,
   findIndexMatch,
   isValidExactMoney,
+  computeCheckpointChecksum,
   inspectPreflightAnomalies,
   migrateCouponsBatch,
   migrateOrdersBatch,
@@ -19,6 +22,7 @@ const {
   runMigration
 } = require('../../scripts/migrations/phase6d4-tax-customs-governance');
 const MigrationState = require('../../models/MigrationState');
+const MigrationJournal = require('../../models/MigrationJournal');
 const Coupon = require('../../models/Coupon');
 const Order = require('../../models/Order');
 const Return = require('../../models/Return');
@@ -29,12 +33,13 @@ const { MoneyMapper } = require('../../modules/commerce');
 describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
   let userSeq = 0;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     userSeq++;
+    await MigrationJournal.deleteMany({});
+    await MigrationState.deleteMany({});
   });
 
   describe('1. CLI Guard & Mode Enforcement', () => {
-    // Requirement 1: Dry-run performs zero writes
     it('1.1 dry-run performs zero writes by default', async () => {
       const user = await global.createTestUser();
       const order = await Order.create({
@@ -78,28 +83,24 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(check.totalAmountExact).toBeNull();
     });
 
-    // Requirement 2: Explicit apply guard
     it('2.1 requires explicit --confirm-phase6d4-apply token for apply mode', async () => {
       await expect(
         runMigration(['--target=local', '--allow-local', '--apply'])
       ).rejects.toThrow(/requires explicit confirmation token/i);
     });
 
-    // Requirement 3: Explicit finalize guard
     it('3.1 requires explicit --confirm-phase6d4-finalize token for finalize mode', async () => {
       await expect(
         runMigration(['--target=local', '--allow-local', '--finalize'])
       ).rejects.toThrow(/requires explicit confirmation token/i);
     });
 
-    // Requirement 4: Explicit rollback guard
     it('4.1 requires explicit --confirm-phase6d4-rollback token for rollback mode', async () => {
       await expect(
         runMigration(['--target=local', '--allow-local', '--rollback'])
       ).rejects.toThrow(/requires explicit confirmation token/i);
     });
 
-    // Requirement 5: Conflicting-mode rejection
     it('5.1 rejects conflicting execution modes', async () => {
       await expect(
         runMigration(['--target=local', '--allow-local', '--dry-run', '--apply'])
@@ -108,7 +109,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
   });
 
   describe('2. Idempotency, Determinism & Persistent Resume', () => {
-    // Requirement 6: Idempotent second run
     it('6.1 idempotent second run produces zero writes against compliant orders', async () => {
       const user = await global.createTestUser();
       await Order.create({
@@ -153,7 +153,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(res.alreadyCompliant).toBeGreaterThanOrEqual(1);
     });
 
-    // Requirement 7: Deterministic batching
     it('7.1 deterministic batching limits query to bounded batchSize and stable ordering', async () => {
       const user = await global.createTestUser();
       for (let i = 0; i < 3; i++) {
@@ -195,7 +194,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(res.lastProcessedId).toBeDefined();
     });
 
-    // Requirement 8: Persistent interruption/resume
     it('8.1 supports resuming batch processing using lastProcessedId cursor', async () => {
       const user = await global.createTestUser();
       const o1 = await Order.create({
@@ -237,7 +235,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
   });
 
   describe('3. Tenant Isolation & Concurrency Preconditions', () => {
-    // Requirement 9: Tenant isolation
     it('9.1 isolates order migration strictly to designated merchantScopeId', async () => {
       const user = await global.createTestUser();
       await Order.create({
@@ -261,7 +258,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(resSame.processed).toBe(1);
     });
 
-    // Requirement 10: Missing tenant fails closed
     it('10.1 unresolvable order currency or malformed tenant boundary is classified as manual review', async () => {
       const user = await global.createTestUser();
       await Order.create({
@@ -274,7 +270,7 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
         totalAmount: 10,
         paymentMethod: 'cod',
         shippingAddress: { fullName: 'Foreign Buyer', phone: '03001234567', address: 'Street', city: 'London', country: 'United Kingdom', countryCode: 'GB' },
-        currency: null, // missing currency
+        currency: null,
         statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
       });
 
@@ -283,7 +279,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(res.anomalies.some((a) => a.type === 'UNRESOLVABLE_ORDER_CURRENCY')).toBe(true);
     });
 
-    // Requirement 11: Stale/concurrent mutation rejection
     it('11.1 rejects update when document has already been concurrently mutated', async () => {
       const user = await global.createTestUser();
       const order = await Order.create({
@@ -300,26 +295,22 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
         statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
       });
 
-      // Simulate a concurrent write that set subtotalExact right before migration update
       await Order.updateOne(
         { _id: order._id },
         { $set: { subtotalExact: MoneyMapper.fromLegacy(50, 'PKR') } }
       );
 
-      // Now run apply mode; precondition subtotalExact: null will not match
       const res = await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_concur' });
       expect(res.changed).toBe(0);
     });
   });
 
   describe('4. Exact-Money Bounds & Coupon Rational Safety', () => {
-    // Requirement 12: Exact 18-digit amountMinor
     it('12.1 validates canonical 18-digit amountMinor values without loss', () => {
       expect(isValidExactMoney({ amountMinor: '999999999999999999', currency: 'USD', exponent: 2 })).toBe(true);
       expect(isValidExactMoney({ amountMinor: '0', currency: 'PKR', exponent: 2 })).toBe(true);
     });
 
-    // Requirement 13: 19-digit/unsafe value rejection
     it('13.1 rejects 19+ digits, unsafe Numbers, decimals, and negative strings', () => {
       expect(isValidExactMoney({ amountMinor: 9007199254740992, currency: 'USD', exponent: 2 })).toBe(false);
       expect(isValidExactMoney({ amountMinor: '1000000000000000000', currency: 'USD', exponent: 2 })).toBe(false);
@@ -327,14 +318,12 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(isValidExactMoney({ amountMinor: '-100', currency: 'USD', exponent: 2 })).toBe(false);
     });
 
-    // Requirement 14 & 15: Currency and exponent validation
     it('14.1 rejects invalid currency strings and out-of-range exponents', () => {
       expect(isValidExactMoney({ amountMinor: '100', currency: 'INVALID', exponent: 2 })).toBe(false);
       expect(isValidExactMoney({ amountMinor: '100', currency: 'USD', exponent: 5 })).toBe(false);
       expect(isValidExactMoney({ amountMinor: '100', currency: 'USD', exponent: -1 })).toBe(false);
     });
 
-    // Requirement 16: Coupon conversion only from exact authority
     it('16.1 accepts percentage coupon with existing canonical rational authority', async () => {
       await Coupon.create({
         code: `RATIONAL-${userSeq}`,
@@ -350,12 +339,11 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(res.alreadyCompliant).toBeGreaterThanOrEqual(1);
     });
 
-    // Requirement 17: Number-only coupon becomes manual review (NO floating-point math!)
     it('17.1 classifies legacy Number-only percentage coupon as manual review with zero mutations', async () => {
       const legacyCoupon = await Coupon.create({
         code: `LEGACY-NUM-${userSeq}`,
         type: 'percentage',
-        value: 15, // Number only, no rational authority
+        value: 15,
         rateNumerator: null,
         rateDenominator: null,
         startDate: new Date(),
@@ -366,15 +354,13 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(res.manualReview).toBeGreaterThanOrEqual(1);
       expect(res.changed).toBe(0);
 
-      // Verify database document was NOT mutated with floating-point math
       const check = await Coupon.findById(legacyCoupon._id);
       expect(check.rateNumerator).toBeNull();
       expect(check.rateDenominator).toBeNull();
     });
   });
 
-  describe('5. Legal Policy Integrity, Reconciliation & Rollback Verification', () => {
-    // Requirement 18: No invented legal policy/provenance
+  describe('5. Legal Policy Integrity & Anomaly Detection', () => {
     it('18.1 detects unverified rules and missing refund policies without inventing them', async () => {
       const invalidRules = [{
         ruleId: 'UNVERIFIED-RULE',
@@ -395,7 +381,6 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(anomalies.some((a) => a.type === 'MISSING_TAX_REFUND_POLICY')).toBe(true);
     });
 
-    // Requirement 19: DAP/inclusive-tax/refund/payment anomaly reconciliation
     it('19.1 detects DAP orders with non-zero payable duty collected', async () => {
       const user = await global.createTestUser();
       await Order.create({
@@ -420,14 +405,357 @@ describe('Phase 6D-4: Tax and Customs Migration Unit Tests', () => {
       expect(res.manualReview).toBeGreaterThanOrEqual(1);
       expect(res.anomalies.some((a) => a.type === 'DAP_NONZERO_PAYABLE_DUTY_ANOMALY')).toBe(true);
     });
+  });
 
-    // Requirement 20: Real before-image recovery or explicitly disabled unsupported rollback
-    it('20.1 rollback mode drops migration-owned indexes and updates MigrationState to rolled_back', async () => {
-      const report = await runMigration(['--target=local', '--allow-local', '--rollback', '--confirm-phase6d4-rollback']);
+  describe('6. Recoverable Rollback, Before-Images, Checksum & Journal Governance', () => {
+    it('20.1 Apply stores persistent before-image checkpoint with checksum and zero PII', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `journal-ord-${userSeq}`,
+        requestHash: `journal-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_journal' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'PII Item', price: 250, quantity: 1, lineTotal: 250 }],
+        subtotal: 250,
+        totalAmount: 250,
+        paymentMethod: 'cod',
+        shippingAddress: {
+          fullName: 'Private Customer',
+          phone: '03009999999',
+          address: 'Secret Address',
+          city: 'Karachi',
+          country: 'Pakistan',
+          countryCode: 'PK'
+        },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const res = await migrateOrdersBatch({
+        isApply: true,
+        batchSize: 10,
+        merchantScopeId: 'tenant_journal'
+      });
+      expect(res.changed).toBe(1);
+
+      const journal = await MigrationJournal.findOne({
+        migrationId: MIGRATION_ID,
+        documentId: order._id
+      });
+      expect(journal).not.toBeNull();
+      expect(journal.merchantScopeId).toBe('tenant_journal');
+      expect(journal.collectionName).toBe('orders');
+      expect(journal.status).toBe('applied');
+      expect(journal.checksum).toBeDefined();
+
+      // Verify NO customer PII is stored in journal
+      const jsonStr = JSON.stringify(journal.toObject());
+      expect(jsonStr).not.toContain('Private Customer');
+      expect(jsonStr).not.toContain('03009999999');
+      expect(jsonStr).not.toContain('Secret Address');
+      expect(jsonStr).not.toContain('PII Item');
+
+      // Verify before-image captured absent / null state correctly
+      expect(journal.beforeFields.length).toBeGreaterThanOrEqual(1);
+      const subBefore = journal.beforeFields.find((f) => f.fieldPath === 'subtotalExact');
+      expect(subBefore).toBeDefined();
+      expect(subBefore.exists).toBe(true);
+      expect(subBefore.valueExact).toBeNull();
+    });
+
+    it('20.2 Rollback restores document fields to original state ($unset / $set) and drops indexes', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `restore-ord-${userSeq}`,
+        requestHash: `restore-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_restore' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Restore Item', price: 150, quantity: 1, lineTotal: 150 }],
+        subtotal: 150,
+        totalAmount: 150,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      // 1. Run Apply
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_restore' });
+      const migratedOrder = await Order.findById(order._id);
+      expect(migratedOrder.subtotalExact).not.toBeNull();
+      expect(migratedOrder.subtotalExact.amountMinor.toString()).toBe('15000');
+
+      // 2. Run Rollback
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_restore'
+      ]);
+
       expect(report.rollbackResult.success).toBe(true);
+      expect(report.rollbackResult.restoredCount).toBe(1);
 
-      const state = await MigrationState.findOne({ migrationId: MIGRATION_ID });
-      expect(state.status).toBe('rolled_back');
+      // 3. Verify Order document field was genuinely restored to null
+      const restoredOrder = await Order.findById(order._id);
+      expect(restoredOrder.subtotalExact).toBeNull();
+      expect(restoredOrder.totalAmountExact).toBeNull();
+
+      // 4. Verify MigrationJournal entry marked rolled_back
+      const journal = await MigrationJournal.findOne({ migrationId: MIGRATION_ID, documentId: order._id });
+      expect(journal.status).toBe('rolled_back');
+      expect(journal.rolledBackAt).toBeInstanceOf(Date);
+    });
+
+    it('20.3 Exact 18-digit money values round-trip accurately through migration and rollback', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `eighteen-digit-ord-${userSeq}`,
+        requestHash: `eighteen-digit-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_18digit' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Large Item', price: 9999999999, quantity: 1, lineTotal: 9999999999 }],
+        subtotal: 9999999999,
+        totalAmount: 9999999999,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_18digit' });
+      const migrated = await Order.findById(order._id);
+      expect(migrated.subtotalExact.amountMinor.toString()).toBe('999999999900');
+      expect(migrated.subtotalExact.currency).toBe('PKR');
+      expect(migrated.subtotalExact.exponent).toBe(2);
+
+      await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_18digit'
+      ]);
+
+      const restored = await Order.findById(order._id);
+      expect(restored.subtotalExact).toBeNull();
+    });
+
+    it('20.4 Rollback enforces tenant boundary and does not mutate other tenants', async () => {
+      const user = await global.createTestUser();
+      const oTenantA = await Order.create({
+        user: user._id,
+        idempotencyKey: `tenant-a-ord-${userSeq}`,
+        requestHash: `tenant-a-hash-${userSeq}`,
+        quote: { merchantScopeId: 'scope_A' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item A', price: 10, quantity: 1, lineTotal: 10 }],
+        subtotal: 10,
+        totalAmount: 10,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      const oTenantB = await Order.create({
+        user: user._id,
+        idempotencyKey: `tenant-b-ord-${userSeq}`,
+        requestHash: `tenant-b-hash-${userSeq}`,
+        quote: { merchantScopeId: 'scope_B' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item B', price: 20, quantity: 1, lineTotal: 20 }],
+        subtotal: 20,
+        totalAmount: 20,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'scope_A' });
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'scope_B' });
+
+      // Rollback only scope_A
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=scope_A'
+      ]);
+
+      expect(report.rollbackResult.restoredCount).toBe(1);
+
+      const checkA = await Order.findById(oTenantA._id);
+      const checkB = await Order.findById(oTenantB._id);
+      expect(checkA.subtotalExact).toBeNull();
+      expect(checkB.subtotalExact).not.toBeNull(); // scope_B remains migrated
+    });
+
+    it('20.5 Rollback rejects post-migration concurrent document modification and preserves conflict state', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `concur-mod-ord-${userSeq}`,
+        requestHash: `concur-mod-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_concur_mod' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 100, quantity: 1, lineTotal: 100 }],
+        subtotal: 100,
+        totalAmount: 100,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_concur_mod' });
+
+      // Simulate an out-of-band post-migration modification
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { subtotalExact: MoneyMapper.fromLegacy(999, 'PKR') } }
+      );
+
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_concur_mod'
+      ]);
+
+      expect(report.success).toBe(false);
+      expect(report.rollbackResult.conflictCount).toBe(1);
+
+      // Verify document was NOT blindly overwritten
+      const check = await Order.findById(order._id);
+      expect(check.subtotalExact.amountMinor.toString()).toBe('99900');
+
+      const journal = await MigrationJournal.findOne({ migrationId: MIGRATION_ID, documentId: order._id });
+      expect(journal.status).toBe('conflict');
+    });
+
+    it('20.6 Tampered checkpoint checksum fails closed during rollback', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `tamper-ord-${userSeq}`,
+        requestHash: `tamper-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_tamper' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 50, quantity: 1, lineTotal: 50 }],
+        subtotal: 50,
+        totalAmount: 50,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_tamper' });
+
+      // Tamper with the checksum in MigrationJournal
+      await MigrationJournal.updateOne(
+        { migrationId: MIGRATION_ID, documentId: order._id },
+        { $set: { checksum: 'tampered_invalid_sha256_hash_value' } }
+      );
+
+      const report = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_tamper'
+      ]);
+
+      expect(report.success).toBe(false);
+      expect(report.rollbackResult.conflictCount).toBe(1);
+
+      const journal = await MigrationJournal.findOne({ migrationId: MIGRATION_ID, documentId: order._id });
+      expect(journal.status).toBe('conflict');
+    });
+
+    it('20.7 Rollback is idempotent across repeated executions', async () => {
+      const user = await global.createTestUser();
+      const order = await Order.create({
+        user: user._id,
+        idempotencyKey: `idemp-rb-ord-${userSeq}`,
+        requestHash: `idemp-rb-hash-${userSeq}`,
+        quote: { merchantScopeId: 'tenant_idemp_rb' },
+        items: [{ product: new mongoose.Types.ObjectId(), name: 'Item', price: 80, quantity: 1, lineTotal: 80 }],
+        subtotal: 80,
+        totalAmount: 80,
+        paymentMethod: 'cod',
+        shippingAddress: { fullName: 'Buyer', phone: '03001234567', address: 'Street', city: 'Karachi', country: 'Pakistan', countryCode: 'PK' },
+        currency: 'PKR',
+        statusTimeline: [{ status: 'Pending', actor: user._id, actorRole: 'customer', timestamp: new Date() }]
+      });
+
+      await migrateOrdersBatch({ isApply: true, batchSize: 10, merchantScopeId: 'tenant_idemp_rb' });
+
+      // First Rollback
+      const report1 = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_idemp_rb'
+      ]);
+      expect(report1.rollbackResult.success).toBe(true);
+      expect(report1.rollbackResult.restoredCount).toBe(1);
+
+      // Second Rollback (No-op)
+      const report2 = await runMigration([
+        '--target=local',
+        '--allow-local',
+        '--rollback',
+        '--confirm-phase6d4-rollback',
+        '--merchant-scope=tenant_idemp_rb'
+      ]);
+      expect(report2.rollbackResult.success).toBe(true);
+      expect(report2.rollbackResult.restoredCount).toBe(0);
+    });
+
+    it('20.8 Finalize refuses when conflict checkpoints exist', async () => {
+      await MigrationJournal.create({
+        migrationId: MIGRATION_ID,
+        collectionName: 'orders',
+        documentId: new mongoose.Types.ObjectId(),
+        merchantScopeId: 'default',
+        status: 'conflict',
+        fieldsWritten: ['subtotalExact'],
+        preconditionFingerprint: 'prec',
+        postWriteFingerprint: 'post',
+        checksum: 'invalid'
+      });
+
+      await expect(
+        runMigration([
+          '--target=local',
+          '--allow-local',
+          '--finalize',
+          '--confirm-phase6d4-finalize'
+        ])
+      ).rejects.toThrow(/unresolved conflict checkpoints exist/i);
+    });
+
+    it('20.9 Backward compatibility: MigrationJournal handles historical entries without new fields', async () => {
+      const historicalId = new mongoose.Types.ObjectId();
+      const historicalEntry = await MigrationJournal.create({
+        migrationId: 'phase4d-exact-money',
+        collectionName: 'orders',
+        documentId: historicalId,
+        status: 'applied',
+        fieldsWritten: ['subtotalExact', 'totalAmountExact'],
+        preconditionFingerprint: 'legacy-prec-fingerprint',
+        postWriteFingerprint: 'legacy-post-fingerprint'
+      });
+
+      expect(historicalEntry._id).toBeDefined();
+      expect(historicalEntry.operationId).toBeNull();
+      expect(historicalEntry.beforeFields).toEqual([]);
+      expect(historicalEntry.appliedFields).toEqual([]);
+      expect(historicalEntry.checksum).toBeNull();
+      expect(historicalEntry.schemaVersion).toBe('1.0.0');
     });
   });
 });

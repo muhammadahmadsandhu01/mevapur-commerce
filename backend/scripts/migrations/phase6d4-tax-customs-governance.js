@@ -4,19 +4,21 @@
 /**
  * @file phase6d4-tax-customs-governance.js
  * @description Guarded, idempotent, tenant-isolated index and invariant migration for Phase 6D-4 Tax and Customs Governance,
- * Multi-Service Rate Calculation, Incoterms, and De-Minimis Decisions.
+ * Multi-Service Rate Calculation, Incoterms, and De-Minimis Decisions with genuine, recoverable document checkpoints.
  *
  * Supported modes:
  *   --inventory : Read-only evaluation and status breakdown.
  *   --dry-run   : Read-only simulation of index creations and document migrations (default).
- *   --apply     : Bounded, tenant-isolated creation of scoped indexes and exact-money backfills.
+ *   --apply     : Bounded, tenant-isolated creation of scoped indexes, exact-money backfills, and before-image journals.
  *   --verify    : Read-only verification scan.
- *   --finalize  : Separately authorized write of MigrationState completion evidence.
- *   --rollback  : Idempotent rollback of migration-owned indexes and migration state tracking.
+ *   --finalize  : Separately authorized write of MigrationState completion evidence with checkpoint integrity verification.
+ *   --rollback  : Idempotent, tenant-scoped document restoration and migration-owned index cleanup.
  */
 
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const MigrationState = require('../../models/MigrationState');
+const MigrationJournal = require('../../models/MigrationJournal');
 const Coupon = require('../../models/Coupon');
 const Order = require('../../models/Order');
 const Return = require('../../models/Return');
@@ -145,6 +147,81 @@ function isValidExactMoney(money) {
   if (typeof money.currency !== 'string' || !/^[A-Z]{3}$/.test(money.currency.trim())) return false;
   if (money.exponent == null || typeof money.exponent !== 'number' || !Number.isInteger(money.exponent) || money.exponent < 0 || money.exponent > 4) return false;
   return true;
+}
+
+/**
+ * Computes deterministic SHA-256 integrity checksum for a migration checkpoint entry.
+ * Excludes non-deterministic timestamps and volatile runtime fields.
+ */
+function computeCheckpointChecksum(payload) {
+  const canonicalBefore = (payload.beforeFields || []).map((f) => ({
+    fieldPath: f.fieldPath,
+    exists: Boolean(f.exists),
+    valueExact: f.valueExact ? {
+      amountMinor: f.valueExact.amountMinor != null ? String(f.valueExact.amountMinor) : null,
+      currency: f.valueExact.currency ? String(f.valueExact.currency) : null,
+      exponent: f.valueExact.exponent != null ? Number(f.valueExact.exponent) : null
+    } : null
+  })).sort((a, b) => a.fieldPath.localeCompare(b.fieldPath));
+
+  const canonicalApplied = (payload.appliedFields || []).map((f) => ({
+    fieldPath: f.fieldPath,
+    exists: Boolean(f.exists),
+    valueExact: f.valueExact ? {
+      amountMinor: f.valueExact.amountMinor != null ? String(f.valueExact.amountMinor) : null,
+      currency: f.valueExact.currency ? String(f.valueExact.currency) : null,
+      exponent: f.valueExact.exponent != null ? Number(f.valueExact.exponent) : null
+    } : null
+  })).sort((a, b) => a.fieldPath.localeCompare(b.fieldPath));
+
+  const sortedFieldsWritten = [...(payload.fieldsWritten || [])].sort();
+
+  const canonicalObject = {
+    appliedFields: canonicalApplied,
+    beforeFields: canonicalBefore,
+    collectionName: payload.collectionName,
+    documentId: String(payload.documentId),
+    fieldsWritten: sortedFieldsWritten,
+    merchantScopeId: payload.merchantScopeId || 'default',
+    migrationId: payload.migrationId,
+    operationId: payload.operationId || null,
+    schemaVersion: payload.schemaVersion || '2.0.0'
+  };
+
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalObject)).digest('hex');
+}
+
+function computePreconditionFingerprint(order, fields) {
+  const state = {};
+  for (const f of fields) {
+    const val = order[f];
+    if (val && typeof val === 'object' && val.amountMinor != null) {
+      state[f] = {
+        amountMinor: String(val.amountMinor),
+        currency: String(val.currency),
+        exponent: Number(val.exponent)
+      };
+    } else {
+      state[f] = val ?? null;
+    }
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex');
+}
+
+function computePostWriteFingerprint(updates) {
+  const state = {};
+  for (const [k, v] of Object.entries(updates)) {
+    if (v && typeof v === 'object' && v.amountMinor != null) {
+      state[k] = {
+        amountMinor: String(v.amountMinor),
+        currency: String(v.currency),
+        exponent: Number(v.exponent)
+      };
+    } else {
+      state[k] = v ?? null;
+    }
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex');
 }
 
 /**
@@ -372,6 +449,7 @@ async function migrateCouponsBatch({ isApply = false, batchSize = 100, db = null
 
 /**
  * Reconciles/backfills legacy orders with canonical tax and customs snapshots where unambiguous.
+ * Persists minimal before-image checkpoints in MigrationJournal before mutating business documents.
  * Strictly tenant-isolated, concurrency-preconditioned, bounded, and resumable.
  *
  * @param {object} options
@@ -380,6 +458,7 @@ async function migrateCouponsBatch({ isApply = false, batchSize = 100, db = null
  * @param {string} [options.merchantScopeId]
  * @param {mongoose.Types.ObjectId} [options.lastProcessedId=null]
  * @param {object} [options.db]
+ * @param {string} [options.operationId=null]
  * @returns {Promise<object>}
  */
 async function migrateOrdersBatch({
@@ -387,7 +466,8 @@ async function migrateOrdersBatch({
   batchSize = 100,
   merchantScopeId = null,
   lastProcessedId = null,
-  db = null
+  db = null,
+  operationId = null
 } = {}) {
   const result = {
     entity: 'Order',
@@ -404,6 +484,7 @@ async function migrateOrdersBatch({
   };
 
   const orderModel = db ? db.model('Order') : Order;
+  const journalModel = db ? db.model('MigrationJournal') : MigrationJournal;
   const query = {};
 
   if (merchantScopeId) {
@@ -486,25 +567,127 @@ async function migrateOrdersBatch({
       if (needsUpdate) {
         result.eligible++;
         if (isApply) {
-          // TENANT-ISOLATED & CONCURRENCY-PRECONDITIONED MUTATION
+          const fieldsWritten = Object.keys(updates);
+          const beforeFields = [];
+          const appliedFields = [];
+
+          for (const f of fieldsWritten) {
+            const rawVal = order[f];
+            const exists = rawVal !== undefined;
+            const valExact = exists && rawVal && typeof rawVal === 'object' && rawVal.amountMinor != null
+              ? {
+                  amountMinor: String(rawVal.amountMinor),
+                  currency: String(rawVal.currency),
+                  exponent: Number(rawVal.exponent)
+                }
+              : null;
+
+            beforeFields.push({
+              fieldPath: f,
+              exists,
+              valueExact: valExact
+            });
+
+            appliedFields.push({
+              fieldPath: f,
+              exists: true,
+              valueExact: {
+                amountMinor: String(updates[f].amountMinor),
+                currency: String(updates[f].currency),
+                exponent: Number(updates[f].exponent)
+              }
+            });
+          }
+
+          const opId = operationId || `op_p6d4_${Date.now()}_${order._id}`;
+          const precFingerprint = computePreconditionFingerprint(order, fieldsWritten);
+          const postFingerprint = computePostWriteFingerprint(updates);
+
+          const journalPayload = {
+            migrationId: MIGRATION_ID,
+            collectionName: 'orders',
+            documentId: order._id,
+            operationId: opId,
+            merchantScopeId: scope,
+            status: 'applied',
+            fieldsWritten,
+            beforeFields,
+            appliedFields,
+            preconditionFingerprint: precFingerprint,
+            postWriteFingerprint: postFingerprint,
+            schemaVersion: '2.0.0'
+          };
+
+          journalPayload.checksum = computeCheckpointChecksum(journalPayload);
+
+          // TENANT-ISOLATED & CONCURRENCY-PRECONDITIONED MUTATION FILTER
           const mutationFilter = {
             _id: order._id,
             'quote.merchantScopeId': scope,
-            // Concurrency precondition: ensure subtotalExact is still null before updating
             subtotalExact: null
           };
 
-          const updateResult = await orderModel.updateOne(mutationFilter, { $set: updates });
-          if (updateResult.matchedCount === 1) {
-            result.changed++;
-          } else {
-            // Concurrently updated or tenant mismatched
+          let session = null;
+          let inTx = false;
+          try {
+            session = await mongoose.startSession();
+            session.startTransaction();
+            inTx = true;
+          } catch (_sessErr) {
+            session = null;
+            inTx = false;
+          }
+
+          try {
+            const sessionOpt = session ? { session } : {};
+
+            // 1. Persist Before-Image Checkpoint in journal first
+            await journalModel.findOneAndUpdate(
+              {
+                migrationId: MIGRATION_ID,
+                collectionName: 'orders',
+                documentId: order._id
+              },
+              { $set: journalPayload },
+              { upsert: true, ...sessionOpt }
+            );
+
+            // 2. Perform Document Mutation with concurrency preconditions
+            const updateResult = await orderModel.updateOne(mutationFilter, { $set: updates }, sessionOpt);
+
+            if (updateResult.matchedCount === 1) {
+              if (inTx) await session.commitTransaction();
+              result.changed++;
+            } else {
+              if (inTx) {
+                await session.abortTransaction();
+              } else {
+                await journalModel.updateOne(
+                  { migrationId: MIGRATION_ID, collectionName: 'orders', documentId: order._id },
+                  { $set: { status: 'conflict' } }
+                );
+              }
+              result.failed++;
+              result.anomalies.push({
+                type: 'CONCURRENT_OR_CROSS_TENANT_MUTATION_REJECTED',
+                orderId: order.orderId || String(order._id),
+                merchantScopeId: scope
+              });
+            }
+          } catch (txErr) {
+            if (inTx) {
+              try { await session.abortTransaction(); } catch {}
+            }
             result.failed++;
             result.anomalies.push({
-              type: 'CONCURRENT_OR_CROSS_TENANT_MUTATION_REJECTED',
+              type: 'TRANSACTION_EXECUTION_ERROR',
               orderId: order.orderId || String(order._id),
-              merchantScopeId: scope
+              message: txErr.message
             });
+          } finally {
+            if (session) {
+              await session.endSession();
+            }
           }
         } else {
           result.skipped++;
@@ -648,7 +831,202 @@ async function runMigration(argv = process.argv.slice(2)) {
 
     // Handle Rollback Mode
     if (cli.isRollback || cli.mode === '--rollback') {
-      const state = await MigrationState.findOne({ migrationId: MIGRATION_ID });
+      const journalModel = (db && typeof db.model === 'function') ? db.model('MigrationJournal') : (mongoose.models.MigrationJournal || MigrationJournal);
+      const orderModel = (db && typeof db.model === 'function') ? db.model('Order') : (mongoose.models.Order || Order);
+
+      const journalQuery = {
+        migrationId: MIGRATION_ID,
+        status: 'applied'
+      };
+      if (merchantScopeId) {
+        journalQuery.merchantScopeId = merchantScopeId;
+      }
+
+      const appliedEntries = await journalModel.find(journalQuery);
+      let restoredCount = 0;
+      let conflictCount = 0;
+      const rollbackAnomalies = [];
+
+      for (const entry of appliedEntries) {
+        // 1. Verify checkpoint checksum integrity
+        const computedChecksum = computeCheckpointChecksum(entry);
+        if (entry.checksum && entry.checksum !== computedChecksum) {
+          conflictCount++;
+          rollbackAnomalies.push({
+            type: 'CHECKSUM_INTEGRITY_TAMPERED',
+            documentId: String(entry.documentId),
+            merchantScopeId: entry.merchantScopeId,
+            storedChecksum: entry.checksum,
+            computedChecksum
+          });
+          await journalModel.updateOne({ _id: entry._id }, { $set: { status: 'conflict' } });
+          continue;
+        }
+
+        // 2. Validate collection
+        if (entry.collectionName !== 'orders') {
+          conflictCount++;
+          rollbackAnomalies.push({
+            type: 'UNSUPPORTED_COLLECTION_IN_JOURNAL',
+            collectionName: entry.collectionName,
+            documentId: String(entry.documentId)
+          });
+          continue;
+        }
+
+        // 3. Query document strictly within authoritative tenant scope
+        const doc = await orderModel.findOne({
+          _id: entry.documentId,
+          'quote.merchantScopeId': entry.merchantScopeId
+        });
+
+        if (!doc) {
+          conflictCount++;
+          rollbackAnomalies.push({
+            type: 'DOCUMENT_NOT_FOUND_OR_TENANT_MISMATCH',
+            documentId: String(entry.documentId),
+            merchantScopeId: entry.merchantScopeId
+          });
+          await journalModel.updateOne({ _id: entry._id }, { $set: { status: 'conflict' } });
+          continue;
+        }
+
+        // 4. Verify post-state match (refuse if document changed after migration)
+        let hasConcurrentPostChange = false;
+        for (const app of (entry.appliedFields || [])) {
+          const currentVal = doc[app.fieldPath];
+          if (!currentVal || typeof currentVal !== 'object') {
+            hasConcurrentPostChange = true;
+            break;
+          }
+          const currentMinor = currentVal.amountMinor != null ? String(currentVal.amountMinor) : null;
+          const currentCurrency = currentVal.currency ? String(currentVal.currency) : null;
+          const currentExponent = currentVal.exponent != null ? Number(currentVal.exponent) : null;
+
+          if (
+            currentMinor !== app.valueExact.amountMinor ||
+            currentCurrency !== app.valueExact.currency ||
+            currentExponent !== app.valueExact.exponent
+          ) {
+            hasConcurrentPostChange = true;
+            break;
+          }
+        }
+
+        if (hasConcurrentPostChange) {
+          conflictCount++;
+          rollbackAnomalies.push({
+            type: 'POST_MIGRATION_CONCURRENT_CHANGE_REJECTED',
+            documentId: String(entry.documentId),
+            merchantScopeId: entry.merchantScopeId
+          });
+          await journalModel.updateOne({ _id: entry._id }, { $set: { status: 'conflict' } });
+          continue;
+        }
+
+        // 5. Construct field restoration ($unset for originally absent, $set for original value/null)
+        const unsets = {};
+        const sets = {};
+
+        if (Array.isArray(entry.beforeFields) && entry.beforeFields.length > 0) {
+          for (const bf of entry.beforeFields) {
+            if (bf.exists === false) {
+              unsets[bf.fieldPath] = 1;
+            } else if (bf.valueExact === null) {
+              sets[bf.fieldPath] = null;
+            } else {
+              sets[bf.fieldPath] = {
+                amountMinor: bf.valueExact.amountMinor,
+                currency: bf.valueExact.currency,
+                exponent: bf.valueExact.exponent
+              };
+            }
+          }
+        } else {
+          for (const f of (entry.fieldsWritten || [])) {
+            unsets[f] = 1;
+          }
+        }
+
+        const restoreFilter = {
+          _id: entry.documentId,
+          'quote.merchantScopeId': entry.merchantScopeId
+        };
+        for (const app of (entry.appliedFields || [])) {
+          restoreFilter[`${app.fieldPath}.amountMinor`] = app.valueExact.amountMinor;
+          restoreFilter[`${app.fieldPath}.currency`] = app.valueExact.currency;
+          restoreFilter[`${app.fieldPath}.exponent`] = app.valueExact.exponent;
+        }
+
+        const updateDoc = {};
+        if (Object.keys(unsets).length > 0) updateDoc.$unset = unsets;
+        if (Object.keys(sets).length > 0) updateDoc.$set = sets;
+
+        let session = null;
+        let inTx = false;
+        try {
+          session = await mongoose.startSession();
+          session.startTransaction();
+          inTx = true;
+        } catch (_err) {
+          session = null;
+          inTx = false;
+        }
+
+        try {
+          const sessionOpt = session ? { session } : {};
+          const restoreRes = await orderModel.updateOne(restoreFilter, updateDoc, sessionOpt);
+
+          if (restoreRes.matchedCount === 1) {
+            await journalModel.updateOne(
+              { _id: entry._id },
+              { $set: { status: 'rolled_back', rolledBackAt: new Date() } },
+              sessionOpt
+            );
+            if (inTx) await session.commitTransaction();
+            restoredCount++;
+          } else {
+            if (inTx) await session.abortTransaction();
+            conflictCount++;
+            rollbackAnomalies.push({
+              type: 'ROLLBACK_CAS_PRECONDITION_FAILED',
+              documentId: String(entry.documentId)
+            });
+            await journalModel.updateOne({ _id: entry._id }, { $set: { status: 'conflict' } });
+          }
+        } catch (err) {
+          if (inTx) {
+            try { await session.abortTransaction(); } catch {}
+          }
+          conflictCount++;
+          rollbackAnomalies.push({
+            type: 'ROLLBACK_TRANSACTION_FAILED',
+            documentId: String(entry.documentId),
+            message: err.message
+          });
+        } finally {
+          if (session) await session.endSession();
+        }
+      }
+
+      if (conflictCount > 0) {
+        report.success = false;
+        report.rollbackResult = {
+          restoredCount,
+          conflictCount,
+          anomalies: rollbackAnomalies,
+          indexesDropped: false,
+          success: false
+        };
+        if (isJson) {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          console.error(`[Phase 6D-4 Migration] Rollback encountered ${conflictCount} conflicts. Index dropping aborted.`);
+        }
+        return report;
+      }
+
+      // 6. Only after all document restorations succeed, drop indexes
       const collections = await db.listCollections().toArray();
       const collectionNames = new Set(collections.map((c) => c.name));
       const droppedIndexes = [];
@@ -672,6 +1050,9 @@ async function runMigration(argv = process.argv.slice(2)) {
             status: 'rolled_back',
             metadata: {
               target: cli.target,
+              merchantScopeId,
+              restoredCount,
+              conflictCount: 0,
               droppedIndexes,
               rolledBackAt: new Date()
             }
@@ -680,11 +1061,17 @@ async function runMigration(argv = process.argv.slice(2)) {
         { upsert: true }
       );
 
-      report.rollbackResult = { droppedIndexes, success: true };
+      report.rollbackResult = {
+        restoredCount,
+        conflictCount: 0,
+        droppedIndexes,
+        success: true
+      };
+
       if (isJson) {
         console.log(JSON.stringify(report, null, 2));
       } else {
-        console.log(`[Phase 6D-4 Migration] Rollback completed. Dropped ${droppedIndexes.length} migration indexes.`);
+        console.log(`[Phase 6D-4 Migration] Rollback completed successfully. Restored ${restoredCount} documents, dropped ${droppedIndexes.length} migration indexes.`);
       }
       return report;
     }
@@ -761,6 +1148,17 @@ async function runMigration(argv = process.argv.slice(2)) {
       if (report.preflightAnomalies.filter((a) => a.severity === 'CRITICAL').length > 0) {
         throw new Error('Cannot finalize migration with critical preflight anomalies.');
       }
+
+      const journalModel = (db && typeof db.model === 'function') ? db.model('MigrationJournal') : (mongoose.models.MigrationJournal || MigrationJournal);
+      const conflictJournalCount = await journalModel.countDocuments({
+        migrationId: MIGRATION_ID,
+        status: 'conflict'
+      });
+
+      if (conflictJournalCount > 0) {
+        throw new Error(`Cannot finalize migration: ${conflictJournalCount} unresolved conflict checkpoints exist in MigrationJournal.`);
+      }
+
       if (cli.isApply) {
         await MigrationState.updateOne(
           { migrationId: MIGRATION_ID },
@@ -815,6 +1213,7 @@ module.exports = {
   TARGET_INDEXES,
   findIndexMatch,
   isValidExactMoney,
+  computeCheckpointChecksum,
   inspectPreflightAnomalies,
   migrateCouponsBatch,
   migrateOrdersBatch,
