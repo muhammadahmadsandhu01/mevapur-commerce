@@ -69,6 +69,8 @@ interface Order {
   shippingCostExact?: MoneyExact;
   taxAmount?: number | string;
   taxAmountExact?: MoneyExact;
+  duties?: number | string;
+  dutiesExact?: MoneyExact;
   discount?: number | string;
   discountExact?: MoneyExact;
   totalAmount: number | string;
@@ -96,6 +98,58 @@ interface Order {
     remoteArea?: boolean;
     deliveryPromise?: DeliveryPromiseExact;
     shipmentGroups?: QuoteShipmentGroup[];
+  };
+  quote?: {
+    quoteId?: string;
+    incoterm?: string;
+    configVersionId?: string;
+    issuedAt?: string;
+  };
+  taxesAndDuties?: {
+    taxType?: string;
+    taxTreatment?: string;
+    taxableBasis?: string;
+    taxRatePercent?: number;
+    taxAmount?: number;
+    taxAmountExact?: MoneyExact;
+    additionalTaxAmount?: number;
+    additionalTaxAmountExact?: MoneyExact;
+    taxIncludedAmount?: number;
+    taxIncludedAmountExact?: MoneyExact;
+    goodsValue?: number;
+    goodsValueExact?: MoneyExact;
+    customsValue?: number;
+    customsValueExact?: MoneyExact;
+    cifValue?: number;
+    cifValueExact?: MoneyExact;
+    customsValueIncludesShipping?: boolean;
+    customsValueIncludesInsurance?: boolean;
+    dutyRatePercent?: number;
+    estimatedDutyAmount?: number;
+    estimatedDutyExact?: MoneyExact;
+    payableDutyAmount?: number;
+    payableDutyExact?: MoneyExact;
+    dutyDeMinimis?: {
+      configured?: boolean;
+      exempt?: boolean;
+      basisType?: string;
+      reasonCode?: string;
+    } | null;
+    taxDeMinimis?: {
+      configured?: boolean;
+      exempt?: boolean;
+      basisType?: string;
+      reasonCode?: string;
+    } | null;
+    incoterm?: string;
+    provenance?: {
+      ruleId?: string;
+      sourceAuthority?: string;
+      sourceReference?: string;
+      verificationStatus?: string;
+      dutyRefundPolicy?: string;
+      taxRefundPolicy?: string;
+    } | null;
   };
   statusTimeline?: TimelineStep[];
   timeline?: TimelineStep[];
@@ -441,7 +495,7 @@ export default function OrderDetailsPage() {
             })}
           </div>
 
-          {/* Breakdown */}
+          {/* Financials Breakdown */}
           <div className="mt-6 pt-5 border-t border-slate-200 space-y-2 text-xs sm:text-sm">
             {order.subtotalExact ? (
               <div className="flex justify-between text-slate-700">
@@ -454,6 +508,7 @@ export default function OrderDetailsPage() {
                 <span className="font-semibold text-slate-900">{formatMoney(order.subtotal, order.currency || order.totalAmountExact?.currency || '')}</span>
               </div>
             )}
+
             {order.discountExact ? (
               <div className="flex justify-between text-emerald-700 font-semibold">
                 <span>Discount</span>
@@ -465,6 +520,7 @@ export default function OrderDetailsPage() {
                 <span>-{formatMoney(order.discount, order.currency || '')}</span>
               </div>
             ) : null}
+
             {order.shippingCostExact ? (
               <div className="flex justify-between text-slate-700">
                 <span>Shipping</span>
@@ -476,7 +532,28 @@ export default function OrderDetailsPage() {
                 <span className="font-semibold text-slate-900">{formatMoney(order.shippingCost, order.currency || '')}</span>
               </div>
             ) : null}
-            {order.taxAmountExact ? (
+
+            {/* Authoritative Tax Snapshot */}
+            {order.taxesAndDuties ? (
+              order.taxesAndDuties.taxTreatment === 'inclusive' || (order.taxesAndDuties.taxIncludedAmountExact && order.taxesAndDuties.taxIncludedAmountExact.amountMinor !== '0') ? (
+                <div className="space-y-0.5">
+                  <div className="flex justify-between text-slate-700">
+                    <span>Taxes ({order.taxesAndDuties.taxType || 'Tax'} · Included)</span>
+                    <span className="font-semibold text-slate-800">
+                      {formatExactMoney(order.taxesAndDuties.taxIncludedAmountExact || order.taxesAndDuties.taxAmountExact || order.taxAmountExact)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">Included in items subtotal</p>
+                </div>
+              ) : (
+                <div className="flex justify-between text-slate-700">
+                  <span>Taxes ({order.taxesAndDuties.taxType || 'Tax'})</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatExactMoney(order.taxesAndDuties.additionalTaxAmountExact || order.taxesAndDuties.taxAmountExact || order.taxAmountExact)}
+                  </span>
+                </div>
+              )
+            ) : order.taxAmountExact ? (
               <div className="flex justify-between text-slate-700">
                 <span>Tax</span>
                 <span className="font-semibold text-slate-900">{formatExactMoney(order.taxAmountExact)}</span>
@@ -487,6 +564,37 @@ export default function OrderDetailsPage() {
                 <span className="font-semibold text-slate-900">{formatMoney(order.taxAmount, order.currency || '')}</span>
               </div>
             ) : null}
+
+            {/* Authoritative Customs Duties Snapshot */}
+            {order.taxesAndDuties ? (
+              order.taxesAndDuties.incoterm === 'DAP' ? (
+                order.taxesAndDuties.estimatedDutyExact && order.taxesAndDuties.estimatedDutyExact.amountMinor !== '0' ? (
+                  <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg space-y-0.5 text-xs">
+                    <div className="flex justify-between text-amber-950 font-bold">
+                      <span>Estimated Customs Duty (DAP)</span>
+                      <span>{formatExactMoney(order.taxesAndDuties.estimatedDutyExact)}</span>
+                    </div>
+                    <p className="text-[10px] text-amber-800">
+                      Collected upon delivery by carrier · Not charged in order total
+                    </p>
+                  </div>
+                ) : null
+              ) : (order.taxesAndDuties.payableDutyExact && order.taxesAndDuties.payableDutyExact.amountMinor !== '0') || (order.dutiesExact && order.dutiesExact.amountMinor !== '0') ? (
+                <div className="flex justify-between text-slate-700">
+                  <span>Customs Duty ({order.taxesAndDuties.incoterm || 'DDP'} · Paid)</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatExactMoney(order.taxesAndDuties.payableDutyExact || order.dutiesExact)}
+                  </span>
+                </div>
+              ) : null
+            ) : order.dutiesExact && order.dutiesExact.amountMinor !== '0' ? (
+              <div className="flex justify-between text-slate-700">
+                <span>Customs Duties</span>
+                <span className="font-semibold text-slate-900">{formatExactMoney(order.dutiesExact)}</span>
+              </div>
+            ) : null}
+
+            {/* Total */}
             <div className="pt-3 border-t border-slate-200 flex justify-between items-baseline text-base font-black text-[#0b132b]">
               <span>Final Total Charged</span>
               <span className="text-xl sm:text-2xl">

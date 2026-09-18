@@ -66,6 +66,26 @@ interface Order {
   taxAmountExact?: MoneyExact;
   discount: number;
   discountExact?: MoneyExact;
+  duties?: number;
+  dutiesExact?: MoneyExact;
+  taxesAndDuties?: {
+    taxType?: string;
+    taxTreatment?: string;
+    taxRatePercent?: number;
+    taxAmount?: number;
+    taxAmountExact?: MoneyExact;
+    additionalTaxAmountExact?: MoneyExact;
+    taxIncludedAmountExact?: MoneyExact;
+    dutyRatePercent?: number;
+    dutyAmount?: number;
+    dutyAmountExact?: MoneyExact;
+    payableDutyExact?: MoneyExact;
+    estimatedDutyExact?: MoneyExact;
+    incoterm?: string;
+    provenance?: string;
+    customsDutyDeMinimisExact?: MoneyExact;
+    importTaxDeMinimisExact?: MoneyExact;
+  };
   totalAmount: number;
   totalAmountExact?: MoneyExact;
   shippingQuote?: {
@@ -923,14 +943,67 @@ export default function OrderDetailPage() {
                     : `${order.currency ? `${order.currency} ` : ''}${order.shippingCost.toLocaleString()}`}
                 </span>
               </div>
-              {order.taxAmount !== undefined && order.taxAmount > 0 && (
+              {/* Authoritative Tax Snapshot */}
+              {order.taxesAndDuties ? (
+                order.taxesAndDuties.taxTreatment === 'inclusive' || (order.taxesAndDuties.taxIncludedAmountExact && order.taxesAndDuties.taxIncludedAmountExact.amountMinor !== '0') ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        Taxes ({order.taxesAndDuties.taxType || 'Tax'} · Included)
+                      </span>
+                      <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                        {formatExactMoney(order.taxesAndDuties.taxIncludedAmountExact || order.taxesAndDuties.taxAmountExact || order.taxAmountExact)}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Included in items subtotal</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      Taxes ({order.taxesAndDuties.taxType || 'Tax'})
+                    </span>
+                    <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                      {formatExactMoney(order.taxesAndDuties.additionalTaxAmountExact || order.taxesAndDuties.taxAmountExact || order.taxAmountExact)}
+                    </span>
+                  </div>
+                )
+              ) : (order.taxAmountExact || (order.taxAmount !== undefined && order.taxAmount > 0)) ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Taxes & Duties</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Tax</span>
                   <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
-                    {order.taxAmountExact ? formatExactMoney(order.taxAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.taxAmount.toLocaleString()}`}
+                    {order.taxAmountExact ? formatExactMoney(order.taxAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.taxAmount?.toLocaleString()}`}
                   </span>
                 </div>
-              )}
+              ) : null}
+
+              {/* Authoritative Customs Duties Snapshot */}
+              {order.taxesAndDuties ? (
+                order.taxesAndDuties.incoterm === 'DAP' ? (
+                  order.taxesAndDuties.estimatedDutyExact && order.taxesAndDuties.estimatedDutyExact.amountMinor !== '0' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '14px', backgroundColor: 'rgba(245, 158, 11, 0.08)', padding: '8px 10px', borderRadius: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--warning-text)', fontWeight: '600' }}>Estimated Customs Duty (DAP)</span>
+                        <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
+                          {formatExactMoney(order.taxesAndDuties.estimatedDutyExact)}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--warning-text)' }}>Collected by courier upon delivery · Excluded from order total</span>
+                    </div>
+                  ) : null
+                ) : (order.taxesAndDuties.payableDutyExact && order.taxesAndDuties.payableDutyExact.amountMinor !== '0') || (order.dutiesExact && order.dutiesExact.amountMinor !== '0') ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Customs Duty ({order.taxesAndDuties.incoterm || 'DDP'} · Paid)</span>
+                    <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                      {formatExactMoney(order.taxesAndDuties.payableDutyExact || order.dutiesExact)}
+                    </span>
+                  </div>
+                ) : null
+              ) : order.dutiesExact && order.dutiesExact.amountMinor !== '0' ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Customs Duties</span>
+                  <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{formatExactMoney(order.dutiesExact)}</span>
+                </div>
+              ) : null}
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',

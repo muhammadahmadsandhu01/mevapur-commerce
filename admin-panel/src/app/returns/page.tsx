@@ -36,6 +36,7 @@ import {
   type ReturnWorkflowAction,
   type ReturnWorkflowActionId
 } from '@/lib/returnWorkflow';
+import { formatExactMoney } from '@/lib/exactMoney';
 
 const RETURN_STATUSES: readonly ReturnStatus[] = [
   'pending',
@@ -794,9 +795,71 @@ export default function ReturnsPage() {
             >
               <div><small style={{ color: 'var(--text-secondary)' }}>Order #</small><div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{orderLabel(selectedReturn)}</div></div>
               <div><small style={{ color: 'var(--text-secondary)' }}>Customer</small><div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{customerLabel(selectedReturn)}</div></div>
-              <div><small style={{ color: 'var(--text-secondary)' }}>Authoritative refund</small><div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Rs. {(selectedReturn.refundAmount || 0).toLocaleString()}</div></div>
+              <div>
+                <small style={{ color: 'var(--text-secondary)' }}>Authoritative refund</small>
+                <div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
+                  {selectedReturn.refundAmountExact
+                    ? formatExactMoney(selectedReturn.refundAmountExact)
+                    : `Rs. ${(selectedReturn.refundAmount || 0).toLocaleString()}`}
+                </div>
+              </div>
               <div><small style={{ color: 'var(--text-secondary)' }}>Approved by</small><div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{actorLabel(selectedReturn.approvedBy)}</div></div>
             </div>
+
+            {/* Authoritative Refund Allocation Snapshot */}
+            {selectedReturn.refundAllocationSnapshot && (
+              <div style={{ padding: 16, backgroundColor: 'var(--bg-primary)', borderRadius: 10, marginBottom: 20, border: '1px solid var(--border-color)' }}>
+                <h3 style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Authoritative Refund Component Allocation
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, fontSize: 12 }}>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: 11 }}>Merchandise</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {selectedReturn.refundAllocationSnapshot.merchandiseRefundExact
+                        ? formatExactMoney(selectedReturn.refundAllocationSnapshot.merchandiseRefundExact)
+                        : selectedReturn.merchandiseRefundExact
+                        ? formatExactMoney(selectedReturn.merchandiseRefundExact)
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: 11 }}>
+                      Tax Refund ({selectedReturn.refundAllocationSnapshot.taxRefundPolicy || 'REFUNDABLE'})
+                    </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {selectedReturn.refundAllocationSnapshot.taxRefundExact
+                        ? formatExactMoney(selectedReturn.refundAllocationSnapshot.taxRefundExact)
+                        : selectedReturn.taxRefundExact
+                        ? formatExactMoney(selectedReturn.taxRefundExact)
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: 11 }}>
+                      Duty Refund ({selectedReturn.refundAllocationSnapshot.dutyRefundPolicy || 'NON_REFUNDABLE'})
+                    </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {selectedReturn.refundAllocationSnapshot.dutyRefundExact
+                        ? formatExactMoney(selectedReturn.refundAllocationSnapshot.dutyRefundExact)
+                        : selectedReturn.dutyRefundExact
+                        ? formatExactMoney(selectedReturn.dutyRefundExact)
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: 11 }}>Shipping Refund</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {selectedReturn.refundAllocationSnapshot.shippingRefundExact
+                        ? formatExactMoney(selectedReturn.refundAllocationSnapshot.shippingRefundExact)
+                        : selectedReturn.shippingRefundExact
+                        ? formatExactMoney(selectedReturn.shippingRefundExact)
+                        : '—'}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div style={{ padding: 16, backgroundColor: 'var(--bg-primary)', borderRadius: 10, marginBottom: 20 }}>
               <h3 style={{ color: 'var(--text-primary)', fontSize: 14, marginBottom: 10 }}>

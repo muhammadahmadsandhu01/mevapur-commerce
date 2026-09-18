@@ -1413,37 +1413,91 @@ export default function CheckoutPage() {
                   </span>
                 </div>
 
-                {/* Tax Breakdown */}
-                <div className="flex justify-between text-slate-700">
-                  <span>
-                    Taxes ({quote.taxesAndDuties.taxType}{' '}
-                    {quote.taxesAndDuties.taxRatePercent > 0 ? `${quote.taxesAndDuties.taxRatePercent}%` : ''})
-                  </span>
-                  <span className="font-bold text-slate-900">
-                    {formatExactMoney(quote.totals.taxExact)}
-                  </span>
-                </div>
-
-                {/* Customs Duties Breakdown */}
-                {quote.taxesAndDuties.dutyRatePercent > 0 || quote.totals.duties > 0 ? (
+                {/* Tax Breakdown (Inclusive vs Exclusive Governed Treatment) */}
+                {quote.taxesAndDuties.taxTreatment === 'inclusive' || (quote.taxesAndDuties.taxIncludedAmountExact && quote.taxesAndDuties.taxIncludedAmountExact.amountMinor !== '0') ? (
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between text-slate-700">
+                      <span>
+                        Taxes ({quote.taxesAndDuties.taxType}{' '}
+                        {quote.taxesAndDuties.taxRatePercent > 0 ? `${quote.taxesAndDuties.taxRatePercent}%` : ''} · Included)
+                      </span>
+                      <span className="font-bold text-slate-800">
+                        {formatExactMoney(quote.taxesAndDuties.taxIncludedAmountExact || quote.taxesAndDuties.taxAmountExact || quote.totals.taxExact)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      Included in items subtotal · No extra payable tax charge
+                    </p>
+                  </div>
+                ) : (
                   <div className="flex justify-between text-slate-700">
                     <span>
-                      Import Duties ({quote.taxesAndDuties.dutyRatePercent}% · {quote.taxesAndDuties.incoterm})
+                      Taxes ({quote.taxesAndDuties.taxType}{' '}
+                      {quote.taxesAndDuties.taxRatePercent > 0 ? `${quote.taxesAndDuties.taxRatePercent}%` : ''})
                     </span>
                     <span className="font-bold text-slate-900">
-                      {formatExactMoney(quote.totals.dutiesExact)}
+                      {formatExactMoney(quote.taxesAndDuties.additionalTaxAmountExact || quote.totals.additionalTaxExact || quote.totals.taxExact)}
                     </span>
                   </div>
+                )}
+
+                {/* Customs Duties Breakdown (DDP Prepaid vs DAP Estimated Collection) */}
+                {quote.taxesAndDuties.incoterm === 'DAP' ? (
+                  (quote.taxesAndDuties.dutyRatePercent > 0 || quote.totals.duties > 0 || (quote.taxesAndDuties.estimatedDutyExact && quote.taxesAndDuties.estimatedDutyExact.amountMinor !== '0')) ? (
+                    <div className="p-2 bg-amber-50/80 border border-amber-200 rounded-lg space-y-0.5 text-xs">
+                      <div className="flex justify-between text-amber-950 font-bold">
+                        <span>Estimated Import Duty (DAP)</span>
+                        <span>
+                          {formatExactMoney(quote.taxesAndDuties.estimatedDutyExact || quote.totals.estimatedDutiesExact || quote.totals.dutiesExact)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-amber-800 leading-tight">
+                        Collected upon delivery by carrier · Excluded from checkout total
+                      </p>
+                    </div>
+                  ) : null
+                ) : quote.taxesAndDuties.incoterm === 'DDP' ? (
+                  (quote.taxesAndDuties.dutyRatePercent > 0 || quote.totals.duties > 0 || (quote.taxesAndDuties.payableDutyExact && quote.taxesAndDuties.payableDutyExact.amountMinor !== '0')) ? (
+                    <div className="flex justify-between text-slate-700">
+                      <span>
+                        Customs Duty (DDP · Prepaid {quote.taxesAndDuties.dutyRatePercent > 0 ? `${quote.taxesAndDuties.dutyRatePercent}%` : ''})
+                      </span>
+                      <span className="font-bold text-slate-900">
+                        {formatExactMoney(quote.taxesAndDuties.payableDutyExact || quote.totals.dutiesExact)}
+                      </span>
+                    </div>
+                  ) : null
                 ) : null}
+
+                {/* De-Minimis Exemption Notice */}
+                {quote.taxesAndDuties.dutyDeMinimis?.exempt && (
+                  <div className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                    <CheckCircle2 size={11} /> Duty De-Minimis Exemption Applied
+                  </div>
+                )}
+
+                {quote.taxesAndDuties.taxDeMinimis?.exempt && (
+                  <div className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                    <CheckCircle2 size={11} /> Import Tax De-Minimis Exemption Applied
+                  </div>
+                )}
+
+                {/* Landed Cost Transparency (when different from checkout total, e.g. DAP) */}
+                {quote.totals.landedCostExact && quote.totals.landedCostExact.amountMinor !== quote.totals.grandTotalExact.amountMinor && (
+                  <div className="flex justify-between text-[11px] text-indigo-900 font-semibold bg-indigo-50/70 p-2 rounded-lg border border-indigo-100">
+                    <span>Estimated Total Landed Cost</span>
+                    <span className="font-bold">{formatExactMoney(quote.totals.landedCostExact)}</span>
+                  </div>
+                )}
 
                 {/* Incoterm Notice */}
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 leading-normal">
                   <span className="font-bold text-slate-800">Incoterm {quote.taxesAndDuties.incoterm}: </span>
                   {quote.taxesAndDuties.incoterm === 'DDP'
-                    ? 'All import taxes and customs duties are fully prepaid.'
+                    ? 'All import taxes and customs duties are fully prepaid at checkout. Zero unexpected carrier fees upon delivery.'
                     : quote.taxesAndDuties.incoterm === 'DAP'
-                    ? 'Customs duties and import taxes may be collected upon delivery by courier.'
-                    : 'Standard domestic delivery terms.'}
+                    ? 'Customs duties and import clearance taxes are estimated for transparency and may be collected upon delivery by courier.'
+                    : 'Standard domestic delivery terms apply.'}
                 </div>
 
                 {/* Delivery Promise & Dispatch Timeline */}

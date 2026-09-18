@@ -1,10 +1,35 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Loader2, Clock, Truck, Package, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Play, Loader2, Clock, Truck, Package, AlertCircle, CheckCircle2, Shield, Info, Landmark } from 'lucide-react';
 import { commerceGovernanceService } from '../../services/commerceGovernanceService';
-import type { CommerceConfigurationVersion, QuotePreviewResponse } from '../../types/commerceGovernance';
+import type { CommerceConfigurationVersion, QuotePreviewResponse, MoneyExact, DeMinimisDecision } from '../../types/commerceGovernance';
 import { formatExactMoney, getCurrencyExponent } from '../../lib/exactMoney';
+
+function getDeMinimisBadge(decision: DeMinimisDecision | null | undefined, type: 'duty' | 'tax'): { label: string; className: string } {
+  if (!decision) {
+    return {
+      label: 'Unavailable',
+      className: 'bg-slate-100 text-slate-700 border border-slate-200'
+    };
+  }
+  if (!decision.configured) {
+    return {
+      label: 'Not configured',
+      className: 'bg-slate-100 text-slate-700 border border-slate-200'
+    };
+  }
+  if (decision.exempt) {
+    return {
+      label: 'Exempt',
+      className: 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+    };
+  }
+  return {
+    label: type === 'duty' ? 'Duty applicable' : 'Tax applicable',
+    className: 'bg-amber-50 text-amber-800 border border-amber-200'
+  };
+}
 
 interface QuotePreviewSimulatorProps {
   version: CommerceConfigurationVersion;
@@ -129,15 +154,15 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
     <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-6">
       <div>
         <div className="flex items-center gap-2">
-          <Play size={18} className="text-blue-600" />
+          <Play size={18} className="text-[#ff8a00]" />
           <h3 className="text-base font-bold text-slate-900">Read-Only Quote Simulation (Preview)</h3>
           <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-blue-50 text-blue-800 border border-blue-200">
-            Zero Mutation Guarantee
+            Landed Cost & Customs Simulator
           </span>
         </div>
         <p className="text-xs text-slate-500 mt-1">
-          Simulate landed cost quotes against this specific configuration version ({version.status} v{version.version}).
-          This playground is purely computational and never creates orders, payments, holds, or audit side-effects.
+          Simulate complete landed-cost, rational tax arithmetic, and customs duty quotes against configuration version ({version.status} v{version.version}).
+          This playground is purely computational and creates zero orders, payments, holds, or audit side-effects.
         </p>
       </div>
 
@@ -145,7 +170,7 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div>
             <label htmlFor="sim-destCountry" className="block font-bold text-slate-700 mb-1">
-              Destination Country (ISO-2)
+              Destination Country (ISO-2) <span className="text-rose-600">*</span>
             </label>
             <input
               id="sim-destCountry"
@@ -203,7 +228,7 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
 
           <div>
             <label htmlFor="sim-currency" className="block font-bold text-slate-700 mb-1">
-              Presentment Currency (ISO-3)
+              Presentment Currency (ISO-3) <span className="text-rose-600">*</span>
             </label>
             <input
               id="sim-currency"
@@ -249,7 +274,7 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
 
           <div>
             <label htmlFor="sim-price-minor" className="block font-bold text-slate-700 mb-1">
-              Item Price Minor Units ({currency || '—'})
+              Item Price Minor Units ({currency || '—'}) <span className="text-rose-600">*</span>
             </label>
             <input
               id="sim-price-minor"
@@ -306,6 +331,7 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
         <div className="flex justify-end pt-2">
           <button
             type="submit"
+            onClick={handleSimulate}
             disabled={loading}
             className="px-5 py-2.5 bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-2 disabled:opacity-50"
           >
@@ -326,82 +352,290 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
       )}
 
       {previewResult && (
-        <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4 text-xs">
+        <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-5 text-xs">
+          {/* Header Summary */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-200 flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <CheckCircle2 size={16} className="text-emerald-600" />
-              <span className="font-extrabold text-slate-900">
-                Simulation Result for {previewResult.destinationCountry} ({previewResult.currency})
+              <span className="font-extrabold text-slate-900 text-sm">
+                Authoritative Landed Cost Breakdown — Simulation Result for {previewResult.destinationCountry} ({previewResult.currency})
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded">
+              <span className={`px-2.5 py-1 font-bold rounded-lg text-xs ${
+                previewResult.incoterm === 'DDP'
+                  ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                  : previewResult.incoterm === 'DAP'
+                  ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                  : 'bg-slate-100 text-slate-800'
+              }`}>
                 Incoterm: {previewResult.incoterm}
               </span>
               <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded">
-                Status: {previewResult.previewStatus}
+                Version: {previewResult.previewStatus} v{previewResult.previewVersion}
               </span>
             </div>
           </div>
 
+          {/* Incoterm Explanation Banner */}
+          <div className={`p-3.5 rounded-xl border text-xs ${
+            previewResult.incoterm === 'DDP'
+              ? 'bg-blue-50/70 border-blue-200 text-blue-950'
+              : previewResult.incoterm === 'DAP'
+              ? 'bg-amber-50/70 border-amber-200 text-amber-950'
+              : 'bg-slate-100/70 border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-center gap-2 font-bold mb-1">
+              <Info size={14} className={previewResult.incoterm === 'DDP' ? 'text-blue-700' : 'text-amber-700'} />
+              <span>Incoterm {previewResult.incoterm} Commercial Terms</span>
+            </div>
+            <p className="text-[11px] leading-relaxed">
+              {previewResult.incoterm === 'DDP'
+                ? 'Delivered Duty Paid (DDP): Customs duties and import taxes are calculated and collected directly at checkout. Customer has zero customs fees upon delivery.'
+                : previewResult.incoterm === 'DAP'
+                ? 'Delivered at Place (DAP): Customs duties and import clearance taxes are estimated for transparency, but NOT collected at checkout. Destination customs authorities or couriers collect them upon delivery.'
+                : 'Standard domestic commerce governance terms apply.'}
+            </p>
+          </div>
+
+          {/* Financial Totals Cards */}
           {(() => {
-            let resultExp = 2;
-            try {
-              resultExp = previewResult.totals.grandTotalExact?.exponent ?? (previewResult.currency ? getCurrencyExponent(previewResult.currency) : (currentExponent ?? 2));
-            } catch {
-              resultExp = 2;
-            }
+            const formatField = (
+              exact?: MoneyExact | null,
+              fallbackMajor?: number
+            ) => {
+              if (exact && exact.amountMinor !== undefined && exact.amountMinor !== null) {
+                return formatExactMoney(exact);
+              }
+              if (typeof fallbackMajor === 'number' && Number.isFinite(fallbackMajor)) {
+                let exp = 2;
+                try {
+                  exp = getCurrencyExponent(previewResult.currency);
+                } catch {
+                  exp = 2;
+                }
+                const minorStr = String(Math.round(fallbackMajor * (10 ** exp)));
+                return formatExactMoney({ amountMinor: minorStr, currency: previewResult.currency, exponent: exp });
+              }
+              return '—';
+            };
+
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
-                  <span className="text-slate-500 text-[11px] block">Subtotal</span>
+                  <span className="text-slate-500 text-[11px] block">Items Subtotal</span>
                   <span className="text-sm font-black text-slate-900">
-                    {previewResult.totals.subtotalExact
-                      ? formatExactMoney(previewResult.totals.subtotalExact)
-                      : formatExactMoney({ amountMinor: String(Math.round(previewResult.totals.subtotal * (10 ** resultExp))), currency: previewResult.currency, exponent: resultExp })}
+                    {formatField(previewResult.totals.subtotalExact, previewResult.totals.subtotal)}
                   </span>
                 </div>
 
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
                   <span className="text-slate-500 text-[11px] block">Shipping</span>
                   <span className="text-sm font-black text-slate-900">
-                    {previewResult.totals.shippingExact
-                      ? formatExactMoney(previewResult.totals.shippingExact)
-                      : formatExactMoney({ amountMinor: String(Math.round(previewResult.totals.shipping * (10 ** resultExp))), currency: previewResult.currency, exponent: resultExp })}
+                    {formatField(previewResult.totals.shippingExact, previewResult.totals.shipping)}
                   </span>
                 </div>
 
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
-                  <span className="text-slate-500 text-[11px] block">Taxes ({previewResult.totals.taxType})</span>
-                  <span className="text-sm font-black text-slate-900">
-                    {previewResult.totals.taxExact
-                      ? formatExactMoney(previewResult.totals.taxExact)
-                      : formatExactMoney({ amountMinor: String(Math.round(previewResult.totals.tax * (10 ** resultExp))), currency: previewResult.currency, exponent: resultExp })}
+                  <span className="text-slate-500 text-[11px] block">
+                    Assessed Tax ({previewResult.taxesAndDuties?.taxType || previewResult.totals.taxType})
                   </span>
+                  <span className="text-sm font-black text-slate-900">
+                    {formatField(
+                      previewResult.taxesAndDuties?.taxAmountExact || previewResult.totals.taxExact,
+                      previewResult.taxesAndDuties?.taxAmount ?? previewResult.totals.tax
+                    )}
+                  </span>
+                  {previewResult.taxesAndDuties?.taxIncludedAmountExact && (
+                    <span className="text-[10px] font-semibold text-emerald-700 block mt-0.5">
+                      Included: {formatExactMoney(previewResult.taxesAndDuties.taxIncludedAmountExact)}
+                    </span>
+                  )}
                 </div>
 
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
-                  <span className="text-slate-500 text-[11px] block">Customs Duties</span>
-                  <span className="text-sm font-black text-slate-900">
-                    {previewResult.totals.dutiesExact
-                      ? formatExactMoney(previewResult.totals.dutiesExact)
-                      : formatExactMoney({ amountMinor: String(Math.round(previewResult.totals.duties * (10 ** resultExp))), currency: previewResult.currency, exponent: resultExp })}
+                  <span className="text-slate-500 text-[11px] block">
+                    {previewResult.incoterm === 'DAP' ? 'Estimated Duty (DAP)' : 'Customs Duty (Payable)'}
                   </span>
+                  <span className="text-sm font-black text-slate-900">
+                    {formatField(
+                      previewResult.taxesAndDuties?.payableDutyExact || previewResult.totals.dutiesExact,
+                      previewResult.totals.duties
+                    )}
+                  </span>
+                  {previewResult.incoterm === 'DAP' && (
+                    <span className="text-[10px] font-bold text-amber-700 block mt-0.5">
+                      Not charged now
+                    </span>
+                  )}
                 </div>
 
                 <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
                   <span className="text-[#9a3412] font-bold text-[11px] block">Grand Total</span>
                   <span className="text-base font-black text-[#0b132b]">
-                    {previewResult.totals.grandTotalExact
-                      ? formatExactMoney(previewResult.totals.grandTotalExact)
-                      : formatExactMoney({ amountMinor: String(Math.round(previewResult.totals.grandTotal * (10 ** resultExp))), currency: previewResult.currency, exponent: resultExp })}
+                    {formatField(previewResult.totals.grandTotalExact, previewResult.totals.grandTotal)}
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-600 block mt-0.5">
+                    Payable at checkout
+                  </span>
+                </div>
+
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <span className="text-indigo-900 font-bold text-[11px] block">Total Landed Cost</span>
+                  <span className="text-base font-black text-indigo-950">
+                    Landed: {formatField(
+                      previewResult.totals.landedCostExact || previewResult.totals.grandTotalExact,
+                      previewResult.totals.grandTotal
+                    )}
+                  </span>
+                  <span className="text-[10px] font-semibold text-indigo-700 block mt-0.5">
+                    Goods + Ship + Tax + Duty
                   </span>
                 </div>
               </div>
             );
           })()}
 
-          {/* Delivery Promise & Applied Rules */}
+          {/* De-Minimis Exemption Evaluation (Read-Only) */}
+          {(previewResult.taxesAndDuties?.dutyDeMinimis !== undefined || previewResult.taxesAndDuties?.taxDeMinimis !== undefined) && (
+            <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+              <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                <Shield size={14} className="text-[#ff8a00]" /> De-Minimis Exemption Decisions (Authoritative)
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
+                {/* Customs Duty De-Minimis */}
+                {(() => {
+                  const dutyDecision = previewResult.taxesAndDuties?.dutyDeMinimis;
+                  const badge = getDeMinimisBadge(dutyDecision, 'duty');
+                  return (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                      <div className="flex justify-between items-center font-bold text-slate-900">
+                        <span>Customs Duty De-Minimis</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      {dutyDecision ? (
+                        <>
+                          {dutyDecision.configured && (
+                            <p className="text-slate-600">
+                              Basis: <strong>{dutyDecision.basisType || 'CUSTOMS_VALUE'}</strong> ({
+                                dutyDecision.basisAmountExact
+                                  ? formatExactMoney(dutyDecision.basisAmountExact)
+                                  : '—'
+                              })
+                            </p>
+                          )}
+                          {dutyDecision.thresholdExact && (
+                            <p className="text-slate-600">
+                              Threshold: <strong>{formatExactMoney(dutyDecision.thresholdExact)}</strong> ({
+                                dutyDecision.comparison || 'LTE'
+                              })
+                            </p>
+                          )}
+                          {dutyDecision.reasonCode && (
+                            <p className="text-[10px] font-mono text-slate-500">
+                              Reason: {dutyDecision.reasonCode}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-slate-500 text-[10px]">No duty de-minimis evaluation available</p>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Import Tax De-Minimis */}
+                {(() => {
+                  const taxDecision = previewResult.taxesAndDuties?.taxDeMinimis;
+                  const badge = getDeMinimisBadge(taxDecision, 'tax');
+                  return (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                      <div className="flex justify-between items-center font-bold text-slate-900">
+                        <span>Import Tax De-Minimis</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      {taxDecision ? (
+                        <>
+                          {taxDecision.configured && (
+                            <p className="text-slate-600">
+                              Basis: <strong>{taxDecision.basisType || 'GOODS_VALUE'}</strong> ({
+                                taxDecision.basisAmountExact
+                                  ? formatExactMoney(taxDecision.basisAmountExact)
+                                  : '—'
+                              })
+                            </p>
+                          )}
+                          {taxDecision.thresholdExact && (
+                            <p className="text-slate-600">
+                              Threshold: <strong>{formatExactMoney(taxDecision.thresholdExact)}</strong> ({
+                                taxDecision.comparison || 'LTE'
+                              })
+                            </p>
+                          )}
+                          {taxDecision.reasonCode && (
+                            <p className="text-[10px] font-mono text-slate-500">
+                              Reason: {taxDecision.reasonCode}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-slate-500 text-[10px]">No tax de-minimis evaluation available</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Legal Source Provenance & Refund Governance */}
+          <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+            <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+              <Landmark size={14} className="text-[#ff8a00]" /> Rule Provenance & Refund Policies
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] text-slate-700">
+              <div>
+                <span className="text-slate-500 block">Applied Tax Rule:</span>
+                <span className="font-mono font-bold text-slate-900">{previewResult.appliedRules.taxRuleId || 'None'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Source Reference / Law:</span>
+                <span className="font-semibold text-slate-900">{previewResult.appliedRules.taxSourceReference || 'Statutory Basis'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Legal Verification Status:</span>
+                <span className="font-bold text-emerald-800">{previewResult.appliedRules.taxVerificationStatus}</span>
+              </div>
+              {previewResult.taxesAndDuties?.provenance && (
+                <>
+                  <div>
+                    <span className="text-slate-500 block">Tax Refund Policy:</span>
+                    <span className="font-bold text-slate-900">
+                      {previewResult.taxesAndDuties.provenance.taxRefundPolicy || 'REFUNDABLE'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Duty Refund Policy:</span>
+                    <span className="font-bold text-slate-900">
+                      {previewResult.taxesAndDuties.provenance.dutyRefundPolicy || 'NON_REFUNDABLE'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Valuation Inclusions:</span>
+                    <span className="font-semibold text-slate-800">
+                      Shipping: {previewResult.taxesAndDuties.provenance.customsValueIncludesShipping ? 'Yes' : 'No'} · Insurance: {previewResult.taxesAndDuties.provenance.customsValueIncludesInsurance ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Delivery Promise & Applied Shipping */}
           <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
               <div className="flex items-center gap-2">
@@ -410,13 +644,6 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
                   Applied Shipping Rule:{' '}
                   <strong className="font-mono text-slate-900 font-bold">
                     {previewResult.appliedRules.shippingRuleId || 'None'}
-                  </strong>
-                </span>
-                <span>·</span>
-                <span>
-                  Tax Rule:{' '}
-                  <strong className="font-mono text-slate-900 font-bold">
-                    {previewResult.appliedRules.taxRuleId || 'None'}
                   </strong>
                 </span>
               </div>

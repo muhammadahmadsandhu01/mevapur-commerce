@@ -140,16 +140,90 @@ export interface QuoteSelectedShipping {
   };
 }
 
+export type DeMinimisBasis = 'GOODS_VALUE' | 'CUSTOMS_VALUE' | 'CIF';
+
+export type DeMinimisComparison =
+  | 'LT'
+  | 'LTE'
+  | 'BELOW_OR_EQUAL_DEMINIMIS'
+  | 'ABOVE_DEMINIMIS'
+  | 'NOT_APPLICABLE';
+
+export type DeMinimisReasonCode =
+  | 'DE_MINIMIS_EXEMPT'
+  | 'ABOVE_DE_MINIMIS_THRESHOLD'
+  | 'NO_THRESHOLD_CONFIGURED';
+
+export interface DeMinimisDecision {
+  configured: boolean;
+  thresholdExact?: MoneyExact | null;
+  basisType?: DeMinimisBasis | null;
+  basisAmountExact?: MoneyExact | null;
+  comparison?: DeMinimisComparison | null;
+  exempt: boolean;
+  reasonCode?: DeMinimisReasonCode | null;
+}
+
+export function isDeMinimisBasis(value: unknown): value is DeMinimisBasis {
+  return value === 'GOODS_VALUE' || value === 'CUSTOMS_VALUE' || value === 'CIF';
+}
+
+export interface TaxProvenance {
+  ruleId?: string | null;
+  priority?: number;
+  taxType?: string | null;
+  taxTreatment?: string | null;
+  taxableBasis?: string | null;
+  taxRateNumerator?: number;
+  taxRateDenominator?: number;
+  dutyRateNumerator?: number;
+  dutyRateDenominator?: number;
+  roundingMode?: string;
+  roundingScope?: string;
+  incoterm?: string | null;
+  providerType?: string;
+  sourceAuthority?: string | null;
+  sourceReference?: string | null;
+  verificationStatus?: string;
+  dutyRefundPolicy?: 'REFUNDABLE' | 'NON_REFUNDABLE' | 'MANUAL_REVIEW' | null;
+  taxRefundPolicy?: 'REFUNDABLE' | 'NON_REFUNDABLE' | 'PROPORTIONAL' | 'MANUAL_REVIEW' | null;
+  customsValueIncludesShipping?: boolean;
+  customsValueIncludesInsurance?: boolean;
+  insuranceAmountExact?: MoneyExact | null;
+  insuranceProvenance?: 'NO_INSURANCE_CHARGE' | 'EXPLICIT_INSURANCE_CHARGE' | string | null;
+  calculatedAt?: string | null;
+}
+
 export interface QuoteTaxesAndDuties {
   taxType: string;
+  taxTreatment?: string;
+  taxableBasis?: string;
   taxRatePercent: number;
   taxAmount: number;
   taxAmountExact: MoneyExact;
+  additionalTaxAmount?: number;
+  additionalTaxAmountExact?: MoneyExact;
+  taxIncludedAmount?: number;
+  taxIncludedAmountExact?: MoneyExact;
   dutyRatePercent: number;
   dutyAmount: number;
   dutyAmountExact: MoneyExact;
+  estimatedDutyAmount?: number;
+  estimatedDutyExact?: MoneyExact;
+  payableDutyAmount?: number;
+  payableDutyExact?: MoneyExact;
+  goodsValue?: number;
+  goodsValueExact?: MoneyExact;
+  customsValue?: number;
+  customsValueExact?: MoneyExact;
+  cifValue?: number;
+  cifValueExact?: MoneyExact;
+  customsValueIncludesShipping?: boolean;
+  customsValueIncludesInsurance?: boolean;
+  dutyDeMinimis?: DeMinimisDecision | null;
+  taxDeMinimis?: DeMinimisDecision | null;
   incoterm: 'DOMESTIC' | 'DAP' | 'DDP' | 'CIF' | 'FOB' | 'EXW' | string;
-  provenance: string;
+  provenance?: string | TaxProvenance | null;
 }
 
 export interface QuoteTotals {
@@ -161,8 +235,16 @@ export interface QuoteTotals {
   shippingExact: MoneyExact;
   tax: number;
   taxExact: MoneyExact;
+  additionalTax?: number;
+  additionalTaxExact?: MoneyExact;
+  taxIncluded?: number;
+  taxIncludedExact?: MoneyExact;
   duties: number;
   dutiesExact: MoneyExact;
+  estimatedDuties?: number;
+  estimatedDutiesExact?: MoneyExact;
+  landedCost?: number;
+  landedCostExact?: MoneyExact;
   grandTotal: number;
   grandTotalExact: MoneyExact;
 }
@@ -194,6 +276,7 @@ export interface AuthoritativeQuote {
     country: string;
     phone?: string;
   };
+  destinationPostalFingerprint?: string | null;
   currency: string;
   items: Array<{
     productId: string;

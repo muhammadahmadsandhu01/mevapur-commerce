@@ -13,11 +13,33 @@ export interface AdminActor {
   email?: string;
 }
 
+import type { MoneyExact } from '@/lib/exactMoney';
+
+export interface ReturnAllocationSnapshot {
+  merchandiseRefundExact?: MoneyExact | null;
+  taxRefundExact?: MoneyExact | null;
+  dutyRefundExact?: MoneyExact | null;
+  shippingRefundExact?: MoneyExact | null;
+  totalRefundExact?: MoneyExact | null;
+  taxRefundPolicy?: 'REFUNDABLE' | 'NON_REFUNDABLE' | 'PROPORTIONAL' | 'MANUAL_REVIEW' | string | null;
+  dutyRefundPolicy?: 'REFUNDABLE' | 'NON_REFUNDABLE' | 'MANUAL_REVIEW' | string | null;
+  taxTreatment?: 'INCLUSIVE' | 'EXCLUSIVE' | string | null;
+  incoterm?: 'DDP' | 'DAP' | 'DOMESTIC' | string | null;
+  allocationVersion?: string;
+  calculatedAt?: string;
+}
+
 export interface AdminReturnRecord {
   _id: string;
   returnNumber: string;
   status: ReturnStatus;
   refundAmount?: number;
+  refundAmountExact?: MoneyExact | null;
+  merchandiseRefundExact?: MoneyExact | null;
+  taxRefundExact?: MoneyExact | null;
+  dutyRefundExact?: MoneyExact | null;
+  shippingRefundExact?: MoneyExact | null;
+  refundAllocationSnapshot?: ReturnAllocationSnapshot | null;
   order?: string | { _id?: string; orderId?: string };
   customer?: string | { _id?: string; fullName?: string; email?: string; phone?: string };
   items?: Array<{
@@ -26,6 +48,11 @@ export interface AdminReturnRecord {
     name?: string;
     quantity?: number;
     refundAmount?: number;
+    refundAmountExact?: MoneyExact | null;
+    merchandiseRefundExact?: MoneyExact | null;
+    taxRefundExact?: MoneyExact | null;
+    dutyRefundExact?: MoneyExact | null;
+    includedTaxExact?: MoneyExact | null;
     reason?: string;
     reasonDetails?: string;
   }>;

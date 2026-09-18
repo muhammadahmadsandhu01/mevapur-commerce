@@ -75,6 +75,8 @@ export interface CreatedOrderResult {
   shippingCostExact?: MoneyExact;
   taxAmount?: number;
   taxAmountExact?: MoneyExact;
+  duties?: number;
+  dutiesExact?: MoneyExact;
   discount?: number;
   discountExact?: MoneyExact;
   currency?: string;
@@ -102,6 +104,13 @@ export interface CreatedOrderResult {
     deliveryPromise?: import('../types/commerce.ts').DeliveryPromiseExact;
     shipmentGroups?: import('../types/commerce.ts').QuoteShipmentGroup[];
   };
+  quote?: {
+    quoteId?: string;
+    incoterm?: string;
+    configVersionId?: string;
+    issuedAt?: string;
+  };
+  taxesAndDuties?: import('../types/commerce.ts').QuoteTaxesAndDuties;
   createdAt: string;
 }
 

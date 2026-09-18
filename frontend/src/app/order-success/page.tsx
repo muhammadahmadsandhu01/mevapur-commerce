@@ -388,7 +388,27 @@ function OrderSuccessContent() {
               </div>
             ) : null}
 
-            {order.taxAmountExact ? (
+            {/* Tax Snapshot */}
+            {order.taxesAndDuties ? (
+              order.taxesAndDuties.taxTreatment === 'inclusive' || (order.taxesAndDuties.taxIncludedAmountExact && order.taxesAndDuties.taxIncludedAmountExact.amountMinor !== '0') ? (
+                <div className="space-y-0.5">
+                  <div className="flex justify-between text-slate-700">
+                    <span>Taxes ({order.taxesAndDuties.taxType || 'Tax'} · Included)</span>
+                    <span className="font-semibold text-slate-800">
+                      {formatExactMoney(order.taxesAndDuties.taxIncludedAmountExact || order.taxesAndDuties.taxAmountExact || order.taxAmountExact)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">Included in items subtotal</p>
+                </div>
+              ) : (
+                <div className="flex justify-between text-slate-700">
+                  <span>Taxes ({order.taxesAndDuties.taxType || 'Tax'})</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatExactMoney(order.taxesAndDuties.additionalTaxAmountExact || order.taxesAndDuties.taxAmountExact || order.taxAmountExact)}
+                  </span>
+                </div>
+              )
+            ) : order.taxAmountExact ? (
               <div className="flex justify-between text-slate-700">
                 <span>Tax</span>
                 <span className="font-semibold text-slate-900">{formatExactMoney(order.taxAmountExact)}</span>
@@ -397,6 +417,35 @@ function OrderSuccessContent() {
               <div className="flex justify-between text-slate-700">
                 <span>Tax</span>
                 <span className="font-semibold text-slate-900">{formatMoney(order.taxAmount, currency)}</span>
+              </div>
+            ) : null}
+
+            {/* Customs Duties Snapshot */}
+            {order.taxesAndDuties ? (
+              order.taxesAndDuties.incoterm === 'DAP' ? (
+                order.taxesAndDuties.estimatedDutyExact && order.taxesAndDuties.estimatedDutyExact.amountMinor !== '0' ? (
+                  <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg space-y-0.5 text-xs">
+                    <div className="flex justify-between text-amber-950 font-bold">
+                      <span>Estimated Customs Duty (DAP)</span>
+                      <span>{formatExactMoney(order.taxesAndDuties.estimatedDutyExact)}</span>
+                    </div>
+                    <p className="text-[10px] text-amber-800">
+                      Collected upon delivery by carrier · Excluded from order total
+                    </p>
+                  </div>
+                ) : null
+              ) : (order.taxesAndDuties.payableDutyExact && order.taxesAndDuties.payableDutyExact.amountMinor !== '0') || (order.dutiesExact && order.dutiesExact.amountMinor !== '0') ? (
+                <div className="flex justify-between text-slate-700">
+                  <span>Customs Duty ({order.taxesAndDuties.incoterm || 'DDP'} · Paid)</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatExactMoney(order.taxesAndDuties.payableDutyExact || order.dutiesExact)}
+                  </span>
+                </div>
+              ) : null
+            ) : order.dutiesExact && order.dutiesExact.amountMinor !== '0' ? (
+              <div className="flex justify-between text-slate-700">
+                <span>Customs Duties</span>
+                <span className="font-semibold text-slate-900">{formatExactMoney(order.dutiesExact)}</span>
               </div>
             ) : null}
 
