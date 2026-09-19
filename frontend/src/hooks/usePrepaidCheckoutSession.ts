@@ -21,6 +21,7 @@ import {
   PrepaidCheckoutPollingController,
   type PrepaidCheckoutUiState,
   mapServerStatusToUiState,
+  isTerminalSessionStatus,
 } from '../lib/prepaidCheckoutPolling.ts';
 import { cancelCheckoutSession } from '../lib/checkoutSessionService.ts';
 import {
@@ -248,11 +249,23 @@ export function usePrepaidCheckoutSession(
         setSession(cancelledSession);
         void syncAttemptStore(cancelledSession);
 
-        controllerRef.current?.stop();
-        setIsPolling(false);
-
         const mappedState = mapServerStatusToUiState(cancelledSession.status);
         setUiState(mappedState);
+
+        if (isTerminalSessionStatus(cancelledSession.status)) {
+          controllerRef.current?.stop();
+          setIsPolling(false);
+          if (cancelledSession.status === 'converted' && cancelledSession.convertedOrderDisplayId) {
+            onConvertedRef.current?.(cancelledSession.convertedOrderDisplayId, cancelledSession);
+          } else if (cancelledSession.status !== 'converted') {
+            onTerminalStateRef.current?.(cancelledSession.status, cancelledSession);
+          }
+        } else {
+          // If response is not terminal (e.g. cancellation_requested, payment_captured, converting),
+          // polling must continue so the session can resolve to terminal state.
+          controllerRef.current?.start();
+          setIsPolling(true);
+        }
 
         return true;
       } catch (err: unknown) {

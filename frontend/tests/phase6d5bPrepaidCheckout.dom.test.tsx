@@ -143,6 +143,40 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
     expect(onConfirmed).toHaveBeenCalledTimes(1);
   });
 
+  it('2b. onPaymentSubmitting rejection prevents confirmPayment, resets loading state, and renders sanitized error', async () => {
+    const onSubmitting = vi.fn().mockRejectedValue(new Error('Storage quota exceeded'));
+    const onConfirmed = vi.fn();
+    const onError = vi.fn();
+
+    render(
+      <PrepaidStripePaymentForm
+        sessionId={mockSessionId}
+        onPaymentSubmitting={onSubmitting}
+        onPaymentConfirmed={onConfirmed}
+        onError={onError}
+      />
+    );
+
+    const submitBtn = screen.getByRole('button', { name: /Pay Securely/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(onSubmitting).toHaveBeenCalledTimes(1);
+      // confirmPayment must NEVER be called if pre-submission persistence failed!
+      expect(mockConfirmPayment).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Something went wrong while processing your payment. Please try again.'
+      );
+      // Button must be re-enabled
+      expect(screen.getByRole('button', { name: /Pay Securely/i })).not.toBeDisabled();
+    });
+
+    expect(onConfirmed).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      'Something went wrong while processing your payment. Please try again.'
+    );
+  });
+
   it('3. confirmPayment uses redirect: if_required and exact return URL without leaking secrets', async () => {
     render(
       <PrepaidStripePaymentForm
@@ -530,7 +564,7 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
     });
   });
 
-  it('19. cancel button invokes cancelCheckoutSession and closes modal on success', async () => {
+  it('19. cancel button invokes cancelCheckoutSession and renders cancelled state with working close action', async () => {
     const cancelSpy = vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
       session: { ...mockActiveSession, status: 'cancelled' },
     });
@@ -555,8 +589,14 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
         { reason: 'USER_CANCELLED' },
         expect.any(AbortSignal)
       );
-      expect(onCloseMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('cancelled-state')).toBeInTheDocument();
+      expect(screen.getByText(/Payment Cancelled/i)).toBeInTheDocument();
     });
+
+    // Close button in cancelled state closes modal explicitly
+    const closeBtn = screen.getByRole('button', { name: /^Close$/i });
+    fireEvent.click(closeBtn);
+    expect(onCloseMock).toHaveBeenCalledTimes(1);
   });
 
   it('20. duplicate cancel calls are blocked while cancellation is in-flight', async () => {
@@ -720,6 +760,150 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
     });
   });
 
+  it('22e1. cancel response with cancellation_requested keeps modal open in processing cancellation state', async () => {
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: { ...mockActiveSession, status: 'cancellation_requested' },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('awaiting-capture-state')).toBeInTheDocument();
+      expect(screen.getByText(/Processing Cancellation/i)).toBeInTheDocument();
+    });
+  });
+
+  it('22e2. cancel response with converting keeps modal open in converting order state', async () => {
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: { ...mockActiveSession, status: 'converting' },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('converting-order-state')).toBeInTheDocument();
+    });
+  });
+
+  it('22e3. cancel response with converted keeps modal open, renders converted state, and triggers onConverted', async () => {
+    const onConvertedMock = vi.fn();
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: {
+        ...mockActiveSession,
+        status: 'converted',
+        convertedOrderDisplayId: 'ORD-CANCEL-RACE-WIN-100',
+      },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={onConvertedMock}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('converted-state')).toBeInTheDocument();
+      expect(screen.getByText(/ORD-CANCEL-RACE-WIN-100/i)).toBeInTheDocument();
+    });
+    expect(onConvertedMock).toHaveBeenCalledWith('ORD-CANCEL-RACE-WIN-100');
+  });
+
+  it('22e4. cancel response with conflict keeps modal open in conflict state', async () => {
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: { ...mockActiveSession, status: 'conflict' },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conflict-state')).toBeInTheDocument();
+    });
+  });
+
+  it('22e5. cancel response with failed keeps modal open in failed state', async () => {
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: { ...mockActiveSession, status: 'failed' },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('failed-state')).toBeInTheDocument();
+    });
+  });
+
+  it('22f. renders verification conflict state on persistent 409 error', async () => {
+    const err = new Error('Conflict');
+    (err as unknown as { status: number }).status = 409;
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockRejectedValue(err);
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('verification-conflict-state')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Verification Conflict/i })).toBeInTheDocument();
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // 3. scrubStripeUrlParams Utility Tests
   // ---------------------------------------------------------------------------
@@ -785,5 +969,46 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
     );
 
     expect(() => unmount()).not.toThrow();
+  });
+
+  it('27. session replacement lifecycle: changing sessionId disposes controller A and prevents cross-session pollution', async () => {
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockImplementation(async (sId: string) => {
+      return {
+        session: {
+          ...mockActiveSession,
+          sessionId: sId,
+          status: 'active',
+        },
+      };
+    });
+
+    const { rerender } = render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId="cs_session_A_123456"
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/cs_session_A_123/i)).toBeInTheDocument();
+    });
+
+    // Rerender with session B
+    rerender(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId="cs_session_B_654321"
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/cs_session_B_654/i)).toBeInTheDocument();
+    });
   });
 });

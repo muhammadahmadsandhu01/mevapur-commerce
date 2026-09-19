@@ -510,8 +510,9 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
   });
 
   // 15c. Safe error classification: HTTP 409 Conflict with strict loop guard
-  test('15c. HTTP 409 Conflict performs one immediate refetch and stops if persistent', { concurrency: false }, async () => {
+  test('15c. HTTP 409 Conflict performs one immediate refetch and stops if persistent without declaring terminal conflict', { concurrency: false }, async () => {
     let callCount = 0;
+    let terminalCallbackCalled = false;
     api.get = (async () => {
       callCount++;
       const err = new Error('Conflict');
@@ -527,15 +528,53 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
         currentState = state;
       },
       onConverted: () => {},
+      onTerminalState: () => {
+        terminalCallbackCalled = true;
+      },
     });
 
     controller.start();
     await new Promise((resolve) => setTimeout(resolve, 80));
 
-    // Refetches once immediately on 409, then stops when persistent
+    // Refetches once immediately on 409, then stops when persistent with distinct verification_conflict state
     assert.equal(callCount, 2);
-    assert.equal(currentState, 'conflict');
+    assert.equal(currentState, 'verification_conflict');
+    assert.equal(terminalCallbackCalled, false, 'HTTP 409 must NOT invoke onTerminalState(conflict)');
     assert.equal(controller.getIsRunning(), false, 'Persistent 409 must stop polling');
+  });
+
+  // 15c2. Safe error classification: HTTP 409 refetch success resets 409 refetch guard
+  test('15c2. HTTP 409 refetch success resets 409 refetch guard and transitions to server status', { concurrency: false }, async () => {
+    let callCount = 0;
+    api.get = (async () => {
+      callCount++;
+      if (callCount === 1) {
+        const err = new Error('Conflict');
+        (err as unknown as { response: { status: number } }).response = { status: 409 };
+        throw err;
+      }
+      return {
+        status: 200,
+        data: { success: true, data: { session: mockActiveSession } },
+      };
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    controller.stop();
+
+    assert.equal(callCount, 2);
+    assert.equal(currentState, 'payment_action_required');
   });
 
   // 15d. Safe error classification: Malformed response / CHECKOUT_SESSION_RESPONSE_INVALID
@@ -690,7 +729,7 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
   });
 
   // 15h. Past lease expiration with repeated authoritative responses remains interval bounded (no tight loop)
-  test('15h. Past lease timestamp with repeated active responses preserves normal poll interval without tight-looping', { concurrency: false }, async () => {
+  test('15h. Past lease timestamp with repeated active responses preserves normal 1500ms poll interval without tight-looping', { concurrency: false }, async () => {
     let getCallCount = 0;
     api.get = (async () => {
       getCallCount++;
@@ -701,24 +740,36 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
     }) as unknown as typeof api.get;
 
     const pastTimestamp = new Date(Date.now() - 5000).toISOString();
+    let recordedUiState: PrepaidCheckoutUiState = 'idle';
     const controller = new PrepaidCheckoutPollingController({
       sessionId: 'cs_test_poll_123',
       leaseExpiresAt: pastTimestamp,
       jitterProvider: () => 0,
-      onStateChange: () => {},
+      onStateChange: (state) => {
+        recordedUiState = state;
+      },
       onConverted: () => {},
     });
 
     controller.setVisibility(true);
     controller.start();
 
-    // After 80ms, exactly 1 initial poll
+    // After 80ms, exactly 1 initial poll executed
     await new Promise((resolve) => setTimeout(resolve, 80));
     assert.equal(getCallCount, 1);
+    assert.equal(recordedUiState, 'payment_action_required'); // Follows server active status, NEVER local expired!
 
-    // After 500ms (well under the 1500ms interval), no additional polls have fired (no tight loop!)
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(getCallCount, 1, 'Must not tight loop when leaseExpiresAt is in past');
+    // After 500ms (well under 1500ms interval), no extra poll
+    await new Promise((resolve) => setTimeout(resolve, 420));
+    assert.equal(getCallCount, 1, 'Must not tight loop or immediately recurse when leaseExpiresAt is in past');
+
+    // After reaching 1650ms total (1 full interval + margin), exactly second poll executes
+    await new Promise((resolve) => setTimeout(resolve, 1150));
+    assert.equal(getCallCount, 2, 'Exactly one next poll occurs after interval boundary');
+
+    // After reaching 3250ms total (2 full intervals), exactly third poll executes
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    assert.equal(getCallCount, 3, 'Repeated active responses remain bounded by 1500ms interval');
 
     controller.stop();
   });
@@ -823,6 +874,118 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
     await controller.manualCheck();
     assert.equal(pollCount, 2);
     assert.ok(currentState);
+  });
+
+  // 19b. manualCheck behavioral proof after pause / stop
+  test('19b. manualCheck is strictly one-shot: does not restart automatic loop, dispatches 1 GET, handles terminal results idempotently', { concurrency: false }, async () => {
+    let getCallCount = 0;
+    let convertedCallbackCount = 0;
+    let terminalCallbackCount = 0;
+
+    api.get = (async () => {
+      getCallCount++;
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: {
+            session: {
+              ...mockActiveSession,
+              status: 'active',
+            },
+          },
+        },
+      };
+    }) as unknown as typeof api.get;
+
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: () => {},
+      onConverted: () => {
+        convertedCallbackCount++;
+      },
+      onTerminalState: () => {
+        terminalCallbackCount++;
+      },
+    });
+
+    // Start then stop controller (simulating timeout or user pause)
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(getCallCount, 1);
+    controller.stop();
+    assert.equal(controller.getIsRunning(), false);
+
+    // 1. manualCheck dispatches exactly 1 GET
+    const resultSession = await controller.manualCheck();
+    assert.equal(getCallCount, 2);
+    assert.equal(resultSession?.status, 'active');
+
+    // 2. Active response from manualCheck must NOT restart automatic polling loop
+    assert.equal(controller.getIsRunning(), false);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    assert.equal(getCallCount, 2, 'No automatic poll should occur after manualCheck when controller was stopped');
+
+    // 3. Transient failure in manualCheck does not restart automatic backoff loop
+    api.get = (async () => {
+      getCallCount++;
+      const err = new Error('504 Gateway Timeout');
+      (err as unknown as { response: { status: number } }).response = { status: 504 };
+      throw err;
+    }) as unknown as typeof api.get;
+
+    await controller.manualCheck();
+    assert.equal(getCallCount, 3);
+    assert.equal(controller.getIsRunning(), false);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    assert.equal(getCallCount, 3, 'Transient failure in manualCheck must not start automatic backoff loop');
+
+    // 4. Converted session via manualCheck fires onConverted exactly once
+    api.get = (async () => {
+      getCallCount++;
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: {
+            session: {
+              ...mockActiveSession,
+              status: 'converted',
+              convertedOrderDisplayId: 'ORD-MANUAL-101',
+            },
+          },
+        },
+      };
+    }) as unknown as typeof api.get;
+
+    await controller.manualCheck();
+    assert.equal(convertedCallbackCount, 1);
+    assert.equal(controller.getIsRunning(), false);
+
+    // Repeated manual check on converted does not fire onConverted again
+    await controller.manualCheck();
+    assert.equal(convertedCallbackCount, 1, 'onConverted remains idempotent across manual checks');
+
+    // 5. Terminal non-converted session fires onTerminalState
+    api.get = (async () => {
+      getCallCount++;
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: {
+            session: {
+              ...mockActiveSession,
+              status: 'failed',
+            },
+          },
+        },
+      };
+    }) as unknown as typeof api.get;
+
+    await controller.manualCheck();
+    assert.equal(terminalCallbackCount, 1, 'onTerminalState fires on terminal status');
   });
 
   // 20. hasSubmittedPayment update dynamically changes active mapping

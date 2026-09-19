@@ -32,6 +32,7 @@ export type PrepaidCheckoutUiState =
   | 'expired'
   | 'failed'
   | 'conflict'
+  | 'verification_conflict'
   | 'network_recovering'
   | 'polling_paused'
   | 'converted'
@@ -213,6 +214,7 @@ export class PrepaidCheckoutPollingController {
 
   public stop(): void {
     this.isRunning = false;
+    this.currentRequestId++; // Invalidate any in-flight request completion
     this.clearTimer('pollTimer');
     this.clearTimer('hardStopTimer');
     if (this.inFlightAbortController) {
@@ -398,9 +400,9 @@ export class PrepaidCheckoutPollingController {
           this.is409Refetching = true;
           return await this.executePollRequest();
         }
-        // Persistent 409 conflict
+        // Persistent 409 conflict: Distinct non-authoritative verification conflict error (not authoritative conflict)
         this.stop();
-        this.updateState('conflict', this.latestSession);
+        this.updateState('verification_conflict', this.latestSession);
         return null;
       }
 

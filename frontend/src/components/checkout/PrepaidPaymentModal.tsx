@@ -119,7 +119,8 @@ export default function PrepaidPaymentModal({
   const isHoldInFlight =
     uiState === 'confirming_payment' ||
     uiState === 'awaiting_authoritative_capture' ||
-    uiState === 'converting_order';
+    uiState === 'converting_order' ||
+    uiState === 'cancellation_requested';
 
   useDialogFocusTrap({
     isOpen,
@@ -144,10 +145,7 @@ export default function PrepaidPaymentModal({
     : `${currency} --`;
 
   async function handleCancel() {
-    const ok = await cancelSession('USER_CANCELLED');
-    if (ok) {
-      onClose();
-    }
+    await cancelSession('USER_CANCELLED');
   }
 
   return (
@@ -257,14 +255,19 @@ export default function PrepaidPaymentModal({
           {/* STATE 2: Awaiting Capture / Verifying Status (Reload or Post-Submission) */}
           {(uiState === 'awaiting_authoritative_capture' ||
             uiState === 'confirming_payment' ||
+            uiState === 'cancellation_requested' ||
             (uiState === 'payment_action_required' && !clientSecret)) && (
             <div className="flex flex-col items-center justify-center py-8 text-center" data-testid="awaiting-capture-state">
               <Loader2 className="animate-spin text-[#ff8a00]" size={36} />
               <h3 className="mt-4 font-semibold text-gray-900">
-                Verifying Payment Status
+                {uiState === 'cancellation_requested'
+                  ? 'Processing Cancellation'
+                  : 'Verifying Payment Status'}
               </h3>
               <p className="mt-1 max-w-sm text-sm text-gray-500">
-                Securing your reserved inventory and confirming payment capture with the payment network…
+                {uiState === 'cancellation_requested'
+                  ? 'Confirming with payment provider before concluding session…'
+                  : 'Securing your reserved inventory and confirming payment capture with the payment network…'}
               </p>
             </div>
           )}
@@ -382,6 +385,28 @@ export default function PrepaidPaymentModal({
                 className="mt-5 rounded-xl border border-gray-300 px-6 py-2.5 font-semibold text-gray-700 hover:bg-gray-100"
               >
                 Close
+              </button>
+            </div>
+          )}
+
+          {/* STATE 8b: Verification Conflict (Persistent HTTP 409) */}
+          {uiState === 'verification_conflict' && (
+            <div className="flex flex-col items-center justify-center py-6 text-center" data-testid="verification-conflict-state">
+              <AlertCircle className="text-amber-600" size={36} />
+              <h3 className="mt-3 text-lg font-bold text-gray-900">
+                Verification Conflict
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                A temporary synchronization conflict occurred while verifying your session. Items remain safely in your cart.
+              </p>
+              <button
+                type="button"
+                onClick={() => void manualRefresh()}
+                disabled={isPolling}
+                className="mt-4 flex items-center gap-2 rounded-xl bg-[#0b132b] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1c2a4a] disabled:opacity-50"
+              >
+                {isPolling ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                Check Status Now
               </button>
             </div>
           )}
