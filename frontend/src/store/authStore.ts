@@ -8,7 +8,8 @@ import {
   refreshAuthentication,
   setInvalidationHandler,
   type AuthPayload,
-} from '@/lib/authSession';
+} from '../lib/authSession.ts';
+import { clearAllCheckoutAttempts } from '../lib/checkoutAttemptStore.ts';
 
 export interface User {
   id: string;
@@ -252,6 +253,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    clearAllCheckoutAttempts();
     const request = logoutAuthentication();
     set({
       user: null,
@@ -269,6 +271,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 }));
 
 setInvalidationHandler(() => {
+  clearAllCheckoutAttempts();
   useAuthStore.setState({
     user: null,
     token: null,

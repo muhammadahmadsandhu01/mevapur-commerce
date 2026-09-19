@@ -321,3 +321,111 @@ export interface CheckoutQuoteResponse {
     requestId?: string;
   };
 }
+
+export type CheckoutSessionStatus =
+  | 'active'
+  | 'payment_pending'
+  | 'payment_captured'
+  | 'converting'
+  | 'converted'
+  | 'cancellation_requested'
+  | 'cancelled'
+  | 'expired'
+  | 'failed'
+  | 'conflict';
+
+export interface CheckoutSessionMoney {
+  amountMinor: string;
+  currency: string;
+  exponent: number;
+  registrySnapshot: string;
+}
+
+export interface CheckoutSessionAmounts {
+  subtotalExact: CheckoutSessionMoney;
+  discountExact: CheckoutSessionMoney;
+  shippingCostExact: CheckoutSessionMoney;
+  taxAmountExact: CheckoutSessionMoney;
+  additionalTaxAmountExact: CheckoutSessionMoney;
+  taxIncludedAmountExact: CheckoutSessionMoney;
+  dutiesExact: CheckoutSessionMoney;
+  totalAmountExact: CheckoutSessionMoney;
+}
+
+export interface PublicCheckoutSession {
+  sessionId: string;
+  status: CheckoutSessionStatus;
+  leaseExpiresAt: string;
+  amounts: CheckoutSessionAmounts;
+  currency: string;
+  destinationCountry: string;
+  convertedOrderDisplayId?: string | null;
+}
+
+export interface PaymentAttempt {
+  provider: string;
+  clientSecret?: string;
+  status: string;
+}
+
+export interface CreateCheckoutSessionRequest {
+  quoteToken: string;
+  paymentMethod: string;
+  customerEmail: string;
+  shippingAddress: QuoteAddressInput;
+  customerNote?: string;
+}
+
+export interface CreateCheckoutSessionResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    session: PublicCheckoutSession;
+    paymentAttempt?: PaymentAttempt;
+    idempotentReplay?: boolean;
+  };
+  meta?: {
+    requestId?: string;
+  };
+}
+
+export interface GetCheckoutSessionResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    session: PublicCheckoutSession;
+    paymentAttempt?: PaymentAttempt;
+  };
+  meta?: {
+    requestId?: string;
+  };
+}
+
+export interface CancelCheckoutSessionRequest {
+  reason?: string;
+}
+
+export interface CancelCheckoutSessionResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    session: PublicCheckoutSession;
+  };
+  meta?: {
+    requestId?: string;
+  };
+}
+
+export interface CheckoutAttemptRecord {
+  schemaVersion: 1;
+  baseFingerprint: string;
+  generation: number;
+  idempotencyKey: string;
+  sessionId?: string;
+  leaseExpiresAt?: string;
+  status: 'creating' | CheckoutSessionStatus;
+  paymentSubmittedAt?: string | null;
+  createdAt: number;
+  updatedAt: number;
+  recoveryExpiresAt: number;
+}
