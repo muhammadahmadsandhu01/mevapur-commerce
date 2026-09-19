@@ -43,6 +43,8 @@ import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 import Toast from '@/components/Toast';
 import { paymentService, type AvailablePaymentMethod } from '@/services/payment.service';
 import type { AuthoritativeQuote, MarketConfigResponse } from '@/types/commerce';
+import { useTwoPhasePrepaidCheckout } from '@/hooks/useTwoPhasePrepaidCheckout';
+import PrepaidPaymentModal from '@/components/checkout/PrepaidPaymentModal';
 
 interface FormState {
   fullName: string;
@@ -348,6 +350,21 @@ export default function CheckoutPage() {
     ]
   );
 
+  // Step 2b: Two-Phase Prepaid Checkout Coordinator (International / Card Payments)
+  const {
+    isSubmitting: isPrepaidSubmitting,
+    initiatePrepaidCheckout,
+    modalProps,
+  } = useTwoPhasePrepaidCheckout({
+    user,
+    isAuthenticated,
+    isInitialized,
+    clearCart,
+    router,
+    onQuoteRefreshRequired: requestAuthoritativeQuote,
+    setToast,
+  });
+
   // Debounced quote updates when address / items / coupon change
   useEffect(() => {
     const controller = new AbortController();
@@ -619,10 +636,6 @@ export default function CheckoutPage() {
       return;
     }
 
-    try {
-      submittingRef.current = true;
-      setLoading(true);
-
       const effectiveFullName = formData.fullName.trim() || user?.fullName || '';
       const resolvedAddressData: ShippingAddressInput = {
         ...formData,
@@ -631,14 +644,33 @@ export default function CheckoutPage() {
         countryCode: activeCountryCode,
       };
 
-      // Retrieve or derive stable CheckoutAttempt idempotency key
-      const attempt = getOrCreateCheckoutAttempt(
-        availableItems,
-        resolvedAddressData,
-        paymentMethod,
-        shippingServiceLevel,
-        appliedCoupon?.code
-      );
+      // Two-Phase Prepaid Checkout Branch (for International and Card/Stripe Orders)
+      if (paymentMethod !== 'cod') {
+        await initiatePrepaidCheckout({
+          availableItems,
+          resolvedAddressData,
+          paymentMethod,
+          shippingServiceLevel,
+          appliedCoupon,
+          quote,
+          customerNote: formData.customerNote,
+        });
+        return;
+      }
+
+      // Pakistan Cash on Delivery (COD) Branch - Preserved Exactly
+      try {
+        submittingRef.current = true;
+        setLoading(true);
+
+        // Retrieve or derive stable CheckoutAttempt idempotency key
+        const attempt = getOrCreateCheckoutAttempt(
+          availableItems,
+          resolvedAddressData,
+          paymentMethod,
+          shippingServiceLevel,
+          appliedCoupon?.code
+        );
 
       const payload = serializeCheckoutPayload(
         availableItems,
@@ -1252,6 +1284,7 @@ export default function CheckoutPage() {
               type="submit"
               disabled={
                 loading ||
+                isPrepaidSubmitting ||
                 quoteLoading ||
                 quoteStatus !== 'valid' ||
                 availableItems.length === 0 ||
@@ -1263,7 +1296,7 @@ export default function CheckoutPage() {
               }
               className="w-full flex min-h-[50px] items-center justify-center gap-2 rounded-xl bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-black text-base shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              {loading ? (
+              {loading || isPrepaidSubmitting ? (
                 <>
                   <Loader2 size={18} className="animate-spin" /> Authorizing Order...
                 </>
@@ -1589,6 +1622,7 @@ export default function CheckoutPage() {
         </aside>
       </div>
 
+      {modalProps.isOpen && <PrepaidPaymentModal {...modalProps} />}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

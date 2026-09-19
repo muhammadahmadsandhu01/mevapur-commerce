@@ -254,11 +254,12 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
 
     const controller = new AbortController();
     const request: CreateCheckoutSessionRequest = {
+      items: [{ productId: '60d5ecb8b5c9c614b8e8b111', quantity: 1 }],
       quoteToken: 'eyJhbGciOi...',
       paymentMethod: 'stripe_card',
-      customerEmail: 'customer@example.com',
       shippingAddress: {
         fullName: 'John Doe',
+        phone: '+1234567890',
         address: '123 Main St',
         city: 'New York',
         province: 'NY',

@@ -368,11 +368,33 @@ export interface PaymentAttempt {
   status: string;
 }
 
+export interface CreateCheckoutSessionItem {
+  productId: string;
+  variantId?: string | null;
+  quantity: number;
+}
+
+export interface CreateCheckoutSessionAddress {
+  fullName: string;
+  phone: string;
+  address: string;
+  addressLine2?: string;
+  city: string;
+  province?: string;
+  postalCode?: string;
+  country?: string;
+  countryCode?: string;
+}
+
 export interface CreateCheckoutSessionRequest {
-  quoteToken: string;
+  items: CreateCheckoutSessionItem[];
+  shippingAddress: CreateCheckoutSessionAddress;
   paymentMethod: string;
-  customerEmail: string;
-  shippingAddress: QuoteAddressInput;
+  quoteToken: string;
+  currency?: string;
+  couponCode?: string;
+  shippingServiceLevel?: string;
+  shippingAdapter?: string;
   customerNote?: string;
 }
 
