@@ -631,6 +631,95 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('22b. renders authentication required state when server returns 401', async () => {
+    const err = new Error('Unauthorized');
+    (err as unknown as { status: number }).status = 401;
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockRejectedValue(err);
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authentication-required-state')).toBeInTheDocument();
+      expect(screen.getByText(/Authentication Required/i)).toBeInTheDocument();
+    });
+  });
+
+  it('22c. renders session not found state when server returns 404', async () => {
+    const err = new Error('Session not found');
+    (err as unknown as { status: number; code: string }).status = 404;
+    (err as unknown as { status: number; code: string }).code = 'SESSION_NOT_FOUND';
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockRejectedValue(err);
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-not-found-state')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Session Not Found/i })).toBeInTheDocument();
+    });
+  });
+
+  it('22d. renders verification error state on malformed server response', async () => {
+    const err = new checkoutSessionService.CheckoutSessionResponseInvalidError(
+      'Malformed money field',
+      'amounts.totalAmountExact'
+    );
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockRejectedValue(err);
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('invalid-response-state')).toBeInTheDocument();
+      expect(screen.getByText(/Verification Error/i)).toBeInTheDocument();
+    });
+  });
+
+  it('22e. respects payment_captured server status if capture won the race during cancellation', async () => {
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: { ...mockActiveSession, status: 'payment_captured' },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('converting-order-state')).toBeInTheDocument();
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // 3. scrubStripeUrlParams Utility Tests
   // ---------------------------------------------------------------------------

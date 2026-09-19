@@ -446,12 +446,166 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
     assert.equal(currentState, 'network_recovering', 'Unreachable server at lease expiry must not assume expired state');
   });
 
-  // 15. Safe error handling (401, 404, 500)
-  test('15. error responses trigger onError callback and transition to network_recovering', { concurrency: false }, async () => {
+  // 15. Safe error classification: HTTP 401
+  test('15. HTTP 401 unauthorized stops automatic polling and transitions to authentication_required', { concurrency: false }, async () => {
     let capturedError: Error | null = null;
     api.get = (async () => {
-      const err = new Error('Request failed with status code 404');
-      (err as unknown as { response: { status: number } }).response = { status: 404 };
+      const err = new Error('Unauthorized');
+      (err as unknown as { response: { status: number } }).response = { status: 401 };
+      throw err;
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+      onError: (err) => {
+        capturedError = err;
+      },
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(capturedError);
+    assert.equal(currentState, 'authentication_required');
+    assert.equal(controller.getIsRunning(), false, 'HTTP 401 must stop polling');
+  });
+
+  // 15b. Safe error classification: HTTP 404 SESSION_NOT_FOUND
+  test('15b. HTTP 404 SESSION_NOT_FOUND stops automatic polling and transitions to session_not_found', { concurrency: false }, async () => {
+    let capturedError: Error | null = null;
+    api.get = (async () => {
+      const err = new Error('Session not found');
+      (err as unknown as { response: { status: number; data: { code: string } } }).response = {
+        status: 404,
+        data: { code: 'SESSION_NOT_FOUND' },
+      };
+      throw err;
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+      onError: (err) => {
+        capturedError = err;
+      },
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(capturedError);
+    assert.equal(currentState, 'session_not_found');
+    assert.equal(controller.getIsRunning(), false, 'HTTP 404 must stop polling');
+  });
+
+  // 15c. Safe error classification: HTTP 409 Conflict with strict loop guard
+  test('15c. HTTP 409 Conflict performs one immediate refetch and stops if persistent', { concurrency: false }, async () => {
+    let callCount = 0;
+    api.get = (async () => {
+      callCount++;
+      const err = new Error('Conflict');
+      (err as unknown as { response: { status: number } }).response = { status: 409 };
+      throw err;
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    // Refetches once immediately on 409, then stops when persistent
+    assert.equal(callCount, 2);
+    assert.equal(currentState, 'conflict');
+    assert.equal(controller.getIsRunning(), false, 'Persistent 409 must stop polling');
+  });
+
+  // 15d. Safe error classification: Malformed response / CHECKOUT_SESSION_RESPONSE_INVALID
+  test('15d. Malformed response stops automatic polling and transitions to invalid_response', { concurrency: false }, async () => {
+    let capturedError: Error | null = null;
+    api.get = (async () => {
+      // Missing required session fields
+      return {
+        status: 200,
+        data: { success: true, data: { session: { invalid: true } } },
+      };
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+      onError: (err) => {
+        capturedError = err;
+      },
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(capturedError);
+    assert.equal(currentState, 'invalid_response');
+    assert.equal(controller.getIsRunning(), false, 'Malformed response must stop polling');
+  });
+
+  // 15e. Safe error classification: Other non-transient 4xx
+  test('15e. Other non-transient 4xx stops automatic polling and transitions to failed', { concurrency: false }, async () => {
+    let capturedError: Error | null = null;
+    api.get = (async () => {
+      const err = new Error('Bad Request');
+      (err as unknown as { response: { status: number } }).response = { status: 400 };
+      throw err;
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+      onError: (err) => {
+        capturedError = err;
+      },
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(capturedError);
+    assert.equal(currentState, 'failed');
+    assert.equal(controller.getIsRunning(), false);
+  });
+
+  // 15f. Safe error classification: 5xx server errors retry with bounded backoff
+  test('15f. 5xx server errors transition to network_recovering and remain active for backoff retry', { concurrency: false }, async () => {
+    let capturedError: Error | null = null;
+    api.get = (async () => {
+      const err = new Error('Server Error');
+      (err as unknown as { response: { status: number } }).response = { status: 503 };
       throw err;
     }) as unknown as typeof api.get;
 
@@ -474,6 +628,99 @@ describe('Phase 6D-5B: Prepaid Checkout Polling & Orchestration Pure Controller'
 
     assert.ok(capturedError);
     assert.equal(currentState, 'network_recovering');
+  });
+
+  // 15g. Monotonic request token prevents stale promise completion
+  test('15g. Stale aborted request resolving late cannot overwrite newer response state', { concurrency: false }, async () => {
+    let resolveFirst: (val: unknown) => void;
+    let callIndex = 0;
+
+    api.get = (async () => {
+      callIndex++;
+      if (callIndex === 1) {
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      // Second request resolves immediately with converted status
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: {
+            session: {
+              ...mockActiveSession,
+              status: 'converted',
+              convertedOrderDisplayId: 'ORD-FRESH-123',
+            },
+          },
+        },
+      };
+    }) as unknown as typeof api.get;
+
+    let currentState: PrepaidCheckoutUiState = 'idle';
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      jitterProvider: () => 0,
+      onStateChange: (state) => {
+        currentState = state;
+      },
+      onConverted: () => {},
+    });
+
+    controller.start();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Trigger manual check while first is still pending
+    void controller.manualCheck();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.equal(currentState, 'converted');
+
+    // Late resolution of first request with stale active status
+    resolveFirst!({
+      status: 200,
+      data: { success: true, data: { session: mockActiveSession } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // State MUST NOT regress back to active / payment_action_required!
+    assert.equal(currentState, 'converted', 'Stale response must be discarded by monotonic request token');
+    controller.stop();
+  });
+
+  // 15h. Past lease expiration with repeated authoritative responses remains interval bounded (no tight loop)
+  test('15h. Past lease timestamp with repeated active responses preserves normal poll interval without tight-looping', { concurrency: false }, async () => {
+    let getCallCount = 0;
+    api.get = (async () => {
+      getCallCount++;
+      return {
+        status: 200,
+        data: { success: true, data: { session: mockActiveSession } },
+      };
+    }) as unknown as typeof api.get;
+
+    const pastTimestamp = new Date(Date.now() - 5000).toISOString();
+    const controller = new PrepaidCheckoutPollingController({
+      sessionId: 'cs_test_poll_123',
+      leaseExpiresAt: pastTimestamp,
+      jitterProvider: () => 0,
+      onStateChange: () => {},
+      onConverted: () => {},
+    });
+
+    controller.setVisibility(true);
+    controller.start();
+
+    // After 80ms, exactly 1 initial poll
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(getCallCount, 1);
+
+    // After 500ms (well under the 1500ms interval), no additional polls have fired (no tight loop!)
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(getCallCount, 1, 'Must not tight loop when leaseExpiresAt is in past');
+
+    controller.stop();
   });
 
   // 16. Stripe URL parameter scrubbing

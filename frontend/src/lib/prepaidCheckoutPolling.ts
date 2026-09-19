@@ -34,7 +34,10 @@ export type PrepaidCheckoutUiState =
   | 'conflict'
   | 'network_recovering'
   | 'polling_paused'
-  | 'converted';
+  | 'converted'
+  | 'authentication_required'
+  | 'session_not_found'
+  | 'invalid_response';
 
 export interface PollingControllerOptions {
   sessionId: string;
@@ -146,6 +149,8 @@ export class PrepaidCheckoutPollingController {
   private terminalDispatched = false;
   private latestSession: PublicCheckoutSession | null = null;
   private latestUiState: PrepaidCheckoutUiState = 'idle';
+  private currentRequestId = 0;
+  private is409Refetching = false;
 
   constructor(options: PollingControllerOptions) {
     this.sessionId = options.sessionId;
@@ -302,13 +307,21 @@ export class PrepaidCheckoutPollingController {
       return null;
     }
 
+    const requestId = ++this.currentRequestId;
     const controller = new AbortController();
     this.inFlightAbortController = controller;
 
     try {
       const response = await getCheckoutSession(this.sessionId, controller.signal);
+
+      // If controller stopped or newer request was issued, discard stale response
+      if (this.currentRequestId !== requestId) {
+        return null;
+      }
+
       this.inFlightAbortController = null;
       this.consecutiveErrors = 0;
+      this.is409Refetching = false;
 
       const session = response.session;
       this.latestSession = session;
@@ -332,30 +345,82 @@ export class PrepaidCheckoutPollingController {
 
       return session;
     } catch (err: unknown) {
-      this.inFlightAbortController = null;
+      if (this.inFlightAbortController === controller) {
+        this.inFlightAbortController = null;
+      }
 
-      if (controller.signal.aborted) {
+      // Check if aborted/cancelled or stale request token
+      const isAborted =
+        controller.signal.aborted ||
+        (err as { name?: string })?.name === 'CanceledError' ||
+        (err as { name?: string })?.name === 'AbortError';
+
+      if (isAborted || this.currentRequestId !== requestId) {
         return null;
       }
 
-      this.consecutiveErrors++;
       const error = err instanceof Error ? err : new Error(String(err));
+      const httpStatus =
+        (err as { status?: number })?.status ??
+        (err as { response?: { status?: number } })?.response?.status;
+      const errorCode =
+        (err as { code?: string })?.code ??
+        (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+
+      const isInvalidResponse =
+        errorCode === 'CHECKOUT_SESSION_RESPONSE_INVALID' ||
+        error.name === 'CheckoutSessionResponseInvalidError' ||
+        error.message?.includes('CHECKOUT_SESSION_RESPONSE_INVALID') ||
+        error.message?.includes('Invalid checkout session') ||
+        error.message?.includes('Missing required exact-money');
 
       if (this.onErrorCallback) {
         this.onErrorCallback(error);
       }
 
-      // Check if local time reached leaseExpiresAt during network failure
-      const isPastLease =
-        this.leaseExpiresAt && new Date(this.leaseExpiresAt).getTime() <= Date.now();
-
-      if (isPastLease) {
-        // Never claim expired on client clock when server is unreachable; show network recovery
-        this.updateState('network_recovering', this.latestSession);
-      } else {
-        this.updateState('network_recovering', this.latestSession);
+      // HTTP 401 Unauthorized: Stop automatic polling; authentication required
+      if (httpStatus === 401) {
+        this.stop();
+        this.updateState('authentication_required', this.latestSession);
+        return null;
       }
 
+      // HTTP 404 Session Not Found: Stop automatic polling; preserve cart
+      if (httpStatus === 404 || errorCode === 'SESSION_NOT_FOUND') {
+        this.stop();
+        this.updateState('session_not_found', this.latestSession);
+        return null;
+      }
+
+      // HTTP 409 Conflict: Perform one immediate authoritative refetch with strict loop guard
+      if (httpStatus === 409) {
+        if (!this.is409Refetching) {
+          this.is409Refetching = true;
+          return await this.executePollRequest();
+        }
+        // Persistent 409 conflict
+        this.stop();
+        this.updateState('conflict', this.latestSession);
+        return null;
+      }
+
+      // Malformed response / Schema validation failure
+      if (isInvalidResponse) {
+        this.stop();
+        this.updateState('invalid_response', this.latestSession);
+        return null;
+      }
+
+      // Other non-transient 4xx errors (400, 403, 422, etc.)
+      if (typeof httpStatus === 'number' && httpStatus >= 400 && httpStatus < 500) {
+        this.stop();
+        this.updateState('failed', this.latestSession);
+        return null;
+      }
+
+      // 5xx Server errors, timeout, or network failures: retry with bounded backoff
+      this.consecutiveErrors++;
+      this.updateState('network_recovering', this.latestSession);
       return null;
     }
   }

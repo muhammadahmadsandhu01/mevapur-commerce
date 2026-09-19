@@ -386,7 +386,69 @@ export default function PrepaidPaymentModal({
             </div>
           )}
 
-          {/* STATE 9: Polling Paused / Network Recovering */}
+          {/* STATE 9: Authentication Required */}
+          {uiState === 'authentication_required' && (
+            <div className="flex flex-col items-center justify-center py-6 text-center" data-testid="authentication-required-state">
+              <AlertCircle className="text-amber-600" size={36} />
+              <h3 className="mt-3 text-lg font-bold text-gray-900">
+                Authentication Required
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Your login session has expired. Please sign in to finalize your payment securely.
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-5 rounded-xl bg-[#0b132b] px-6 py-2.5 font-semibold text-white hover:bg-[#1c2a4a]"
+              >
+                Sign In to Continue
+              </button>
+            </div>
+          )}
+
+          {/* STATE 10: Session Not Found */}
+          {uiState === 'session_not_found' && (
+            <div className="flex flex-col items-center justify-center py-6 text-center" data-testid="session-not-found-state">
+              <AlertCircle className="text-red-600" size={36} />
+              <h3 className="mt-3 text-lg font-bold text-gray-900">
+                Session Not Found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                This checkout session is no longer active. Items remain safely preserved in your cart.
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-5 rounded-xl bg-[#ff8a00] px-6 py-2.5 font-semibold text-[#0b132b] hover:bg-[#e67c00]"
+              >
+                Return to Cart
+              </button>
+            </div>
+          )}
+
+          {/* STATE 11: Invalid Response */}
+          {uiState === 'invalid_response' && (
+            <div className="flex flex-col items-center justify-center py-6 text-center" data-testid="invalid-response-state">
+              <AlertCircle className="text-red-600" size={36} />
+              <h3 className="mt-3 text-lg font-bold text-gray-900">
+                Verification Error
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Received an invalid response from the payment server. Please verify your connection or tap below.
+              </p>
+              <button
+                type="button"
+                onClick={() => void manualRefresh()}
+                disabled={isPolling}
+                className="mt-4 flex items-center gap-2 rounded-xl bg-[#0b132b] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1c2a4a] disabled:opacity-50"
+              >
+                {isPolling ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                Check Status Now
+              </button>
+            </div>
+          )}
+
+          {/* STATE 12: Polling Paused / Network Recovering */}
           {(uiState === 'polling_paused' || uiState === 'network_recovering') && (
             <div className="flex flex-col items-center justify-center py-6 text-center" data-testid="polling-paused-state">
               <RefreshCw className="text-gray-600" size={32} />
