@@ -6,6 +6,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const CheckoutSession = require('../../../models/CheckoutSession');
 const InventoryHold = require('../../../models/InventoryHold');
@@ -19,6 +20,7 @@ const User = require('../../../models/User');
 const Product = require('../../../models/Product');
 const FulfillmentLocation = require('../../../models/FulfillmentLocation');
 const PaymentWebhookProcessor = require('../../../services/payment/webhooks/PaymentWebhookProcessor');
+const CheckoutSessionService = require('../../../services/order/CheckoutSessionService');
 const { Money, MoneyMapper } = require('../../../modules/commerce');
 const { PAYMENT_STATUSES } = require('../../../constants/paymentConstants');
 
@@ -502,5 +504,178 @@ describe('Phase 6D-5A Session Webhook and Conversion Integration Tests', () => {
       currency: 'USD',
       now: new Date()
     })).rejects.toThrow(/sessionId does not match/i);
+  });
+
+  it('8. wrong provider or provider mismatch fails closed with permanent error', async () => {
+    const { sessionDoc, payment } = await createTestSessionAndPayment();
+
+    const claimedEvent = {
+      providerEventId: `evt_wrong_prov_${Date.now()}`,
+      providerCreatedAt: new Date(),
+      eventData: {
+        provider: 'paypal', // Payment was created with 'stripe'
+        metadata: { sessionId: sessionDoc.sessionId }
+      }
+    };
+
+    await expect(PaymentWebhookProcessor.processSessionPaymentEvent({
+      payment,
+      claimedEvent,
+      eventType: 'payment_intent.succeeded',
+      providerEventId: claimedEvent.providerEventId,
+      amountMinor: 5000,
+      currency: 'USD',
+      now: new Date()
+    })).rejects.toThrow(/provider mismatch/i);
+  });
+
+  it('9. wrong provider environment fails closed with permanent error', async () => {
+    const { sessionDoc, payment } = await createTestSessionAndPayment();
+
+    const claimedEvent = {
+      providerEventId: `evt_wrong_env_${Date.now()}`,
+      providerCreatedAt: new Date(),
+      eventData: {
+        environment: 'production', // Payment was created with sandbox/test capability
+        metadata: { sessionId: sessionDoc.sessionId }
+      }
+    };
+
+    await expect(PaymentWebhookProcessor.processSessionPaymentEvent({
+      payment,
+      claimedEvent,
+      eventType: 'payment_intent.succeeded',
+      providerEventId: claimedEvent.providerEventId,
+      amountMinor: 5000,
+      currency: 'USD',
+      now: new Date()
+    })).rejects.toThrow(/environment mismatch/i);
+  });
+
+  it('10. wrong merchant scope fails closed on session conversion directly', async () => {
+    const { sessionDoc } = await createTestSessionAndPayment();
+
+    await expect(CheckoutSessionService.convertSessionToOrder({
+      sessionId: sessionDoc.sessionId,
+      merchantScopeId: 'foreign_merchant_scope',
+      paymentEvidence: {
+        amountExact: MoneyMapper.toPersistence(Money.fromMinor('5000', 'USD')),
+        currency: 'USD',
+        providerPaymentId: 'pi_test'
+      }
+    })).rejects.toThrow(/not found for conversion/i);
+  });
+
+  it('11. missing authoritative provider capture timestamp fails closed with permanent error', async () => {
+    const { sessionDoc, payment } = await createTestSessionAndPayment();
+
+    const claimedEvent = {
+      providerEventId: `evt_no_ts_${Date.now()}`,
+      providerCreatedAt: null,
+      eventData: {
+        eventCreatedAt: null,
+        created: null,
+        capturedAt: null,
+        metadata: { sessionId: sessionDoc.sessionId }
+      }
+    };
+
+    await expect(PaymentWebhookProcessor.processSessionPaymentEvent({
+      payment,
+      claimedEvent,
+      eventType: 'payment_intent.succeeded',
+      providerEventId: claimedEvent.providerEventId,
+      amountMinor: 5000,
+      currency: 'USD',
+      now: new Date()
+    })).rejects.toThrow(/capture timestamp/i);
+  });
+
+  it('12. payment_failed after payment_captured, converting, or converted cannot regress state', async () => {
+    const { sessionDoc, hold, payment } = await createTestSessionAndPayment({
+      status: CheckoutSession.STATUSES.PAYMENT_CAPTURED
+    });
+
+    const claimedEvent = {
+      providerEventId: `evt_out_of_order_fail_${Date.now()}`,
+      providerCreatedAt: new Date(),
+      eventData: { metadata: { sessionId: sessionDoc.sessionId } }
+    };
+
+    const mongoSession = await mongoose.startSession();
+    try {
+      await mongoSession.withTransaction(async () => {
+        const result = await PaymentWebhookProcessor.processSessionPaymentEvent({
+          payment,
+          claimedEvent,
+          eventType: 'payment_intent.payment_failed',
+          providerEventId: claimedEvent.providerEventId,
+          amountMinor: 5000,
+          currency: 'USD',
+          now: new Date(),
+          session: mongoSession
+        });
+        expect(result).toBe('ignored');
+      });
+    } finally {
+      await mongoSession.endSession();
+    }
+
+    // Session status remained payment_captured and was NOT regressed to failed
+    const sessionAfter = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionAfter.status).toBe(CheckoutSession.STATUSES.PAYMENT_CAPTURED);
+
+    // Hold status was NOT released
+    const holdAfter = await InventoryHold.findById(hold._id);
+    expect(holdAfter.status).toBe(InventoryHold.STATUSES.ACTIVE);
+  });
+
+  it('13. assert webhook inbox is marked processed only after durable conversion or conflict persistence', async () => {
+    const { sessionDoc, payment } = await createTestSessionAndPayment();
+
+    const payloadHash = crypto.createHash('sha256').update(JSON.stringify({ test: 'inbox' })).digest('hex');
+    const webhookEvent = await PaymentWebhookEvent.create({
+      provider: 'stripe',
+      environment: 'sandbox',
+      accountAlias: 'default',
+      providerEventId: `evt_inbox_${Date.now()}`,
+      eventType: 'payment_intent.succeeded',
+      providerPaymentId: payment.providerPaymentId,
+      amountMinor: 5000,
+      currency: 'USD',
+      providerCreatedAt: new Date(),
+      payloadHash,
+      eventData: {
+        providerEventId: `evt_inbox_${Date.now()}`,
+        eventType: 'payment_intent.succeeded',
+        providerPaymentId: payment.providerPaymentId,
+        amountMinor: 5000,
+        currency: 'USD',
+        environment: 'sandbox',
+        eventCreatedAt: new Date(),
+        metadata: {
+          sessionId: sessionDoc.sessionId,
+          paymentId: String(payment._id),
+          accountAlias: 'default'
+        }
+      },
+      status: 'received',
+      receivedAt: new Date()
+    });
+
+    expect(webhookEvent.status).toBe('received');
+
+    const summary = await PaymentWebhookProcessor.processPending({ batchSize: 10 });
+    expect(summary.processed).toBe(1);
+
+    const updatedEvent = await PaymentWebhookEvent.findById(webhookEvent._id);
+    expect(updatedEvent.status).toBe('processed');
+    expect(updatedEvent.processedAt).toBeDefined();
+
+    const convertedSession = await CheckoutSession.findById(sessionDoc._id);
+    expect(convertedSession.status).toBe(CheckoutSession.STATUSES.CONVERTED);
+
+    const createdOrder = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+    expect(createdOrder).toBeDefined();
   });
 });

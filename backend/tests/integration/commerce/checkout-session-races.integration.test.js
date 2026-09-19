@@ -326,4 +326,220 @@ describe('Phase 6D-5A Capture, Expiry, Cancellation & Worker Races Integration T
     });
     expect(releaseLedgers.length).toBe(1);
   });
+
+  it('4. Provider capture timestamp is before lease expiry, but processing occurs after lease expiry: conversion still succeeds if hold was not released', async () => {
+    const originalLeaseExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    const { sessionDoc, hold, payment } = await createFixtureSession({
+      leaseExpiresAt: originalLeaseExpiry
+    });
+
+    // Authoritative provider capture timestamp is BEFORE lease expiry
+    const providerCaptureTime = new Date(originalLeaseExpiry.getTime() - 2 * 60 * 1000);
+
+    // Processing occurs at time T_process when lease timestamp has passed, but hold was NOT released yet
+    const processingTime = new Date(originalLeaseExpiry.getTime() + 5 * 60 * 1000);
+
+    const claimedEvent = {
+      providerEventId: `evt_capture_timely_delayed_proc_${Date.now()}`,
+      providerCreatedAt: providerCaptureTime,
+      eventData: {
+        metadata: { sessionId: sessionDoc.sessionId }
+      }
+    };
+
+    const mongoSession = await mongoose.startSession();
+    try {
+      await mongoSession.withTransaction(async () => {
+        await PaymentWebhookProcessor.processSessionPaymentEvent({
+          payment,
+          claimedEvent,
+          eventType: 'payment_intent.succeeded',
+          providerEventId: claimedEvent.providerEventId,
+          amountMinor: 5000,
+          currency: 'USD',
+          now: processingTime,
+          session: mongoSession
+        });
+      });
+    } finally {
+      await mongoSession.endSession();
+    }
+
+    // Conversion succeeds and creates Order because capture occurred before lease expiry and hold was not released
+    const order = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+    expect(order).toBeDefined();
+    expect(order.paymentStatus).toBe('Paid');
+
+    const sessionAfter = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionAfter.status).toBe(CheckoutSession.STATUSES.CONVERTED);
+  });
+
+  it('5. Cancellation wins before capture: provider cancellation confirmed, hold released exactly once', async () => {
+    const { sessionDoc, hold } = await createFixtureSession();
+
+    // Verify initial reserved quantity is 2
+    const posBefore = await InventoryPosition.findById(testPosition._id);
+    expect(posBefore.reserved).toBe(2);
+
+    // Customer confirms cancellation before payment capture
+    const cancelResult = await CheckoutSessionService.cancelSession({
+      sessionId: sessionDoc.sessionId,
+      userId: testUser._id,
+      reason: 'CUSTOMER_CANCELLED'
+    });
+
+    expect(cancelResult.isReplay).toBe(false);
+    expect(cancelResult.session.status).toBe(CheckoutSession.STATUSES.CANCELLED);
+
+    // Hold is released and ATP restored
+    const holdAfter = await InventoryHold.findById(hold._id);
+    expect(holdAfter.status).toBe(InventoryHold.STATUSES.RELEASED);
+
+    const posAfter = await InventoryPosition.findById(testPosition._id);
+    expect(posAfter.reserved).toBe(0);
+
+    // Replay cancellation is idempotent and does not release again
+    const replayCancel = await CheckoutSessionService.cancelSession({
+      sessionId: sessionDoc.sessionId,
+      userId: testUser._id,
+      reason: 'CUSTOMER_CANCELLED'
+    });
+    expect(replayCancel.isReplay).toBe(true);
+
+    const posAfterReplay = await InventoryPosition.findById(testPosition._id);
+    expect(posAfterReplay.reserved).toBe(0);
+
+    const releaseLedgers = await InventoryLedger.find({
+      sourceId: String(hold._id),
+      movementType: 'HOLD_RELEASED'
+    });
+    expect(releaseLedgers.length).toBe(1);
+  });
+
+  it('6. Capture wins while cancellation_requested: hold protected and session proceeds to payment_captured/conversion', async () => {
+    const { sessionDoc, hold, payment } = await createFixtureSession();
+
+    // Session is in cancellation_requested state
+    await CheckoutSession.updateOne(
+      { _id: sessionDoc._id },
+      {
+        $set: {
+          status: CheckoutSession.STATUSES.CANCELLATION_REQUESTED,
+          'cancellation.requestedAt': new Date(),
+          'cancellation.reason': 'CUSTOMER_CANCELLED'
+        }
+      }
+    );
+
+    // Capture webhook arrives while cancellation is in-flight
+    const claimedEvent = {
+      providerEventId: `evt_capture_wins_cancel_${Date.now()}`,
+      providerCreatedAt: new Date(),
+      eventData: { metadata: { sessionId: sessionDoc.sessionId } }
+    };
+
+    const mongoSession = await mongoose.startSession();
+    try {
+      await mongoSession.withTransaction(async () => {
+        await PaymentWebhookProcessor.processSessionPaymentEvent({
+          payment,
+          claimedEvent,
+          eventType: 'payment_intent.succeeded',
+          providerEventId: claimedEvent.providerEventId,
+          amountMinor: 5000,
+          currency: 'USD',
+          now: new Date(),
+          session: mongoSession
+        });
+      });
+    } finally {
+      await mongoSession.endSession();
+    }
+
+    // Capture protects the hold and converts to Order
+    const sessionAfter = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionAfter.status).toBe(CheckoutSession.STATUSES.CONVERTED);
+
+    const order = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+    expect(order).toBeDefined();
+    expect(order.paymentStatus).toBe('Paid');
+  });
+
+  it('7. Restart/retry resumes cancellation_requested deterministically', async () => {
+    const { sessionDoc, hold } = await createFixtureSession();
+
+    // Simulate crash after marking cancellation_requested but before hold release
+    await CheckoutSession.updateOne(
+      { _id: sessionDoc._id },
+      {
+        $set: {
+          status: CheckoutSession.STATUSES.CANCELLATION_REQUESTED,
+          'cancellation.requestedAt': new Date(),
+          'cancellation.reason': 'CUSTOMER_TIMEOUT'
+        }
+      }
+    );
+
+    // Retry / resume cancellation
+    const retryResult = await CheckoutSessionService.cancelSession({
+      sessionId: sessionDoc.sessionId,
+      userId: testUser._id,
+      reason: 'CUSTOMER_TIMEOUT'
+    });
+
+    expect(retryResult.session.status).toBe(CheckoutSession.STATUSES.CANCELLED);
+
+    const holdAfter = await InventoryHold.findById(hold._id);
+    expect(holdAfter.status).toBe(InventoryHold.STATUSES.RELEASED);
+
+    const posAfter = await InventoryPosition.findById(testPosition._id);
+    expect(posAfter.reserved).toBe(0);
+  });
+
+  it('8. Late capture after completed cancellation enters conflict without creating an Order', async () => {
+    const { sessionDoc, hold, payment } = await createFixtureSession();
+
+    // 1. Session is cancelled and hold is released
+    await CheckoutSessionService.cancelSession({
+      sessionId: sessionDoc.sessionId,
+      userId: testUser._id,
+      reason: 'CUSTOMER_CANCELLED'
+    });
+
+    const sessionCancelled = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionCancelled.status).toBe(CheckoutSession.STATUSES.CANCELLED);
+
+    // 2. Late capture webhook arrives from provider
+    const claimedEvent = {
+      providerEventId: `evt_late_after_cancel_${Date.now()}`,
+      providerCreatedAt: new Date(),
+      eventData: { metadata: { sessionId: sessionDoc.sessionId } }
+    };
+
+    const mongoSession = await mongoose.startSession();
+    try {
+      await mongoSession.withTransaction(async () => {
+        await PaymentWebhookProcessor.processSessionPaymentEvent({
+          payment,
+          claimedEvent,
+          eventType: 'payment_intent.succeeded',
+          providerEventId: claimedEvent.providerEventId,
+          amountMinor: 5000,
+          currency: 'USD',
+          now: new Date(),
+          session: mongoSession
+        });
+      });
+    } finally {
+      await mongoSession.endSession();
+    }
+
+    // Zero unbacked order created
+    const order = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+    expect(order).toBeNull();
+
+    // Conflict recorded on session
+    const sessionAfterLateCapture = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionAfterLateCapture.status).toBe(CheckoutSession.STATUSES.CONFLICT);
+  });
 });

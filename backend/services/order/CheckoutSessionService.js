@@ -134,6 +134,38 @@ class CheckoutSessionService {
         }
       }
 
+      const paymentProviderAdapter = paymentProviderRegistry.resolve(sessionData.paymentMethod, {
+        country: existing.destinationCountry,
+        currency: existing.currency
+      });
+
+      // Crash recovery: Payment persisted but provider invocation was interrupted before providerPaymentId assignment
+      if (existingPayment && !existingPayment.providerPaymentId && paymentProviderAdapter.getCapabilities().createPayment) {
+        const isProd = process.env.NODE_ENV === 'production';
+        const merchantAccount = await defaultPaymentPolicy.getMerchantAccount(
+          sessionData.paymentMethod,
+          isProd ? 'production' : 'sandbox'
+        );
+        const providerResult = await paymentProviderAdapter.createPayment({
+          amount: Number(MoneyMapper.toMoney(existing.amounts.totalAmountExact).toDecimalString()),
+          currency: existing.currency,
+          paymentId: existingPayment._id,
+          orderId: existing.sessionId,
+          environment: merchantAccount?.environment || (isProd ? 'production' : 'sandbox'),
+          idempotencyKey: existingPayment.providerIdempotencyKey
+        });
+
+        existingPayment.providerPaymentId = providerResult.providerPaymentId || '';
+        existingPayment.status = Object.values(PAYMENT_STATUSES).includes(providerResult.status)
+          ? providerResult.status
+          : PAYMENT_STATUSES.PENDING;
+        await existingPayment.save();
+        await CheckoutSession.updateOne(
+          { _id: existing._id },
+          { $set: { paymentId: existingPayment._id, status: CheckoutSession.STATUSES.PAYMENT_PENDING } }
+        );
+      }
+
       return {
         session: existing,
         sessionId: existing.sessionId,
@@ -561,7 +593,7 @@ class CheckoutSessionService {
   /**
    * Convert CheckoutSession to permanent Order upon verified payment capture.
    */
-  async convertSessionToOrder({ sessionId, paymentEvidence = null, session: injectedSession = null }) {
+  async convertSessionToOrder({ sessionId, merchantScopeId = null, paymentEvidence = null, session: injectedSession = null }) {
     const mongoSession = injectedSession || await mongoose.startSession();
     const ownSession = !injectedSession;
 
@@ -576,17 +608,23 @@ class CheckoutSessionService {
         }
 
         // 2. Lock & Claim CheckoutSession
+        const sessionFilter = {
+          sessionId,
+          status: {
+            $in: [
+              CheckoutSession.STATUSES.PAYMENT_CAPTURED,
+              CheckoutSession.STATUSES.PAYMENT_PENDING,
+              CheckoutSession.STATUSES.ACTIVE,
+              CheckoutSession.STATUSES.CANCELLATION_REQUESTED
+            ]
+          }
+        };
+        if (merchantScopeId) {
+          sessionFilter.merchantScopeId = merchantScopeId;
+        }
+
         const sessionDoc = await CheckoutSession.findOneAndUpdate(
-          {
-            sessionId,
-            status: {
-              $in: [
-                CheckoutSession.STATUSES.PAYMENT_CAPTURED,
-                CheckoutSession.STATUSES.PAYMENT_PENDING,
-                CheckoutSession.STATUSES.ACTIVE
-              ]
-            }
-          },
+          sessionFilter,
           {
             $set: { status: CheckoutSession.STATUSES.CONVERTING },
             $inc: { lockVersion: 1 }
@@ -595,10 +633,17 @@ class CheckoutSessionService {
         );
 
         if (!sessionDoc) {
-          const checkStatus = await CheckoutSession.findOne({ sessionId }).session(sessionContext);
+          const checkFilter = { sessionId };
+          if (merchantScopeId) {
+            checkFilter.merchantScopeId = merchantScopeId;
+          }
+          const checkStatus = await CheckoutSession.findOne(checkFilter).session(sessionContext);
           if (checkStatus?.status === CheckoutSession.STATUSES.CONVERTED) {
             const order = await Order.findOne({ checkoutSessionObjectId: checkStatus._id }).session(sessionContext);
             return { order, isReplay: true };
+          }
+          if (!checkStatus) {
+            throw new AppError(`Session '${sessionId}' not found for conversion`, 404, 'SESSION_NOT_FOUND');
           }
           throw new AppError(`Session '${sessionId}' is not in a convertible state (status: '${checkStatus?.status}')`, 409, 'INVALID_SESSION_STATE_FOR_CONVERSION');
         }

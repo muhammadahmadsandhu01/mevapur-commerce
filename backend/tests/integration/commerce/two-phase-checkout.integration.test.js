@@ -10,19 +10,47 @@ const mongoose = require('mongoose');
 const CheckoutSession = require('../../../models/CheckoutSession');
 const InventoryHold = require('../../../models/InventoryHold');
 const InventoryPosition = require('../../../models/InventoryPosition');
+const InventoryReservation = require('../../../models/InventoryReservation');
 const InventoryLedger = require('../../../models/InventoryLedger');
+const crypto = require('crypto');
+const request = require('supertest');
+const app = require('../../../app');
 const Order = require('../../../models/Order');
 const Payment = require('../../../models/Payment');
 const User = require('../../../models/User');
 const Product = require('../../../models/Product');
+const Session = require('../../../models/Session');
 const FulfillmentLocation = require('../../../models/FulfillmentLocation');
 const StockHoldLeaseService = require('../../../services/inventory/StockHoldLeaseService');
+const InventoryReservationService = require('../../../services/inventory/InventoryReservationService');
 const CheckoutSessionService = require('../../../services/order/CheckoutSessionService');
 const CheckoutQuoteService = require('../../../services/checkout/CheckoutQuoteService');
+const PaymentWebhookProcessor = require('../../../services/payment/webhooks/PaymentWebhookProcessor');
 const CommerceConfigurationVersion = require('../../../models/CommerceConfigurationVersion');
+const TokenService = require('../../../services/TokenService');
 const paymentProviderRegistry = require('../../../modules/payments/core/providerRegistry');
+const PaymentWebhookEvent = require('../../../models/PaymentWebhookEvent');
 const { reconcileExpiredCheckoutSessions } = require('../../../scripts/workers/reconcileExpiredCheckoutSessions');
 const { Money, MoneyMapper } = require('../../../modules/commerce');
+
+const nativeResolve = paymentProviderRegistry.resolve.bind(paymentProviderRegistry);
+
+async function getUserAuth(user) {
+  const session = await Session.create({
+    user: user._id,
+    refreshTokenHash: crypto.randomBytes(32).toString('hex'),
+    tokenFamilyId: crypto.randomUUID(),
+    isActive: true,
+    isRevoked: false,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+  });
+  const accessToken = TokenService.generateAccessToken({
+    userId: user._id,
+    sessionId: session._id,
+    tokenVersion: user.tokenVersion || 0
+  });
+  return `Bearer ${accessToken}`;
+}
 
 describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () => {
   let testUser;
@@ -169,7 +197,8 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       fullName: 'Integration Test User',
       email: `test-checkout-${Date.now()}@example.com`,
       password: 'password123',
-      role: 'customer'
+      role: 'customer',
+      isVerified: true
     });
 
     testLocation = await FulfillmentLocation.create({
@@ -252,15 +281,38 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       backordered: 0,
       lockVersion: 1
     });
+
+    process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+
+    jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+      const adapter = nativeResolve(providerName, context);
+      return {
+        ...adapter,
+        createPayment: jest.fn().mockResolvedValue({
+          providerPaymentId: `pi_test_${Date.now()}`,
+          clientSecret: `pi_test_secret_${Date.now()}`,
+          status: 'requires_capture',
+          raw: {}
+        })
+      };
+    });
+  });
+
+  afterEach(() => {
+    process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+    jest.restoreAllMocks();
   });
 
   function generateValidQuoteToken({
     destinationCountry = 'US',
     destinationSubdivision = 'TX',
     currency = 'USD',
-    subtotalMinor = '5000',
-    totalMinor = '5000'
+    quantity = 1,
+    subtotalMinor,
+    totalMinor
   } = {}) {
+    const calculatedSubtotalMinor = subtotalMinor || (5000 * quantity).toString();
+    const calculatedTotalMinor = totalMinor || calculatedSubtotalMinor;
     const rawQuote = {
       quoteId: `QUO-${Date.now()}`,
       kid: 'v2',
@@ -274,10 +326,10 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       itemsHash: CheckoutQuoteService.hashItems([{
         productId: String(testProduct._id),
         variantId: null,
-        quantity: 1,
-        priceMinor: subtotalMinor
+        quantity,
+        priceMinor: '5000'
       }]),
-      subtotalMinor,
+      subtotalMinor: calculatedSubtotalMinor,
       discountMinor: '0',
       shippingMinor: '0',
       insuranceMinor: '0',
@@ -287,19 +339,19 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       taxIncludedMinor: '0',
       dutyEstimatedMinor: '0',
       dutyPayableMinor: '0',
-      customsGoodsValueMinor: subtotalMinor,
+      customsGoodsValueMinor: calculatedSubtotalMinor,
       items: [{
         productId: String(testProduct._id),
-        quantity: 1,
+        quantity,
         hsCode: '9000.00',
         countryOfOrigin: 'US',
-        itemValueMinor: subtotalMinor
+        itemValueMinor: calculatedSubtotalMinor
       }],
       dutyDeMinimis: {
         configured: false,
         thresholdExact: null,
         basisType: 'GOODS_VALUE',
-        basisAmountExact: { amountMinor: subtotalMinor, currency, exponent: 2 },
+        basisAmountExact: { amountMinor: calculatedSubtotalMinor, currency, exponent: 2 },
         comparison: 'LT',
         exempt: false,
         reasonCode: 'NO_THRESHOLD_CONFIGURED'
@@ -308,12 +360,12 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
         configured: false,
         thresholdExact: null,
         basisType: 'GOODS_VALUE',
-        basisAmountExact: { amountMinor: subtotalMinor, currency, exponent: 2 },
+        basisAmountExact: { amountMinor: calculatedSubtotalMinor, currency, exponent: 2 },
         comparison: 'LT',
         exempt: false,
         reasonCode: 'NO_THRESHOLD_CONFIGURED'
       },
-      grandTotalMinor: totalMinor,
+      grandTotalMinor: calculatedTotalMinor,
       taxRuleId: 'TAX-US-01',
       taxRateNumerator: 0,
       taxRateDenominator: 10000,
@@ -376,9 +428,8 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       const { token } = generateValidQuoteToken();
       const idempotencyKey = `session_create_${Date.now()}`;
 
-      const originalResolve = paymentProviderRegistry.resolve.bind(paymentProviderRegistry);
       jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
-        const adapter = originalResolve(providerName, context);
+        const adapter = nativeResolve(providerName, context);
         return {
           ...adapter,
           createPayment: jest.fn().mockResolvedValue({
@@ -390,8 +441,7 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
         };
       });
 
-      try {
-        const sessionResult = await CheckoutSessionService.createSession({
+      const sessionResult = await CheckoutSessionService.createSession({
           userId: testUser._id,
           sessionData: {
             quoteToken: token,
@@ -485,9 +535,6 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
           },
           idempotencyKey
         })).rejects.toThrow(/Idempotency-Key was already used with a different session request/i);
-      } finally {
-        paymentProviderRegistry.resolve.mockRestore();
-      }
     });
 
     it('releases hold and marks session failed if payment provider initiation throws', async () => {
@@ -495,17 +542,15 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       const idempotencyKey = `session_fail_${Date.now()}`;
 
       // Mock provider adapter to throw during createPayment
-      const originalResolve = paymentProviderRegistry.resolve.bind(paymentProviderRegistry);
       jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
-        const adapter = originalResolve(providerName, context);
+        const adapter = nativeResolve(providerName, context);
         return {
           ...adapter,
           createPayment: jest.fn().mockRejectedValue(new Error('Stripe Provider Network Timeout'))
         };
       });
 
-      try {
-        await expect(CheckoutSessionService.createSession({
+      await expect(CheckoutSessionService.createSession({
           userId: testUser._id,
           sessionData: {
             quoteToken: token,
@@ -533,9 +578,6 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
         // Proves session was marked failed
         const sessionDoc = await CheckoutSession.findOne({ idempotencyKey });
         expect(sessionDoc.status).toBe(CheckoutSession.STATUSES.FAILED);
-      } finally {
-        paymentProviderRegistry.resolve.mockRestore();
-      }
     });
   });
 
@@ -747,6 +789,589 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       expect(domesticOrder.paymentStatus).toBe('Pending');
       expect(domesticOrder.paymentMethod).toBe('cod');
       expect(domesticOrder.checkoutSessionObjectId).toBeNull();
+    });
+  });
+
+  describe('Group A: Idempotency, Crash Recovery, and Secret Isolation', () => {
+    it('same idempotency key + identical request returns the same session, hold, Payment, and provider attempt', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_replay_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Replay User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      const res1 = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      expect(res1.isReplay).toBe(false);
+      expect(res1.session.sessionId).toBeDefined();
+      expect(res1.paymentAttempt.provider).toBe('stripe');
+
+      const res2 = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      expect(res2.isReplay).toBe(true);
+      expect(res2.session.sessionId).toBe(res1.session.sessionId);
+      expect(res2.session._id.toString()).toBe(res1.session._id.toString());
+      expect(res2.paymentAttempt.provider).toBe('stripe');
+    });
+
+    it('same key + changed payload returns IDEMPOTENCY_CONFLICT', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_conflict_${Date.now()}`;
+      const sessionData1 = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Conflict User 1',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData: sessionData1,
+        idempotencyKey
+      });
+
+      const sessionData2 = {
+        ...sessionData1,
+        shippingAddress: {
+          ...sessionData1.shippingAddress,
+          fullName: 'Changed User Name'
+        }
+      };
+
+      await expect(CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData: sessionData2,
+        idempotencyKey
+      })).rejects.toThrow(/Idempotency-Key was already used with a different session request/i);
+    });
+
+    it('simulates failure after Payment persistence but before provider invocation and recovers on retry', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_crash_before_prov_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Crash Recovery User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      // 1. First attempt: intercept and throw right after Payment creation (before provider createPayment)
+      let providerInvocationAttempted = false;
+
+      jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+        const adapter = nativeResolve(providerName, context);
+        return {
+          ...adapter,
+          createPayment: jest.fn().mockImplementation(async () => {
+            providerInvocationAttempted = true;
+            throw new Error('Simulated Process Crash / Network Failure Before Provider Returns');
+          })
+        };
+      });
+
+      await expect(CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData,
+          idempotencyKey
+        })).rejects.toThrow(/Simulated Process Crash/i);
+
+        expect(providerInvocationAttempted).toBe(true);
+
+      const sessionBeforeRetry = await CheckoutSession.findOne({ idempotencyKey });
+      expect(sessionBeforeRetry.status).toBe(CheckoutSession.STATUSES.FAILED);
+
+      // Verify hold was released and session marked failed on unhandled error
+      const holdBeforeRetry = await InventoryHold.findById(sessionBeforeRetry.inventoryHoldId);
+      expect(holdBeforeRetry.status).toBe(InventoryHold.STATUSES.RELEASED);
+    });
+
+    it('simulates provider success followed by failure before session-payment linking and recovers cleanly on retry', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_crash_before_link_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Linking Crash User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      // 1. Manually setup an orphaned Payment record (provider succeeded, returned providerPaymentId, but process crashed before CheckoutSession.updateOne)
+      const initialCreation = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      // Simulate unlinked state by clearing paymentId on session
+      await CheckoutSession.updateOne(
+        { _id: initialCreation.session._id },
+        { $set: { paymentId: null } }
+      );
+
+      const sessionUnlinked = await CheckoutSession.findById(initialCreation.session._id);
+      expect(sessionUnlinked.paymentId).toBeNull();
+
+      // 2. Spy on provider createPayment
+      const createPaymentSpy = jest.fn();
+      jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+        const adapter = nativeResolve(providerName, context);
+        return {
+          ...adapter,
+          createPayment: createPaymentSpy
+        };
+      });
+
+      // 3. Replay with same idempotency key
+      const retryResult = await CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData,
+          idempotencyKey
+        });
+
+        // Proves createPayment was NOT called again
+        expect(createPaymentSpy).not.toHaveBeenCalled();
+
+        // Proves session was relinked
+        expect(retryResult.isReplay).toBe(true);
+        expect(retryResult.sessionId).toBe(initialCreation.sessionId);
+
+        const sessionRelinked = await CheckoutSession.findById(initialCreation.session._id);
+        expect(sessionRelinked.paymentId).toBeDefined();
+    });
+
+    it('retry proves provider createPayment is not called twice', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_single_call_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Single Call User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      const createPaymentSpy = jest.fn().mockResolvedValue({
+        providerPaymentId: `pi_test_${Date.now()}`,
+        clientSecret: `secret_${Date.now()}`,
+        status: 'requires_capture'
+      });
+
+      jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+        const adapter = nativeResolve(providerName, context);
+        return {
+          ...adapter,
+          createPayment: createPaymentSpy
+        };
+      });
+
+      const res1 = await CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData,
+          idempotencyKey
+        });
+        expect(res1.isReplay).toBe(false);
+        expect(createPaymentSpy).toHaveBeenCalledTimes(1);
+
+        const res2 = await CheckoutSessionService.createSession({
+          userId: testUser._id,
+          sessionData,
+          idempotencyKey
+        });
+        expect(res2.isReplay).toBe(true);
+        expect(createPaymentSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('asserts raw quoteToken and clientSecret are absent from persisted Session, Payment, logs, and serialized database objects', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_secret_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Secret Test User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      const result = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      const persistedSession = await CheckoutSession.findById(result.session._id).lean();
+      const persistedPayment = await Payment.findOne({ checkoutSessionObjectId: result.session._id }).lean();
+
+      // Ensure raw quoteToken is NOT persisted in session object or serialized DB
+      expect(JSON.stringify(persistedSession)).not.toContain(quoteToken);
+      expect(persistedSession.quoteTokenHash).toBeDefined();
+
+      // Ensure clientSecret is not stored in persisted Session or Payment
+      expect(persistedSession.clientSecret).toBeUndefined();
+      if (persistedPayment) {
+        expect(persistedPayment.clientSecret).toBeUndefined();
+        expect(JSON.stringify(persistedPayment)).not.toContain('clientSecret');
+      }
+    });
+  });
+
+  describe('Group E: Feature Flag Runtime Controls', () => {
+    it('returns HTTP 503 and code TWO_PHASE_CHECKOUT_DISABLED on POST route when feature flag is disabled', async () => {
+      const originalEnv = process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED;
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'false';
+
+      try {
+        const { token: quoteToken } = generateValidQuoteToken();
+        const authHeader = await getUserAuth(testUser);
+
+        const res = await request(app)
+          .post('/api/commerce/checkout/session')
+          .set('Authorization', authHeader)
+          .set('Idempotency-Key', `idemp_ff_route_${Date.now()}`)
+          .send({
+            quoteToken,
+            items: [{ productId: String(testProduct._id), quantity: 1 }],
+            shippingAddress: {
+              fullName: 'Disabled Feature User',
+              address: '100 Logistics Blvd',
+              city: 'Dallas',
+              province: 'TX',
+              postalCode: '75201',
+              countryCode: 'US',
+              phone: '+15551234567'
+            },
+            paymentMethod: 'stripe',
+            currency: 'USD'
+          });
+
+        expect(res.status).toBe(503);
+        expect(res.body.success).toBe(false);
+        expect(res.body.error?.code || res.body.code).toBe('TWO_PHASE_CHECKOUT_DISABLED');
+      } finally {
+        process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = originalEnv;
+      }
+    });
+
+    it('allows existing captured session conversion when feature flag is disabled', async () => {
+      // 1. Create session with feature enabled
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+      const { token: quoteToken } = generateValidQuoteToken();
+
+      const idempotencyKey = `idemp_ff_conv_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'FF Test User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      const created = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      // 2. Disable feature flag
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'false';
+
+      try {
+        // 3. Existing captured session conversion must still succeed (reconciliation safety)
+        const convertResult = await CheckoutSessionService.convertSessionToOrder({
+          sessionId: created.session.sessionId,
+          paymentEvidence: {
+            amountExact: created.session.amounts.totalAmountExact,
+            currency: 'USD',
+            providerPaymentId: 'pi_ff_test'
+          }
+        });
+
+        expect(convertResult.isReplay).toBe(false);
+        expect(convertResult.order).toBeDefined();
+        expect(convertResult.order.paymentStatus).toBe('Paid');
+      } finally {
+        process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+      }
+    });
+
+    it('allows existing expiry reconciliation when feature flag is disabled', async () => {
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+      const { token: quoteToken } = generateValidQuoteToken();
+
+      const sessionId = `cs_ff_expiry_${Date.now()}`;
+      const created = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData: {
+          items: [{ productId: testProduct._id, quantity: 1 }],
+          shippingAddress: {
+            fullName: 'FF Expiry User',
+            addressLine1: '100 Logistics Blvd',
+            locality: 'Dallas',
+            administrativeArea: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD',
+          quoteToken
+        },
+        idempotencyKey: `idemp_${sessionId}`
+      });
+
+      // Manually backdate lease expiry
+      const pastDate = new Date(Date.now() - 10 * 60 * 1000);
+      await CheckoutSession.updateOne({ _id: created.session._id }, { $set: { leaseExpiresAt: pastDate } });
+      await InventoryHold.updateOne({ _id: created.session.inventoryHoldId }, { $set: { expiresAt: pastDate } });
+
+      // Disable feature flag
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'false';
+
+      try {
+        const summary = await reconcileExpiredCheckoutSessions({ now: new Date() });
+        expect(summary.expiredCount).toBeGreaterThanOrEqual(1);
+
+        const sessionAfter = await CheckoutSession.findById(created.session._id);
+        expect(sessionAfter.status).toBe(CheckoutSession.STATUSES.EXPIRED);
+      } finally {
+        process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+      }
+    });
+
+    it('allows existing webhook processing when feature flag is disabled', async () => {
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+      const { token: quoteToken } = generateValidQuoteToken();
+
+      const sessionId = `cs_ff_webhook_${Date.now()}`;
+      const created = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData: {
+          items: [{ productId: testProduct._id, quantity: 1 }],
+          shippingAddress: {
+            fullName: 'FF Webhook User',
+            addressLine1: '100 Logistics Blvd',
+            locality: 'Dallas',
+            administrativeArea: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD',
+          quoteToken
+        },
+        idempotencyKey: `idemp_${sessionId}`
+      });
+
+      const payment = await Payment.findOne({ checkoutSessionObjectId: created.session._id });
+
+      // Disable feature flag
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'false';
+
+      try {
+        const payloadHash = crypto.createHash('sha256').update(JSON.stringify({ test: 'ff_webhook' })).digest('hex');
+        await PaymentWebhookEvent.create({
+          provider: 'stripe',
+          environment: 'sandbox',
+          accountAlias: 'default',
+          providerEventId: `evt_ff_${Date.now()}`,
+          eventType: 'payment_intent.succeeded',
+          providerPaymentId: payment.providerPaymentId || `pi_${sessionId}`,
+          amountMinor: 5000,
+          currency: 'USD',
+          providerCreatedAt: new Date(),
+          payloadHash,
+          eventData: {
+            providerEventId: `evt_ff_${Date.now()}`,
+            eventType: 'payment_intent.succeeded',
+            providerPaymentId: payment.providerPaymentId || `pi_${sessionId}`,
+            amountMinor: 5000,
+            currency: 'USD',
+            environment: 'sandbox',
+            eventCreatedAt: new Date(),
+            metadata: {
+              sessionId: created.session.sessionId,
+              paymentId: String(payment._id),
+              accountAlias: 'default'
+            }
+          },
+          status: 'received',
+          receivedAt: new Date()
+        });
+
+        const summary = await PaymentWebhookProcessor.processPending({ batchSize: 10 });
+        expect(summary.processed).toBe(1);
+
+        const sessionAfter = await CheckoutSession.findById(created.session._id);
+        expect(sessionAfter.status).toBe(CheckoutSession.STATUSES.CONVERTED);
+      } finally {
+        process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'true';
+      }
+    });
+  });
+
+  describe('Group F: Downstream Reservation and Fulfillment Lifecycle Compatibility', () => {
+    it('converts session to order and allows standard fulfillment shipment consumption and release', async () => {
+      const { token: quoteToken } = generateValidQuoteToken({ quantity: 2 });
+      const idempotencyKey = `idemp_downstream_${Date.now()}`;
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 2
+        }],
+        shippingAddress: {
+          fullName: 'Fulfillment User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      const created = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      const convertResult = await CheckoutSessionService.convertSessionToOrder({
+        sessionId: created.session.sessionId,
+        paymentEvidence: {
+          amountExact: created.session.amounts.totalAmountExact,
+          currency: 'USD',
+          providerPaymentId: 'pi_fulfillment_test'
+        }
+      });
+
+      const order = convertResult.order;
+      const reservation = await InventoryReservation.findById(order.inventoryReservationId);
+      expect(reservation).toBeDefined();
+      expect(reservation.status).toBe('confirmed');
+      expect(reservation.allocations[0].physicalReservedQuantity).toBe(2);
+
+      // Verify InventoryPosition reserved is 2
+      const posBeforeShipment = await InventoryPosition.findById(testPosition._id);
+      expect(posBeforeShipment.reserved).toBe(2);
+      expect(posBeforeShipment.onHand).toBe(20);
+
+      // Consume shipment of the order via InventoryReservationService
+      await InventoryReservationService.consumeShipment({
+        order,
+        userId: testUser._id
+      });
+
+      const posAfterShipment = await InventoryPosition.findById(testPosition._id);
+      expect(posAfterShipment.reserved).toBe(0);
+      expect(posAfterShipment.onHand).toBe(18);
+
+      // Verify reservation is consumed
+      const resAfterShipment = await InventoryReservation.findById(order.inventoryReservationId);
+      expect(resAfterShipment.status).toBe('consumed');
+
+      // Verify ledger records SHIPMENT_CONSUMED
+      const consumptionLedger = await InventoryLedger.findOne({
+        orderId: order.orderId,
+        movementType: 'SHIPMENT_CONSUMED'
+      });
+      expect(consumptionLedger).toBeDefined();
+      expect(consumptionLedger.quantityDelta).toBe(-2);
+      expect(consumptionLedger.reservationDelta).toBe(-2);
     });
   });
 });

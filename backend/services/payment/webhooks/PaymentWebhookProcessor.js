@@ -838,6 +838,22 @@ class PaymentWebhookProcessor {
       throw err;
     }
 
+    // Provider validation
+    const eventProvider = (claimedEvent.provider || claimedEvent.eventData?.provider || '').toLowerCase();
+    if (eventProvider && payment.provider && eventProvider !== payment.provider.toLowerCase()) {
+      const err = new AppError('Webhook event provider mismatch', 409, 'PAYMENT_PROVIDER_MISMATCH');
+      err.isPermanent = true;
+      throw err;
+    }
+
+    // Environment validation
+    const eventEnvironment = claimedEvent.environment || claimedEvent.eventData?.environment;
+    if (eventEnvironment && payment.capabilitySnapshot?.environment && eventEnvironment !== payment.capabilitySnapshot.environment) {
+      const err = new AppError('Webhook event environment mismatch', 409, 'PAYMENT_ENVIRONMENT_MISMATCH');
+      err.isPermanent = true;
+      throw err;
+    }
+
     // Cross-account isolation check
     const eventMetadata = claimedEvent.eventData?.metadata || {};
     if (eventMetadata.accountAlias && payment.capabilitySnapshot?.accountAlias && eventMetadata.accountAlias !== payment.capabilitySnapshot.accountAlias) {
@@ -880,7 +896,24 @@ class PaymentWebhookProcessor {
         return 'processed'; // Harmless duplicate
       }
 
-      const providerCapturedAt = claimedEvent.providerCreatedAt || claimedEvent.eventData?.eventCreatedAt || now;
+      const rawTimestamp = claimedEvent.providerCreatedAt
+        || claimedEvent.eventData?.eventCreatedAt
+        || claimedEvent.eventData?.capturedAt
+        || (claimedEvent.eventData?.created ? new Date(claimedEvent.eventData.created * 1000) : null);
+
+      if (!rawTimestamp) {
+        const err = new AppError('Payment webhook event lacks authoritative provider capture timestamp', 422, 'PAYMENT_CAPTURE_TIMESTAMP_MISSING');
+        err.isPermanent = true;
+        throw err;
+      }
+
+      const providerCapturedAt = new Date(rawTimestamp);
+      if (isNaN(providerCapturedAt.getTime())) {
+        const err = new AppError('Payment webhook event has invalid provider capture timestamp', 422, 'PAYMENT_CAPTURE_TIMESTAMP_INVALID');
+        err.isPermanent = true;
+        throw err;
+      }
+
       const isTimelyCapture = providerCapturedAt <= checkoutSession.leaseExpiresAt;
 
       if (isTimelyCapture) {
@@ -903,6 +936,7 @@ class PaymentWebhookProcessor {
           // Trigger conversion
           await CheckoutSessionService.convertSessionToOrder({
             sessionId: checkoutSession.sessionId,
+            merchantScopeId: checkoutSession.merchantScopeId,
             paymentEvidence: {
               amountExact: payment.amountExact,
               currency: payment.currency,
@@ -937,7 +971,11 @@ class PaymentWebhookProcessor {
     }
 
     if (eventType === 'payment_intent.payment_failed' || eventType === 'payment_intent.canceled') {
-      if (checkoutSession.status === CheckoutSession.STATUSES.CONVERTED) {
+      if (
+        checkoutSession.status === CheckoutSession.STATUSES.CONVERTED ||
+        checkoutSession.status === CheckoutSession.STATUSES.PAYMENT_CAPTURED ||
+        checkoutSession.status === CheckoutSession.STATUSES.CONVERTING
+      ) {
         return 'ignored';
       }
 
