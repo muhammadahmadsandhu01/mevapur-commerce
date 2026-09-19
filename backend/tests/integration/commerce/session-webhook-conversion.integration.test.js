@@ -678,4 +678,110 @@ describe('Phase 6D-5A Session Webhook and Conversion Integration Tests', () => {
     const createdOrder = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
     expect(createdOrder).toBeDefined();
   });
+
+  it('14. webhook inbox failure ordering and real retry: transient failure keeps event retryable without Order, subsequent retry converts Order and marks processed', async () => {
+    const { sessionDoc, hold, payment } = await createTestSessionAndPayment();
+
+    const payloadHash = crypto.createHash('sha256').update(JSON.stringify({ test: 'inbox_retry' })).digest('hex');
+    const webhookEvent = await PaymentWebhookEvent.create({
+      provider: 'stripe',
+      environment: 'sandbox',
+      accountAlias: 'default',
+      providerEventId: `evt_inbox_retry_${Date.now()}`,
+      eventType: 'payment_intent.succeeded',
+      providerPaymentId: payment.providerPaymentId,
+      amountMinor: 5000,
+      currency: 'USD',
+      providerCreatedAt: new Date(),
+      payloadHash,
+      eventData: {
+        providerEventId: `evt_inbox_retry_${Date.now()}`,
+        eventType: 'payment_intent.succeeded',
+        providerPaymentId: payment.providerPaymentId,
+        amountMinor: 5000,
+        currency: 'USD',
+        environment: 'sandbox',
+        eventCreatedAt: new Date(),
+        metadata: {
+          sessionId: sessionDoc.sessionId,
+          paymentId: String(payment._id),
+          accountAlias: 'default'
+        }
+      },
+      status: 'received',
+      receivedAt: new Date(),
+      nextAttemptAt: new Date()
+    });
+
+    expect(webhookEvent.status).toBe('received');
+
+    // 1. Inject transient failure during conversion (mock convertSessionToOrder to reject once)
+    const convertSpy = jest.spyOn(CheckoutSessionService, 'convertSessionToOrder').mockRejectedValueOnce(
+      new Error('Transient database deadlock during order creation')
+    );
+
+    // 2. Process pending events
+    const initialNow = new Date();
+    const failureSummary = await PaymentWebhookProcessor.processPending({ batchSize: 10, now: initialNow });
+    expect(failureSummary.retryScheduled).toBe(1);
+    expect(failureSummary.processed).toBe(0);
+
+    // 3. Assert failure-path invariants:
+    const failedEvent = await PaymentWebhookEvent.findById(webhookEvent._id);
+    expect(failedEvent.status).toBe('retry_scheduled');
+    expect(failedEvent.status).not.toBe('processed');
+    expect(failedEvent.processedAt).toBeNull();
+    expect(failedEvent.attemptCount).toBe(1);
+    expect(failedEvent.errorCode).toBe('PAYMENT_WEBHOOK_PROCESSING_FAILED');
+    expect(failedEvent.errorMessage).toContain('Transient database deadlock');
+    expect(failedEvent.nextAttemptAt).toBeDefined();
+    expect(failedEvent.nextAttemptAt.getTime()).toBeGreaterThan(initialNow.getTime());
+
+    // Zero Orders created
+    const orderCountBefore = await Order.countDocuments({ checkoutSessionObjectId: sessionDoc._id });
+    expect(orderCountBefore).toBe(0);
+
+    // Session is not incorrectly converted
+    const sessionAfterFail = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionAfterFail.status).not.toBe(CheckoutSession.STATUSES.CONVERTED);
+
+    // Hold remains active and intact
+    const holdAfterFail = await InventoryHold.findById(hold._id);
+    expect(holdAfterFail.status).toBe(InventoryHold.STATUSES.ACTIVE);
+
+    // 0 permanent reservations
+    const resCountBefore = await InventoryReservation.countDocuments({ sessionId: sessionDoc.sessionId });
+    expect(resCountBefore).toBe(0);
+
+    // 4. Remove transient failure
+    convertSpy.mockRestore();
+
+    // 5. Advance time to nextAttemptAt and execute real retry path via scheduler
+    const retryNow = new Date(failedEvent.nextAttemptAt.getTime() + 1000);
+    const retrySummary = await PaymentWebhookProcessor.processPending({ batchSize: 10, now: retryNow });
+    expect(retrySummary.processed).toBe(1);
+
+    // 6. Assert success on retry:
+    const finalEvent = await PaymentWebhookEvent.findById(webhookEvent._id);
+    expect(finalEvent.status).toBe('processed');
+    expect(finalEvent.processedAt).toBeDefined();
+    expect(new Date(finalEvent.processedAt).getTime()).toBeGreaterThanOrEqual(retryNow.getTime());
+
+    // Exactly one Order exists
+    const orderCountAfter = await Order.countDocuments({ checkoutSessionObjectId: sessionDoc._id });
+    expect(orderCountAfter).toBe(1);
+    const order = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+    expect(order.paymentStatus).toBe('Paid');
+
+    // Exactly one permanent InventoryReservation exists
+    const resCountAfter = await InventoryReservation.countDocuments({ orderObjectId: order._id });
+    expect(resCountAfter).toBe(1);
+
+    // Session and hold converted
+    const sessionFinal = await CheckoutSession.findById(sessionDoc._id);
+    expect(sessionFinal.status).toBe(CheckoutSession.STATUSES.CONVERTED);
+
+    const holdFinal = await InventoryHold.findById(hold._id);
+    expect(holdFinal.status).toBe(InventoryHold.STATUSES.CONVERTED);
+  });
 });

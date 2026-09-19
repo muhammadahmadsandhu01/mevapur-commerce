@@ -123,9 +123,9 @@ class CheckoutSessionService {
       // Check for bound payment (including orphaned payments from a process crash before session linking)
       let existingPayment = null;
       if (existing.paymentId) {
-        existingPayment = await Payment.findById(existing.paymentId);
+        existingPayment = await Payment.findById(existing.paymentId).select('+providerIdempotencyKey');
       } else {
-        existingPayment = await Payment.findOne({ checkoutSessionObjectId: existing._id });
+        existingPayment = await Payment.findOne({ checkoutSessionObjectId: existing._id }).select('+providerIdempotencyKey');
         if (existingPayment) {
           await CheckoutSession.updateOne(
             { _id: existing._id },
@@ -140,6 +140,7 @@ class CheckoutSessionService {
       });
 
       // Crash recovery: Payment persisted but provider invocation was interrupted before providerPaymentId assignment
+      let clientSecret = null;
       if (existingPayment && !existingPayment.providerPaymentId && paymentProviderAdapter.getCapabilities().createPayment) {
         const isProd = process.env.NODE_ENV === 'production';
         const merchantAccount = await defaultPaymentPolicy.getMerchantAccount(
@@ -155,6 +156,7 @@ class CheckoutSessionService {
           idempotencyKey: existingPayment.providerIdempotencyKey
         });
 
+        clientSecret = providerResult.clientSecret || null;
         existingPayment.providerPaymentId = providerResult.providerPaymentId || '';
         existingPayment.status = Object.values(PAYMENT_STATUSES).includes(providerResult.status)
           ? providerResult.status
@@ -164,6 +166,8 @@ class CheckoutSessionService {
           { _id: existing._id },
           { $set: { paymentId: existingPayment._id, status: CheckoutSession.STATUSES.PAYMENT_PENDING } }
         );
+        existing.paymentId = existingPayment._id;
+        existing.status = CheckoutSession.STATUSES.PAYMENT_PENDING;
       }
 
       return {
@@ -173,6 +177,7 @@ class CheckoutSessionService {
         paymentAttempt: existingPayment ? {
           provider: existingPayment.provider,
           providerPaymentId: existingPayment.providerPaymentId || '',
+          clientSecret: clientSecret || undefined,
           status: existingPayment.status
         } : null,
         amounts: existing.amounts,

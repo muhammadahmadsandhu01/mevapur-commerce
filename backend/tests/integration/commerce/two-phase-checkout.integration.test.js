@@ -32,6 +32,7 @@ const paymentProviderRegistry = require('../../../modules/payments/core/provider
 const PaymentWebhookEvent = require('../../../models/PaymentWebhookEvent');
 const { reconcileExpiredCheckoutSessions } = require('../../../scripts/workers/reconcileExpiredCheckoutSessions');
 const { Money, MoneyMapper } = require('../../../modules/commerce');
+const { PAYMENT_STATUSES } = require('../../../constants/paymentConstants');
 
 const nativeResolve = paymentProviderRegistry.resolve.bind(paymentProviderRegistry);
 
@@ -880,7 +881,7 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       })).rejects.toThrow(/Idempotency-Key was already used with a different session request/i);
     });
 
-    it('simulates failure after Payment persistence but before provider invocation and recovers on retry', async () => {
+    it('provider invocation failure compensates session and hold without creating an Order', async () => {
       const { token: quoteToken } = generateValidQuoteToken();
       const idempotencyKey = `idemp_crash_before_prov_${Date.now()}`;
       const sessionData = {
@@ -902,7 +903,7 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
         quoteToken
       };
 
-      // 1. First attempt: intercept and throw right after Payment creation (before provider createPayment)
+      // 1. First attempt: intercept and throw inside provider createPayment
       let providerInvocationAttempted = false;
 
       jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
@@ -922,7 +923,7 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
           idempotencyKey
         })).rejects.toThrow(/Simulated Process Crash/i);
 
-        expect(providerInvocationAttempted).toBe(true);
+      expect(providerInvocationAttempted).toBe(true);
 
       const sessionBeforeRetry = await CheckoutSession.findOne({ idempotencyKey });
       expect(sessionBeforeRetry.status).toBe(CheckoutSession.STATUSES.FAILED);
@@ -930,6 +931,219 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       // Verify hold was released and session marked failed on unhandled error
       const holdBeforeRetry = await InventoryHold.findById(sessionBeforeRetry.inventoryHoldId);
       expect(holdBeforeRetry.status).toBe(InventoryHold.STATUSES.RELEASED);
+    });
+
+    it('genuine pre-provider crash-state recovery: replays unlinked session, invokes provider once, links payment and reaches payment_pending', async () => {
+      const { token: quoteToken, rawQuote } = generateValidQuoteToken();
+      const idempotencyKey = `idemp_pre_prov_crash_${Date.now()}`;
+      const sessionId = `cs_crash_recov_${Date.now()}`;
+      const totalAmountMoney = Money.fromMinor(rawQuote.grandTotalMinor, 'USD');
+      const totalAmountExact = MoneyMapper.toPersistence(totalAmountMoney);
+
+      const sessionData = {
+        items: [{
+          productId: testProduct._id,
+          quantity: 1
+        }],
+        shippingAddress: {
+          fullName: 'Pre-Provider Crash User',
+          addressLine1: '100 Logistics Blvd',
+          locality: 'Dallas',
+          administrativeArea: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD',
+        quoteToken
+      };
+
+      const requestHash = CheckoutSessionService.hashRequest(sessionData);
+
+      // 1. Create durable pre-provider crash state
+      const hold = await InventoryHold.create({
+        merchantScopeId: 'default',
+        sessionId,
+        holdKey: `hold:default:${sessionId}`,
+        status: InventoryHold.STATUSES.ACTIVE,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        maxLifetimeExpiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        allocations: [{
+          locationId: testLocation._id,
+          locationCode: testLocation.locationCode,
+          originCountry: 'US',
+          productId: testProduct._id,
+          canonicalSku: testProduct.sku,
+          quantity: 1,
+          physicalReservedQuantity: 1,
+          backorderedQuantity: 0,
+          inventoryPositionId: testPosition._id,
+          inventoryLockVersion: 1
+        }]
+      });
+
+      const sessionDoc = await CheckoutSession.create({
+        sessionId,
+        merchantScopeId: 'default',
+        userId: testUser._id,
+        customerEmail: testUser.email,
+        status: CheckoutSession.STATUSES.ACTIVE,
+        destinationCountry: 'US',
+        currency: 'USD',
+        quoteId: rawQuote.quoteId,
+        quoteTokenHash: crypto.createHash('sha256').update(quoteToken).digest('hex'),
+        quoteSnapshot: rawQuote,
+        orderData: {
+          items: [{
+            productId: testProduct._id,
+            canonicalSku: testProduct.sku,
+            name: testProduct.name,
+            quantity: 1,
+            unitPriceExact: totalAmountExact,
+            lineTotalExact: totalAmountExact,
+            weightGrams: testProduct.weightGrams
+          }],
+          shippingAddress: sessionData.shippingAddress,
+          paymentMethod: 'stripe'
+        },
+        taxesAndDutiesSnapshot: {
+          taxType: 'SALES_TAX',
+          taxTreatment: 'EXCLUSIVE',
+          taxableBasis: 'DESTINATION',
+          taxRateNumerator: 0,
+          taxRateDenominator: 10000,
+          dutyRateNumerator: 0,
+          dutyRateDenominator: 10000,
+          taxAmountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          additionalTaxAmountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          taxIncludedAmountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          goodsValueExact: totalAmountExact,
+          payableDutyExact: MoneyMapper.toPersistence(Money.zero('USD'))
+        },
+        shippingSnapshot: {
+          serviceLevel: 'standard',
+          shippingAmountExact: MoneyMapper.toPersistence(Money.zero('USD'))
+        },
+        amounts: {
+          subtotalExact: totalAmountExact,
+          discountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          shippingCostExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          taxAmountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          additionalTaxAmountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          taxIncludedAmountExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          dutiesExact: MoneyMapper.toPersistence(Money.zero('USD')),
+          totalAmountExact
+        },
+        inventoryHoldId: hold._id,
+        leaseExpiresAt: hold.expiresAt,
+        paymentId: null,
+        idempotencyKey,
+        requestHash
+      });
+
+      const payment = await Payment.create({
+        merchantScopeId: 'default',
+        checkoutSessionObjectId: sessionDoc._id,
+        checkoutSessionId: sessionId,
+        order: null,
+        user: testUser._id,
+        provider: 'stripe',
+        gateway: 'stripe',
+        status: PAYMENT_STATUSES.PENDING,
+        amount: Number(totalAmountMoney.toDecimalString()),
+        amountExact: totalAmountExact,
+        currency: 'USD',
+        providerPaymentId: '',
+        providerDisplayName: 'Stripe Payment',
+        providerIntegrationVersion: '1.0.0',
+        paymentType: 'automated',
+        capabilitySnapshot: {
+          createPayment: true,
+          accountAlias: 'default',
+          environment: 'sandbox'
+        },
+        idempotencyKey: `pay:${sessionId}`,
+        requestHash: crypto.createHash('sha256').update(JSON.stringify({ sessionId, amountMinor: String(totalAmountExact.amountMinor) })).digest('hex'),
+        providerIdempotencyKey: `prov:${sessionId}`,
+        history: []
+      });
+
+      // Verify pre-crash state
+      expect(sessionDoc.paymentId).toBeNull();
+      expect(payment.providerPaymentId).toBe('');
+      const orderBefore = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+      expect(orderBefore).toBeNull();
+
+      // 2. Setup spy for single provider call on replay
+      const createPaymentSpy = jest.fn().mockResolvedValue({
+        providerPaymentId: 'pi_genuine_recovered_123',
+        clientSecret: 'secret_transient_recovered_456',
+        status: PAYMENT_STATUSES.PENDING
+      });
+
+      jest.spyOn(paymentProviderRegistry, 'resolve').mockImplementation((providerName, context) => {
+        const adapter = nativeResolve(providerName, context);
+        return {
+          ...adapter,
+          createPayment: createPaymentSpy
+        };
+      });
+
+      // 3. Replay createSession with identical request and idempotency key
+      const recoveryResult = await CheckoutSessionService.createSession({
+        userId: testUser._id,
+        sessionData,
+        idempotencyKey
+      });
+
+      // Assert behavioral recovery
+      // 1. Existing CheckoutSession is reused
+      expect(recoveryResult.sessionId).toBe(sessionDoc.sessionId);
+      expect(recoveryResult.session._id.toString()).toBe(sessionDoc._id.toString());
+      expect(recoveryResult.isReplay).toBe(true);
+
+      // 2. Existing InventoryHold is reused
+      expect(recoveryResult.session.inventoryHoldId.toString()).toBe(hold._id.toString());
+
+      // 3. Existing Payment is reused
+      expect(recoveryResult.paymentAttempt.providerPaymentId).toBe('pi_genuine_recovered_123');
+
+      // 4. No duplicate Session, Hold, or Payment created
+      const sessionCount = await CheckoutSession.countDocuments({ idempotencyKey });
+      expect(sessionCount).toBe(1);
+      const holdCount = await InventoryHold.countDocuments({ sessionId });
+      expect(holdCount).toBe(1);
+      const paymentCount = await Payment.countDocuments({ checkoutSessionId: sessionId });
+      expect(paymentCount).toBe(1);
+
+      // 5. Provider createPayment called exactly once
+      expect(createPaymentSpy).toHaveBeenCalledTimes(1);
+
+      // 6. Stable provider idempotency identity reused
+      expect(createPaymentSpy).toHaveBeenCalledWith(expect.objectContaining({
+        idempotencyKey: payment.providerIdempotencyKey
+      }));
+
+      // 7. Provider payment ID persisted
+      const updatedPayment = await Payment.findById(payment._id);
+      expect(updatedPayment.providerPaymentId).toBe('pi_genuine_recovered_123');
+
+      // 8. CheckoutSession.paymentId linked
+      const updatedSession = await CheckoutSession.findById(sessionDoc._id);
+      expect(updatedSession.paymentId.toString()).toBe(payment._id.toString());
+
+      // 9. Session reaches payment_pending
+      expect(updatedSession.status).toBe(CheckoutSession.STATUSES.PAYMENT_PENDING);
+
+      // 10. Client secret is returned transiently but is absent from persisted documents
+      expect(recoveryResult.paymentAttempt.clientSecret).toBe('secret_transient_recovered_456');
+      expect(updatedSession.toObject()).not.toHaveProperty('clientSecret');
+      expect(updatedPayment.toObject()).not.toHaveProperty('clientSecret');
+
+      // 11. No Order created
+      const orderAfter = await Order.findOne({ checkoutSessionObjectId: sessionDoc._id });
+      expect(orderAfter).toBeNull();
     });
 
     it('simulates provider success followed by failure before session-payment linking and recovers cleanly on retry', async () => {
