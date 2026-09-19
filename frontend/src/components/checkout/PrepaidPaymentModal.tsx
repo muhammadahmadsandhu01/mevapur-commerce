@@ -269,6 +269,17 @@ export default function PrepaidPaymentModal({
                   ? 'Confirming with payment provider before concluding session…'
                   : 'Securing your reserved inventory and confirming payment capture with the payment network…'}
               </p>
+              {!isPolling && uiState !== 'confirming_payment' && (
+                <button
+                  type="button"
+                  onClick={() => void manualRefresh()}
+                  disabled={isPolling}
+                  className="mt-4 flex items-center gap-2 rounded-xl bg-[#0b132b] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1c2a4a] disabled:opacity-50"
+                >
+                  <RefreshCw size={16} />
+                  Check Status Now
+                </button>
+              )}
             </div>
           )}
 
@@ -282,6 +293,17 @@ export default function PrepaidPaymentModal({
               <p className="mt-1 max-w-sm text-sm text-gray-500">
                 Payment captured. Finalizing official order record and invoice…
               </p>
+              {!isPolling && (
+                <button
+                  type="button"
+                  onClick={() => void manualRefresh()}
+                  disabled={isPolling}
+                  className="mt-4 flex items-center gap-2 rounded-xl bg-[#0b132b] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1c2a4a] disabled:opacity-50"
+                >
+                  <RefreshCw size={16} />
+                  Check Status Now
+                </button>
+              )}
             </div>
           )}
 

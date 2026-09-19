@@ -214,6 +214,7 @@ export class PrepaidCheckoutPollingController {
 
   public stop(): void {
     this.isRunning = false;
+    this.is409Refetching = false;
     this.currentRequestId++; // Invalidate any in-flight request completion
     this.clearTimer('pollTimer');
     this.clearTimer('hardStopTimer');
@@ -321,7 +322,9 @@ export class PrepaidCheckoutPollingController {
         return null;
       }
 
-      this.inFlightAbortController = null;
+      if (this.inFlightAbortController === controller) {
+        this.inFlightAbortController = null;
+      }
       this.consecutiveErrors = 0;
       this.is409Refetching = false;
 

@@ -1011,4 +1011,373 @@ describe('Phase 6D-5B: Storefront Prepaid Payment Form & Modal Real-DOM Acceptan
       expect(screen.getByText(/cs_session_B_654/i)).toBeInTheDocument();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 4. Deterministic Deferred-Promise Callback Race Invariant Tests (A - E)
+  // ---------------------------------------------------------------------------
+
+  it('28a. Race A: poll converted resolves first, cancel converted resolves second -> onConverted called exactly once', async () => {
+    const onConvertedMock = vi.fn();
+    const onTerminalStateMock = vi.fn();
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockResolvedValue({
+      session: {
+        ...mockActiveSession,
+        status: 'converted',
+        convertedOrderDisplayId: 'ORD-POLL-FIRST-1',
+      },
+    });
+
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: {
+        ...mockActiveSession,
+        status: 'converted',
+        convertedOrderDisplayId: 'ORD-CANCEL-SECOND-1',
+      },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={onConvertedMock}
+        onTerminalState={onTerminalStateMock}
+      />
+    );
+
+    // Trigger cancel concurrently
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('converted-state')).toBeInTheDocument();
+    });
+
+    expect(onConvertedMock).toHaveBeenCalledTimes(1);
+    expect(onTerminalStateMock).not.toHaveBeenCalled();
+  });
+
+  it('28b. Race B: cancel converted resolves first, poll converted resolves second -> onConverted called exactly once', async () => {
+    const onConvertedMock = vi.fn();
+    const onTerminalStateMock = vi.fn();
+
+    let resolvePoll!: (value: unknown) => void;
+    const pollPromise = new Promise((res) => {
+      resolvePoll = res;
+    });
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockImplementation(async () => {
+      return (await pollPromise) as { session: PublicCheckoutSession };
+    });
+
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: {
+        ...mockActiveSession,
+        status: 'converted',
+        convertedOrderDisplayId: 'ORD-CANCEL-FIRST-2',
+      },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={onConvertedMock}
+        onTerminalState={onTerminalStateMock}
+      />
+    );
+
+    // Cancel resolves first
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(onConvertedMock).toHaveBeenCalledWith('ORD-CANCEL-FIRST-2');
+    });
+
+    // In-flight poll resolves second
+    resolvePoll({
+      session: {
+        ...mockActiveSession,
+        status: 'converted',
+        convertedOrderDisplayId: 'ORD-POLL-SECOND-2',
+      },
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(onConvertedMock).toHaveBeenCalledTimes(1);
+    expect(onConvertedMock).toHaveBeenCalledWith('ORD-CANCEL-FIRST-2');
+    expect(onTerminalStateMock).not.toHaveBeenCalled();
+  });
+
+  it('28c. Race C: poll conflict first, cancel conflict second -> onTerminalState called exactly once with conflict', async () => {
+    const onConvertedMock = vi.fn();
+    const onTerminalStateMock = vi.fn();
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockResolvedValue({
+      session: {
+        ...mockActiveSession,
+        status: 'conflict',
+      },
+    });
+
+    vi.spyOn(checkoutSessionService, 'cancelCheckoutSession').mockResolvedValue({
+      session: {
+        ...mockActiveSession,
+        status: 'conflict',
+      },
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={onConvertedMock}
+        onTerminalState={onTerminalStateMock}
+      />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel and return to cart/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conflict-state')).toBeInTheDocument();
+    });
+
+    expect(onTerminalStateMock).toHaveBeenCalledTimes(1);
+    expect(onTerminalStateMock).toHaveBeenCalledWith('conflict');
+    expect(onConvertedMock).not.toHaveBeenCalled();
+  });
+
+  it('28d. Race D: terminal poll response racing component unmount cleans up without throwing', async () => {
+    let resolvePoll!: (value: unknown) => void;
+    const pollPromise = new Promise((res) => {
+      resolvePoll = res;
+    });
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockImplementation(async () => {
+      return (await pollPromise) as { session: PublicCheckoutSession };
+    });
+
+    const { unmount } = render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        onConverted={vi.fn()}
+      />
+    );
+
+    // Unmount before poll resolves
+    unmount();
+
+    // Resolve poll after unmount
+    expect(() => {
+      resolvePoll({
+        session: {
+          ...mockActiveSession,
+          status: 'converted',
+          convertedOrderDisplayId: 'ORD-UNMOUNT-RACE-4',
+        },
+      });
+    }).not.toThrow();
+  });
+
+  it('28e. Race E: session A completes with converted, rerender session B allows session B to independently emit onConverted', async () => {
+    const onConvertedMock = vi.fn();
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockImplementation(async (sId: string) => {
+      return {
+        session: {
+          ...mockActiveSession,
+          sessionId: sId,
+          status: 'converted',
+          convertedOrderDisplayId: `ORD-${sId}`,
+        },
+      };
+    });
+
+    const { rerender } = render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId="cs_session_A_111"
+        clientSecret={mockClientSecret}
+        onConverted={onConvertedMock}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onConvertedMock).toHaveBeenCalledWith('ORD-cs_session_A_111');
+    });
+    expect(onConvertedMock).toHaveBeenCalledTimes(1);
+
+    // Rerender with session B
+    rerender(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId="cs_session_B_222"
+        clientSecret={mockClientSecret}
+        onConverted={onConvertedMock}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onConvertedMock).toHaveBeenCalledWith('ORD-cs_session_B_222');
+    });
+    expect(onConvertedMock).toHaveBeenCalledTimes(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 5. Manual-Recovery Liveness & Nonterminal State Retries
+  // ---------------------------------------------------------------------------
+
+  it('29. manual recovery remains actionable across repeated nonterminal manual checks without restart loops', async () => {
+    let getCallCount = 0;
+    const onConvertedMock = vi.fn();
+
+    // Start with persistent 409 conflict to pause automatic polling
+    const err409 = new Error('Conflict');
+    (err409 as unknown as { status: number }).status = 409;
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockImplementation(async () => {
+      getCallCount++;
+      if (getCallCount <= 2) {
+        throw err409;
+      } else if (getCallCount === 3) {
+        // First manual check returns payment_pending
+        return {
+          session: {
+            ...mockActiveSession,
+            status: 'payment_pending',
+          },
+        };
+      } else if (getCallCount === 4) {
+        // Second manual check returns converting
+        return {
+          session: {
+            ...mockActiveSession,
+            status: 'converting',
+          },
+        };
+      } else {
+        // Third manual check returns converted
+        return {
+          session: {
+            ...mockActiveSession,
+            status: 'converted',
+            convertedOrderDisplayId: 'ORD-LIVENESS-RECOVERED-99',
+          },
+        };
+      }
+    });
+
+    render(
+      <PrepaidPaymentModal
+        isOpen={true}
+        onClose={vi.fn()}
+        sessionId={mockSessionId}
+        clientSecret={mockClientSecret}
+        hasSubmittedPayment={true}
+        onConverted={onConvertedMock}
+      />
+    );
+
+    // Initial 409 error puts modal in verification-conflict-state
+    await waitFor(() => {
+      expect(screen.getByTestId('verification-conflict-state')).toBeInTheDocument();
+    });
+
+    // 1. First manual check -> transitions to awaiting-capture-state with visible retry action
+    const retryBtn1 = screen.getByRole('button', { name: /Check Status Now/i });
+    fireEvent.click(retryBtn1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('awaiting-capture-state')).toBeInTheDocument();
+    });
+    // The retry action must still be visible in awaiting-capture-state because polling is stopped!
+    const retryBtn2 = screen.getByRole('button', { name: /Check Status Now/i });
+    expect(retryBtn2).toBeInTheDocument();
+
+    // 2. Second manual check -> transitions to converting-order-state with visible retry action
+    fireEvent.click(retryBtn2);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('converting-order-state')).toBeInTheDocument();
+    });
+    const retryBtn3 = screen.getByRole('button', { name: /Check Status Now/i });
+    expect(retryBtn3).toBeInTheDocument();
+
+    // 3. Third manual check -> transitions to converted-state and fires callback
+    fireEvent.click(retryBtn3);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('converted-state')).toBeInTheDocument();
+      expect(screen.getByText(/ORD-LIVENESS-RECOVERED-99/i)).toBeInTheDocument();
+    });
+
+    expect(onConvertedMock).toHaveBeenCalledTimes(1);
+    expect(onConvertedMock).toHaveBeenCalledWith('ORD-LIVENESS-RECOVERED-99');
+  });
+
+  it('30. URL scrubbing comprehensive invariants: duplicate sensitive params removed, duplicate unrelated preserved, pathname and hash preserved', () => {
+    let replacedUrl = '';
+    let replaceCount = 0;
+    const fakeWin = {
+      location: {
+        href: 'https://storefront.test/checkout/pay?checkout_return=1&payment_intent=pi_1&payment_intent=pi_2&tab=review&tab=details&payment_intent_client_secret=secret_1&redirect_status=succeeded#delivery-section',
+      },
+      history: {
+        state: { preserved: true },
+        replaceState: (_state: unknown, _title: string, url: string) => {
+          replaceCount++;
+          replacedUrl = url;
+        },
+      },
+    } as unknown as Window;
+
+    scrubStripeUrlParams(fakeWin);
+
+    expect(replaceCount).toBe(1);
+    // All sensitive params removed
+    expect(replacedUrl).not.toContain('payment_intent');
+    expect(replacedUrl).not.toContain('payment_intent_client_secret');
+    expect(replacedUrl).not.toContain('redirect_status');
+    expect(replacedUrl).not.toContain('checkout_return');
+
+    // Unrelated duplicate parameters preserved
+    expect(replacedUrl).toContain('tab=review');
+    expect(replacedUrl).toContain('tab=details');
+
+    // Pathname and hash preserved
+    expect(replacedUrl.startsWith('/checkout/pay?')).toBe(true);
+    expect(replacedUrl.endsWith('#delivery-section')).toBe(true);
+
+    // Second idempotent call does not call replaceState again
+    const cleanedWin = {
+      location: {
+        href: `https://storefront.test${replacedUrl}`,
+      },
+      history: {
+        state: { preserved: true },
+        replaceState: () => {
+          replaceCount++;
+        },
+      },
+    } as unknown as Window;
+
+    scrubStripeUrlParams(cleanedWin);
+    expect(replaceCount).toBe(1);
+  });
 });

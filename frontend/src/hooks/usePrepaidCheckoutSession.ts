@@ -99,6 +99,41 @@ export function usePrepaidCheckoutSession(
   const onTerminalStateRef = useRef(onTerminalState);
   const onErrorRef = useRef(onError);
 
+  // Session-scoped terminal emission arbiter (ensures exactly-once across racing poll, cancel, and manual check)
+  const completedSessionIdRef = useRef<string | null>(null);
+  const hasEmittedTerminalRef = useRef<boolean>(false);
+  const lastSessionIdRef = useRef<string>(sessionId);
+
+  if (lastSessionIdRef.current !== sessionId) {
+    lastSessionIdRef.current = sessionId;
+    completedSessionIdRef.current = null;
+    hasEmittedTerminalRef.current = false;
+  }
+
+  const emitConvertedOnce = useCallback(
+    (convertedOrderDisplayId: string, s: PublicCheckoutSession) => {
+      if (hasEmittedTerminalRef.current && completedSessionIdRef.current === s.sessionId) {
+        return;
+      }
+      hasEmittedTerminalRef.current = true;
+      completedSessionIdRef.current = s.sessionId;
+      onConvertedRef.current?.(convertedOrderDisplayId, s);
+    },
+    []
+  );
+
+  const emitTerminalOnce = useCallback(
+    (status: CheckoutSessionStatus, s: PublicCheckoutSession) => {
+      if (hasEmittedTerminalRef.current && completedSessionIdRef.current === s.sessionId) {
+        return;
+      }
+      hasEmittedTerminalRef.current = true;
+      completedSessionIdRef.current = s.sessionId;
+      onTerminalStateRef.current?.(status, s);
+    },
+    []
+  );
+
   useEffect(() => {
     onConvertedRef.current = onConverted;
     onTerminalStateRef.current = onTerminalState;
@@ -141,10 +176,10 @@ export function usePrepaidCheckoutSession(
         setIsPolling(controller.getIsRunning());
       },
       onConverted: (convertedOrderDisplayId, convertedSession) => {
-        onConvertedRef.current?.(convertedOrderDisplayId, convertedSession);
+        emitConvertedOnce(convertedOrderDisplayId, convertedSession);
       },
       onTerminalState: (terminalStatus, terminalSession) => {
-        onTerminalStateRef.current?.(terminalStatus, terminalSession);
+        emitTerminalOnce(terminalStatus, terminalSession);
       },
       onError: (err) => {
         setErrorMessage(err.message || 'Verification error occurred.');
@@ -175,7 +210,15 @@ export function usePrepaidCheckoutSession(
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [sessionId, initialSubmittedPayment, leaseExpiresAt, jitterProvider, syncAttemptStore]);
+  }, [
+    sessionId,
+    initialSubmittedPayment,
+    leaseExpiresAt,
+    jitterProvider,
+    syncAttemptStore,
+    emitConvertedOnce,
+    emitTerminalOnce,
+  ]);
 
   // UX Countdown Timer
   useEffect(() => {
@@ -256,9 +299,9 @@ export function usePrepaidCheckoutSession(
           controllerRef.current?.stop();
           setIsPolling(false);
           if (cancelledSession.status === 'converted' && cancelledSession.convertedOrderDisplayId) {
-            onConvertedRef.current?.(cancelledSession.convertedOrderDisplayId, cancelledSession);
+            emitConvertedOnce(cancelledSession.convertedOrderDisplayId, cancelledSession);
           } else if (cancelledSession.status !== 'converted') {
-            onTerminalStateRef.current?.(cancelledSession.status, cancelledSession);
+            emitTerminalOnce(cancelledSession.status, cancelledSession);
           }
         } else {
           // If response is not terminal (e.g. cancellation_requested, payment_captured, converting),
@@ -276,7 +319,7 @@ export function usePrepaidCheckoutSession(
         setIsCancelling(false);
       }
     },
-    [sessionId, isCancelling, syncAttemptStore]
+    [sessionId, isCancelling, syncAttemptStore, emitConvertedOnce, emitTerminalOnce]
   );
 
   return {
