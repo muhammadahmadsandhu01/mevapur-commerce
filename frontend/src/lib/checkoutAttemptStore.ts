@@ -537,12 +537,23 @@ export function isValidAttemptRecord(record: unknown): record is CheckoutAttempt
   return true;
 }
 
+function unrefBroadcastChannelIfSupported(channel: BroadcastChannel): void {
+  const candidate = channel as BroadcastChannel & {
+    unref?: () => void;
+  };
+
+  if (typeof candidate.unref === 'function') {
+    candidate.unref();
+  }
+}
+
 let sharedBroadcastChannel: BroadcastChannel | null = null;
 function getBroadcastChannel(): BroadcastChannel | null {
   if (typeof BroadcastChannel !== 'undefined') {
     try {
       if (!sharedBroadcastChannel) {
         sharedBroadcastChannel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+        unrefBroadcastChannelIfSupported(sharedBroadcastChannel);
       }
       return sharedBroadcastChannel;
     } catch {
@@ -1205,10 +1216,12 @@ export function subscribeCheckoutAttemptSync(
 ): () => void {
   if (typeof window === 'undefined') return () => {};
 
+  let isUnsubscribed = false;
   let channel: BroadcastChannel | null = null;
   if (typeof BroadcastChannel !== 'undefined') {
     try {
       channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      unrefBroadcastChannelIfSupported(channel);
       channel.onmessage = (event) => {
         if (event.data) {
           callback(event.data);
@@ -1240,7 +1253,18 @@ export function subscribeCheckoutAttemptSync(
   window.addEventListener('storage', handleStorage);
 
   return () => {
-    channel?.close();
+    if (isUnsubscribed) return;
+    isUnsubscribed = true;
+
+    if (channel) {
+      channel.onmessage = null;
+      try {
+        channel.close();
+      } catch {
+        // Ignore close error
+      }
+      channel = null;
+    }
     window.removeEventListener('storage', handleStorage);
   };
 }
