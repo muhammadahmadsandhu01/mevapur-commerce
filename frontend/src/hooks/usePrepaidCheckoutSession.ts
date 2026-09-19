@@ -101,21 +101,12 @@ export function usePrepaidCheckoutSession(
 
   // Session-scoped terminal emission arbiter (ensures exactly-once across racing poll, cancel, and manual check)
   const completedSessionIdRef = useRef<string | null>(null);
-  const hasEmittedTerminalRef = useRef<boolean>(false);
-  const lastSessionIdRef = useRef<string>(sessionId);
-
-  if (lastSessionIdRef.current !== sessionId) {
-    lastSessionIdRef.current = sessionId;
-    completedSessionIdRef.current = null;
-    hasEmittedTerminalRef.current = false;
-  }
 
   const emitConvertedOnce = useCallback(
     (convertedOrderDisplayId: string, s: PublicCheckoutSession) => {
-      if (hasEmittedTerminalRef.current && completedSessionIdRef.current === s.sessionId) {
+      if (completedSessionIdRef.current === s.sessionId) {
         return;
       }
-      hasEmittedTerminalRef.current = true;
       completedSessionIdRef.current = s.sessionId;
       onConvertedRef.current?.(convertedOrderDisplayId, s);
     },
@@ -124,10 +115,9 @@ export function usePrepaidCheckoutSession(
 
   const emitTerminalOnce = useCallback(
     (status: CheckoutSessionStatus, s: PublicCheckoutSession) => {
-      if (hasEmittedTerminalRef.current && completedSessionIdRef.current === s.sessionId) {
+      if (completedSessionIdRef.current === s.sessionId) {
         return;
       }
-      hasEmittedTerminalRef.current = true;
       completedSessionIdRef.current = s.sessionId;
       onTerminalStateRef.current?.(status, s);
     },
@@ -162,6 +152,8 @@ export function usePrepaidCheckoutSession(
 
   // Initialize and manage controller
   useEffect(() => {
+    completedSessionIdRef.current = null;
+
     const controller = new PrepaidCheckoutPollingController({
       sessionId,
       hasSubmittedPayment: initialSubmittedPayment,
