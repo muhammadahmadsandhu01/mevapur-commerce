@@ -49,9 +49,11 @@ import {
   CheckoutAttemptNonTerminalRotationError,
   CheckoutAttemptActiveIntentConflictError,
   CheckoutAttemptStaleUpdateError,
+  isAllowedAttemptTransition,
   STORAGE_KEY_PREFIX,
   SUBMITTED_PAYMENT_RECOVERY_TTL_MS,
   type CheckoutIntentInput,
+  type CheckoutAttemptStatus,
 } from '../src/lib/checkoutAttemptStore.ts';
 import { useAuthStore } from '../src/store/authStore.ts';
 import type {
@@ -1048,19 +1050,22 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 40. Converted cleanup
+  // 40. Converted completion tombstone
   // ---------------------------------------------------------------------------
-  test('40. updateCheckoutAttemptSession clears record when authoritative status is converted', async () => {
+  test('40. updateCheckoutAttemptSession stores bounded completion tombstone when authoritative status is converted', async () => {
     const scope = await computeHashedUserScope('user_converted');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_converted' });
 
     updateCheckoutAttemptSession(scope, {
       sessionId: 'cs_converted_123',
       status: 'converted',
+      convertedOrderDisplayId: 'ORD-987654',
     });
 
     const retrieved = getCheckoutAttempt(scope);
-    assert.equal(retrieved, null, 'Converted attempt must be purged immediately');
+    assert.ok(retrieved);
+    assert.equal(retrieved.status, 'converted');
+    assert.equal(retrieved.convertedOrderDisplayId, 'ORD-987654');
   });
 
   // ---------------------------------------------------------------------------
@@ -1137,7 +1142,7 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
       () => updateCheckoutAttemptSession(hashedScope, { status: 'active' }),
       (err: unknown) =>
         err instanceof CheckoutAttemptStaleUpdateError &&
-        err.message.includes("Cannot regress state from advanced status 'payment_captured'")
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
     );
 
     const current = getCheckoutAttempt(hashedScope);
@@ -1163,15 +1168,24 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 46. Monotonic reconciliation: stale response cannot regress converted
+  // 46. Monotonic reconciliation: converted tombstone prevents stale response regression
   // ---------------------------------------------------------------------------
-  test('46. monotonic reconciliation prevents stale response from restoring cleared converted record', async () => {
+  test('46. monotonic reconciliation: converted tombstone prevents stale response from regressing to active', async () => {
     const scope = 'user_mon_converted';
     const hashedScope = await computeHashedUserScope(scope);
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
     updateCheckoutAttemptSession(hashedScope, { status: 'converted', sessionId: 'cs_converted_ok' });
 
-    assert.equal(getCheckoutAttempt(hashedScope), null);
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'active' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+
+    const retrieved = getCheckoutAttempt(hashedScope);
+    assert.ok(retrieved);
+    assert.equal(retrieved.status, 'converted');
   });
 
   // ---------------------------------------------------------------------------
@@ -1562,5 +1576,528 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
       () => cancelCheckoutSession('cs_123'),
       (err: unknown) => isCheckoutSessionResponseInvalidError(err)
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 70. State Machine: payment_captured rejects failed regression
+  // ---------------------------------------------------------------------------
+  test('70. payment_captured rejects failed regression', async () => {
+    const scope = 'user_cap_failed';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'failed' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'payment_captured');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 71. State Machine: payment_captured rejects cancelled regression
+  // ---------------------------------------------------------------------------
+  test('71. payment_captured rejects cancelled regression', async () => {
+    const scope = 'user_cap_cancelled';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'cancelled' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'payment_captured');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 72. State Machine: payment_captured rejects expired regression
+  // ---------------------------------------------------------------------------
+  test('72. payment_captured rejects expired regression', async () => {
+    const scope = 'user_cap_expired';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'expired' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'payment_captured');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 73. State Machine: converting rejects payment_captured regression
+  // ---------------------------------------------------------------------------
+  test('73. converting rejects payment_captured regression', async () => {
+    const scope = 'user_conv_cap';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converting' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converting');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 74. State Machine: converting rejects failed regression
+  // ---------------------------------------------------------------------------
+  test('74. converting rejects failed regression', async () => {
+    const scope = 'user_conv_failed';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converting' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'failed' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converting');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 75. State Machine: converting rejects cancelled regression
+  // ---------------------------------------------------------------------------
+  test('75. converting rejects cancelled regression', async () => {
+    const scope = 'user_conv_cancelled';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converting' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'cancelled' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converting');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 76. State Machine: cancellation_requested permits payment_captured
+  // ---------------------------------------------------------------------------
+  test('76. cancellation_requested permits payment_captured because capture may win', async () => {
+    const scope = 'user_canc_req_cap';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'cancellation_requested' });
+
+    const updated = updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured' });
+    assert.equal(updated?.status, 'payment_captured');
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'payment_captured');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 77. State Machine: cancellation_requested permits cancelled
+  // ---------------------------------------------------------------------------
+  test('77. cancellation_requested permits cancelled because cancellation may win', async () => {
+    const scope = 'user_canc_req_cancelled';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'cancellation_requested' });
+
+    const updated = updateCheckoutAttemptSession(hashedScope, { status: 'cancelled' });
+    assert.equal(updated?.status, 'cancelled');
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'cancelled');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 78. State Machine: cancelled permits conflict for late capture reconciliation
+  // ---------------------------------------------------------------------------
+  test('78. cancelled permits conflict for late capture reconciliation', async () => {
+    const scope = 'user_canc_conflict';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'cancelled' });
+
+    const updated = updateCheckoutAttemptSession(hashedScope, { status: 'conflict' });
+    assert.equal(updated?.status, 'conflict');
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'conflict');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 79. State Machine: expired permits conflict for late capture reconciliation
+  // ---------------------------------------------------------------------------
+  test('79. expired permits conflict for late capture reconciliation', async () => {
+    const scope = 'user_exp_conflict';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'expired' });
+
+    const updated = updateCheckoutAttemptSession(hashedScope, { status: 'conflict' });
+    assert.equal(updated?.status, 'conflict');
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'conflict');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 80. State Machine: failed permits conflict when reconciliation requires it
+  // ---------------------------------------------------------------------------
+  test('80. failed permits conflict when authoritative reconciliation requires it', async () => {
+    const scope = 'user_fail_conflict';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'failed' });
+
+    const updated = updateCheckoutAttemptSession(hashedScope, { status: 'conflict' });
+    assert.equal(updated?.status, 'conflict');
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'conflict');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 81. State Machine: conflict rejects failed
+  // ---------------------------------------------------------------------------
+  test('81. conflict rejects failed', async () => {
+    const scope = 'user_conf_fail';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'conflict' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'failed' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'conflict');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 82. State Machine: conflict rejects cancelled
+  // ---------------------------------------------------------------------------
+  test('82. conflict rejects cancelled', async () => {
+    const scope = 'user_conf_canc';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'conflict' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'cancelled' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'conflict');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 83. State Machine: converted rejects every non-converted status
+  // ---------------------------------------------------------------------------
+  test('83. converted rejects every non-converted status', async () => {
+    const scope = 'user_conv_immutable';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converted', convertedOrderDisplayId: 'ORD-IMMUTABLE' });
+
+    const nonConverted: CheckoutAttemptStatus[] = [
+      'creating',
+      'active',
+      'payment_pending',
+      'payment_captured',
+      'converting',
+      'cancellation_requested',
+      'cancelled',
+      'expired',
+      'failed',
+      'conflict',
+    ];
+
+    for (const st of nonConverted) {
+      assert.throws(
+        () => updateCheckoutAttemptSession(hashedScope, { status: st }),
+        (err: unknown) =>
+          err instanceof CheckoutAttemptStaleUpdateError &&
+          err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED',
+        `converted must reject transition to ${st}`
+      );
+    }
+
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converted');
+    assert.equal(rec?.convertedOrderDisplayId, 'ORD-IMMUTABLE');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 84. State Machine: same-state updates remain idempotent
+  // ---------------------------------------------------------------------------
+  test('84. same-state updates remain idempotent across statuses', () => {
+    const statuses: CheckoutAttemptStatus[] = [
+      'creating',
+      'active',
+      'payment_pending',
+      'payment_captured',
+      'converting',
+      'cancellation_requested',
+      'cancelled',
+      'expired',
+      'failed',
+      'conflict',
+      'converted',
+    ];
+
+    for (const st of statuses) {
+      assert.equal(isAllowedAttemptTransition(st, st), true, `Same-state transition for ${st} must be allowed`);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // 85. Update Validation: correct generation but wrong idempotencyKey is rejected
+  // ---------------------------------------------------------------------------
+  test('85. correct generation but wrong idempotencyKey is rejected', async () => {
+    const scope = 'user_wrong_key';
+    const hashedScope = await computeHashedUserScope(scope);
+    const rec = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    const wrongKey = 'checkout-v1-' + '9'.repeat(64);
+    assert.notEqual(wrongKey, rec.idempotencyKey);
+
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedGeneration: 1,
+          expectedIdempotencyKey: wrongKey,
+        }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 86. Converted Race: clear converted then delayed active response cannot resurrect attempt
+  // ---------------------------------------------------------------------------
+  test('86. clear converted then delayed active response cannot resurrect attempt', async () => {
+    const scope = 'user_race_active';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    // Tab A receives converted and records completion tombstone
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-RACE-1',
+    });
+
+    // Tab B delayed response calls update with active
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedGeneration: 1,
+        }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converted');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 87. Converted Race: clear converted then delayed payment_pending cannot resurrect attempt
+  // ---------------------------------------------------------------------------
+  test('87. clear converted then delayed payment_pending response cannot resurrect attempt', async () => {
+    const scope = 'user_race_pending';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    // Tab A receives converted
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-RACE-2',
+    });
+
+    // Tab B delayed response calls update with payment_pending
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'payment_pending',
+          expectedGeneration: 1,
+        }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converted');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 88. Converted Race: clear converted then delayed payment_captured cannot resurrect attempt
+  // ---------------------------------------------------------------------------
+  test('88. clear converted then delayed payment_captured response cannot resurrect attempt', async () => {
+    const scope = 'user_race_captured';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    // Tab A receives converted
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-RACE-3',
+    });
+
+    // Tab B delayed response calls update with payment_captured
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'payment_captured',
+          expectedGeneration: 1,
+        }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+
+    const rec = getCheckoutAttempt(hashedScope);
+    assert.equal(rec?.status, 'converted');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 89. Changed Intent Race: delayed writer cannot overwrite current protected fingerprint
+  // ---------------------------------------------------------------------------
+  test('89. changed-intent delayed writer cannot overwrite the current protected fingerprint', async () => {
+    const scope = 'user_changed_race_1';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    // Tab A prepares Intent A
+    const fpA = await computeCheckoutFingerprint(sampleIntentInput, hashedScope);
+
+    // Tab B writes Intent B (different item) to storage
+    const intentB: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      items: [{ productId: 'prod_b_999', quantity: 2 }],
+    };
+    const recB = await getOrCreateCheckoutAttempt(intentB, { userScope: scope });
+    assert.notEqual(recB.baseFingerprint, fpA);
+    updateCheckoutAttemptSession(hashedScope, { status: 'active', sessionId: 'cs_b_active' });
+
+    // Tab A delayed writer attempts to write Intent A with getOrCreateCheckoutAttempt
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptActiveIntentConflictError &&
+        err.code === 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT' &&
+        err.existingSessionId === 'cs_b_active'
+    );
+
+    // Tab A delayed update attempting updateCheckoutAttemptSession with expectedFingerprint A
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedFingerprint: fpA,
+        }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+
+    // Intent B remains untouched and protected
+    const current = getCheckoutAttempt(hashedScope);
+    assert.equal(current?.baseFingerprint, recB.baseFingerprint);
+    assert.equal(current?.status, 'active');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 90. Changed Intent Race: inverse interleaving is also protected
+  // ---------------------------------------------------------------------------
+  test('90. inverse changed-intent interleaving is also protected', async () => {
+    const scope = 'user_changed_race_2';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    // Tab A writes Intent A to storage and payment is submitted
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_pending', sessionId: 'cs_a_pending' });
+    recordPaymentSubmitted(hashedScope);
+
+    // Tab B attempts to initialize Intent B
+    const intentB: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      items: [{ productId: 'prod_diff_123', quantity: 5 }],
+    };
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(intentB, { userScope: scope }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptActiveIntentConflictError &&
+        err.code === 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT' &&
+        err.existingSessionId === 'cs_a_pending'
+    );
+
+    // Intent A remains in storage
+    const current = getCheckoutAttempt(hashedScope);
+    assert.equal(current?.status, 'payment_pending');
+    assert.ok(current?.paymentSubmittedAt);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 91. Tombstone Cleanup: clearAllCheckoutAttempts removes completion tombstone
+  // ---------------------------------------------------------------------------
+  test('91. clearAllCheckoutAttempts removes any completion tombstone', async () => {
+    const scope = await computeHashedUserScope('user_tombstone_clear');
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_tombstone_clear' });
+    updateCheckoutAttemptSession(scope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-TOMB-CLEAR',
+    });
+
+    assert.ok(getCheckoutAttempt(scope));
+    clearAllCheckoutAttempts();
+    assert.equal(getCheckoutAttempt(scope), null);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 92. Tombstone Expiry: bounded tombstone expiry permits legitimate future checkout
+  // ---------------------------------------------------------------------------
+  test('92. bounded tombstone expiry permits legitimate future checkout', async () => {
+    const scope = 'user_tombstone_expiry';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-TOMB-EXPIRY',
+    });
+
+    // Artificially age the tombstone in localStorage past recoveryExpiresAt
+    const raw = window.localStorage.getItem(STORAGE_KEY_PREFIX + hashedScope);
+    assert.ok(raw);
+    const parsed = JSON.parse(raw);
+    parsed.recoveryExpiresAt = Date.now() - 1000;
+    window.localStorage.setItem(STORAGE_KEY_PREFIX + hashedScope, JSON.stringify(parsed));
+
+    // getCheckoutAttempt now sees expired tombstone and cleans it up
+    assert.equal(getCheckoutAttempt(hashedScope), null);
+
+    // User can now legitimately start a new checkout attempt with generation 1
+    const fresh = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    assert.equal(fresh.generation, 1);
+    assert.equal(fresh.status, 'creating');
   });
 });

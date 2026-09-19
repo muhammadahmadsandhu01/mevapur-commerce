@@ -424,6 +424,7 @@ export interface CheckoutAttemptRecord {
   sessionId?: string;
   leaseExpiresAt?: string;
   status: 'creating' | CheckoutSessionStatus;
+  convertedOrderDisplayId?: string | null;
   paymentSubmittedAt?: string | null;
   createdAt: number;
   updatedAt: number;

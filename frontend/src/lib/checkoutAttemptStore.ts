@@ -18,7 +18,8 @@
  * - Zero-PII and Zero-Secret storage guarantees
  * - Terminal-only generation rotation: forceNewAttempt requires authoritative failed, expired, or cancelled status
  * - Changed-intent protection: active attempts throw CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT
- * - Monotonic reconciliation: stale cross-tab responses cannot regress terminal or advanced payment states
+ * - Explicit branching transition matrix: stale cross-tab responses cannot regress terminal, advanced payment, or converted states
+ * - Converted completion tombstone: prevents stale post-conversion response resurrection while preserving success reload recovery
  * - Cross-tab coordination via deterministic idempotency keys, navigator.locks, and BroadcastChannel/storage events
  */
 
@@ -80,6 +81,7 @@ export interface CheckoutAttemptRecord {
   sessionId?: string;
   leaseExpiresAt?: string;
   status: CheckoutAttemptStatus;
+  convertedOrderDisplayId?: string | null;
   paymentSubmittedAt?: string | null;
   createdAt: number;
   updatedAt: number;
@@ -124,6 +126,18 @@ export class CheckoutAttemptNonTerminalRotationError extends Error {
   }
 }
 
+export function isCheckoutAttemptNonTerminalRotationError(
+  error: unknown
+): error is CheckoutAttemptNonTerminalRotationError {
+  return (
+    error instanceof CheckoutAttemptNonTerminalRotationError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'CHECKOUT_ATTEMPT_NON_TERMINAL_ROTATION_FORBIDDEN')
+  );
+}
+
 export class CheckoutAttemptActiveIntentConflictError extends Error {
   readonly code = 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT';
   readonly existingSessionId: string | null;
@@ -145,20 +159,55 @@ export class CheckoutAttemptActiveIntentConflictError extends Error {
   }
 }
 
+export function isCheckoutAttemptActiveIntentConflictError(
+  error: unknown
+): error is CheckoutAttemptActiveIntentConflictError {
+  return (
+    error instanceof CheckoutAttemptActiveIntentConflictError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT')
+  );
+}
+
 export class CheckoutAttemptStaleUpdateError extends Error {
   readonly code = 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED';
-  readonly reason: string;
+  readonly existingStatus: CheckoutAttemptStatus;
+  readonly attemptedStatus: CheckoutAttemptStatus;
+  readonly generation: number;
 
-  constructor(reason: string) {
-    super(`Checkout attempt update rejected as stale: ${reason}`);
+  constructor(
+    existingStatus: CheckoutAttemptStatus,
+    attemptedStatus: CheckoutAttemptStatus,
+    generation: number,
+    message?: string
+  ) {
+    super(
+      message ||
+        `Checkout attempt update rejected as stale or illegal transition: cannot transition from '${existingStatus}' to '${attemptedStatus}' in generation ${generation}`
+    );
     this.name = 'CheckoutAttemptStaleUpdateError';
-    this.reason = reason;
+    this.existingStatus = existingStatus;
+    this.attemptedStatus = attemptedStatus;
+    this.generation = generation;
   }
+}
+
+export function isCheckoutAttemptStaleUpdateError(error: unknown): error is CheckoutAttemptStaleUpdateError {
+  return (
+    error instanceof CheckoutAttemptStaleUpdateError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED')
+  );
 }
 
 export const STORAGE_KEY_PREFIX = 'mevapur:checkout-attempt:v1:';
 export const DEFAULT_RECOVERY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 export const SUBMITTED_PAYMENT_RECOVERY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+export const BOUNDED_CONVERTED_RETENTION_MS = 60 * 60 * 1000; // 1 hour bounded retention for success redirect/recovery
 export const BROADCAST_CHANNEL_NAME = 'mevapur_checkout_attempt_sync';
 
 export const AUTHORITATIVE_TERMINAL_STATUSES: readonly CheckoutSessionStatus[] = [
@@ -166,6 +215,104 @@ export const AUTHORITATIVE_TERMINAL_STATUSES: readonly CheckoutSessionStatus[] =
   'expired',
   'cancelled',
 ] as const;
+
+/**
+ * Authoritative Branching State Transition Matrix for Checkout Attempt Identity.
+ * Each status maps to the strict set of permitted subsequent statuses.
+ * Same-state transitions (from === to) are idempotent and allowed.
+ */
+export const ALLOWED_CHECKOUT_ATTEMPT_TRANSITIONS: Record<
+  CheckoutAttemptStatus,
+  ReadonlySet<CheckoutAttemptStatus>
+> = {
+  creating: new Set<CheckoutAttemptStatus>([
+    'creating',
+    'active',
+    'payment_pending',
+    'payment_captured',
+    'converting',
+    'converted',
+    'cancellation_requested',
+    'cancelled',
+    'expired',
+    'failed',
+    'conflict',
+  ]),
+  active: new Set<CheckoutAttemptStatus>([
+    'active',
+    'payment_pending',
+    'payment_captured',
+    'converting',
+    'converted',
+    'cancellation_requested',
+    'cancelled',
+    'expired',
+    'failed',
+    'conflict',
+  ]),
+  payment_pending: new Set<CheckoutAttemptStatus>([
+    'payment_pending',
+    'payment_captured',
+    'converting',
+    'converted',
+    'cancellation_requested',
+    'cancelled',
+    'expired',
+    'failed',
+    'conflict',
+  ]),
+  payment_captured: new Set<CheckoutAttemptStatus>([
+    'payment_captured',
+    'converting',
+    'converted',
+    'conflict',
+  ]),
+  converting: new Set<CheckoutAttemptStatus>([
+    'converting',
+    'converted',
+    'conflict',
+  ]),
+  cancellation_requested: new Set<CheckoutAttemptStatus>([
+    'cancellation_requested',
+    'cancelled',
+    'payment_captured',
+    'converting',
+    'converted',
+    'conflict',
+  ]),
+  cancelled: new Set<CheckoutAttemptStatus>([
+    'cancelled',
+    'conflict',
+  ]),
+  expired: new Set<CheckoutAttemptStatus>([
+    'expired',
+    'conflict',
+  ]),
+  failed: new Set<CheckoutAttemptStatus>([
+    'failed',
+    'conflict',
+  ]),
+  conflict: new Set<CheckoutAttemptStatus>([
+    'conflict',
+  ]),
+  converted: new Set<CheckoutAttemptStatus>([
+    'converted',
+  ]),
+};
+
+/**
+ * Evaluates whether a state transition from `fromStatus` to `toStatus` is permitted.
+ */
+export function isAllowedAttemptTransition(
+  fromStatus: CheckoutAttemptStatus,
+  toStatus: CheckoutAttemptStatus
+): boolean {
+  if (fromStatus === toStatus) {
+    return true; // Idempotent same-state update
+  }
+  const allowed = ALLOWED_CHECKOUT_ATTEMPT_TRANSITIONS[fromStatus];
+  return allowed ? allowed.has(toStatus) : false;
+}
 
 /**
  * Accesses localStorage safely at runtime.
@@ -343,6 +490,14 @@ export function isValidAttemptRecord(record: unknown): record is CheckoutAttempt
   if (typeof r.status !== 'string') return false;
   if (typeof r.createdAt !== 'number' || typeof r.updatedAt !== 'number' || typeof r.recoveryExpiresAt !== 'number') return false;
 
+  if (
+    r.convertedOrderDisplayId !== undefined &&
+    r.convertedOrderDisplayId !== null &&
+    typeof r.convertedOrderDisplayId !== 'string'
+  ) {
+    return false;
+  }
+
   // Strict check: zero raw PII or secret fields allowed
   if (
     'userId' in r ||
@@ -471,6 +626,10 @@ function writeCheckoutAttemptRecord(
         sessionId: record.sessionId ? String(record.sessionId) : undefined,
         leaseExpiresAt: record.leaseExpiresAt ? String(record.leaseExpiresAt) : undefined,
         status: record.status,
+        convertedOrderDisplayId:
+          record.convertedOrderDisplayId !== undefined && record.convertedOrderDisplayId !== null
+            ? String(record.convertedOrderDisplayId)
+            : null,
         paymentSubmittedAt: record.paymentSubmittedAt ? String(record.paymentSubmittedAt) : null,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
@@ -516,6 +675,7 @@ export async function withCheckoutLock<T>(
  * Enforces:
  * 1. Terminal-only generation rotation: forceNewAttempt requires authoritative failed, expired, or cancelled status.
  * 2. Changed-intent protection: active/in-flight attempts cannot be silently overwritten.
+ * 3. Converted session protection: completed sessions are immutable for identical intent, or gracefully replaced for fresh intent.
  */
 export async function getOrCreateCheckoutAttempt(
   input: CheckoutIntentInput,
@@ -533,6 +693,17 @@ export async function getOrCreateCheckoutAttempt(
 
     if (existing) {
       if (existing.baseFingerprint === baseFingerprint) {
+        if (existing.status === 'converted') {
+          if (options?.forceNewAttempt) {
+            throw new CheckoutAttemptNonTerminalRotationError(
+              existing.status,
+              existing.sessionId || null,
+              `Cannot force a new checkout attempt on a converted session. Session has completed conversion.`
+            );
+          }
+          return existing;
+        }
+
         if (options?.forceNewAttempt) {
           // Rule 1: Generation rotation is ONLY allowed if authoritative prior status is terminal (failed, expired, cancelled)
           const isAuthoritativeTerminal = (AUTHORITATIVE_TERMINAL_STATUSES as readonly string[]).includes(
@@ -567,8 +738,12 @@ export async function getOrCreateCheckoutAttempt(
         return existing;
       }
 
-      // Rule 2: Changed intent cannot overwrite an existing active or submitted attempt
-      if (existing.status === 'conflict') {
+      // Rule 2: Changed intent handling
+      if (existing.status === 'converted') {
+        // Prior intent was successfully converted to order. Customer is now creating a new order with changed intent.
+        // Replace the converted tombstone with fresh generation 1 attempt for the new intent.
+        clearCheckoutAttempt(hashedUserScope);
+      } else if (existing.status === 'conflict') {
         if (now > existing.recoveryExpiresAt) {
           // Bounded conflict retention has expired; explicitly purge it before creating fresh attempt
           clearCheckoutAttempt(hashedUserScope);
@@ -614,7 +789,8 @@ export async function getOrCreateCheckoutAttempt(
 
 /**
  * Monotonically updates session references and authoritative status on the active attempt.
- * Enforces strict anti-regression rules to prevent stale responses from rolling back advanced states.
+ * Enforces strict branching state machine transitions and verification of baseFingerprint,
+ * generation, and idempotencyKey before modifying storage.
  */
 export function updateCheckoutAttemptSession(
   hashedUserScope: string,
@@ -622,6 +798,7 @@ export function updateCheckoutAttemptSession(
     sessionId?: string;
     leaseExpiresAt?: string;
     status?: CheckoutAttemptStatus;
+    convertedOrderDisplayId?: string | null;
     paymentSubmittedAt?: string | null;
     expectedGeneration?: number;
     expectedFingerprint?: string;
@@ -629,67 +806,65 @@ export function updateCheckoutAttemptSession(
   }
 ): CheckoutAttemptRecord | null {
   const current = getCheckoutAttempt(hashedUserScope);
-  if (!current) {
-    return null;
-  }
+  const attemptedStatus = updates.status || current?.status || 'creating';
+  const gen = updates.expectedGeneration || current?.generation || 1;
 
-  // Verify generation and fingerprint match if specified
-  if (updates.expectedGeneration !== undefined && updates.expectedGeneration < current.generation) {
+  if (!current) {
     throw new CheckoutAttemptStaleUpdateError(
-      `Update generation (${updates.expectedGeneration}) is older than current persisted attempt generation (${current.generation})`
+      'creating',
+      attemptedStatus,
+      gen,
+      'Cannot update checkout attempt: no active attempt or completion record found in storage'
     );
   }
 
+  // Verify generation matches
+  if (updates.expectedGeneration !== undefined && updates.expectedGeneration !== current.generation) {
+    throw new CheckoutAttemptStaleUpdateError(
+      current.status,
+      attemptedStatus,
+      current.generation,
+      `Update generation (${updates.expectedGeneration}) does not match current persisted attempt generation (${current.generation})`
+    );
+  }
+
+  // Verify fingerprint matches
   if (updates.expectedFingerprint !== undefined && updates.expectedFingerprint !== current.baseFingerprint) {
     throw new CheckoutAttemptStaleUpdateError(
+      current.status,
+      attemptedStatus,
+      current.generation,
       `Update fingerprint does not match current persisted attempt baseFingerprint`
     );
   }
 
+  // Verify idempotencyKey matches
   if (updates.expectedIdempotencyKey !== undefined && updates.expectedIdempotencyKey !== current.idempotencyKey) {
     throw new CheckoutAttemptStaleUpdateError(
+      current.status,
+      attemptedStatus,
+      current.generation,
       `Update idempotencyKey does not match current persisted attempt idempotencyKey`
     );
   }
 
-  // If authoritative server status is converted, clear the record immediately
-  if (updates.status === 'converted' || current.status === 'converted') {
-    clearCheckoutAttempt(hashedUserScope);
-    return null;
-  }
-
-  // Prevent status regressions from stale cross-tab responses
-  const incomingStatus = updates.status;
-  if (incomingStatus) {
-    const protectedTerminalAndPaymentStates: readonly CheckoutAttemptStatus[] = [
-      'payment_captured',
-      'converting',
-      'conflict',
-      'cancelled',
-      'expired',
-      'failed',
-    ];
-
-    if (protectedTerminalAndPaymentStates.includes(current.status)) {
-      const earlyStates: readonly CheckoutAttemptStatus[] = ['creating', 'active', 'payment_pending'];
-      if (earlyStates.includes(incomingStatus)) {
-        throw new CheckoutAttemptStaleUpdateError(
-          `Cannot regress state from advanced status '${current.status}' to earlier status '${incomingStatus}'`
-        );
-      }
-
-      if (current.status === 'converting' && incomingStatus === 'payment_captured') {
-        throw new CheckoutAttemptStaleUpdateError(
-          `Cannot regress state from 'converting' to 'payment_captured'`
-        );
-      }
-    }
+  // Check explicit branching state transition policy
+  const targetStatus = updates.status !== undefined ? updates.status : current.status;
+  if (!isAllowedAttemptTransition(current.status, targetStatus)) {
+    throw new CheckoutAttemptStaleUpdateError(
+      current.status,
+      targetStatus,
+      current.generation,
+      `State transition from '${current.status}' to '${targetStatus}' is not permitted by checkout attempt state machine policy`
+    );
   }
 
   const now = Date.now();
   let recoveryExpiresAt = current.recoveryExpiresAt;
 
-  if (updates.paymentSubmittedAt) {
+  if (targetStatus === 'converted') {
+    recoveryExpiresAt = now + BOUNDED_CONVERTED_RETENTION_MS;
+  } else if (updates.paymentSubmittedAt) {
     const submittedDuration = now + SUBMITTED_PAYMENT_RECOVERY_TTL_MS;
     if (submittedDuration > recoveryExpiresAt) {
       recoveryExpiresAt = submittedDuration;
@@ -699,8 +874,17 @@ export function updateCheckoutAttemptSession(
   const updated: CheckoutAttemptRecord = {
     ...current,
     sessionId: updates.sessionId !== undefined ? updates.sessionId : current.sessionId,
-    leaseExpiresAt: updates.leaseExpiresAt !== undefined ? updates.leaseExpiresAt : current.leaseExpiresAt,
-    status: updates.status !== undefined ? updates.status : current.status,
+    leaseExpiresAt:
+      targetStatus === 'converted'
+        ? undefined
+        : updates.leaseExpiresAt !== undefined
+          ? updates.leaseExpiresAt
+          : current.leaseExpiresAt,
+    status: targetStatus,
+    convertedOrderDisplayId:
+      updates.convertedOrderDisplayId !== undefined
+        ? updates.convertedOrderDisplayId
+        : current.convertedOrderDisplayId,
     paymentSubmittedAt:
       updates.paymentSubmittedAt !== undefined ? updates.paymentSubmittedAt : current.paymentSubmittedAt,
     updatedAt: now,
