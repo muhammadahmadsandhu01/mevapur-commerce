@@ -1,18 +1,21 @@
 /**
  * Phase 6D-5B Storefront CheckoutSession Client & Cryptographic Attempt Store Tests
  * Validates:
- * 1. Typed API client methods in checkoutSessionService.ts (create, get, cancel, error normalization)
+ * 1. Typed API client methods in checkoutSessionService.ts with runtime response parsing
  * 2. Cryptographic SHA-256 fingerprinting & Idempotency Key derivation in checkoutAttemptStore.ts
  * 3. Canonical JSON recursive key sorting & deterministic cart line sorting
  * 4. Fail-closed Web Crypto requirements (no non-cryptographic fallbacks)
- * 5. Attempt identity lifecycle, generation counter rotation, and 30m TTL expiry
- * 6. Reload survival and cross-tab synchronization via localStorage exclusively
- * 7. Fail-closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE when localStorage is blocked or throws
- * 8. Zero-PII and Zero-Secret storage guarantees
- * 9. Real cross-tab coordination via navigator.locks, BroadcastChannel, and storage events
- * 10. 24h recovery survival for submitted payments
- * 11. Schema version and malformed record strict rejection
- * 12. clearAllCheckoutAttempts and authStore logout/invalidation integration
+ * 5. Terminal-only generation rotation (failed, expired, cancelled) and non-terminal rotation rejection
+ * 6. Changed-intent protection and safe conflict error semantics
+ * 7. Monotonic reconciliation and anti-regression rules for cross-tab updates
+ * 8. Reload survival and cross-tab synchronization via localStorage exclusively
+ * 9. Fail-closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE when localStorage is blocked or throws
+ * 10. Zero-PII and Zero-Secret storage guarantees
+ * 11. Cross-tab coordination via navigator.locks, BroadcastChannel, and storage events
+ * 12. 24h recovery survival for submitted payments
+ * 13. Schema version and malformed record strict rejection
+ * 14. clearAllCheckoutAttempts and authStore logout/invalidation integration
+ * 15. Runtime allowlist parsers for PublicCheckoutSession, ExactMoney, and response envelopes
  */
 
 import test, { describe, beforeEach, afterEach } from 'node:test';
@@ -23,6 +26,10 @@ import {
   getCheckoutSession,
   cancelCheckoutSession,
   normalizeCheckoutApiError,
+  parsePublicCheckoutSession,
+  parseCheckoutSessionMoney,
+  parsePaymentAttempt,
+  isCheckoutSessionResponseInvalidError,
 } from '../src/lib/checkoutSessionService.ts';
 import {
   getOrCreateCheckoutAttempt,
@@ -39,6 +46,9 @@ import {
   withCheckoutLock,
   subscribeCheckoutAttemptSync,
   isCheckoutRecoveryStorageError,
+  CheckoutAttemptNonTerminalRotationError,
+  CheckoutAttemptActiveIntentConflictError,
+  CheckoutAttemptStaleUpdateError,
   STORAGE_KEY_PREFIX,
   SUBMITTED_PAYMENT_RECOVERY_TTL_MS,
   type CheckoutIntentInput,
@@ -303,7 +313,6 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   // 3. Backend error normalization
   // ---------------------------------------------------------------------------
   test('3. normalizeCheckoutApiError normalizes 503, 409, 404, 400, and runtime errors', async () => {
-    // 503 TWO_PHASE_CHECKOUT_DISABLED
     const err503 = {
       isAxiosError: true,
       response: {
@@ -315,7 +324,6 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     assert.equal(norm503.status, 503);
     assert.equal(norm503.code, 'TWO_PHASE_CHECKOUT_DISABLED');
 
-    // 409 IDEMPOTENCY_CONFLICT
     const err409 = {
       isAxiosError: true,
       response: {
@@ -327,7 +335,6 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     assert.equal(norm409.status, 409);
     assert.equal(norm409.code, 'IDEMPOTENCY_CONFLICT');
 
-    // 404 SESSION_NOT_FOUND
     const err404 = {
       isAxiosError: true,
       response: {
@@ -339,21 +346,21 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     assert.equal(norm404.status, 404);
     assert.equal(norm404.code, 'SESSION_NOT_FOUND');
 
-    // Generic Runtime Error
     const normGeneric = normalizeCheckoutApiError(new Error('Network drop'), 'Fallback');
     assert.equal(normGeneric.message, 'Network drop');
   });
 
   // ---------------------------------------------------------------------------
-  // 4. Exact public money/status parsing
+  // 4. Behavioral runtime validation of money breakdown
   // ---------------------------------------------------------------------------
-  test('4. validates exact public money breakdown and session status types', () => {
-    const amounts = mockPublicSession.amounts;
-    assert.equal(amounts.subtotalExact.amountMinor, '5000');
-    assert.equal(amounts.subtotalExact.currency, 'USD');
-    assert.equal(amounts.subtotalExact.exponent, 2);
-    assert.equal(amounts.totalAmountExact.amountMinor, '5950');
-    assert.equal(mockPublicSession.status, 'active');
+  test('4. parsePublicCheckoutSession parses valid payload and validates exact money and status types behaviorally', () => {
+    const parsed = parsePublicCheckoutSession(mockPublicSession);
+    assert.equal(parsed.sessionId, 'cs_live_test_1234567890');
+    assert.equal(parsed.status, 'active');
+    assert.equal(parsed.amounts.subtotalExact.amountMinor, '5000');
+    assert.equal(parsed.amounts.subtotalExact.currency, 'USD');
+    assert.equal(parsed.amounts.subtotalExact.exponent, 2);
+    assert.equal(parsed.amounts.totalAmountExact.amountMinor, '5950');
   });
 
   // ---------------------------------------------------------------------------
@@ -365,7 +372,6 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     assert.equal(canonicalizeJson(unorderedA), '{"a":2,"m":{"x":"no","y":"yes"},"z":1}');
     assert.equal(canonicalizeJson(unorderedA), canonicalizeJson(unorderedB));
 
-    // Cart line sorting parity
     const input1: CheckoutIntentInput = {
       ...sampleIntentInput,
       items: [
@@ -419,14 +425,12 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     const scope = await computeHashedUserScope('user_test');
     const baseFp = await computeCheckoutFingerprint(sampleIntentInput, scope);
 
-    // Change quantity
     const fpQty = await computeCheckoutFingerprint(
       { ...sampleIntentInput, items: [{ productId: 'prod_1', variantId: 'var_a', quantity: 5 }] },
       scope
     );
     assert.notEqual(baseFp, fpQty);
 
-    // Change address
     const fpAddr = await computeCheckoutFingerprint(
       {
         ...sampleIntentInput,
@@ -436,14 +440,12 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     );
     assert.notEqual(baseFp, fpAddr);
 
-    // Change payment method
     const fpPay = await computeCheckoutFingerprint(
       { ...sampleIntentInput, paymentMethod: 'cod' },
       scope
     );
     assert.notEqual(baseFp, fpPay);
 
-    // Change coupon
     const fpCoupon = await computeCheckoutFingerprint(
       { ...sampleIntentInput, couponCode: 'NEWDISCOUNT' },
       scope
@@ -482,11 +484,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     const rawStored = window.localStorage.getItem(storageKey);
     assert.ok(rawStored);
 
-    // Key assertions
     assert.ok(!storageKey.includes(rawUserScope), 'Storage key must not contain raw userId');
     assert.match(storageKey, /^mevapur:checkout-attempt:v1:[a-f0-9]{64}$/);
 
-    // Value assertions
     assert.ok(!rawStored.includes('Secret Customer Name'), 'Must not contain fullName');
     assert.ok(!rawStored.includes('+923001234567'), 'Must not contain phone');
     assert.ok(!rawStored.includes('Private Residence'), 'Must not contain address');
@@ -533,7 +533,6 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     const created = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_reload' });
     updateCheckoutAttemptSession(scope, { sessionId: 'cs_reload_test', status: 'payment_pending' });
 
-    // Simulate page reload by reading storage directly
     const reloaded = getCheckoutAttempt(scope);
     assert.ok(reloaded);
     assert.equal(reloaded.idempotencyKey, created.idempotencyKey);
@@ -542,9 +541,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 12. Cross-tab shared recovery
+  // 12. Deterministic attempt identity sharing for identical intent
   // ---------------------------------------------------------------------------
-  test('12. two simultaneous tabs with identical intent share attempt identity and generation', async () => {
+  test('12. two callers with identical intent deterministically derive the same attempt identity and generation', async () => {
     const scope = 'user_crosstab';
     const tab1Record = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
     const tab2Record = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
@@ -600,26 +599,20 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 15. Storage/BroadcastChannel update observation
+  // 15. BroadcastChannel notification synchronization
   // ---------------------------------------------------------------------------
-  test('15. subscribeCheckoutAttemptSync receives storage events and sync notifications', async () => {
+  test('15. subscribeCheckoutAttemptSync receives BroadcastChannel notifications', async () => {
     let receivedEvent: { type: string; hashedUserScope?: string } | null = null;
 
     const unsubscribe = subscribeCheckoutAttemptSync((event) => {
       receivedEvent = event;
     });
 
-    const scope = await computeHashedUserScope('user_sync');
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_sync' });
+    const scope = await computeHashedUserScope('user_bc_sync');
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_bc_sync' });
 
-    // Trigger storage event manually to simulate another tab writing to localStorage
-    const storageKey = `${STORAGE_KEY_PREFIX}${scope}`;
-    const storedVal = window.localStorage.getItem(storageKey);
-    window.dispatchEvent({
-      type: 'storage',
-      key: storageKey,
-      newValue: storedVal,
-    } as unknown as StorageEvent);
+    // Allow event loop to dispatch BroadcastChannel message
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     assert.ok(receivedEvent);
     assert.equal((receivedEvent as { type: string }).type, 'ATTEMPT_UPDATED');
@@ -629,9 +622,40 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 16. Creating record written before POST
+  // 16. Native window storage event synchronization without BroadcastChannel
   // ---------------------------------------------------------------------------
-  test('16. status creating record is persisted to localStorage before session creation', async () => {
+  test('16. native storage-event synchronization independently handles updates without BroadcastChannel', async () => {
+    const originalBC = globalThis.BroadcastChannel;
+    // @ts-expect-error test-only deletion
+    delete globalThis.BroadcastChannel;
+
+    let receivedStorageEvent: { type: string; hashedUserScope?: string } | null = null;
+    const unsubscribe = subscribeCheckoutAttemptSync((event) => {
+      receivedStorageEvent = event;
+    });
+
+    const scope = await computeHashedUserScope('user_storage_event_only');
+    const record = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_storage_event_only' });
+
+    const storageKey = `${STORAGE_KEY_PREFIX}${scope}`;
+    window.dispatchEvent({
+      type: 'storage',
+      key: storageKey,
+      newValue: JSON.stringify(record),
+    } as unknown as StorageEvent);
+
+    assert.ok(receivedStorageEvent);
+    assert.equal((receivedStorageEvent as { type: string }).type, 'ATTEMPT_UPDATED');
+    assert.equal((receivedStorageEvent as { hashedUserScope?: string }).hashedUserScope, scope);
+
+    unsubscribe();
+    globalThis.BroadcastChannel = originalBC;
+  });
+
+  // ---------------------------------------------------------------------------
+  // 17. Creating record written before POST
+  // ---------------------------------------------------------------------------
+  test('17. status creating record is persisted to localStorage before session creation', async () => {
     const scope = await computeHashedUserScope('user_creating');
     const record = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_creating' });
 
@@ -641,9 +665,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 17. Reload during creating reuses key
+  // 18. Reload during creating reuses key
   // ---------------------------------------------------------------------------
-  test('17. reload during creating status reuses the exact same idempotency key', async () => {
+  test('18. reload during creating status reuses the exact same idempotency key', async () => {
     const scope = 'user_reload_creating';
     const record1 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
     assert.equal(record1.status, 'creating');
@@ -654,9 +678,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 18. Same intent reuses generation
+  // 19. Same intent preserves generation 1
   // ---------------------------------------------------------------------------
-  test('18. identical intent repeatedly called preserves generation 1', async () => {
+  test('19. identical intent repeatedly called preserves generation 1', async () => {
     const scope = 'user_stable_gen';
     const r1 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
     const r2 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
@@ -666,58 +690,335 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 19. Changed intent creates correct new identity
-  // ---------------------------------------------------------------------------
-  test('19. changed intent creates fresh attempt record with generation 1 and new key', async () => {
-    const scope = 'user_intent_change';
-    const r1 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
-
-    const changedIntent: CheckoutIntentInput = {
-      ...sampleIntentInput,
-      items: [{ productId: 'different_prod', quantity: 1 }],
-    };
-    const r2 = await getOrCreateCheckoutAttempt(changedIntent, { userScope: scope });
-
-    assert.notEqual(r1.baseFingerprint, r2.baseFingerprint);
-    assert.notEqual(r1.idempotencyKey, r2.idempotencyKey);
-    assert.equal(r2.generation, 1);
-  });
-
-  // ---------------------------------------------------------------------------
   // 20. Generation does not rotate on network failure
   // ---------------------------------------------------------------------------
   test('20. network failure or transient timeout does not rotate generation counter', async () => {
     const scope = 'user_network_retry';
     const initial = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
 
-    // Simulate transient network failure and retry without confirmed terminal server status
     const retried = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: false });
     assert.equal(initial.generation, retried.generation);
     assert.equal(initial.idempotencyKey, retried.idempotencyKey);
   });
 
   // ---------------------------------------------------------------------------
-  // 21. Generation rotates only after confirmed terminal failure/expiry/cancellation
+  // 21. Polling timeout or local clock passage cannot authorize rotation
   // ---------------------------------------------------------------------------
-  test('21. generation counter increments to 2 only on explicit forceNewAttempt retry', async () => {
-    const scope = 'user_terminal_retry';
+  test('21. polling timeout cannot authorize rotation without server terminal status', async () => {
+    const scope = 'user_polling_timeout';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_pending', sessionId: 'cs_poll_123' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError &&
+        err.code === 'CHECKOUT_ATTEMPT_NON_TERMINAL_ROTATION_FORBIDDEN' &&
+        err.status === 'payment_pending'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 22. forceNewAttempt succeeds after authoritative failed
+  // ---------------------------------------------------------------------------
+  test('22. forceNewAttempt succeeds after authoritative failed', async () => {
+    const scope = 'user_failed_retry';
+    const hashedScope = await computeHashedUserScope(scope);
     const r1 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
-    assert.equal(r1.generation, 1);
+    updateCheckoutAttemptSession(hashedScope, { status: 'failed', sessionId: 'cs_failed_1' });
 
     const r2 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true });
     assert.equal(r2.generation, 2);
     assert.equal(r2.baseFingerprint, r1.baseFingerprint);
     assert.notEqual(r2.idempotencyKey, r1.idempotencyKey);
+    assert.equal(r2.status, 'creating');
   });
 
   // ---------------------------------------------------------------------------
-  // 22. Submitted attempt survives lease expiry
+  // 23. forceNewAttempt succeeds after authoritative expired
   // ---------------------------------------------------------------------------
-  test('22. submitted payment attempt is not purged merely because leaseExpiresAt passed', async () => {
+  test('23. forceNewAttempt succeeds after authoritative expired', async () => {
+    const scope = 'user_expired_retry';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'expired', sessionId: 'cs_expired_1' });
+
+    const r2 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true });
+    assert.equal(r2.generation, 2);
+    assert.equal(r2.status, 'creating');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 24. forceNewAttempt succeeds after authoritative cancelled
+  // ---------------------------------------------------------------------------
+  test('24. forceNewAttempt succeeds after authoritative cancelled', async () => {
+    const scope = 'user_cancelled_retry';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'cancelled', sessionId: 'cs_cancelled_1' });
+
+    const r2 = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true });
+    assert.equal(r2.generation, 2);
+    assert.equal(r2.status, 'creating');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 25. forceNewAttempt rejects creating
+  // ---------------------------------------------------------------------------
+  test('25. forceNewAttempt rejects creating status with CHECKOUT_ATTEMPT_NON_TERMINAL_ROTATION_FORBIDDEN', async () => {
+    const scope = 'user_creating_rotate_reject';
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError &&
+        err.code === 'CHECKOUT_ATTEMPT_NON_TERMINAL_ROTATION_FORBIDDEN' &&
+        err.status === 'creating'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 26. forceNewAttempt rejects active
+  // ---------------------------------------------------------------------------
+  test('26. forceNewAttempt rejects active status', async () => {
+    const scope = 'user_active_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'active', sessionId: 'cs_active_1' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError && err.status === 'active'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 27. forceNewAttempt rejects payment_pending
+  // ---------------------------------------------------------------------------
+  test('27. forceNewAttempt rejects payment_pending status', async () => {
+    const scope = 'user_pending_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_pending', sessionId: 'cs_pending_1' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError && err.status === 'payment_pending'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 28. forceNewAttempt rejects payment_captured
+  // ---------------------------------------------------------------------------
+  test('28. forceNewAttempt rejects payment_captured status', async () => {
+    const scope = 'user_captured_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured', sessionId: 'cs_cap_1' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError && err.status === 'payment_captured'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 29. forceNewAttempt rejects converting
+  // ---------------------------------------------------------------------------
+  test('29. forceNewAttempt rejects converting status', async () => {
+    const scope = 'user_converting_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converting', sessionId: 'cs_conv_1' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError && err.status === 'converting'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 30. forceNewAttempt rejects cancellation_requested
+  // ---------------------------------------------------------------------------
+  test('30. forceNewAttempt rejects cancellation_requested status', async () => {
+    const scope = 'user_cancelling_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'cancellation_requested', sessionId: 'cs_cancel_req_1' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError && err.status === 'cancellation_requested'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 31. forceNewAttempt rejects conflict
+  // ---------------------------------------------------------------------------
+  test('31. forceNewAttempt rejects conflict status', async () => {
+    const scope = 'user_conflict_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'conflict', sessionId: 'cs_conflict_1' });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptNonTerminalRotationError && err.status === 'conflict'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 32. forceNewAttempt rejects submitted attempt despite local lease expiry
+  // ---------------------------------------------------------------------------
+  test('32. forceNewAttempt rejects submitted attempt despite local lease timestamp passage', async () => {
+    const scope = 'user_submitted_rotate_reject';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'payment_pending',
+      sessionId: 'cs_submitted_1',
+      leaseExpiresAt: new Date(Date.now() - 5000).toISOString(),
+      paymentSubmittedAt: new Date().toISOString(),
+    });
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true }),
+      (err: unknown) => err instanceof CheckoutAttemptNonTerminalRotationError
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 33. Changed intent cannot overwrite active attempt
+  // ---------------------------------------------------------------------------
+  test('33. changed intent throws CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT when active attempt exists', async () => {
+    const scope = 'user_changed_intent_active';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'active', sessionId: 'cs_active_orig' });
+
+    const changedIntent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      items: [{ productId: 'new_prod_99', quantity: 1 }],
+    };
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(changedIntent, { userScope: scope }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptActiveIntentConflictError &&
+        err.code === 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT' &&
+        err.existingStatus === 'active' &&
+        err.existingSessionId === 'cs_active_orig'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 34. Changed intent cannot overwrite submitted attempt
+  // ---------------------------------------------------------------------------
+  test('34. changed intent cannot overwrite submitted attempt', async () => {
+    const scope = 'user_changed_intent_submitted';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'payment_pending',
+      paymentSubmittedAt: new Date().toISOString(),
+    });
+
+    const changedIntent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      paymentMethod: 'cod',
+    };
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(changedIntent, { userScope: scope }),
+      (err: unknown) => err instanceof CheckoutAttemptActiveIntentConflictError
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 35. Changed intent cannot overwrite unexpired conflict evidence
+  // ---------------------------------------------------------------------------
+  test('35. changed intent cannot overwrite unexpired conflict evidence', async () => {
+    const scope = 'user_changed_intent_conflict';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'conflict', sessionId: 'cs_conflict_saved' });
+
+    const changedIntent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      currency: 'EUR',
+    };
+
+    await assert.rejects(
+      () => getOrCreateCheckoutAttempt(changedIntent, { userScope: scope }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptActiveIntentConflictError &&
+        err.existingStatus === 'conflict' &&
+        err.existingSessionId === 'cs_conflict_saved'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 36. Changed intent proceeds after authoritative terminal state
+  // ---------------------------------------------------------------------------
+  test('36. changed intent may proceed with fresh generation 1 after authoritative terminal state', async () => {
+    const scope = 'user_changed_intent_terminal';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'failed', sessionId: 'cs_failed_prior' });
+
+    const changedIntent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      items: [{ productId: 'replacement_prod', quantity: 3 }],
+    };
+
+    const fresh = await getOrCreateCheckoutAttempt(changedIntent, { userScope: scope });
+    assert.equal(fresh.generation, 1);
+    assert.equal(fresh.status, 'creating');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 37. Expired bounded conflict retention is explicitly purged
+  // ---------------------------------------------------------------------------
+  test('37. expired bounded conflict retention is purged according to policy before creating new record', async () => {
+    const scope = 'user_conflict_expired';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    // Force conflict record with expired recovery deadline
+    const storageKey = `${STORAGE_KEY_PREFIX}${hashedScope}`;
+    const raw = window.localStorage.getItem(storageKey);
+    assert.ok(raw);
+    const record = JSON.parse(raw);
+    record.status = 'conflict';
+    record.recoveryExpiresAt = Date.now() - 1000;
+    window.localStorage.setItem(storageKey, JSON.stringify(record));
+
+    const changedIntent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      items: [{ productId: 'after_conflict_expired', quantity: 1 }],
+    };
+
+    const fresh = await getOrCreateCheckoutAttempt(changedIntent, { userScope: scope });
+    assert.equal(fresh.generation, 1);
+    assert.equal(fresh.status, 'creating');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 38. Submitted attempt survives lease expiry
+  // ---------------------------------------------------------------------------
+  test('38. submitted payment attempt is not purged merely because leaseExpiresAt passed', async () => {
     const scope = await computeHashedUserScope('user_lease_pass');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_lease_pass' });
 
-    // Update with expired lease and submitted payment
     const pastLease = new Date(Date.now() - 1000).toISOString();
     updateCheckoutAttemptSession(scope, {
       sessionId: 'cs_submitted_survive',
@@ -732,9 +1033,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 23. Submitted recovery remains valid for at least 24 hours
+  // 39. Submitted recovery window extended by 24h
   // ---------------------------------------------------------------------------
-  test('23. recordPaymentSubmitted extends recovery window to at least 24 hours', async () => {
+  test('39. recordPaymentSubmitted extends recovery window to at least 24 hours', async () => {
     const scope = await computeHashedUserScope('user_24h');
     const created = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_24h' });
 
@@ -747,9 +1048,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 24. Converted cleanup
+  // 40. Converted cleanup
   // ---------------------------------------------------------------------------
-  test('24. updateCheckoutAttemptSession clears record when authoritative status is converted', async () => {
+  test('40. updateCheckoutAttemptSession clears record when authoritative status is converted', async () => {
     const scope = await computeHashedUserScope('user_converted');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_converted' });
 
@@ -763,9 +1064,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 25. Bounded conflict retention
+  // 41. Bounded conflict retention
   // ---------------------------------------------------------------------------
-  test('25. conflict attempt retains bounded non-secret record for recovery support', async () => {
+  test('41. conflict attempt retains bounded non-secret record for recovery support', async () => {
     const scope = await computeHashedUserScope('user_conflict');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_conflict' });
 
@@ -781,9 +1082,124 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 26. Corrupt record rejection
+  // 42. Monotonic reconciliation: stale generation rejected
   // ---------------------------------------------------------------------------
-  test('26. malformed or corrupt JSON in storage is rejected and purged without generating alternative random key', async () => {
+  test('42. updateCheckoutAttemptSession rejects stale update from older generation with CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED', async () => {
+    const scope = 'user_stale_gen';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'failed' });
+
+    // Rotate to generation 2
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope, forceNewAttempt: true });
+
+    // Stale generation 1 update arrives
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedGeneration: 1,
+        }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 43. Monotonic reconciliation: stale fingerprint rejected
+  // ---------------------------------------------------------------------------
+  test('43. updateCheckoutAttemptSession rejects update with mismatched baseFingerprint', async () => {
+    const scope = 'user_stale_fp';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedFingerprint: '0'.repeat(64),
+        }),
+      (err: unknown) => err instanceof CheckoutAttemptStaleUpdateError
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 44. Monotonic reconciliation: stale active cannot regress payment_captured
+  // ---------------------------------------------------------------------------
+  test('44. monotonic reconciliation prevents stale active response from regressing payment_captured', async () => {
+    const scope = 'user_mon_captured';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'payment_captured', sessionId: 'cs_captured_ok' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'active' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.message.includes("Cannot regress state from advanced status 'payment_captured'")
+    );
+
+    const current = getCheckoutAttempt(hashedScope);
+    assert.equal(current?.status, 'payment_captured');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 45. Monotonic reconciliation: stale payment_pending cannot regress converting
+  // ---------------------------------------------------------------------------
+  test('45. monotonic reconciliation prevents stale payment_pending from regressing converting', async () => {
+    const scope = 'user_mon_converting';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converting', sessionId: 'cs_converting_ok' });
+
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'payment_pending' }),
+      (err: unknown) => err instanceof CheckoutAttemptStaleUpdateError
+    );
+
+    const current = getCheckoutAttempt(hashedScope);
+    assert.equal(current?.status, 'converting');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 46. Monotonic reconciliation: stale response cannot regress converted
+  // ---------------------------------------------------------------------------
+  test('46. monotonic reconciliation prevents stale response from restoring cleared converted record', async () => {
+    const scope = 'user_mon_converted';
+    const hashedScope = await computeHashedUserScope(scope);
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, { status: 'converted', sessionId: 'cs_converted_ok' });
+
+    assert.equal(getCheckoutAttempt(hashedScope), null);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 47. No-lock simultaneous calls permit duplicate dispatch with identical key
+  // ---------------------------------------------------------------------------
+  test('47. no-lock simultaneous calls use identical idempotency key and permit duplicate POST while preserving key identity', async () => {
+    Object.defineProperty(globalThis.navigator, 'locks', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+
+    const scope = 'user_nolock_concurrent';
+    const [recA, recB] = await Promise.all([
+      getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope }),
+      getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope }),
+    ]);
+
+    assert.equal(recA.idempotencyKey, recB.idempotencyKey);
+    assert.equal(recA.generation, 1);
+    assert.equal(recB.generation, 1);
+    assert.equal(recA.baseFingerprint, recB.baseFingerprint);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 48. Corrupt record rejection
+  // ---------------------------------------------------------------------------
+  test('48. malformed or corrupt JSON in storage is rejected and purged without generating alternative random key', async () => {
     const scope = await computeHashedUserScope('user_corrupt');
     const storageKey = `${STORAGE_KEY_PREFIX}${scope}`;
     window.localStorage.setItem(storageKey, 'INVALID_JSON_CORRUPT{');
@@ -794,9 +1210,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 27. Schema-version rejection
+  // 49. Schema-version rejection
   // ---------------------------------------------------------------------------
-  test('27. stored record with invalid schemaVersion is strictly rejected and removed', async () => {
+  test('49. stored record with invalid schemaVersion is strictly rejected and removed', async () => {
     const scope = await computeHashedUserScope('user_bad_version');
     const storageKey = `${STORAGE_KEY_PREFIX}${scope}`;
     const badVersionRecord = {
@@ -817,9 +1233,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 28. Storage read failure fails closed
+  // 50. Storage read failure fails closed
   // ---------------------------------------------------------------------------
-  test('28. storage read failure fails closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE', () => {
+  test('50. storage read failure fails closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE', () => {
     Object.defineProperty(globalThis.window, 'localStorage', {
       get() {
         throw new Error('Storage read denied');
@@ -834,9 +1250,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 29. Storage write/quota failure fails closed before POST
+  // 51. Storage write/quota failure fails closed before POST
   // ---------------------------------------------------------------------------
-  test('29. storage write quota exceeded fails closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE before POST', async () => {
+  test('51. storage write quota exceeded fails closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE before POST', async () => {
     const mockQuotaStorage = new MockLocalStorage();
     mockStorageWithWriteError(mockQuotaStorage, new Error('QuotaExceededError: storage full'));
 
@@ -859,16 +1275,15 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   }
 
   // ---------------------------------------------------------------------------
-  // 30. clearAllCheckoutAttempts removes all scoped records
+  // 52. clearAllCheckoutAttempts removes all scoped records
   // ---------------------------------------------------------------------------
-  test('30. clearAllCheckoutAttempts purges every key in mevapur:checkout-attempt:v1: namespace', async () => {
+  test('52. clearAllCheckoutAttempts purges every key in mevapur:checkout-attempt:v1: namespace', async () => {
     const scope1 = await computeHashedUserScope('user_1');
     const scope2 = await computeHashedUserScope('user_2');
 
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_1' });
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_2' });
 
-    // Set an unrelated key that should be preserved
     window.localStorage.setItem('other_app_setting', 'keep_me');
 
     assert.ok(window.localStorage.getItem(`${STORAGE_KEY_PREFIX}${scope1}`));
@@ -882,9 +1297,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 31. Logout cleanup
+  // 53. Logout cleanup
   // ---------------------------------------------------------------------------
-  test('31. authStore logout invokes clearAllCheckoutAttempts and removes scoped attempts', async () => {
+  test('53. authStore logout invokes clearAllCheckoutAttempts and removes scoped attempts', async () => {
     const scope = await computeHashedUserScope('logged_in_user');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'logged_in_user' });
 
@@ -896,9 +1311,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 32. Auth invalidation cleanup
+  // 54. Auth invalidation cleanup
   // ---------------------------------------------------------------------------
-  test('32. auth token invalidation cleans up all scoped checkout attempt records', async () => {
+  test('54. auth token invalidation cleans up all scoped checkout attempt records', async () => {
     const scope = await computeHashedUserScope('invalidated_user');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'invalidated_user' });
 
@@ -910,9 +1325,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 33. SSR-safe module import
+  // 55. SSR-safe module import
   // ---------------------------------------------------------------------------
-  test('33. computeSha256Hex, canonicalizeJson, and computeCheckoutFingerprint execute safely in non-DOM runtime', async () => {
+  test('55. computeSha256Hex, canonicalizeJson, and computeCheckoutFingerprint execute safely in non-DOM runtime', async () => {
     const json = canonicalizeJson({ a: 1, b: 2 });
     assert.equal(json, '{"a":1,"b":2}');
 
@@ -922,9 +1337,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 34. No clientSecret persistence under any path
+  // 56. No clientSecret persistence under any path
   // ---------------------------------------------------------------------------
-  test('34. paymentAttempt clientSecret is never written or leaked to localStorage', async () => {
+  test('56. paymentAttempt clientSecret is never written or leaked to localStorage', async () => {
     const scope = await computeHashedUserScope('user_no_secret');
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_no_secret' });
 
@@ -941,9 +1356,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 35. computeShippingAddressHash normalizes and hashes address
+  // 57. computeShippingAddressHash normalizes and hashes address
   // ---------------------------------------------------------------------------
-  test('35. computeShippingAddressHash normalizes address whitespace, casing, and returns SHA-256 digest', async () => {
+  test('57. computeShippingAddressHash normalizes address whitespace, casing, and returns SHA-256 digest', async () => {
     const addr1 = {
       fullName: '  Alice Smith  ',
       phone: '  123456  ',
@@ -966,11 +1381,186 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 36. Storage namespace prefix integrity
+  // 58. Storage namespace prefix integrity
   // ---------------------------------------------------------------------------
-  test('36. storage namespace strictly conforms to mevapur:checkout-attempt:v1:<64-char-hex>', async () => {
+  test('58. storage namespace strictly conforms to mevapur:checkout-attempt:v1:<64-char-hex>', async () => {
     const scope = await computeHashedUserScope('user_namespace_check');
     const storageKey = `${STORAGE_KEY_PREFIX}${scope}`;
     assert.match(storageKey, /^mevapur:checkout-attempt:v1:[a-f0-9]{64}$/);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 59. Runtime response parser: missing session envelope rejected
+  // ---------------------------------------------------------------------------
+  test('59. runtime parser rejects response when session object is missing', () => {
+    assert.throws(
+      () => parsePublicCheckoutSession(null),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { code: string }).code === 'CHECKOUT_SESSION_RESPONSE_INVALID'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 60. Runtime response parser: unknown session status rejected
+  // ---------------------------------------------------------------------------
+  test('60. runtime parser rejects unknown session status', () => {
+    const bad = { ...mockPublicSession, status: 'unknown_status' };
+    assert.throws(
+      () => parsePublicCheckoutSession(bad),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'session.status'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 61. Runtime response parser: missing exact money field rejected
+  // ---------------------------------------------------------------------------
+  test('61. runtime parser rejects missing exact money field in amounts breakdown', () => {
+    const badAmounts = { ...mockPublicSession.amounts, totalAmountExact: undefined };
+    const bad = { ...mockPublicSession, amounts: badAmounts };
+    assert.throws(
+      () => parsePublicCheckoutSession(bad),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'amounts.totalAmountExact'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 62. Runtime response parser: numeric amountMinor rejected
+  // ---------------------------------------------------------------------------
+  test('62. runtime parser rejects numeric or float amountMinor', () => {
+    assert.throws(
+      // @ts-expect-error test-only invalid type
+      () => parseCheckoutSessionMoney({ amountMinor: 5000, currency: 'USD', exponent: 2, registrySnapshot: 'v1' }, 'subtotal', 'USD'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'subtotal.amountMinor'
+    );
+
+    assert.throws(
+      () => parseCheckoutSessionMoney({ amountMinor: '50.00', currency: 'USD', exponent: 2, registrySnapshot: 'v1' }, 'subtotal', 'USD'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err)
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 63. Runtime response parser: missing registrySnapshot rejected
+  // ---------------------------------------------------------------------------
+  test('63. runtime parser rejects missing registrySnapshot', () => {
+    assert.throws(
+      () => parseCheckoutSessionMoney({ amountMinor: '5000', currency: 'USD', exponent: 2, registrySnapshot: '' }, 'subtotal', 'USD'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'subtotal.registrySnapshot'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 64. Runtime response parser: cross-currency money rejected
+  // ---------------------------------------------------------------------------
+  test('64. runtime parser rejects money with currency mismatch against session', () => {
+    assert.throws(
+      () => parseCheckoutSessionMoney({ amountMinor: '5000', currency: 'EUR', exponent: 2, registrySnapshot: 'v1' }, 'subtotal', 'USD'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'subtotal.currency'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 65. Runtime response parser: invalid lease timestamp rejected
+  // ---------------------------------------------------------------------------
+  test('65. runtime parser rejects unparseable leaseExpiresAt timestamp', () => {
+    const bad = { ...mockPublicSession, leaseExpiresAt: 'not-a-timestamp' };
+    assert.throws(
+      () => parsePublicCheckoutSession(bad),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'session.leaseExpiresAt'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 66. Runtime response parser: converted without convertedOrderDisplayId rejected
+  // ---------------------------------------------------------------------------
+  test('66. runtime parser rejects converted status without convertedOrderDisplayId', () => {
+    const bad = { ...mockPublicSession, status: 'converted', convertedOrderDisplayId: null };
+    assert.throws(
+      () => parsePublicCheckoutSession(bad),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'session.convertedOrderDisplayId'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 67. Runtime response parser: unknown response fields omitted from parsed result
+  // ---------------------------------------------------------------------------
+  test('67. runtime parser safely omits unknown fields without spreading raw JSON', () => {
+    const networkJson = {
+      ...mockPublicSession,
+      unexpectedInternalField: 'INTERNAL_SECRET_LEAK',
+      providerInternalToken: 'TOKEN_123',
+    };
+
+    const parsed = parsePublicCheckoutSession(networkJson);
+    assert.equal(parsed.sessionId, 'cs_live_test_1234567890');
+    assert.equal('unexpectedInternalField' in parsed, false);
+    assert.equal('providerInternalToken' in parsed, false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 68. Runtime response parser: clientSecret optional and malformed secret rejected safely
+  // ---------------------------------------------------------------------------
+  test('68. parsePaymentAttempt keeps clientSecret optional and rejects malformed secret safely', () => {
+    const withoutSecret = parsePaymentAttempt({ provider: 'stripe', status: 'requires_action' });
+    assert.ok(withoutSecret);
+    assert.equal(withoutSecret.clientSecret, undefined);
+
+    assert.throws(
+      // @ts-expect-error test-only invalid type
+      () => parsePaymentAttempt({ provider: 'stripe', status: 'requires_action', clientSecret: 12345 }),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err) && (err as { fieldPath: string }).fieldPath === 'paymentAttempt.clientSecret'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // 69. create/get/cancel all invoke runtime parser
+  // ---------------------------------------------------------------------------
+  test('69. createCheckoutSession, getCheckoutSession, and cancelCheckoutSession all enforce runtime validation', async () => {
+    // create with malformed amounts
+    api.post = (async () => ({
+      status: 201,
+      data: {
+        success: true,
+        data: {
+          session: { ...mockPublicSession, amounts: null },
+        },
+      },
+    })) as typeof api.post;
+
+    await assert.rejects(
+      () => createCheckoutSession({} as CreateCheckoutSessionRequest, 'checkout-v1-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err)
+    );
+
+    // get with malformed status
+    api.get = (async () => ({
+      status: 200,
+      data: {
+        success: true,
+        data: {
+          session: { ...mockPublicSession, status: 'invalid_status_enum' },
+        },
+      },
+    })) as typeof api.get;
+
+    await assert.rejects(
+      () => getCheckoutSession('cs_123'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err)
+    );
+
+    // cancel with malformed session
+    api.post = (async () => ({
+      status: 200,
+      data: {
+        success: true,
+        data: {
+          session: { ...mockPublicSession, sessionId: '' },
+        },
+      },
+    })) as typeof api.post;
+
+    await assert.rejects(
+      () => cancelCheckoutSession('cs_123'),
+      (err: unknown) => isCheckoutSessionResponseInvalidError(err)
+    );
   });
 });

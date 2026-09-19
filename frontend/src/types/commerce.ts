@@ -355,7 +355,7 @@ export interface CheckoutSessionAmounts {
 export interface PublicCheckoutSession {
   sessionId: string;
   status: CheckoutSessionStatus;
-  leaseExpiresAt: string;
+  leaseExpiresAt?: string | null;
   amounts: CheckoutSessionAmounts;
   currency: string;
   destinationCountry: string;
