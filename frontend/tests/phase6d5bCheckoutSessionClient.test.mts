@@ -16,6 +16,9 @@
  * 13. Schema version and malformed record strict rejection
  * 14. clearAllCheckoutAttempts and authStore logout/invalidation integration
  * 15. Runtime allowlist parsers for PublicCheckoutSession, ExactMoney, and response envelopes
+ * 16. Authoritative server-issued quoteId binding for repeat-purchase idempotency isolation
+ * 17. Dual-namespace active vs converted completion storage architecture
+ * 18. All 20 Phase 6D-5B repeat-purchase and converted-tombstone safety behavioral requirements
  */
 
 import test, { describe, beforeEach, afterEach } from 'node:test';
@@ -34,9 +37,13 @@ import {
 import {
   getOrCreateCheckoutAttempt,
   getCheckoutAttempt,
+  getCheckoutCompletion,
+  getCheckoutAttemptRecord,
+  writeCheckoutCompletionRecord,
   updateCheckoutAttemptSession,
   recordPaymentSubmitted,
   clearAllCheckoutAttempts,
+  clearCheckoutAttempt,
   computeCheckoutFingerprint,
   computeHashedUserScope,
   computeShippingAddressHash,
@@ -51,7 +58,9 @@ import {
   CheckoutAttemptStaleUpdateError,
   isAllowedAttemptTransition,
   STORAGE_KEY_PREFIX,
+  COMPLETION_KEY_PREFIX,
   SUBMITTED_PAYMENT_RECOVERY_TTL_MS,
+  BOUNDED_CONVERTED_RETENTION_MS,
   type CheckoutIntentInput,
   type CheckoutAttemptStatus,
 } from '../src/lib/checkoutAttemptStore.ts';
@@ -124,6 +133,7 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   };
 
   const sampleIntentInput: CheckoutIntentInput = {
+    quoteId: 'QUO-20260919-TEST001',
     items: [{ productId: 'prod_1', variantId: 'var_a', quantity: 2 }],
     shippingAddress: {
       fullName: 'Alice Smith',
@@ -148,33 +158,45 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     const mockStorage = new MockLocalStorage();
     const listeners: Record<string, ((event: unknown) => void)[]> = {};
 
-    const mockWindow = {
-      localStorage: mockStorage,
-      addEventListener: (type: string, listener: (event: unknown) => void) => {
-        listeners[type] = listeners[type] || [];
-        listeners[type].push(listener);
-      },
-      removeEventListener: (type: string, listener: (event: unknown) => void) => {
-        if (listeners[type]) {
-          listeners[type] = listeners[type].filter((l) => l !== listener);
-        }
-      },
-      dispatchEvent: (event: { type?: string; key?: string; newValue?: string | null }) => {
-        const type = event.type || 'storage';
-        if (listeners[type]) {
-          for (const l of listeners[type]) {
-            l(event);
-          }
-        }
-        return true;
-      },
-    };
-
     if (typeof globalThis.window === 'undefined') {
-      (globalThis as unknown as { window: typeof mockWindow }).window = mockWindow;
+      // @ts-expect-error test-only window mock
+      globalThis.window = {
+        localStorage: mockStorage,
+        addEventListener: (name: string, handler: (event: unknown) => void) => {
+          if (!listeners[name]) listeners[name] = [];
+          listeners[name].push(handler);
+        },
+        removeEventListener: (name: string, handler: (event: unknown) => void) => {
+          if (listeners[name]) {
+            listeners[name] = listeners[name].filter((h) => h !== handler);
+          }
+        },
+        dispatchEvent: (event: { type: string }) => {
+          const handlers = listeners[event.type] || [];
+          for (const h of handlers) {
+            h(event);
+          }
+          return true;
+        },
+      };
     } else {
       originalLocalStorage = globalThis.window.localStorage;
-      Object.assign(globalThis.window, mockWindow);
+      Object.defineProperty(globalThis.window, 'localStorage', {
+        value: mockStorage,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    if (typeof globalThis.navigator === 'undefined') {
+      // @ts-expect-error test-only navigator mock
+      globalThis.navigator = {
+        locks: {
+          request: async (_name: string, _opts: unknown, callback: () => Promise<unknown>) => {
+            return await callback();
+          },
+        },
+      };
     }
 
     if (typeof globalThis.navigator !== 'undefined') {
@@ -467,6 +489,7 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
       countryCode: 'PK',
     };
     const intent: CheckoutIntentInput = {
+      quoteId: 'QUO-20260919-PII-CHECK',
       items: [{ productId: 'prod_1', quantity: 1 }],
       shippingAddress: sensitiveAddress,
       paymentMethod: 'stripe_card',
@@ -564,7 +587,7 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     let lockMode = '';
 
     const mockLocks = {
-      request: async (name: string, options: { mode: string }, callback: () => Promise<unknown>) => {
+      request: async (_name: string, options: { mode: string }, callback: () => Promise<unknown>) => {
         lockRequested = true;
         lockMode = options.mode;
         return await callback();
@@ -1050,22 +1073,24 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 40. Converted completion tombstone
+  // 40. Converted completion record persisted into completion namespace
   // ---------------------------------------------------------------------------
-  test('40. updateCheckoutAttemptSession stores bounded completion tombstone when authoritative status is converted', async () => {
+  test('40. updateCheckoutAttemptSession stores bounded completion record when authoritative status is converted', async () => {
     const scope = await computeHashedUserScope('user_converted');
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_converted' });
+    const attempt = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_converted' });
 
     updateCheckoutAttemptSession(scope, {
       sessionId: 'cs_converted_123',
       status: 'converted',
       convertedOrderDisplayId: 'ORD-987654',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
     });
 
-    const retrieved = getCheckoutAttempt(scope);
-    assert.ok(retrieved);
-    assert.equal(retrieved.status, 'converted');
-    assert.equal(retrieved.convertedOrderDisplayId, 'ORD-987654');
+    const completion = getCheckoutCompletion(scope, attempt.baseFingerprint, attempt.generation);
+    assert.ok(completion);
+    assert.equal(completion.status, 'converted');
+    assert.equal(completion.convertedOrderDisplayId, 'ORD-987654');
   });
 
   // ---------------------------------------------------------------------------
@@ -1168,24 +1193,35 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 46. Monotonic reconciliation: converted tombstone prevents stale response regression
+  // 46. Monotonic reconciliation: converted record prevents stale response regression
   // ---------------------------------------------------------------------------
-  test('46. monotonic reconciliation: converted tombstone prevents stale response from regressing to active', async () => {
+  test('46. monotonic reconciliation: converted record prevents stale response from regressing to active', async () => {
     const scope = 'user_mon_converted';
     const hashedScope = await computeHashedUserScope(scope);
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
-    updateCheckoutAttemptSession(hashedScope, { status: 'converted', sessionId: 'cs_converted_ok' });
+    const attempt = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      sessionId: 'cs_converted_ok',
+      convertedOrderDisplayId: 'ORD-MON-1',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+    });
 
     assert.throws(
-      () => updateCheckoutAttemptSession(hashedScope, { status: 'active' }),
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedFingerprint: attempt.baseFingerprint,
+          expectedGeneration: attempt.generation,
+        }),
       (err: unknown) =>
         err instanceof CheckoutAttemptStaleUpdateError &&
         err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
     );
 
-    const retrieved = getCheckoutAttempt(hashedScope);
-    assert.ok(retrieved);
-    assert.equal(retrieved.status, 'converted');
+    const completion = getCheckoutCompletion(hashedScope, attempt.baseFingerprint, attempt.generation);
+    assert.ok(completion);
+    assert.equal(completion.status, 'converted');
   });
 
   // ---------------------------------------------------------------------------
@@ -1725,7 +1761,7 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   // ---------------------------------------------------------------------------
   // 78. State Machine: cancelled permits conflict for late capture reconciliation
   // ---------------------------------------------------------------------------
-  test('78. cancelled permits conflict for late capture reconciliation', async () => {
+  test('78. cancelled permits conflict for late capture reconciliation matching backend authority', async () => {
     const scope = 'user_canc_conflict';
     const hashedScope = await computeHashedUserScope(scope);
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
@@ -1740,7 +1776,7 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   // ---------------------------------------------------------------------------
   // 79. State Machine: expired permits conflict for late capture reconciliation
   // ---------------------------------------------------------------------------
-  test('79. expired permits conflict for late capture reconciliation', async () => {
+  test('79. expired permits conflict for late capture reconciliation matching backend authority', async () => {
     const scope = 'user_exp_conflict';
     const hashedScope = await computeHashedUserScope(scope);
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
@@ -1753,18 +1789,22 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   });
 
   // ---------------------------------------------------------------------------
-  // 80. State Machine: failed permits conflict when reconciliation requires it
+  // 80. State Machine: failed rejects transition to conflict (failed is terminal)
   // ---------------------------------------------------------------------------
-  test('80. failed permits conflict when authoritative reconciliation requires it', async () => {
-    const scope = 'user_fail_conflict';
+  test('80. failed rejects transition to conflict matching backend authority', async () => {
+    const scope = 'user_fail_no_conflict';
     const hashedScope = await computeHashedUserScope(scope);
     await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
     updateCheckoutAttemptSession(hashedScope, { status: 'failed' });
 
-    const updated = updateCheckoutAttemptSession(hashedScope, { status: 'conflict' });
-    assert.equal(updated?.status, 'conflict');
+    assert.throws(
+      () => updateCheckoutAttemptSession(hashedScope, { status: 'conflict' }),
+      (err: unknown) =>
+        err instanceof CheckoutAttemptStaleUpdateError &&
+        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
+    );
     const rec = getCheckoutAttempt(hashedScope);
-    assert.equal(rec?.status, 'conflict');
+    assert.equal(rec?.status, 'failed');
   });
 
   // ---------------------------------------------------------------------------
@@ -1811,8 +1851,13 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   test('83. converted rejects every non-converted status', async () => {
     const scope = 'user_conv_immutable';
     const hashedScope = await computeHashedUserScope(scope);
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
-    updateCheckoutAttemptSession(hashedScope, { status: 'converted', convertedOrderDisplayId: 'ORD-IMMUTABLE' });
+    const attempt = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-IMMUTABLE',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+    });
 
     const nonConverted: CheckoutAttemptStatus[] = [
       'creating',
@@ -1829,7 +1874,12 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
 
     for (const st of nonConverted) {
       assert.throws(
-        () => updateCheckoutAttemptSession(hashedScope, { status: st }),
+        () =>
+          updateCheckoutAttemptSession(hashedScope, {
+            status: st,
+            expectedFingerprint: attempt.baseFingerprint,
+            expectedGeneration: attempt.generation,
+          }),
         (err: unknown) =>
           err instanceof CheckoutAttemptStaleUpdateError &&
           err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED',
@@ -1837,9 +1887,9 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
       );
     }
 
-    const rec = getCheckoutAttempt(hashedScope);
-    assert.equal(rec?.status, 'converted');
-    assert.equal(rec?.convertedOrderDisplayId, 'ORD-IMMUTABLE');
+    const completion = getCheckoutCompletion(hashedScope, attempt.baseFingerprint, attempt.generation);
+    assert.equal(completion?.status, 'converted');
+    assert.equal(completion?.convertedOrderDisplayId, 'ORD-IMMUTABLE');
   });
 
   // ---------------------------------------------------------------------------
@@ -1889,215 +1939,546 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     );
   });
 
-  // ---------------------------------------------------------------------------
-  // 86. Converted Race: clear converted then delayed active response cannot resurrect attempt
-  // ---------------------------------------------------------------------------
-  test('86. clear converted then delayed active response cannot resurrect attempt', async () => {
-    const scope = 'user_race_active';
-    const hashedScope = await computeHashedUserScope(scope);
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+  // ===========================================================================
+  // PHASE 6D-5B BATCH 2: REPEAT-PURCHASE AND CONVERTED TOMBSTONE SAFETY TESTS
+  // (All 20 Required Behavioral Requirements)
+  // ===========================================================================
 
-    // Tab A receives converted and records completion tombstone
+  // 1. Q1 retry derives the same fingerprint/key
+  test('REQ-1: Q1 retry derives the same fingerprint and idempotency key', async () => {
+    const scope = 'user_req_1';
+    const hashedScope = await computeHashedUserScope(scope);
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-Q1-000001',
+    };
+
+    const attempt1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    const attempt2 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope, forceNewAttempt: false });
+
+    assert.equal(attempt1.baseFingerprint, attempt2.baseFingerprint);
+    assert.equal(attempt1.idempotencyKey, attempt2.idempotencyKey);
+    assert.equal(attempt1.generation, attempt2.generation);
+  });
+
+  // 2. Newly issued Q2 derives a different fingerprint/key despite identical economics
+  test('REQ-2: newly issued Q2 derives a different fingerprint and key despite identical economics', async () => {
+    const scope = 'user_req_2';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-Q1-AAA',
+    };
+
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-Q2-BBB', // identical products, address, coupon, price; separate quote
+    };
+
+    const fp1 = await computeCheckoutFingerprint(intentQ1, hashedScope);
+    const fp2 = await computeCheckoutFingerprint(intentQ2, hashedScope);
+
+    assert.notEqual(fp1, fp2, 'Q1 and Q2 base fingerprints must differ due to authoritative quoteId');
+
+    const key1 = await deriveIdempotencyKey(fp1, 1);
+    const key2 = await deriveIdempotencyKey(fp2, 1);
+
+    assert.notEqual(key1, key2, 'Q1 and Q2 idempotency keys must differ');
+  });
+
+  // 3. Raw quoteToken is absent from key and storage
+  test('REQ-3: raw quoteToken is absent from key and storage', async () => {
+    const scope = 'user_req_3';
+    const hashedScope = await computeHashedUserScope(scope);
+    const intent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-TOKEN-AUDIT',
+    };
+
+    const attempt = await getOrCreateCheckoutAttempt(intent, { userScope: scope });
+
+    // Stored active attempt check
+    const rawActive = window.localStorage.getItem(`${STORAGE_KEY_PREFIX}${hashedScope}`);
+    assert.ok(rawActive);
+    assert.ok(!rawActive.includes('quoteToken'));
+    assert.ok(!rawActive.includes('eyJhbGciOi'));
+    assert.ok(!attempt.idempotencyKey.includes('quoteToken'));
+  });
+
+  // 4. Converted reload recovers convertedOrderDisplayId
+  test('REQ-4: converted reload recovers convertedOrderDisplayId from storage', async () => {
+    const scope = 'user_req_4';
+    const hashedScope = await computeHashedUserScope(scope);
+    const intent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-RELOAD-CONV',
+    };
+
+    const attempt = await getOrCreateCheckoutAttempt(intent, { userScope: scope });
     updateCheckoutAttemptSession(hashedScope, {
       status: 'converted',
-      convertedOrderDisplayId: 'ORD-RACE-1',
+      sessionId: 'cs_conv_reload_1',
+      convertedOrderDisplayId: 'ORD-SUCCESS-RELOAD-77',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
     });
 
-    // Tab B delayed response calls update with active
+    // Customer reloads the page / confirms order
+    const recovered = await getOrCreateCheckoutAttempt(intent, { userScope: scope });
+    assert.equal(recovered.status, 'converted');
+    assert.equal(recovered.convertedOrderDisplayId, 'ORD-SUCCESS-RELOAD-77');
+
+    const directRecord = await getCheckoutAttemptRecord(intent, { userScope: scope });
+    assert.equal(directRecord?.status, 'converted');
+    assert.equal(directRecord?.convertedOrderDisplayId, 'ORD-SUCCESS-RELOAD-77');
+  });
+
+  // 5. Stale update cannot resurrect converted attempt
+  test('REQ-5: stale update cannot resurrect converted attempt', async () => {
+    const scope = 'user_req_5';
+    const hashedScope = await computeHashedUserScope(scope);
+    const intent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-RESURRECT-TEST',
+    };
+
+    const attempt = await getOrCreateCheckoutAttempt(intent, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      sessionId: 'cs_conv_done',
+      convertedOrderDisplayId: 'ORD-DONE-123',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+    });
+
+    // Delayed webhook / active attempt update arrives
     assert.throws(
       () =>
         updateCheckoutAttemptSession(hashedScope, {
           status: 'active',
-          expectedGeneration: 1,
+          expectedFingerprint: attempt.baseFingerprint,
+          expectedGeneration: attempt.generation,
         }),
       (err: unknown) =>
         err instanceof CheckoutAttemptStaleUpdateError &&
         err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
     );
 
-    const rec = getCheckoutAttempt(hashedScope);
-    assert.equal(rec?.status, 'converted');
+    const completion = getCheckoutCompletion(hashedScope, attempt.baseFingerprint, attempt.generation);
+    assert.equal(completion?.status, 'converted');
+    assert.equal(completion?.convertedOrderDisplayId, 'ORD-DONE-123');
   });
 
-  // ---------------------------------------------------------------------------
-  // 87. Converted Race: clear converted then delayed payment_pending cannot resurrect attempt
-  // ---------------------------------------------------------------------------
-  test('87. clear converted then delayed payment_pending response cannot resurrect attempt', async () => {
-    const scope = 'user_race_pending';
+  // 6. New different-intent checkout starts immediately after conversion
+  test('REQ-6: new different-intent checkout starts immediately after conversion without waiting 1 hour', async () => {
+    const scope = 'user_req_6';
     const hashedScope = await computeHashedUserScope(scope);
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
 
-    // Tab A receives converted
+    // Initial purchase converted
+    const intent1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-ORDER-1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intent1, { userScope: scope });
     updateCheckoutAttemptSession(hashedScope, {
       status: 'converted',
-      convertedOrderDisplayId: 'ORD-RACE-2',
+      convertedOrderDisplayId: 'ORD-FIRST-999',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
     });
 
-    // Tab B delayed response calls update with payment_pending
-    assert.throws(
-      () =>
-        updateCheckoutAttemptSession(hashedScope, {
-          status: 'payment_pending',
-          expectedGeneration: 1,
-        }),
-      (err: unknown) =>
-        err instanceof CheckoutAttemptStaleUpdateError &&
-        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
-    );
+    // Customer immediately buys different product
+    const intent2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-ORDER-2',
+      items: [{ productId: 'prod_different_item', quantity: 1 }],
+    };
 
-    const rec = getCheckoutAttempt(hashedScope);
-    assert.equal(rec?.status, 'converted');
+    const att2 = await getOrCreateCheckoutAttempt(intent2, { userScope: scope });
+    assert.equal(att2.status, 'creating');
+    assert.equal(att2.generation, 1);
+    assert.notEqual(att2.baseFingerprint, att1.baseFingerprint);
   });
 
-  // ---------------------------------------------------------------------------
-  // 88. Converted Race: clear converted then delayed payment_captured cannot resurrect attempt
-  // ---------------------------------------------------------------------------
-  test('88. clear converted then delayed payment_captured response cannot resurrect attempt', async () => {
-    const scope = 'user_race_captured';
+  // 7. New same-cart purchase with new quote starts immediately after conversion
+  test('REQ-7: new same-cart purchase with new quote starts immediately after conversion', async () => {
+    const scope = 'user_req_7';
     const hashedScope = await computeHashedUserScope(scope);
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
 
-    // Tab A receives converted
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-FIRST-PURCHASE',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
     updateCheckoutAttemptSession(hashedScope, {
       status: 'converted',
-      convertedOrderDisplayId: 'ORD-RACE-3',
+      convertedOrderDisplayId: 'ORD-FIRST-PURCHASE',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
     });
 
-    // Tab B delayed response calls update with payment_captured
-    assert.throws(
-      () =>
-        updateCheckoutAttemptSession(hashedScope, {
-          status: 'payment_captured',
-          expectedGeneration: 1,
-        }),
-      (err: unknown) =>
-        err instanceof CheckoutAttemptStaleUpdateError &&
-        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
-    );
-
-    const rec = getCheckoutAttempt(hashedScope);
-    assert.equal(rec?.status, 'converted');
-  });
-
-  // ---------------------------------------------------------------------------
-  // 89. Changed Intent Race: delayed writer cannot overwrite current protected fingerprint
-  // ---------------------------------------------------------------------------
-  test('89. changed-intent delayed writer cannot overwrite the current protected fingerprint', async () => {
-    const scope = 'user_changed_race_1';
-    const hashedScope = await computeHashedUserScope(scope);
-
-    // Tab A prepares Intent A
-    const fpA = await computeCheckoutFingerprint(sampleIntentInput, hashedScope);
-
-    // Tab B writes Intent B (different item) to storage
-    const intentB: CheckoutIntentInput = {
+    // Same cart items and address, but new quote Q2 issued by backend
+    const intentQ2: CheckoutIntentInput = {
       ...sampleIntentInput,
-      items: [{ productId: 'prod_b_999', quantity: 2 }],
-    };
-    const recB = await getOrCreateCheckoutAttempt(intentB, { userScope: scope });
-    assert.notEqual(recB.baseFingerprint, fpA);
-    updateCheckoutAttemptSession(hashedScope, { status: 'active', sessionId: 'cs_b_active' });
-
-    // Tab A delayed writer attempts to write Intent A with getOrCreateCheckoutAttempt
-    await assert.rejects(
-      () => getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope }),
-      (err: unknown) =>
-        err instanceof CheckoutAttemptActiveIntentConflictError &&
-        err.code === 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT' &&
-        err.existingSessionId === 'cs_b_active'
-    );
-
-    // Tab A delayed update attempting updateCheckoutAttemptSession with expectedFingerprint A
-    assert.throws(
-      () =>
-        updateCheckoutAttemptSession(hashedScope, {
-          status: 'active',
-          expectedFingerprint: fpA,
-        }),
-      (err: unknown) =>
-        err instanceof CheckoutAttemptStaleUpdateError &&
-        err.code === 'CHECKOUT_ATTEMPT_STALE_UPDATE_IGNORED'
-    );
-
-    // Intent B remains untouched and protected
-    const current = getCheckoutAttempt(hashedScope);
-    assert.equal(current?.baseFingerprint, recB.baseFingerprint);
-    assert.equal(current?.status, 'active');
-  });
-
-  // ---------------------------------------------------------------------------
-  // 90. Changed Intent Race: inverse interleaving is also protected
-  // ---------------------------------------------------------------------------
-  test('90. inverse changed-intent interleaving is also protected', async () => {
-    const scope = 'user_changed_race_2';
-    const hashedScope = await computeHashedUserScope(scope);
-
-    // Tab A writes Intent A to storage and payment is submitted
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
-    updateCheckoutAttemptSession(hashedScope, { status: 'payment_pending', sessionId: 'cs_a_pending' });
-    recordPaymentSubmitted(hashedScope);
-
-    // Tab B attempts to initialize Intent B
-    const intentB: CheckoutIntentInput = {
-      ...sampleIntentInput,
-      items: [{ productId: 'prod_diff_123', quantity: 5 }],
+      quoteId: 'QUO-20260919-SECOND-PURCHASE',
     };
 
-    await assert.rejects(
-      () => getOrCreateCheckoutAttempt(intentB, { userScope: scope }),
-      (err: unknown) =>
-        err instanceof CheckoutAttemptActiveIntentConflictError &&
-        err.code === 'CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT' &&
-        err.existingSessionId === 'cs_a_pending'
-    );
-
-    // Intent A remains in storage
-    const current = getCheckoutAttempt(hashedScope);
-    assert.equal(current?.status, 'payment_pending');
-    assert.ok(current?.paymentSubmittedAt);
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+    assert.equal(att2.status, 'creating');
+    assert.equal(att2.generation, 1);
+    assert.notEqual(att2.idempotencyKey, att1.idempotencyKey);
   });
 
-  // ---------------------------------------------------------------------------
-  // 91. Tombstone Cleanup: clearAllCheckoutAttempts removes completion tombstone
-  // ---------------------------------------------------------------------------
-  test('91. clearAllCheckoutAttempts removes any completion tombstone', async () => {
-    const scope = await computeHashedUserScope('user_tombstone_clear');
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_tombstone_clear' });
-    updateCheckoutAttemptSession(scope, {
+  // 8. New purchase does not reuse old idempotency key
+  test('REQ-8: new purchase does not reuse old idempotency key', async () => {
+    const scope = 'user_req_8';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-KEY-REUSE-1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
       status: 'converted',
-      convertedOrderDisplayId: 'ORD-TOMB-CLEAR',
+      convertedOrderDisplayId: 'ORD-KEY-REUSE-1',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
     });
 
-    assert.ok(getCheckoutAttempt(scope));
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-KEY-REUSE-2',
+    };
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+
+    assert.notEqual(att1.idempotencyKey, att2.idempotencyKey);
+  });
+
+  // 9. Tombstone expiry cannot cause old key reuse
+  test('REQ-9: tombstone expiry cannot cause old idempotency key reuse', async () => {
+    const scope = 'user_req_9';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-EXPIRY-SAFETY-1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-EXP-1',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
+    });
+
+    // Clear all storage or simulate tombstone expiry
     clearAllCheckoutAttempts();
+
+    // Later purchase with new quote Q2
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-EXPIRY-SAFETY-2',
+    };
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+
+    assert.notEqual(att1.idempotencyKey, att2.idempotencyKey, 'New quote must derive distinct key even if storage was emptied');
+  });
+
+  // 10. Delayed Q1 response cannot overwrite active Q2
+  test('REQ-10: delayed Q1 response cannot overwrite active Q2', async () => {
+    const scope = 'user_req_10';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    // Q1 completes and writes to completion store
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-DELAY-Q1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-Q1-DONE',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
+    });
+
+    // Q2 starts and becomes active
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-ACTIVE-Q2',
+    };
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'active',
+      sessionId: 'cs_active_q2',
+      expectedFingerprint: att2.baseFingerprint,
+      expectedGeneration: att2.generation,
+    });
+
+    // Delayed Q1 response arrives with active status
+    assert.throws(
+      () =>
+        updateCheckoutAttemptSession(hashedScope, {
+          status: 'active',
+          expectedFingerprint: att1.baseFingerprint,
+          expectedGeneration: att1.generation,
+        }),
+      (err: unknown) => err instanceof CheckoutAttemptStaleUpdateError
+    );
+
+    // Active Q2 attempt in storage is completely intact
+    const currentActive = getCheckoutAttempt(hashedScope);
+    assert.equal(currentActive?.sessionId, 'cs_active_q2');
+    assert.equal(currentActive?.baseFingerprint, att2.baseFingerprint);
+    assert.equal(currentActive?.status, 'active');
+  });
+
+  // 11. Delayed Q1 response cannot delete Q2
+  test('REQ-11: delayed Q1 response cannot delete Q2', async () => {
+    const scope = 'user_req_11';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-DEL-Q1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-Q1-COMPLETED',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
+    });
+
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-DEL-Q2',
+    };
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+
+    // Delayed Q1 error update arrives
+    try {
+      updateCheckoutAttemptSession(hashedScope, {
+        status: 'failed',
+        expectedFingerprint: att1.baseFingerprint,
+        expectedGeneration: att1.generation,
+      });
+    } catch {
+      // expected error
+    }
+
+    const currentActive = getCheckoutAttempt(hashedScope);
+    assert.ok(currentActive, 'Q2 active attempt must survive delayed Q1 updates');
+    assert.equal(currentActive.baseFingerprint, att2.baseFingerprint);
+  });
+
+  // 12. Q1 completion and Q2 active attempt can coexist safely
+  test('REQ-12: Q1 completion and Q2 active attempt can coexist safely in storage', async () => {
+    const scope = 'user_req_12';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-COEXIST-Q1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-COEXIST-1',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
+    });
+
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-COEXIST-Q2',
+    };
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+
+    // Q1 completion is readable
+    const completion1 = getCheckoutCompletion(hashedScope, att1.baseFingerprint, att1.generation);
+    assert.equal(completion1?.convertedOrderDisplayId, 'ORD-COEXIST-1');
+
+    // Q2 active attempt is readable
+    const active2 = getCheckoutAttempt(hashedScope);
+    assert.equal(active2?.baseFingerprint, att2.baseFingerprint);
+    assert.equal(active2?.status, 'creating');
+  });
+
+  // 13. clearAllCheckoutAttempts removes both namespaces
+  test('REQ-13: clearAllCheckoutAttempts removes both active and completion namespaces', async () => {
+    const scope = 'user_req_13';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    const intent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-CLEAR-BOTH',
+    };
+    const att = await getOrCreateCheckoutAttempt(intent, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-CLEAR-TEST',
+      expectedFingerprint: att.baseFingerprint,
+      expectedGeneration: att.generation,
+    });
+
+    // Also write an active attempt
+    await getOrCreateCheckoutAttempt({ ...sampleIntentInput, quoteId: 'QUO-ACTIVE' }, { userScope: scope });
+
+    assert.ok(getCheckoutCompletion(hashedScope, att.baseFingerprint, att.generation));
+    assert.ok(getCheckoutAttempt(hashedScope));
+
+    clearAllCheckoutAttempts();
+
+    assert.equal(getCheckoutCompletion(hashedScope, att.baseFingerprint, att.generation), null);
+    assert.equal(getCheckoutAttempt(hashedScope), null);
+  });
+
+  // 14. Unrelated localStorage keys survive cleanup
+  test('REQ-14: unrelated localStorage keys survive clearAllCheckoutAttempts', async () => {
+    window.localStorage.setItem('user_theme_preference', 'dark');
+    window.localStorage.setItem('cart_items_backup', '{"items":[]}');
+
+    const scope = await computeHashedUserScope('user_survive');
+    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: 'user_survive' });
+
+    clearAllCheckoutAttempts();
+
+    assert.equal(window.localStorage.getItem('user_theme_preference'), 'dark');
+    assert.equal(window.localStorage.getItem('cart_items_backup'), '{"items":[]}');
     assert.equal(getCheckoutAttempt(scope), null);
   });
 
-  // ---------------------------------------------------------------------------
-  // 92. Tombstone Expiry: bounded tombstone expiry permits legitimate future checkout
-  // ---------------------------------------------------------------------------
-  test('92. bounded tombstone expiry permits legitimate future checkout', async () => {
-    const scope = 'user_tombstone_expiry';
+  // 15. Malformed/expired completion records are safely purged
+  test('REQ-15: malformed and expired completion records are safely purged', async () => {
+    const scope = 'user_req_15';
     const hashedScope = await computeHashedUserScope(scope);
-    await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
+    const fp = 'f'.repeat(64);
+
+    const expiredKey = `${COMPLETION_KEY_PREFIX}${hashedScope}:${fp}:1`;
+    const corruptKey = `${COMPLETION_KEY_PREFIX}${hashedScope}:${fp}:2`;
+
+    // Expired record
+    window.localStorage.setItem(
+      expiredKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        baseFingerprint: fp,
+        generation: 1,
+        idempotencyKey: 'checkout-v1-' + fp,
+        status: 'converted',
+        convertedOrderDisplayId: 'ORD-OLD',
+        createdAt: Date.now() - 100000,
+        updatedAt: Date.now() - 100000,
+        recoveryExpiresAt: Date.now() - 1000, // expired
+      })
+    );
+
+    // Corrupt record
+    window.localStorage.setItem(corruptKey, '{invalid json');
+
+    // getCheckoutCompletion should purge expired & corrupt records
+    const res1 = getCheckoutCompletion(hashedScope, fp, 1);
+    assert.equal(res1, null);
+    assert.equal(window.localStorage.getItem(expiredKey), null);
+
+    const res2 = getCheckoutCompletion(hashedScope, fp, 2);
+    assert.equal(res2, null);
+    assert.equal(window.localStorage.getItem(corruptKey), null);
+  });
+
+  // 16. Completion records contain no PII or secrets
+  test('REQ-16: completion records contain no PII or secrets', async () => {
+    const scope = 'user_req_16';
+    const hashedScope = await computeHashedUserScope(scope);
+    const intent: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-PII-CHECK-COMPL',
+      shippingAddress: {
+        fullName: 'Secret VIP Buyer',
+        phone: '+15551234567',
+        address: '100 Secret Way',
+        city: 'Beverly Hills',
+        countryCode: 'US',
+      },
+    };
+
+    const att = await getOrCreateCheckoutAttempt(intent, { userScope: scope });
     updateCheckoutAttemptSession(hashedScope, {
       status: 'converted',
-      convertedOrderDisplayId: 'ORD-TOMB-EXPIRY',
+      convertedOrderDisplayId: 'ORD-VIP-99',
+      expectedFingerprint: att.baseFingerprint,
+      expectedGeneration: att.generation,
     });
 
-    // Artificially age the tombstone in localStorage past recoveryExpiresAt
-    const raw = window.localStorage.getItem(STORAGE_KEY_PREFIX + hashedScope);
+    const completionKey = `${COMPLETION_KEY_PREFIX}${hashedScope}:${att.baseFingerprint}:${att.generation}`;
+    const raw = window.localStorage.getItem(completionKey);
     assert.ok(raw);
-    const parsed = JSON.parse(raw);
-    parsed.recoveryExpiresAt = Date.now() - 1000;
-    window.localStorage.setItem(STORAGE_KEY_PREFIX + hashedScope, JSON.stringify(parsed));
 
-    // getCheckoutAttempt now sees expired tombstone and cleans it up
-    assert.equal(getCheckoutAttempt(hashedScope), null);
+    assert.ok(!raw.includes('Secret VIP Buyer'));
+    assert.ok(!raw.includes('+15551234567'));
+    assert.ok(!raw.includes('100 Secret Way'));
+    assert.ok(!raw.includes('quoteToken'));
+    assert.ok(!raw.includes('clientSecret'));
+  });
 
-    // User can now legitimately start a new checkout attempt with generation 1
-    const fresh = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope: scope });
-    assert.equal(fresh.generation, 1);
-    assert.equal(fresh.status, 'creating');
+  // 17. failed -> conflict matches backend authority or is rejected
+  test('REQ-17: failed -> conflict matches backend authority (rejected)', () => {
+    assert.equal(
+      isAllowedAttemptTransition('failed', 'conflict'),
+      false,
+      'failed -> conflict must be rejected because failed is terminal in backend authority'
+    );
+  });
+
+  // 18. cancelled -> conflict matches backend authority
+  test('REQ-18: cancelled -> conflict matches backend authority (allowed for late capture reconciliation)', () => {
+    assert.equal(
+      isAllowedAttemptTransition('cancelled', 'conflict'),
+      true,
+      'cancelled -> conflict must be allowed matching backend PaymentWebhookProcessor late capture'
+    );
+  });
+
+  // 19. expired -> conflict matches backend authority
+  test('REQ-19: expired -> conflict matches backend authority (allowed for late capture reconciliation)', () => {
+    assert.equal(
+      isAllowedAttemptTransition('expired', 'conflict'),
+      true,
+      'expired -> conflict must be allowed matching backend PaymentWebhookProcessor late capture'
+    );
+  });
+
+  // 20. Repeated identical product purchase creates a distinct checkout identity only when backed by a distinct authoritative quote
+  test('REQ-20: repeated identical product purchase creates distinct checkout identity when backed by distinct quote', async () => {
+    const scope = 'user_req_20';
+    const hashedScope = await computeHashedUserScope(scope);
+
+    // Initial purchase with Quote Q1
+    const intentQ1: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-REPURCHASE-Q1',
+    };
+    const att1 = await getOrCreateCheckoutAttempt(intentQ1, { userScope: scope });
+    updateCheckoutAttemptSession(hashedScope, {
+      status: 'converted',
+      convertedOrderDisplayId: 'ORD-PURCHASE-1',
+      expectedFingerprint: att1.baseFingerprint,
+      expectedGeneration: att1.generation,
+    });
+
+    // Repeat identical purchase with Quote Q2
+    const intentQ2: CheckoutIntentInput = {
+      ...sampleIntentInput,
+      quoteId: 'QUO-20260919-REPURCHASE-Q2',
+    };
+    const att2 = await getOrCreateCheckoutAttempt(intentQ2, { userScope: scope });
+
+    assert.notEqual(att1.baseFingerprint, att2.baseFingerprint);
+    assert.notEqual(att1.idempotencyKey, att2.idempotencyKey);
+    assert.equal(att2.generation, 1);
+    assert.equal(att2.status, 'creating');
   });
 });

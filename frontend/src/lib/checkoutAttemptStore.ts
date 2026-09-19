@@ -8,10 +8,11 @@
  * - UTF-8 encoding via TextEncoder
  * - Lowercase 64-character hexadecimal digests
  * - Fail closed if Web Crypto API is unavailable (zero non-cryptographic fallback)
- * - Base fingerprint: SHA256(canonicalCheckoutIntent)
+ * - Base fingerprint: SHA256(canonicalCheckoutIntent) bound to authoritative server-issued quoteId
  * - Idempotency key: "checkout-v1-" + SHA256(baseFingerprint + ":" + generation)
  * - Reload-safe & cross-tab synchronized exclusively via localStorage
- * - Storage namespace: mevapur:checkout-attempt:v1:<hashedUserScope>
+ * - Active attempt namespace: mevapur:checkout-attempt:v1:<hashedUserScope>
+ * - Converted completion namespace: mevapur:checkout-completion:v1:<hashedUserScope>:<baseFingerprint>:<generation>
  * - hashedUserScope: 64-character lowercase SHA-256 digest
  * - Fail closed with CHECKOUT_RECOVERY_STORAGE_UNAVAILABLE if localStorage is missing, blocked, or throws
  * - Browser localStorage persistence only (zero memory fallback)
@@ -19,7 +20,7 @@
  * - Terminal-only generation rotation: forceNewAttempt requires authoritative failed, expired, or cancelled status
  * - Changed-intent protection: active attempts throw CHECKOUT_ATTEMPT_ACTIVE_INTENT_CONFLICT
  * - Explicit branching transition matrix: stale cross-tab responses cannot regress terminal, advanced payment, or converted states
- * - Converted completion tombstone: prevents stale post-conversion response resurrection while preserving success reload recovery
+ * - Converted completion records: prevent stale post-conversion response resurrection while allowing immediate new purchases
  * - Cross-tab coordination via deterministic idempotency keys, navigator.locks, and BroadcastChannel/storage events
  */
 
@@ -45,6 +46,7 @@ export interface CanonicalCheckoutItem {
 
 export interface CanonicalCheckoutIntent {
   hashedUserScope: string;
+  quoteId: string;
   items: CanonicalCheckoutItem[];
   shippingAddressHash: string;
   destinationCountry: string;
@@ -59,6 +61,7 @@ export interface CanonicalCheckoutIntent {
 }
 
 export interface CheckoutIntentInput {
+  quoteId: string;
   items: Array<{ productId?: string; id?: string; variantId?: string | null; quantity: number }>;
   shippingAddress: ShippingAddressInput;
   paymentMethod: string;
@@ -205,6 +208,7 @@ export function isCheckoutAttemptStaleUpdateError(error: unknown): error is Chec
 }
 
 export const STORAGE_KEY_PREFIX = 'mevapur:checkout-attempt:v1:';
+export const COMPLETION_KEY_PREFIX = 'mevapur:checkout-completion:v1:';
 export const DEFAULT_RECOVERY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 export const SUBMITTED_PAYMENT_RECOVERY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const BOUNDED_CONVERTED_RETENTION_MS = 60 * 60 * 1000; // 1 hour bounded retention for success redirect/recovery
@@ -220,6 +224,11 @@ export const AUTHORITATIVE_TERMINAL_STATUSES: readonly CheckoutSessionStatus[] =
  * Authoritative Branching State Transition Matrix for Checkout Attempt Identity.
  * Each status maps to the strict set of permitted subsequent statuses.
  * Same-state transitions (from === to) are idempotent and allowed.
+ *
+ * Backend Authority:
+ * - cancelled -> conflict: Allowed on late capture after cancellation (PaymentWebhookProcessor)
+ * - expired -> conflict: Allowed on late capture after hold lease expiry (PaymentWebhookProcessor)
+ * - failed -> conflict: Rejected (failed is a terminal failure with zero subsequent transitions)
  */
 export const ALLOWED_CHECKOUT_ATTEMPT_TRANSITIONS: Record<
   CheckoutAttemptStatus,
@@ -290,7 +299,6 @@ export const ALLOWED_CHECKOUT_ATTEMPT_TRANSITIONS: Record<
   ]),
   failed: new Set<CheckoutAttemptStatus>([
     'failed',
-    'conflict',
   ]),
   conflict: new Set<CheckoutAttemptStatus>([
     'conflict',
@@ -383,10 +391,21 @@ export async function computeHashedUserScope(userScope?: string | null): Promise
 }
 
 /**
- * Derives scoped storage key: mevapur:checkout-attempt:v1:<hashedUserScope>
+ * Derives scoped active attempt storage key: mevapur:checkout-attempt:v1:<hashedUserScope>
  */
 export function getStorageKey(hashedUserScope: string): string {
   return `${STORAGE_KEY_PREFIX}${hashedUserScope}`;
+}
+
+/**
+ * Derives scoped converted completion storage key: mevapur:checkout-completion:v1:<hashedUserScope>:<baseFingerprint>:<generation>
+ */
+export function getCompletionStorageKey(
+  hashedUserScope: string,
+  baseFingerprint: string,
+  generation: number
+): string {
+  return `${COMPLETION_KEY_PREFIX}${hashedUserScope}:${baseFingerprint}:${generation}`;
 }
 
 /**
@@ -409,12 +428,16 @@ export async function computeShippingAddressHash(address: ShippingAddressInput):
 }
 
 /**
- * Builds the canonical intent object with sorted items and hashed address.
+ * Builds the canonical intent object with sorted items, hashed address, and bound authoritative quoteId.
  */
 export async function buildCanonicalCheckoutIntent(
   input: CheckoutIntentInput,
   hashedUserScope: string
 ): Promise<CanonicalCheckoutIntent> {
+  if (!input.quoteId || typeof input.quoteId !== 'string' || !input.quoteId.trim()) {
+    throw new Error('Valid authoritative quoteId is required to compute checkout fingerprint');
+  }
+
   const sortedItems: CanonicalCheckoutItem[] = input.items
     .map((i) => {
       const pId = String(i.productId || i.id || '').trim();
@@ -440,6 +463,7 @@ export async function buildCanonicalCheckoutIntent(
 
   return {
     hashedUserScope,
+    quoteId: input.quoteId.trim(),
     items: sortedItems,
     shippingAddressHash: addressHash,
     destinationCountry,
@@ -545,7 +569,7 @@ function broadcastSyncEvent(message: {
 }
 
 /**
- * Reads attempt record from localStorage with strict schema validation and recovery expiration logic.
+ * Reads active attempt record from localStorage with strict schema validation and recovery expiration logic.
  * Strictly fails closed if localStorage is inaccessible.
  */
 export function getCheckoutAttempt(hashedUserScope: string): CheckoutAttemptRecord | null {
@@ -598,6 +622,110 @@ export function getCheckoutAttempt(hashedUserScope: string): CheckoutAttemptReco
       // Ignore cleanup error
     }
     return null;
+  }
+}
+
+/**
+ * Reads a converted completion record from the completion namespace.
+ */
+export function getCheckoutCompletion(
+  hashedUserScope: string,
+  baseFingerprint: string,
+  generation?: number
+): CheckoutAttemptRecord | null {
+  const storage = getLocalStorage();
+  const now = Date.now();
+
+  try {
+    if (generation !== undefined) {
+      const key = getCompletionStorageKey(hashedUserScope, baseFingerprint, generation);
+      const raw = storage.getItem(key);
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        if (isValidAttemptRecord(parsed) && parsed.status === 'converted') {
+          if (now <= parsed.recoveryExpiresAt) {
+            return parsed;
+          }
+          storage.removeItem(key);
+        }
+      } catch {
+        storage.removeItem(key);
+      }
+      return null;
+    }
+
+    // Scan completion entries for matching baseFingerprint
+    const prefix = `${COMPLETION_KEY_PREFIX}${hashedUserScope}:${baseFingerprint}:`;
+    const len = storage.length;
+    let latestRecord: CheckoutAttemptRecord | null = null;
+
+    for (let i = 0; i < len; i++) {
+      const key = storage.key(i);
+      if (key && key.startsWith(prefix)) {
+        const raw = storage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (isValidAttemptRecord(parsed) && parsed.status === 'converted') {
+              if (now <= parsed.recoveryExpiresAt) {
+                if (!latestRecord || parsed.generation > latestRecord.generation) {
+                  latestRecord = parsed;
+                }
+              } else {
+                storage.removeItem(key);
+              }
+            }
+          } catch {
+            storage.removeItem(key);
+          }
+        }
+      }
+    }
+
+    return latestRecord;
+  } catch (err) {
+    if (err instanceof CheckoutRecoveryStorageError) throw err;
+    return null;
+  }
+}
+
+/**
+ * Writes a converted completion record into the completion namespace.
+ */
+export function writeCheckoutCompletionRecord(
+  hashedUserScope: string,
+  record: CheckoutAttemptRecord
+): void {
+  const storage = getLocalStorage();
+  const storageKey = getCompletionStorageKey(hashedUserScope, record.baseFingerprint, record.generation);
+
+  try {
+    const safeRecord: CheckoutAttemptRecord = {
+      schemaVersion: 1,
+      baseFingerprint: record.baseFingerprint,
+      generation: record.generation,
+      idempotencyKey: record.idempotencyKey,
+      sessionId: record.sessionId ? String(record.sessionId) : undefined,
+      leaseExpiresAt: undefined,
+      status: 'converted',
+      convertedOrderDisplayId:
+        record.convertedOrderDisplayId !== undefined && record.convertedOrderDisplayId !== null
+          ? String(record.convertedOrderDisplayId)
+          : null,
+      paymentSubmittedAt: record.paymentSubmittedAt ? String(record.paymentSubmittedAt) : null,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      recoveryExpiresAt: record.recoveryExpiresAt,
+    };
+
+    storage.setItem(storageKey, JSON.stringify(safeRecord));
+  } catch (err) {
+    if (err instanceof CheckoutRecoveryStorageError) throw err;
+    throw new CheckoutRecoveryStorageError(
+      'Failed to persist converted checkout completion record to localStorage. Checkout recovery must fail closed.',
+      err
+    );
   }
 }
 
@@ -669,13 +797,14 @@ export async function withCheckoutLock<T>(
 }
 
 /**
- * Retrieves existing active attempt or generates a new cryptographic attempt identity in localStorage.
+ * Retrieves existing active attempt, recovers converted completion, or generates a new cryptographic attempt identity.
  * Operates under mutual exclusion and persists status "creating" before any backend POST.
  *
  * Enforces:
- * 1. Terminal-only generation rotation: forceNewAttempt requires authoritative failed, expired, or cancelled status.
- * 2. Changed-intent protection: active/in-flight attempts cannot be silently overwritten.
- * 3. Converted session protection: completed sessions are immutable for identical intent, or gracefully replaced for fresh intent.
+ * 1. Quote Instance Binding: baseFingerprint is strictly bound to server-issued quoteId.
+ * 2. Converted Session Isolation: converted attempts live in completion namespace and recover instantly without blocking new checkouts.
+ * 3. Terminal-only generation rotation: forceNewAttempt requires authoritative failed, expired, or cancelled status.
+ * 4. Changed-intent protection: active/in-flight attempts cannot be silently overwritten.
  */
 export async function getOrCreateCheckoutAttempt(
   input: CheckoutIntentInput,
@@ -688,8 +817,23 @@ export async function getOrCreateCheckoutAttempt(
   const baseFingerprint = await computeCheckoutFingerprint(input, hashedUserScope);
 
   return withCheckoutLock(hashedUserScope, async () => {
-    const existing = getCheckoutAttempt(hashedUserScope);
     const now = Date.now();
+
+    // 1. Check if a converted completion record exists for this exact baseFingerprint
+    const completionRecord = getCheckoutCompletion(hashedUserScope, baseFingerprint);
+    if (completionRecord) {
+      if (options?.forceNewAttempt) {
+        throw new CheckoutAttemptNonTerminalRotationError(
+          completionRecord.status,
+          completionRecord.sessionId || null,
+          `Cannot force a new checkout attempt on a converted session. Session has completed conversion.`
+        );
+      }
+      return completionRecord;
+    }
+
+    // 2. Check active attempt in storage
+    const existing = getCheckoutAttempt(hashedUserScope);
 
     if (existing) {
       if (existing.baseFingerprint === baseFingerprint) {
@@ -740,8 +884,7 @@ export async function getOrCreateCheckoutAttempt(
 
       // Rule 2: Changed intent handling
       if (existing.status === 'converted') {
-        // Prior intent was successfully converted to order. Customer is now creating a new order with changed intent.
-        // Replace the converted tombstone with fresh generation 1 attempt for the new intent.
+        // Prior intent in active slot was converted; clear it so fresh attempt can start
         clearCheckoutAttempt(hashedUserScope);
       } else if (existing.status === 'conflict') {
         if (now > existing.recoveryExpiresAt) {
@@ -788,7 +931,30 @@ export async function getOrCreateCheckoutAttempt(
 }
 
 /**
- * Monotonically updates session references and authoritative status on the active attempt.
+ * Retrieves the current persisted checkout attempt or completed conversion for a given intent.
+ */
+export async function getCheckoutAttemptRecord(
+  input: CheckoutIntentInput,
+  options?: { userScope?: string | null }
+): Promise<CheckoutAttemptRecord | null> {
+  const hashedUserScope = await computeHashedUserScope(options?.userScope);
+  const baseFingerprint = await computeCheckoutFingerprint(input, hashedUserScope);
+
+  const completion = getCheckoutCompletion(hashedUserScope, baseFingerprint);
+  if (completion) {
+    return completion;
+  }
+
+  const active = getCheckoutAttempt(hashedUserScope);
+  if (active && active.baseFingerprint === baseFingerprint) {
+    return active;
+  }
+
+  return null;
+}
+
+/**
+ * Monotonically updates session references and authoritative status on the active attempt or completion store.
  * Enforces strict branching state machine transitions and verification of baseFingerprint,
  * generation, and idempotencyKey before modifying storage.
  */
@@ -810,6 +976,23 @@ export function updateCheckoutAttemptSession(
   const gen = updates.expectedGeneration || current?.generation || 1;
 
   if (!current) {
+    // If no active attempt exists, check if a completion record exists for expectedFingerprint
+    if (updates.expectedFingerprint) {
+      const completion = getCheckoutCompletion(hashedUserScope, updates.expectedFingerprint, updates.expectedGeneration);
+      if (completion) {
+        const targetStatus = updates.status !== undefined ? updates.status : completion.status;
+        if (!isAllowedAttemptTransition('converted', targetStatus)) {
+          throw new CheckoutAttemptStaleUpdateError(
+            'converted',
+            targetStatus,
+            completion.generation,
+            `Cannot transition completed converted checkout session to '${targetStatus}'. Converted sessions are immutable.`
+          );
+        }
+        return completion;
+      }
+    }
+
     throw new CheckoutAttemptStaleUpdateError(
       'creating',
       attemptedStatus,
@@ -820,6 +1003,23 @@ export function updateCheckoutAttemptSession(
 
   // Verify generation matches
   if (updates.expectedGeneration !== undefined && updates.expectedGeneration !== current.generation) {
+    // Check if the update belongs to a previously converted generation in completion store
+    if (updates.expectedFingerprint) {
+      const completion = getCheckoutCompletion(hashedUserScope, updates.expectedFingerprint, updates.expectedGeneration);
+      if (completion) {
+        const targetStatus = updates.status !== undefined ? updates.status : completion.status;
+        if (!isAllowedAttemptTransition('converted', targetStatus)) {
+          throw new CheckoutAttemptStaleUpdateError(
+            'converted',
+            targetStatus,
+            completion.generation,
+            `Cannot transition completed converted checkout session to '${targetStatus}'. Converted sessions are immutable.`
+          );
+        }
+        return completion;
+      }
+    }
+
     throw new CheckoutAttemptStaleUpdateError(
       current.status,
       attemptedStatus,
@@ -830,6 +1030,21 @@ export function updateCheckoutAttemptSession(
 
   // Verify fingerprint matches
   if (updates.expectedFingerprint !== undefined && updates.expectedFingerprint !== current.baseFingerprint) {
+    // Check if the update belongs to a previously converted fingerprint in completion store
+    const completion = getCheckoutCompletion(hashedUserScope, updates.expectedFingerprint, updates.expectedGeneration);
+    if (completion) {
+      const targetStatus = updates.status !== undefined ? updates.status : completion.status;
+      if (!isAllowedAttemptTransition('converted', targetStatus)) {
+        throw new CheckoutAttemptStaleUpdateError(
+          'converted',
+          targetStatus,
+          completion.generation,
+          `Cannot transition completed converted checkout session to '${targetStatus}'. Converted sessions are immutable.`
+        );
+      }
+      return completion;
+    }
+
     throw new CheckoutAttemptStaleUpdateError(
       current.status,
       attemptedStatus,
@@ -891,6 +1106,14 @@ export function updateCheckoutAttemptSession(
     recoveryExpiresAt,
   };
 
+  if (targetStatus === 'converted') {
+    // Write to completion namespace and clear active slot for immediate subsequent checkout
+    writeCheckoutCompletionRecord(hashedUserScope, updated);
+    clearCheckoutAttempt(hashedUserScope);
+    broadcastSyncEvent({ type: 'ATTEMPT_UPDATED', hashedUserScope, record: updated });
+    return updated;
+  }
+
   writeCheckoutAttemptRecord(hashedUserScope, updated);
   return updated;
 }
@@ -924,7 +1147,7 @@ export function recordPaymentSubmitted(
 }
 
 /**
- * Purges a single scoped checkout attempt record from localStorage.
+ * Purges a single scoped active checkout attempt record from localStorage.
  */
 export function clearCheckoutAttempt(hashedUserScope: string): void {
   if (typeof window === 'undefined') return;
@@ -939,7 +1162,8 @@ export function clearCheckoutAttempt(hashedUserScope: string): void {
 }
 
 /**
- * Purges every checkout attempt record in the mevapur:checkout-attempt:v1: namespace.
+ * Purges every checkout attempt record in BOTH mevapur:checkout-attempt:v1:
+ * and mevapur:checkout-completion:v1: namespaces while strictly preserving unrelated keys.
  * Must be called in all logout and session invalidation flows.
  */
 export function clearAllCheckoutAttempts(): void {
@@ -952,7 +1176,10 @@ export function clearAllCheckoutAttempts(): void {
     const len = storage.length;
     for (let i = 0; i < len; i++) {
       const key = storage.key(i);
-      if (key && key.startsWith(STORAGE_KEY_PREFIX)) {
+      if (
+        key &&
+        (key.startsWith(STORAGE_KEY_PREFIX) || key.startsWith(COMPLETION_KEY_PREFIX))
+      ) {
         keysToRemove.push(key);
       }
     }
