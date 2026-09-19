@@ -1588,4 +1588,881 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       expect(consumptionLedger.reservationDelta).toBe(-2);
     });
   });
+
+  describe('Group G: Route-Level Checkout Session Public API Hardening & Sanitization Contract', () => {
+    const FORBIDDEN_FIELDS = [
+      '_id',
+      'convertedOrderId',
+      'inventoryHoldId',
+      'paymentId',
+      'userId',
+      'customerEmail',
+      'orderData',
+      'shippingAddress',
+      'customerNote',
+      'quoteTokenHash',
+      'requestHash',
+      'idempotencyKey',
+      'quoteSnapshot',
+      'taxesAndDutiesSnapshot',
+      'shippingSnapshot',
+      'reconciliation',
+      'cancellation',
+      'lockVersion',
+      'providerPaymentId',
+      'providerClaimData',
+      '__v'
+    ];
+
+    const ALLOWED_SESSION_KEYS = [
+      'amounts',
+      'convertedOrderDisplayId',
+      'currency',
+      'destinationCountry',
+      'leaseExpiresAt',
+      'sessionId',
+      'status'
+    ].sort();
+
+    const ALLOWED_EXACT_MONEY_KEYS = [
+      'amountMinor',
+      'currency',
+      'exponent',
+      'registrySnapshot'
+    ].sort();
+
+    const EXPECTED_EXACT_AMOUNT_FIELDS = [
+      'subtotalExact',
+      'discountExact',
+      'shippingCostExact',
+      'taxAmountExact',
+      'additionalTaxAmountExact',
+      'taxIncludedAmountExact',
+      'dutiesExact',
+      'totalAmountExact'
+    ];
+
+    function assertExactMoneyShape(moneyObj, expectedCurrency) {
+      expect(moneyObj).toBeDefined();
+      expect(typeof moneyObj).toBe('object');
+      expect(Object.keys(moneyObj).sort()).toEqual(ALLOWED_EXACT_MONEY_KEYS);
+      expect(typeof moneyObj.amountMinor).toBe('string');
+      expect(/^\d+$/.test(moneyObj.amountMinor)).toBe(true);
+      expect(moneyObj.currency).toBe(expectedCurrency);
+      expect(typeof moneyObj.exponent).toBe('number');
+      expect(typeof moneyObj.registrySnapshot).toBe('string');
+      expect(moneyObj.registrySnapshot.length).toBeGreaterThan(0);
+    }
+
+    function assertSanitizedPublicSession(session, expectedCurrency = 'USD') {
+      expect(session).toBeDefined();
+      expect(typeof session).toBe('object');
+      expect(Object.keys(session).sort()).toEqual(ALLOWED_SESSION_KEYS);
+      expect(typeof session.sessionId).toBe('string');
+      expect(session.sessionId.length).toBeGreaterThan(0);
+      expect(typeof session.status).toBe('string');
+      expect(typeof session.currency).toBe('string');
+      expect(typeof session.destinationCountry).toBe('string');
+
+      // Amounts assertion
+      expect(session.amounts).toBeDefined();
+      expect(Object.keys(session.amounts).sort()).toEqual(EXPECTED_EXACT_AMOUNT_FIELDS.slice().sort());
+      for (const amountField of EXPECTED_EXACT_AMOUNT_FIELDS) {
+        assertExactMoneyShape(session.amounts[amountField], expectedCurrency);
+      }
+    }
+
+    it('1. New POST creation returns the standardized envelope', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_new_${Date.now()}`;
+
+      const res = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Group G Customer',
+            address: '100 Standardized Way',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.isReplay).toBe(false);
+      expect(Object.keys(res.body).sort()).toEqual(['data', 'isReplay', 'success']);
+      expect(Object.keys(res.body.data).sort()).toEqual(['paymentAttempt', 'session']);
+
+      assertSanitizedPublicSession(res.body.data.session, 'USD');
+      expect(res.body.data.session.convertedOrderDisplayId).toBeNull();
+
+      expect(res.body.data.paymentAttempt).toBeDefined();
+      expect(res.body.data.paymentAttempt.provider).toBe('stripe');
+      expect(typeof res.body.data.paymentAttempt.clientSecret).toBe('string');
+      expect(typeof res.body.data.paymentAttempt.status).toBe('string');
+    });
+
+    it('2. POST replay returns the same standardized envelope with isReplay true', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_replay_${Date.now()}`;
+      const payload = {
+        quoteToken,
+        items: [{ productId: String(testProduct._id), quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Replay Customer',
+          address: '100 Replay Ave',
+          city: 'Dallas',
+          province: 'TX',
+          postalCode: '75201',
+          countryCode: 'US',
+          phone: '+15551234567'
+        },
+        paymentMethod: 'stripe',
+        currency: 'USD'
+      };
+
+      const res1 = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send(payload);
+
+      expect(res1.status).toBe(201);
+      expect(res1.body.isReplay).toBe(false);
+
+      const res2 = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send(payload);
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.success).toBe(true);
+      expect(res2.body.isReplay).toBe(true);
+      expect(Object.keys(res2.body).sort()).toEqual(['data', 'isReplay', 'success']);
+      expect(Object.keys(res2.body.data).sort()).toEqual(['paymentAttempt', 'session']);
+
+      assertSanitizedPublicSession(res2.body.data.session, 'USD');
+      expect(res2.body.data.session.sessionId).toBe(res1.body.data.session.sessionId);
+    });
+
+    it('3. POST returns transient clientSecret inside paymentAttempt', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_sec_${Date.now()}`;
+
+      const res = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Secret Test Customer',
+            address: '100 Secret Way',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.paymentAttempt.clientSecret).toMatch(/^pi_test_secret_/);
+      expect(res.body.data.session.clientSecret).toBeUndefined();
+    });
+
+    it('4. POST does not return providerPaymentId', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_noprov_${Date.now()}`;
+
+      const res = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'No Prov Customer',
+            address: '100 No Prov Way',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.paymentAttempt.providerPaymentId).toBeUndefined();
+      expect(res.body.data.session.providerPaymentId).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain('providerPaymentId');
+      expect(JSON.stringify(res.body)).not.toContain('pi_test_1');
+    });
+
+    it('5. GET returns only { success: true, data: { session: PublicCheckoutSession } }', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_get_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Get Cust',
+            address: '100 Get Ln',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      const sessionId = createRes.body.data.session.sessionId;
+
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.success).toBe(true);
+      expect(Object.keys(getRes.body).sort()).toEqual(['data', 'success']);
+      expect(Object.keys(getRes.body.data).sort()).toEqual(['session']);
+      expect(getRes.body.data.paymentAttempt).toBeUndefined();
+      expect(getRes.body.data.clientSecret).toBeUndefined();
+
+      assertSanitizedPublicSession(getRes.body.data.session, 'USD');
+      expect(getRes.body.data.session.sessionId).toBe(sessionId);
+    });
+
+    it('6. GET never returns clientSecret', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_get_nosec_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Get No Sec',
+            address: '100 No Sec Ln',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      const clientSecret = createRes.body.data.paymentAttempt.clientSecret;
+      const sessionId = createRes.body.data.session.sessionId;
+
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.data.session.clientSecret).toBeUndefined();
+      expect(JSON.stringify(getRes.body)).not.toContain('clientSecret');
+      expect(JSON.stringify(getRes.body)).not.toContain(clientSecret);
+    });
+
+    it('7. Cancel returns only the sanitized session without provider or cancellation internals', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_cancel_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Cancel Cust',
+            address: '100 Cancel Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      const sessionId = createRes.body.data.session.sessionId;
+
+      const cancelRes = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', authHeader)
+        .send({ reason: 'CUSTOMER_REQUESTED' });
+
+      expect(cancelRes.status).toBe(200);
+      expect(cancelRes.body.success).toBe(true);
+      expect(cancelRes.body.isReplay).toBe(false);
+      expect(Object.keys(cancelRes.body).sort()).toEqual(['data', 'isReplay', 'success']);
+      expect(Object.keys(cancelRes.body.data).sort()).toEqual(['session']);
+
+      assertSanitizedPublicSession(cancelRes.body.data.session, 'USD');
+      expect(cancelRes.body.data.session.status).toBe('cancelled');
+      expect(JSON.stringify(cancelRes.body)).not.toContain('cancellation');
+      expect(JSON.stringify(cancelRes.body)).not.toContain('cancelledAt');
+    });
+
+    it('8. Unauthorized user cannot inspect or cancel another users session', async () => {
+      const otherUser = await User.create({
+        fullName: 'Attacker User',
+        email: `attacker-${Date.now()}@example.com`,
+        password: 'password123',
+        role: 'customer',
+        isVerified: true
+      });
+
+      const { token: quoteToken } = generateValidQuoteToken();
+      const ownerAuth = await getUserAuth(testUser);
+      const attackerAuth = await getUserAuth(otherUser);
+      const idempotencyKey = `idemp_grp_g_auth_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', ownerAuth)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Owner Cust',
+            address: '100 Owner Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      const sessionId = createRes.body.data.session.sessionId;
+
+      // Attacker attempts GET
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', attackerAuth);
+
+      expect(getRes.status).toBe(404);
+      expect(getRes.body.success).toBe(false);
+
+      // Attacker attempts cancel
+      const cancelRes = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', attackerAuth)
+        .send({ reason: 'FRAUDULENT_ATTACK' });
+
+      expect(cancelRes.status).toBe(404);
+      expect(cancelRes.body.success).toBe(false);
+    });
+
+    it('9. Converted session returns convertedOrderDisplayId', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_conv_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Converted Cust',
+            address: '100 Conversion Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      const sessionId = createRes.body.data.session.sessionId;
+
+      const convertResult = await CheckoutSessionService.convertSessionToOrder({
+        sessionId,
+        paymentEvidence: {
+          amountExact: createRes.body.data.session.amounts.totalAmountExact,
+          currency: 'USD',
+          providerPaymentId: 'pi_conv_display_test'
+        }
+      });
+
+      expect(convertResult.order).toBeDefined();
+      expect(convertResult.order.orderId).toBeDefined();
+
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.data.session.status).toBe('converted');
+      expect(getRes.body.data.session.convertedOrderDisplayId).toBe(convertResult.order.orderId);
+      expect(getRes.body.data.session.convertedOrderDisplayId).toMatch(/^ORD-/);
+    });
+
+    it('10. Converted session never returns convertedOrderId MongoDB ObjectId', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_noconv_id_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'No Mongo Id Cust',
+            address: '100 Mongo Id Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      const sessionId = createRes.body.data.session.sessionId;
+
+      const convertResult = await CheckoutSessionService.convertSessionToOrder({
+        sessionId,
+        paymentEvidence: {
+          amountExact: createRes.body.data.session.amounts.totalAmountExact,
+          currency: 'USD',
+          providerPaymentId: 'pi_conv_nomongoid_test'
+        }
+      });
+
+      const orderMongoId = convertResult.order._id.toString();
+
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.data.session.convertedOrderId).toBeUndefined();
+      expect(JSON.stringify(getRes.body)).not.toContain('convertedOrderId');
+      expect(JSON.stringify(getRes.body)).not.toContain(orderMongoId);
+    });
+
+    it('11. Exact-money fields contain amountMinor (string), currency, exponent, and required registrySnapshot', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_exact_money_${Date.now()}`;
+
+      const res = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Exact Money Cust',
+            address: '100 Money Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(res.status).toBe(201);
+      const amounts = res.body.data.session.amounts;
+
+      for (const amountKey of EXPECTED_EXACT_AMOUNT_FIELDS) {
+        const item = amounts[amountKey];
+        expect(typeof item.amountMinor).toBe('string');
+        expect(typeof item.currency).toBe('string');
+        expect(typeof item.exponent).toBe('number');
+        expect(typeof item.registrySnapshot).toBe('string');
+        expect(item.registrySnapshot.length).toBeGreaterThan(0);
+        expect(Object.keys(item).sort()).toEqual(ALLOWED_EXACT_MONEY_KEYS);
+      }
+    });
+
+    it('12. Response JSON contains none of the forbidden internal field names', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_forbidden_keys_${Date.now()}`;
+
+      const postRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Forbidden Keys Cust',
+            address: '100 Forbidden Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(postRes.status).toBe(201);
+      const postJson = JSON.stringify(postRes.body);
+      for (const field of FORBIDDEN_FIELDS) {
+        expect(postJson).not.toContain(`"${field}"`);
+      }
+
+      const sessionId = postRes.body.data.session.sessionId;
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      const getJson = JSON.stringify(getRes.body);
+      for (const field of FORBIDDEN_FIELDS) {
+        expect(getJson).not.toContain(`"${field}"`);
+      }
+
+      const cancelRes = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', authHeader)
+        .send({ reason: 'CUSTOMER_REQUESTED' });
+
+      expect(cancelRes.status).toBe(200);
+      const cancelJson = JSON.stringify(cancelRes.body);
+      for (const field of FORBIDDEN_FIELDS) {
+        expect(cancelJson).not.toContain(`"${field}"`);
+      }
+    });
+
+    it('13. Response JSON contains none of the seeded PII values', async () => {
+      const sentinelEmail = `sentinel-email-${Date.now()}@vault-protection.org`;
+      const sentinelFullName = 'Sentinel Bartholomew Jackson-Vault';
+      const sentinelPhone = '+19998887766';
+      const sentinelAddress = '999 Confidential Sentinel Boulevard Suite 404';
+      const sentinelNote = 'Special delivery vault instructions';
+
+      const sentinelUser = await User.create({
+        fullName: sentinelFullName,
+        email: sentinelEmail,
+        password: 'password123',
+        role: 'customer',
+        isVerified: true
+      });
+
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(sentinelUser);
+      const idempotencyKey = `idemp_grp_g_pii_${Date.now()}`;
+
+      const postRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: sentinelFullName,
+            address: sentinelAddress,
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: sentinelPhone
+          },
+          customerNote: sentinelNote,
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(postRes.status).toBe(201);
+      const postJson = JSON.stringify(postRes.body);
+      expect(postJson).not.toContain(sentinelEmail);
+      expect(postJson).not.toContain(sentinelFullName);
+      expect(postJson).not.toContain(sentinelPhone);
+      expect(postJson).not.toContain(sentinelAddress);
+      expect(postJson).not.toContain(sentinelNote);
+
+      const sessionId = postRes.body.data.session.sessionId;
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      const getJson = JSON.stringify(getRes.body);
+      expect(getJson).not.toContain(sentinelEmail);
+      expect(getJson).not.toContain(sentinelFullName);
+      expect(getJson).not.toContain(sentinelPhone);
+      expect(getJson).not.toContain(sentinelAddress);
+      expect(getJson).not.toContain(sentinelNote);
+
+      const cancelRes = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', authHeader)
+        .send({ reason: 'CUSTOMER_REQUESTED' });
+
+      expect(cancelRes.status).toBe(200);
+      const cancelJson = JSON.stringify(cancelRes.body);
+      expect(cancelJson).not.toContain(sentinelEmail);
+      expect(cancelJson).not.toContain(sentinelFullName);
+      expect(cancelJson).not.toContain(sentinelPhone);
+      expect(cancelJson).not.toContain(sentinelAddress);
+      expect(cancelJson).not.toContain(sentinelNote);
+    });
+
+    it('14. Response JSON contains none of the seeded internal ObjectId values', async () => {
+      const sentinelUser = await User.create({
+        fullName: 'ObjectId User',
+        email: `objid-${Date.now()}@example.com`,
+        password: 'password123',
+        role: 'customer',
+        isVerified: true
+      });
+
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(sentinelUser);
+      const idempotencyKey = `idemp_grp_g_objids_${Date.now()}`;
+
+      const postRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'ObjectId User',
+            address: '100 ObjectId St',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(postRes.status).toBe(201);
+      const sessionId = postRes.body.data.session.sessionId;
+      const sessionDoc = await CheckoutSession.findOne({ sessionId });
+      const holdDoc = await InventoryHold.findById(sessionDoc.inventoryHoldId);
+      const paymentDoc = await Payment.findById(sessionDoc.paymentId);
+
+      const internalObjectIds = [
+        sentinelUser._id.toString(),
+        testProduct._id.toString(),
+        sessionDoc._id.toString(),
+        holdDoc._id.toString(),
+        paymentDoc._id.toString()
+      ];
+
+      const postJson = JSON.stringify(postRes.body);
+      for (const oid of internalObjectIds) {
+        expect(postJson).not.toContain(oid);
+      }
+
+      const getRes = await request(app)
+        .get(`/api/commerce/checkout/session/${sessionId}`)
+        .set('Authorization', authHeader);
+
+      expect(getRes.status).toBe(200);
+      const getJson = JSON.stringify(getRes.body);
+      for (const oid of internalObjectIds) {
+        expect(getJson).not.toContain(oid);
+      }
+
+      const cancelRes = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', authHeader)
+        .send({ reason: 'CUSTOMER_REQUESTED' });
+
+      expect(cancelRes.status).toBe(200);
+      const cancelJson = JSON.stringify(cancelRes.body);
+      for (const oid of internalObjectIds) {
+        expect(cancelJson).not.toContain(oid);
+      }
+    });
+
+    it('15. Cancellation replay remains sanitized without leaks', async () => {
+      const { token: quoteToken } = generateValidQuoteToken();
+      const authHeader = await getUserAuth(testUser);
+      const idempotencyKey = `idemp_grp_g_cancel_replay_${Date.now()}`;
+
+      const createRes = await request(app)
+        .post('/api/commerce/checkout/session')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({
+          quoteToken,
+          items: [{ productId: String(testProduct._id), quantity: 1 }],
+          shippingAddress: {
+            fullName: 'Cancel Replay Cust',
+            address: '100 Cancel Replay Rd',
+            city: 'Dallas',
+            province: 'TX',
+            postalCode: '75201',
+            countryCode: 'US',
+            phone: '+15551234567'
+          },
+          paymentMethod: 'stripe',
+          currency: 'USD'
+        });
+
+      expect(createRes.status).toBe(201);
+      const sessionId = createRes.body.data.session.sessionId;
+
+      const cancel1 = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', authHeader)
+        .send({ reason: 'CUSTOMER_REQUESTED' });
+
+      expect(cancel1.status).toBe(200);
+      expect(cancel1.body.isReplay).toBe(false);
+      assertSanitizedPublicSession(cancel1.body.data.session, 'USD');
+
+      const cancel2 = await request(app)
+        .post(`/api/commerce/checkout/session/${sessionId}/cancel`)
+        .set('Authorization', authHeader)
+        .send({ reason: 'CUSTOMER_REQUESTED' });
+
+      expect(cancel2.status).toBe(200);
+      expect(cancel2.body.isReplay).toBe(true);
+      assertSanitizedPublicSession(cancel2.body.data.session, 'USD');
+      expect(cancel2.body.data.session.sessionId).toBe(sessionId);
+      expect(cancel2.body.data.session.status).toBe('cancelled');
+
+      for (const field of FORBIDDEN_FIELDS) {
+        expect(JSON.stringify(cancel2.body)).not.toContain(`"${field}"`);
+      }
+    });
+
+    it('16. Feature-disabled 503 contract remains unchanged', async () => {
+      const originalEnv = process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED;
+      process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = 'false';
+
+      try {
+        const { token: quoteToken } = generateValidQuoteToken();
+        const authHeader = await getUserAuth(testUser);
+
+        const postRes = await request(app)
+          .post('/api/commerce/checkout/session')
+          .set('Authorization', authHeader)
+          .set('Idempotency-Key', `idemp_grp_g_dis_${Date.now()}`)
+          .send({
+            quoteToken,
+            items: [{ productId: String(testProduct._id), quantity: 1 }],
+            shippingAddress: {
+              fullName: 'Disabled User',
+              address: '100 Dis Rd',
+              city: 'Dallas',
+              province: 'TX',
+              postalCode: '75201',
+              countryCode: 'US',
+              phone: '+15551234567'
+            },
+            paymentMethod: 'stripe',
+            currency: 'USD'
+          });
+
+        expect(postRes.status).toBe(503);
+        expect(postRes.body.success).toBe(false);
+        expect(postRes.body.error?.code || postRes.body.code).toBe('TWO_PHASE_CHECKOUT_DISABLED');
+      } finally {
+        process.env.COMMERCE_TWO_PHASE_CHECKOUT_ENABLED = originalEnv;
+      }
+    });
+
+    it('17. Domestic Pakistan COD regression test remains unchanged and passing', async () => {
+      const domesticOrder = await Order.create({
+        user: testUser._id,
+        idempotencyKey: `cod-grp-g-${Date.now()}`,
+        requestHash: `req-hash-cod-g-${Date.now()}`,
+        items: [{
+          product: testProduct._id,
+          name: testProduct.name,
+          price: 1500,
+          quantity: 1,
+          lineTotal: 1500
+        }],
+        subtotal: 1500,
+        totalAmount: 1500,
+        shippingAddress: {
+          fullName: 'Pakistani Customer G',
+          address: 'Main Boulevard, Gulberg',
+          city: 'Lahore',
+          province: 'Punjab',
+          postalCode: '54000',
+          country: 'Pakistan',
+          countryCode: 'PK',
+          phone: '+923001234567'
+        },
+        paymentMethod: 'cod',
+        paymentStatus: 'Pending',
+        currency: 'PKR',
+        statusTimeline: [{
+          status: 'Pending',
+          actor: testUser._id,
+          actorRole: 'customer',
+          note: 'Domestic COD Order Placed'
+        }]
+      });
+
+      expect(domesticOrder.paymentStatus).toBe('Pending');
+      expect(domesticOrder.paymentMethod).toBe('cod');
+      expect(domesticOrder.checkoutSessionObjectId).toBeNull();
+    });
+  });
 });

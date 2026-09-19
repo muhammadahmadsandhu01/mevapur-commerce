@@ -17,7 +17,7 @@ exports.createSession = async (req, res, next) => {
       throw new AppError('The Idempotency-Key header is required', 400, 'IDEMPOTENCY_KEY_REQUIRED');
     }
 
-    const userId = req.user?._id;
+    const userId = req.user?._id || req.user?.id || req.auth?.userId;
     const result = await CheckoutSessionService.createSession({
       userId,
       sessionData: req.body,
@@ -27,7 +27,10 @@ exports.createSession = async (req, res, next) => {
     const statusCode = result.isReplay ? 200 : 201;
     res.status(statusCode).json({
       success: true,
-      data: result.session,
+      data: {
+        session: CheckoutSessionService.toPublicCheckoutSession(result.session),
+        paymentAttempt: CheckoutSessionService.toPublicPaymentAttempt(result.paymentAttempt)
+      },
       isReplay: result.isReplay
     });
   } catch (error) {
@@ -38,13 +41,15 @@ exports.createSession = async (req, res, next) => {
 exports.getSession = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user?._id;
+    const userId = req.user?._id || req.user?.id || req.auth?.userId;
     const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
 
     const session = await CheckoutSessionService.getSanitizedSession(sessionId, userId, isAdmin);
     res.status(200).json({
       success: true,
-      data: session
+      data: {
+        session
+      }
     });
   } catch (error) {
     next(error);
@@ -54,7 +59,7 @@ exports.getSession = async (req, res, next) => {
 exports.cancelSession = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user?._id;
+    const userId = req.user?._id || req.user?.id || req.auth?.userId;
     const reason = req.body?.reason || 'CUSTOMER_CANCELLED';
 
     const result = await CheckoutSessionService.cancelSession({
@@ -66,8 +71,7 @@ exports.cancelSession = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: {
-        sessionId: result.session.sessionId,
-        status: result.session.status
+        session: CheckoutSessionService.toPublicCheckoutSession(result.session)
       },
       isReplay: result.isReplay
     });

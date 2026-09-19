@@ -28,7 +28,7 @@ const OrderService = require('./OrderService');
 const TaxDutyEngine = require('../checkout/TaxDutyEngine');
 const shippingAdapterRegistry = require('../checkout/shipping/ShippingAdapterRegistry');
 const AuditService = require('../AuditService');
-const { Money, MoneyMapper, CountryRegistry, Address, Phone } = require('../../modules/commerce');
+const { Money, MoneyMapper, CurrencyRegistry, CountryRegistry, Address, Phone } = require('../../modules/commerce');
 const { AppError } = require('../../common/errors/AppError');
 const ERROR_CODES = require('../../constants/errorCodes');
 const { ORDER_STATUSES } = require('../../constants/orderConstants');
@@ -831,6 +831,137 @@ class CheckoutSessionService {
   }
 
   /**
+   * Serializes a single exact monetary value for public exposure with strict canonical shape.
+   */
+  toPublicMoney(money) {
+    if (!money || typeof money !== 'object') {
+      throw new AppError('Invalid monetary value for public serialization', 500, 'COMMERCE_MONEY_INVALID');
+    }
+
+    const rawAmount = money.amountMinor;
+    if (rawAmount === undefined || rawAmount === null) {
+      throw new AppError('Monetary amountMinor is missing', 500, 'COMMERCE_MONEY_INVALID');
+    }
+
+    const amountMinorStr = typeof rawAmount === 'object' && typeof rawAmount.toString === 'function'
+      ? rawAmount.toString().trim()
+      : String(rawAmount).trim();
+
+    if (!/^-?[0-9]{1,18}$/.test(amountMinorStr)) {
+      throw new AppError(`Invalid stored amountMinor integer string: '${amountMinorStr}'`, 500, 'COMMERCE_MONEY_INVALID');
+    }
+
+    const currency = String(money.currency || '').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      throw new AppError(`Invalid ISO 4217 currency code: '${currency}'`, 500, 'COMMERCE_MONEY_INVALID');
+    }
+
+    const exponent = Number(money.exponent !== undefined && money.exponent !== null ? money.exponent : 2);
+    if (!Number.isInteger(exponent) || exponent < 0 || exponent > 4) {
+      throw new AppError(`Invalid currency exponent: '${money.exponent}'`, 500, 'COMMERCE_MONEY_INVALID');
+    }
+
+    const registrySnapshot = String(money.registrySnapshot || CurrencyRegistry?.getProvenance?.()?.snapshotName || 'iso4217-v1').trim();
+    if (!registrySnapshot) {
+      throw new AppError('registrySnapshot is required on monetary fields', 500, 'COMMERCE_MONEY_INVALID');
+    }
+
+    return {
+      amountMinor: amountMinorStr,
+      currency,
+      exponent,
+      registrySnapshot
+    };
+  }
+
+  /**
+   * Serializes session amounts breakdown ensuring exact rational money structure.
+   */
+  toPublicAmounts(amounts, expectedCurrency) {
+    if (!amounts || typeof amounts !== 'object') {
+      throw new AppError('Session amounts are missing or invalid', 500, 'COMMERCE_AMOUNTS_INVALID');
+    }
+
+    const rawAmounts = typeof amounts.toObject === 'function' ? amounts.toObject() : amounts;
+
+    const amountKeys = [
+      'subtotalExact',
+      'discountExact',
+      'shippingCostExact',
+      'taxAmountExact',
+      'additionalTaxAmountExact',
+      'taxIncludedAmountExact',
+      'dutiesExact',
+      'totalAmountExact'
+    ];
+
+    const serialized = {};
+    for (const key of amountKeys) {
+      const rawVal = rawAmounts[key];
+      if (!rawVal) {
+        throw new AppError(`Missing required amount field: ${key}`, 500, 'COMMERCE_AMOUNTS_INVALID');
+      }
+      const publicMoney = this.toPublicMoney(rawVal);
+      if (expectedCurrency && publicMoney.currency !== expectedCurrency) {
+        throw new AppError(
+          `Amount field ${key} currency '${publicMoney.currency}' does not match session currency '${expectedCurrency}'`,
+          500,
+          'COMMERCE_CURRENCY_MISMATCH'
+        );
+      }
+      serialized[key] = publicMoney;
+    }
+
+    return serialized;
+  }
+
+  /**
+   * Canonical public serializer for CheckoutSession.
+   * Employs strict allowlist to prevent exposure of internal ObjectIds, PII, hashes, and lock versions.
+   */
+  toPublicCheckoutSession(sessionDoc) {
+    if (!sessionDoc) return null;
+    const raw = typeof sessionDoc.toObject === 'function' ? sessionDoc.toObject() : sessionDoc;
+
+    const sessionId = String(raw.sessionId || '').trim();
+    const status = String(raw.status || '').trim();
+    const currency = String(raw.currency || '').trim().toUpperCase();
+    const destinationCountry = String(raw.destinationCountry || '').trim().toUpperCase();
+    const leaseExpiresAt = raw.leaseExpiresAt ? new Date(raw.leaseExpiresAt).toISOString() : null;
+    const convertedOrderDisplayId = raw.convertedOrderDisplayId ? String(raw.convertedOrderDisplayId).trim() : null;
+
+    const validStatuses = Object.values(CheckoutSession.STATUSES);
+    if (!validStatuses.includes(status)) {
+      throw new AppError(`Unknown session status '${status}'`, 500, 'INVALID_SESSION_STATUS');
+    }
+
+    return {
+      sessionId,
+      status,
+      leaseExpiresAt,
+      amounts: this.toPublicAmounts(raw.amounts, currency),
+      currency,
+      destinationCountry,
+      convertedOrderDisplayId
+    };
+  }
+
+  /**
+   * Serializes transient payment attempt data with explicit allowlist.
+   */
+  toPublicPaymentAttempt(paymentAttempt) {
+    if (!paymentAttempt) return null;
+    const res = {
+      provider: String(paymentAttempt.provider || '').trim(),
+      status: String(paymentAttempt.status || 'Pending').trim()
+    };
+    if (paymentAttempt.clientSecret) {
+      res.clientSecret = String(paymentAttempt.clientSecret).trim();
+    }
+    return res;
+  }
+
+  /**
    * Get sanitized session representation.
    */
   async getSanitizedSession(sessionId, userId, isAdmin = false) {
@@ -858,16 +989,7 @@ class CheckoutSessionService {
       }
     }
 
-    return {
-      sessionId: session.sessionId,
-      status: session.status,
-      leaseExpiresAt: session.leaseExpiresAt,
-      amounts: session.amounts,
-      currency: session.currency,
-      destinationCountry: session.destinationCountry,
-      convertedOrderId: session.convertedOrderId,
-      convertedOrderDisplayId: session.convertedOrderDisplayId
-    };
+    return this.toPublicCheckoutSession(session);
   }
 }
 
