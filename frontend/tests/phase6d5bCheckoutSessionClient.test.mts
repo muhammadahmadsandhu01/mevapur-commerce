@@ -39,11 +39,9 @@ import {
   getCheckoutAttempt,
   getCheckoutCompletion,
   getCheckoutAttemptRecord,
-  writeCheckoutCompletionRecord,
   updateCheckoutAttemptSession,
   recordPaymentSubmitted,
   clearAllCheckoutAttempts,
-  clearCheckoutAttempt,
   computeCheckoutFingerprint,
   computeHashedUserScope,
   computeShippingAddressHash,
@@ -60,7 +58,6 @@ import {
   STORAGE_KEY_PREFIX,
   COMPLETION_KEY_PREFIX,
   SUBMITTED_PAYMENT_RECOVERY_TTL_MS,
-  BOUNDED_CONVERTED_RETENTION_MS,
   type CheckoutIntentInput,
   type CheckoutAttemptStatus,
 } from '../src/lib/checkoutAttemptStore.ts';
@@ -1947,7 +1944,6 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
   // 1. Q1 retry derives the same fingerprint/key
   test('REQ-1: Q1 retry derives the same fingerprint and idempotency key', async () => {
     const scope = 'user_req_1';
-    const hashedScope = await computeHashedUserScope(scope);
     const intentQ1: CheckoutIntentInput = {
       ...sampleIntentInput,
       quoteId: 'QUO-20260919-Q1-000001',
