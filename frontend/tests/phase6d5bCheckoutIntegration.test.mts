@@ -20,6 +20,8 @@ import {
   type CheckoutIntentInput,
 } from '../src/lib/checkoutAttemptStore.ts';
 import { scrubStripeUrlParams } from '../src/lib/prepaidCheckoutPolling.ts';
+import { routeCheckoutSubmission } from '../src/hooks/useTwoPhasePrepaidCheckout.ts';
+import { serializeCheckoutPayload } from '../src/lib/checkoutService.ts';
 
 // In-Memory Storage Mock for isolated Node test execution
 class InMemoryLocalStorage implements Storage {
@@ -132,27 +134,60 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
   // 1. Pakistan COD uses unchanged legacy order path
   test('1. Pakistan COD uses the unchanged legacy order path and does not acquire two-phase checkout session', async () => {
     let directOrderCalled = false;
+    let prepaidCalled = false;
+    let blockedCalled = false;
 
-    // Simulate legacy submitOrder
-    const legacySubmitOrder = async (payload: unknown, idempotencyKey: string) => {
-      directOrderCalled = Boolean(payload && idempotencyKey);
-      return {
-        order: {
-          _id: 'ord_pk_cod_777888',
-          orderId: 'MP-2026-COD-777',
-          status: 'pending',
+    const payload = serializeCheckoutPayload(
+      [
+        {
+          id: '60d5ecb8b5c9c614b8e8b111',
+          productId: '60d5ecb8b5c9c614b8e8b111',
+          name: 'Almonds',
+          price: 1500,
+          quantity: 2,
+          image: '/images/almonds.jpg',
         },
-      };
-    };
+      ],
+      {
+        fullName: 'Muhammad Ahmad',
+        phone: '+923001234567',
+        address: 'Main Boulevard, Gulberg III',
+        city: 'Lahore',
+        province: 'Punjab',
+        postalCode: '54000',
+        country: 'Pakistan',
+        countryCode: 'PK',
+      },
+      'cod',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.token_pk_123',
+      'standard',
+      undefined,
+      'Fragile items',
+      'PKR'
+    );
 
-    const isPakistanCod = (countryCode: string, method: string) => countryCode === 'PK' && method === 'cod';
+    const result = await routeCheckoutSubmission({
+      paymentMethod: 'cod',
+      isDomestic: true,
+      destinationCountry: 'PK',
+      homeCountry: 'PK',
+      initiatePrepaidCheckout: async () => {
+        prepaidCalled = true;
+      },
+      executeCodCheckout: async () => {
+        directOrderCalled = true;
+      },
+      onBlockedMethod: () => {
+        blockedCalled = true;
+      },
+    });
 
-    assert.equal(isPakistanCod('PK', 'cod'), true);
-    assert.equal(isPakistanCod('US', 'cod'), false);
-
-    const result = await legacySubmitOrder({ paymentMethod: 'cod', quoteToken: 'tok_pk_123' }, 'cod-attempt-key-1');
+    assert.equal(result, 'cod');
     assert.equal(directOrderCalled, true);
-    assert.equal(result.order.orderId, 'MP-2026-COD-777');
+    assert.equal(prepaidCalled, false);
+    assert.equal(blockedCalled, false);
+    assert.equal(payload.paymentMethod, 'cod');
+    assert.equal(payload.shippingAddress.countryCode, 'PK');
   });
 
   // 2. Pakistan COD redirect identifier remains _id || orderId
@@ -169,9 +204,30 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
 
   // 3. International prepaid never creates an order directly
   test('3. International prepaid routes strictly through createCheckoutSession and never directly to order creation', async () => {
-    const isPrepaid = (method: string) => method !== 'cod';
-    assert.equal(isPrepaid('stripe'), true);
-    assert.equal(isPrepaid('cod'), false);
+    let directOrderCalled = false;
+    let prepaidCalled = false;
+    let blockedCalled = false;
+
+    const result = await routeCheckoutSubmission({
+      paymentMethod: 'stripe',
+      isDomestic: false,
+      destinationCountry: 'US',
+      homeCountry: 'PK',
+      initiatePrepaidCheckout: async () => {
+        prepaidCalled = true;
+      },
+      executeCodCheckout: async () => {
+        directOrderCalled = true;
+      },
+      onBlockedMethod: () => {
+        blockedCalled = true;
+      },
+    });
+
+    assert.equal(result, 'prepaid');
+    assert.equal(prepaidCalled, true);
+    assert.equal(directOrderCalled, false);
+    assert.equal(blockedCalled, false);
   });
 
   // 4. Fresh prepaid creates/reuses attempt before POST
