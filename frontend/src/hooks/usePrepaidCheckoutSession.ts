@@ -28,6 +28,8 @@ import {
   computeHashedUserScope,
   recordPaymentSubmitted as recordPaymentSubmittedInStore,
   updateCheckoutAttemptSession,
+  writeCheckoutCompletionRecord,
+  type CheckoutAttemptRecord,
 } from '../lib/checkoutAttemptStore.ts';
 
 export interface UsePrepaidCheckoutSessionOptions {
@@ -102,26 +104,84 @@ export function usePrepaidCheckoutSession(
   // Session-scoped terminal emission arbiter (ensures exactly-once across racing poll, cancel, and manual check)
   const completedSessionIdRef = useRef<string | null>(null);
 
+  // Synchronize attempt store when server updates session
+  const syncAttemptStore = useCallback(
+    async (updatedSession: PublicCheckoutSession): Promise<boolean> => {
+      try {
+        const hashedScope = await computeHashedUserScope(userScope);
+        try {
+          updateCheckoutAttemptSession(hashedScope, {
+            sessionId: updatedSession.sessionId,
+            status: updatedSession.status,
+            leaseExpiresAt: updatedSession.leaseExpiresAt || undefined,
+            convertedOrderDisplayId: updatedSession.convertedOrderDisplayId,
+            expectedFingerprint,
+            expectedGeneration,
+          });
+          return true;
+        } catch (updateErr) {
+          // If update threw because no active record was in storage, but we have authoritative converted status, write completion record directly
+          if (updatedSession.status === 'converted' && updatedSession.convertedOrderDisplayId) {
+            const fallbackRecord: CheckoutAttemptRecord = {
+              schemaVersion: 1,
+              baseFingerprint: expectedFingerprint || '0'.repeat(64),
+              generation: expectedGeneration || 1,
+              idempotencyKey: 'checkout-v1-' + '0'.repeat(64),
+              sessionId: updatedSession.sessionId,
+              status: 'converted',
+              convertedOrderDisplayId: updatedSession.convertedOrderDisplayId,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              recoveryExpiresAt: Date.now() + 86400000,
+            };
+            writeCheckoutCompletionRecord(hashedScope, fallbackRecord);
+            return true;
+          }
+          throw updateErr;
+        }
+      } catch {
+        // Storage errors fail closed safely without crashing hook
+        return false;
+      }
+    },
+    [userScope, expectedFingerprint, expectedGeneration]
+  );
+
   const emitConvertedOnce = useCallback(
-    (convertedOrderDisplayId: string, s: PublicCheckoutSession) => {
+    async (convertedOrderDisplayId: string, s: PublicCheckoutSession) => {
+      if (completedSessionIdRef.current === s.sessionId) {
+        return;
+      }
+
+      // Ensure completion persistence succeeds BEFORE emitting onConverted
+      const persisted = await syncAttemptStore(s);
+      if (!persisted) {
+        setErrorMessage('Failed to persist order recovery evidence. Please refresh or contact support.');
+        return;
+      }
+
       if (completedSessionIdRef.current === s.sessionId) {
         return;
       }
       completedSessionIdRef.current = s.sessionId;
       onConvertedRef.current?.(convertedOrderDisplayId, s);
     },
-    []
+    [syncAttemptStore]
   );
 
   const emitTerminalOnce = useCallback(
-    (status: CheckoutSessionStatus, s: PublicCheckoutSession) => {
+    async (status: CheckoutSessionStatus, s: PublicCheckoutSession) => {
+      if (completedSessionIdRef.current === s.sessionId) {
+        return;
+      }
+      await syncAttemptStore(s);
       if (completedSessionIdRef.current === s.sessionId) {
         return;
       }
       completedSessionIdRef.current = s.sessionId;
       onTerminalStateRef.current?.(status, s);
     },
-    []
+    [syncAttemptStore]
   );
 
   useEffect(() => {
@@ -129,26 +189,6 @@ export function usePrepaidCheckoutSession(
     onTerminalStateRef.current = onTerminalState;
     onErrorRef.current = onError;
   }, [onConverted, onTerminalState, onError]);
-
-  // Synchronize attempt store when server updates session
-  const syncAttemptStore = useCallback(
-    async (updatedSession: PublicCheckoutSession) => {
-      try {
-        const hashedScope = await computeHashedUserScope(userScope);
-        updateCheckoutAttemptSession(hashedScope, {
-          sessionId: updatedSession.sessionId,
-          status: updatedSession.status,
-          leaseExpiresAt: updatedSession.leaseExpiresAt || undefined,
-          convertedOrderDisplayId: updatedSession.convertedOrderDisplayId,
-          expectedFingerprint,
-          expectedGeneration,
-        });
-      } catch {
-        // Storage errors fail closed safely without crashing hook
-      }
-    },
-    [userScope, expectedFingerprint, expectedGeneration]
-  );
 
   // Initialize and manage controller
   useEffect(() => {
@@ -163,15 +203,17 @@ export function usePrepaidCheckoutSession(
         setUiState(nextState);
         if (latestSession) {
           setSession(latestSession);
-          void syncAttemptStore(latestSession);
+          if (latestSession.status !== 'converted') {
+            void syncAttemptStore(latestSession);
+          }
         }
         setIsPolling(controller.getIsRunning());
       },
       onConverted: (convertedOrderDisplayId, convertedSession) => {
-        emitConvertedOnce(convertedOrderDisplayId, convertedSession);
+        void emitConvertedOnce(convertedOrderDisplayId, convertedSession);
       },
       onTerminalState: (terminalStatus, terminalSession) => {
-        emitTerminalOnce(terminalStatus, terminalSession);
+        void emitTerminalOnce(terminalStatus, terminalSession);
       },
       onError: (err) => {
         setErrorMessage(err.message || 'Verification error occurred.');

@@ -91,6 +91,49 @@ export interface InitiatePrepaidCheckoutParams {
   customerNote?: string;
 }
 
+export interface RouteCheckoutSubmissionParams {
+  paymentMethod: string;
+  isDomestic: boolean;
+  destinationCountry: string;
+  homeCountry: string;
+  initiatePrepaidCheckout: () => Promise<void>;
+  executeCodCheckout: () => Promise<void>;
+  onBlockedMethod: (reason: string) => void;
+}
+
+export function normalizePrepaidPaymentMethod(method: string): string {
+  const trimmed = String(method || '').trim().toLowerCase();
+  if (trimmed === 'card') return 'stripe';
+  return trimmed || 'stripe';
+}
+
+export async function routeCheckoutSubmission(
+  params: RouteCheckoutSubmissionParams
+): Promise<'prepaid' | 'cod' | 'blocked'> {
+  const {
+    paymentMethod,
+    isDomestic,
+    destinationCountry,
+    homeCountry,
+    initiatePrepaidCheckout,
+    executeCodCheckout,
+    onBlockedMethod,
+  } = params;
+
+  if (paymentMethod === 'cod') {
+    const isHome = destinationCountry.trim().toUpperCase() === homeCountry.trim().toUpperCase();
+    if (!isDomestic || !isHome) {
+      onBlockedMethod('Cash on Delivery is only available for domestic orders in Pakistan.');
+      return 'blocked';
+    }
+    await executeCodCheckout();
+    return 'cod';
+  }
+
+  await initiatePrepaidCheckout();
+  return 'prepaid';
+}
+
 export interface UseTwoPhasePrepaidCheckoutResult {
   isSubmitting: boolean;
   initiatePrepaidCheckout: (params: InitiatePrepaidCheckoutParams) => Promise<void>;
@@ -325,6 +368,7 @@ export function useTwoPhasePrepaidCheckout(
         setIsSubmitting(true);
 
         const hashedUserScope = await computeHashedUserScope(userId);
+        const normalizedPaymentMethod = normalizePrepaidPaymentMethod(paymentMethod);
 
         const intentInput: CheckoutIntentInput = {
           quoteId: quote.quoteId,
@@ -344,7 +388,7 @@ export function useTwoPhasePrepaidCheckout(
             country: resolvedAddressData.country,
             countryCode: resolvedAddressData.countryCode,
           },
-          paymentMethod,
+          paymentMethod: normalizedPaymentMethod,
           currency: quote.currency,
           shippingServiceLevel: shippingServiceLevel || 'standard',
           shippingAdapter: (quote.shipping?.selectedOption as { adapter?: string })?.adapter || null,
@@ -405,7 +449,7 @@ export function useTwoPhasePrepaidCheckout(
               country: resolvedAddressData.country || undefined,
               countryCode: resolvedAddressData.countryCode || undefined,
             },
-            paymentMethod,
+            paymentMethod: normalizedPaymentMethod,
             quoteToken: quote.quoteToken,
             currency: quote.currency,
             couponCode: appliedCoupon?.code || undefined,

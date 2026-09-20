@@ -585,4 +585,97 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
     const calledLegacyPayments = usedEndpoints.some((ep) => ep.startsWith('/api/payments'));
     assert.equal(calledLegacyPayments, false);
   });
+
+  // 31. Exact backend strict schema compliance test
+  test('31. Frontend createCheckoutSession request satisfies exact backend checkoutSessionValidator schema rules', () => {
+    const isValidObjectId = (val: string) => /^[a-fA-F0-9]{24}$/.test(val);
+
+    const validateSessionRequest = (body: Record<string, unknown>) => {
+      const allowedTopKeys = new Set([
+        'items',
+        'shippingAddress',
+        'paymentMethod',
+        'currency',
+        'couponCode',
+        'shippingServiceLevel',
+        'shippingAdapter',
+        'customerNote',
+        'quoteToken',
+      ]);
+
+      // Strict top-level check
+      for (const key of Object.keys(body)) {
+        if (!allowedTopKeys.has(key)) {
+          throw new Error(`Unexpected top-level key in strict schema: ${key}`);
+        }
+      }
+
+      // items check
+      assert.ok(Array.isArray(body.items) && body.items.length >= 1 && body.items.length <= 50);
+      for (const item of body.items as Array<Record<string, unknown>>) {
+        const itemKeys = new Set(['productId', 'variantId', 'quantity']);
+        for (const k of Object.keys(item)) {
+          if (!itemKeys.has(k)) throw new Error(`Unexpected item key: ${k}`);
+        }
+        assert.ok(typeof item.productId === 'string' && isValidObjectId(item.productId));
+        if (item.variantId !== undefined && item.variantId !== null) {
+          assert.ok(typeof item.variantId === 'string' && isValidObjectId(item.variantId));
+        }
+        assert.ok(typeof item.quantity === 'number' && Number.isInteger(item.quantity) && item.quantity >= 1);
+      }
+
+      // shippingAddress check
+      const addr = body.shippingAddress as Record<string, unknown>;
+      assert.ok(addr && typeof addr === 'object');
+      const allowedAddrKeys = new Set([
+        'fullName',
+        'phone',
+        'address',
+        'addressLine2',
+        'city',
+        'province',
+        'postalCode',
+        'country',
+        'countryCode',
+      ]);
+      for (const k of Object.keys(addr)) {
+        if (!allowedAddrKeys.has(k)) throw new Error(`Unexpected shippingAddress key: ${k}`);
+      }
+      assert.ok(typeof addr.fullName === 'string' && addr.fullName.length >= 2);
+      assert.ok(typeof addr.phone === 'string' && addr.phone.length >= 5);
+      assert.ok(typeof addr.address === 'string' && addr.address.length >= 5);
+      assert.ok(typeof addr.city === 'string' && addr.city.length >= 1);
+      assert.ok(Boolean(addr.country || addr.countryCode));
+
+      // paymentMethod check
+      assert.ok(typeof body.paymentMethod === 'string' && body.paymentMethod.length >= 2);
+
+      // quoteToken check
+      assert.ok(typeof body.quoteToken === 'string' && body.quoteToken.length >= 10);
+    };
+
+    const frontendGeneratedPayload = {
+      items: [
+        { productId: '60d5ecb8b5c9c614b8e8b111', variantId: null, quantity: 2 },
+        { productId: '60d5ecb8b5c9c614b8e8b222', variantId: '60d5ecb8b5c9c614b8e8b333', quantity: 1 },
+      ],
+      shippingAddress: {
+        fullName: 'Muhammad Ahmad',
+        phone: '+923001234567',
+        address: 'Main Boulevard, Gulberg III',
+        city: 'Lahore',
+        province: 'Punjab',
+        postalCode: '54000',
+        country: 'Pakistan',
+        countryCode: 'PK',
+      },
+      paymentMethod: 'stripe',
+      quoteToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.token_1234567890',
+      currency: 'PKR',
+      couponCode: 'SAVE10',
+      shippingServiceLevel: 'express',
+    };
+
+    assert.doesNotThrow(() => validateSessionRequest(frontendGeneratedPayload));
+  });
 });

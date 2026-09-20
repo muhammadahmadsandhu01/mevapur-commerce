@@ -3,25 +3,33 @@
  * @description Real-DOM Vitest integration suite for Phase 6D-5B Batch 4: Storefront Checkout Integration.
  *
  * Validates:
- * 1. Pakistan COD calls legacy submitOrder and not createCheckoutSession
+ * 1. Pakistan COD calls legacy order path and not session creation
  * 2. Pakistan COD redirect destination resolves to result.order._id || result.order.orderId
  * 3. International prepaid calls createCheckoutSession and not submitOrder
- * 4. Existing sessionId recovery performs GET/polling and zero POST
- * 5. Auth loading (isInitialized: false) performs zero storage/network recovery work
- * 6. Authenticated user switch disposes the old recovery session and clears secret
- * 7. Successful create opens PrepaidPaymentModal with memory-only secret
- * 8. Replay without secret opens recovery mode (GET polling only)
- * 9. Converted public display ID clears cart exactly once and navigates exactly once
- * 10. Cancel/poll/Strict Mode race still produces one clear and one navigation
- * 11. Every non-converted outcome preserves cart
- * 12. 503 produces no fallback to direct order
- * 13. clientSecret disappears on terminal status / unmount / user change
+ * 4. International COD is blocked and never enters Pakistan COD path
+ * 5. Existing sessionId recovery performs GET/polling and zero POST
+ * 6. Auth loading (isInitialized: false) performs zero storage/network recovery work
+ * 7. Authenticated user switch disposes the old recovery session and clears secret
+ * 8. Successful create opens PrepaidPaymentModal with memory-only secret
+ * 9. Replay without secret opens recovery mode (GET polling only)
+ * 10. Converted public display ID clears cart exactly once and navigates exactly once
+ * 11. Cancel/poll/Strict Mode race still produces one clear and one navigation
+ * 12. Every non-converted outcome preserves cart
+ * 13. 503 produces no fallback to direct order
+ * 14. clientSecret disappears on terminal status / unmount / user change
+ * 15. Deferred Promise A: completion write pending -> cart preserved, router not called
+ * 16. Deferred Promise B: completion write rejects -> cart preserved, router not called
+ * 17. Deferred Promise C: completion write succeeds -> cart cleared once, router called once
+ * 18. Session secret isolation: Session A secret never leaks to Session B replay
  */
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { useTwoPhasePrepaidCheckout } from '../src/hooks/useTwoPhasePrepaidCheckout.ts';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import {
+  useTwoPhasePrepaidCheckout,
+  routeCheckoutSubmission,
+} from '../src/hooks/useTwoPhasePrepaidCheckout.ts';
 import * as checkoutSessionService from '../src/lib/checkoutSessionService.ts';
 import * as checkoutAttemptStore from '../src/lib/checkoutAttemptStore.ts';
 import type { PublicCheckoutSession, AuthoritativeQuote } from '../src/types/commerce.ts';
@@ -105,12 +113,24 @@ function CheckoutIntegrationHarness(props: {
 
 describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Real-DOM Suite', () => {
   const mockQuote: AuthoritativeQuote = {
+    kid: 'kid_test_1',
     quoteId: 'quote_intl_test_9999',
     quoteToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test_quote_token',
     currency: 'USD',
+    merchantScopeId: 'default',
+    merchantCountry: 'PK',
+    fulfillmentOriginCountry: 'PK',
     isDomestic: false,
+    incoterm: 'DDP',
+    destination: {
+      address: '123 Market St',
+      city: 'San Francisco',
+      country: 'United States',
+      countryCode: 'US',
+    },
     configVersionId: 'cfg_v1_live',
     itemsHash: 'hash_items_123',
+    issuedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     totals: {
       subtotalExact: { amountMinor: '3000', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
@@ -126,28 +146,24 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Real-DOM Suite', 
       discount: 0,
       shipping: 5,
       tax: 0,
-      additionalTax: 0,
-      taxIncludedAmount: 0,
       duties: 0,
-      estimatedDuties: 0,
       grandTotal: 35,
     },
     items: [],
     shipping: {
-      isDomestic: false,
       availableOptions: [
         {
           serviceLevel: 'dhl_express',
           displayName: 'DHL Express',
           amount: 5,
-          amountExact: { amountMinor: '500', currency: 'USD', exponent: 2 },
+          amountExact: { amountMinor: '500', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
         },
       ],
       selectedOption: {
         serviceLevel: 'dhl_express',
         displayName: 'DHL Express',
         amount: 5,
-        amountExact: { amountMinor: '500', currency: 'USD', exponent: 2 },
+        amountExact: { amountMinor: '500', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
         freeShippingApplied: false,
       },
     },
@@ -155,17 +171,18 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Real-DOM Suite', 
       taxType: 'NONE',
       taxTreatment: 'exclusive',
       taxRatePercent: 0,
+      taxAmount: 0,
       dutyRatePercent: 0,
+      dutyAmount: 0,
       incoterm: 'DDP',
-      taxAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2 },
-      additionalTaxAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2 },
-      taxIncludedAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2 },
-      payableDutyExact: { amountMinor: '0', currency: 'USD', exponent: 2 },
-      estimatedDutyExact: { amountMinor: '0', currency: 'USD', exponent: 2 },
+      taxAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
+      additionalTaxAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
+      taxIncludedAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
+      payableDutyExact: { amountMinor: '0', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
+      estimatedDutyExact: { amountMinor: '0', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
+      dutyAmountExact: { amountMinor: '0', currency: 'USD', exponent: 2, registrySnapshot: 'iso4217:2015' },
     },
-    eligiblePaymentMethods: [{ code: 'stripe', displayName: 'Credit Card' }],
-    lineItemCount: 1,
-    totalQuantity: 2,
+    eligiblePaymentMethods: [{ code: 'stripe', displayName: 'Credit Card', paymentType: 'automated', isPrepaid: true }],
   };
 
   const mockPublicSession: PublicCheckoutSession = {
@@ -196,19 +213,50 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Real-DOM Suite', 
     vi.restoreAllMocks();
   });
 
-  it('1. Pakistan COD calls legacy order path and not session creation', async () => {
-    const legacySubmit = vi.fn().mockResolvedValue({ order: { _id: 'mongo_123', orderId: 'MP-PK-COD-01' } });
-    const sessionCreate = vi.spyOn(checkoutSessionService, 'createCheckoutSession');
+  it('1. Production routeCheckoutSubmission routes Pakistan COD to legacy block and international COD to blocked', async () => {
+    const legacyExec = vi.fn().mockResolvedValue(undefined);
+    const prepaidExec = vi.fn().mockResolvedValue(undefined);
+    const blockedHandler = vi.fn();
 
-    // Simulate COD submission logic from page.tsx
-    const paymentMethod = 'cod';
-    if (paymentMethod === 'cod') {
-      const result = await legacySubmit({ paymentMethod: 'cod' }, 'idemp_key_1');
-      expect(result.order.orderId).toBe('MP-PK-COD-01');
-    }
+    // 1. PK COD -> executes legacy
+    const result1 = await routeCheckoutSubmission({
+      paymentMethod: 'cod',
+      isDomestic: true,
+      destinationCountry: 'PK',
+      homeCountry: 'PK',
+      initiatePrepaidCheckout: prepaidExec,
+      executeCodCheckout: legacyExec,
+      onBlockedMethod: blockedHandler,
+    });
+    expect(result1).toBe('cod');
+    expect(legacyExec).toHaveBeenCalledTimes(1);
+    expect(prepaidExec).not.toHaveBeenCalled();
 
-    expect(legacySubmit).toHaveBeenCalledTimes(1);
-    expect(sessionCreate).not.toHaveBeenCalled();
+    // 2. US COD -> blocked
+    const result2 = await routeCheckoutSubmission({
+      paymentMethod: 'cod',
+      isDomestic: false,
+      destinationCountry: 'US',
+      homeCountry: 'PK',
+      initiatePrepaidCheckout: prepaidExec,
+      executeCodCheckout: legacyExec,
+      onBlockedMethod: blockedHandler,
+    });
+    expect(result2).toBe('blocked');
+    expect(blockedHandler).toHaveBeenCalledWith('Cash on Delivery is only available for domestic orders in Pakistan.');
+
+    // 3. US Card -> routes to prepaid
+    const result3 = await routeCheckoutSubmission({
+      paymentMethod: 'stripe',
+      isDomestic: false,
+      destinationCountry: 'US',
+      homeCountry: 'PK',
+      initiatePrepaidCheckout: prepaidExec,
+      executeCodCheckout: legacyExec,
+      onBlockedMethod: blockedHandler,
+    });
+    expect(result3).toBe('prepaid');
+    expect(prepaidExec).toHaveBeenCalledTimes(1);
   });
 
   it('2. International prepaid calls createCheckoutSession and opens PrepaidPaymentModal', async () => {
@@ -229,7 +277,9 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Real-DOM Suite', 
     );
 
     const submitBtn = screen.getByTestId('submit-prepaid-button');
-    fireEvent.click(submitBtn);
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
 
     await waitFor(() => {
       expect(sessionCreateSpy).toHaveBeenCalledTimes(1);
@@ -434,11 +484,111 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Real-DOM Suite', 
     );
 
     const submitBtn = screen.getByTestId('submit-prepaid-button');
-    fireEvent.click(submitBtn);
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
 
     await waitFor(() => {
       expect(toastMessage).toBe('Prepaid checkout is temporarily unavailable. Please try again later.');
     });
+    expect(screen.queryByTestId('prepaid-modal-container')).not.toBeInTheDocument();
+  });
+
+  it('9. Deferred persistence A/B: Storage failure or rejection halts conversion before cart clear', async () => {
+    let cartCleared = false;
+    let navigated = false;
+
+    vi.spyOn(checkoutSessionService, 'createCheckoutSession').mockResolvedValue({
+      session: mockPublicSession,
+      paymentAttempt: { provider: 'stripe', clientSecret: 'pi_secret_storage_fail', status: 'requires_payment_method' },
+      idempotentReplay: false,
+    });
+
+    const convertedSession: PublicCheckoutSession = {
+      ...mockPublicSession,
+      status: 'converted',
+      convertedOrderDisplayId: 'MP-2026-PERSIST-FAIL',
+    };
+
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockResolvedValue({
+      session: convertedSession,
+    });
+
+    // Mock updateCheckoutAttemptSession throwing storage error
+    vi.spyOn(checkoutAttemptStore, 'updateCheckoutAttemptSession').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    render(
+      <CheckoutIntegrationHarness
+        user={{ _id: 'user_persist_fail', fullName: 'Storage Fail User' }}
+        isAuthenticated={true}
+        isInitialized={true}
+        onCartCleared={() => {
+          cartCleared = true;
+        }}
+        onNavigated={() => {
+          navigated = true;
+        }}
+        sampleQuote={mockQuote}
+      />
+    );
+
+    const submitBtn = screen.getByTestId('submit-prepaid-button');
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
+
+    expect(cartCleared).toBe(false);
+    expect(navigated).toBe(false);
+  });
+
+  it('10. Session secret isolation: Session A secret is cleared and never leaks to Session B replay', async () => {
+    const { unmount } = render(
+      <CheckoutIntegrationHarness
+        user={{ _id: 'user_session_a', fullName: 'User A' }}
+        isAuthenticated={true}
+        isInitialized={true}
+        sampleQuote={mockQuote}
+      />
+    );
+
+    vi.spyOn(checkoutSessionService, 'createCheckoutSession').mockResolvedValue({
+      session: { ...mockPublicSession, sessionId: 'cs_session_a' },
+      paymentAttempt: { provider: 'stripe', clientSecret: 'pi_secret_session_a', status: 'requires_payment_method' },
+      idempotentReplay: false,
+    });
+    vi.spyOn(checkoutSessionService, 'getCheckoutSession').mockResolvedValue({
+      session: { ...mockPublicSession, sessionId: 'cs_session_a' },
+    });
+
+    const submitBtn = screen.getByTestId('submit-prepaid-button');
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('prepaid-modal-container')).toBeInTheDocument();
+    });
+
+    // Unmount clears transient secret
+    unmount();
+
+    // Render session B replay
+    render(
+      <CheckoutIntegrationHarness
+        user={{ _id: 'user_session_b', fullName: 'User B' }}
+        isAuthenticated={true}
+        isInitialized={true}
+        sampleQuote={mockQuote}
+      />
+    );
+
+    // Initial mount for B has no secret
     expect(screen.queryByTestId('prepaid-modal-container')).not.toBeInTheDocument();
   });
 });

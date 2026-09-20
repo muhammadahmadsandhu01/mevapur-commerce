@@ -43,7 +43,7 @@ import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 import Toast from '@/components/Toast';
 import { paymentService, type AvailablePaymentMethod } from '@/services/payment.service';
 import type { AuthoritativeQuote, MarketConfigResponse } from '@/types/commerce';
-import { useTwoPhasePrepaidCheckout } from '@/hooks/useTwoPhasePrepaidCheckout';
+import { useTwoPhasePrepaidCheckout, routeCheckoutSubmission } from '@/hooks/useTwoPhasePrepaidCheckout';
 import PrepaidPaymentModal from '@/components/checkout/PrepaidPaymentModal';
 
 interface FormState {
@@ -644,68 +644,77 @@ export default function CheckoutPage() {
         countryCode: activeCountryCode,
       };
 
-      // Two-Phase Prepaid Checkout Branch (for International and Card/Stripe Orders)
-      if (paymentMethod !== 'cod') {
-        await initiatePrepaidCheckout({
-          availableItems,
-          resolvedAddressData,
-          paymentMethod,
-          shippingServiceLevel,
-          appliedCoupon,
-          quote,
-          customerNote: formData.customerNote,
-        });
-        return;
-      }
-
-      // Pakistan Cash on Delivery (COD) Branch - Preserved Exactly
-      try {
-        submittingRef.current = true;
-        setLoading(true);
-
-        // Retrieve or derive stable CheckoutAttempt idempotency key
-        const attempt = getOrCreateCheckoutAttempt(
-          availableItems,
-          resolvedAddressData,
-          paymentMethod,
-          shippingServiceLevel,
-          appliedCoupon?.code
-        );
-
-      const payload = serializeCheckoutPayload(
-        availableItems,
-        resolvedAddressData,
+      // Route submission through production router (Preserves Pakistan COD exactly, routes prepaid to coordinator)
+      await routeCheckoutSubmission({
         paymentMethod,
-        quote.quoteToken,
-        shippingServiceLevel,
-        appliedCoupon?.code,
-        formData.customerNote,
-        quote.currency
-      );
+        isDomestic: Boolean(quote?.isDomestic),
+        destinationCountry: activeCountryCode,
+        homeCountry: marketConfig?.homeCountry || marketConfig?.merchantCountry || 'PK',
+        initiatePrepaidCheckout: async () => {
+          await initiatePrepaidCheckout({
+            availableItems,
+            resolvedAddressData,
+            paymentMethod,
+            shippingServiceLevel,
+            appliedCoupon,
+            quote,
+            customerNote: formData.customerNote,
+          });
+        },
+        executeCodCheckout: async () => {
+          // Pakistan Cash on Delivery (COD) Branch - Preserved Exactly
+          try {
+            submittingRef.current = true;
+            setLoading(true);
 
-      const result = await submitOrder(payload, attempt.idempotencyKey);
+            // Retrieve or derive stable CheckoutAttempt idempotency key
+            const attempt = getOrCreateCheckoutAttempt(
+              availableItems,
+              resolvedAddressData,
+              paymentMethod,
+              shippingServiceLevel,
+              appliedCoupon?.code
+            );
 
-      if (result.order) {
-        clearCheckoutAttempt();
-        clearCart();
-        const destinationOrderId = result.order._id || result.order.orderId;
-        router.push(`/order-success?orderId=${encodeURIComponent(destinationOrderId)}`);
-      }
-    } catch (err: unknown) {
-      submittingRef.current = false;
-      setLoading(false);
+            const payload = serializeCheckoutPayload(
+              availableItems,
+              resolvedAddressData,
+              paymentMethod,
+              quote.quoteToken,
+              shippingServiceLevel,
+              appliedCoupon?.code,
+              formData.customerNote,
+              quote.currency
+            );
 
-      const errorResp = (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data;
-      const errorCode = errorResp?.code;
+            const result = await submitOrder(payload, attempt.idempotencyKey);
 
-      if (errorCode === 'QUOTE_EXPIRED' || errorCode === 'QUOTE_TAMPERED') {
-        setToast({ message: 'Checkout quote expired or invalidated. Refreshing quote...', type: 'info' });
-        await requestAuthoritativeQuote();
-      } else {
-        const safeErrorMessage = mapQuoteErrorMessage(err);
-        setToast({ message: safeErrorMessage, type: 'error' });
-      }
-    }
+            if (result.order) {
+              clearCheckoutAttempt();
+              clearCart();
+              const destinationOrderId = result.order._id || result.order.orderId;
+              router.push(`/order-success?orderId=${encodeURIComponent(destinationOrderId)}`);
+            }
+          } catch (err: unknown) {
+            submittingRef.current = false;
+            setLoading(false);
+
+            const errorResp = (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data;
+            const errorCode = errorResp?.code;
+
+            if (errorCode === 'QUOTE_EXPIRED' || errorCode === 'QUOTE_TAMPERED') {
+              setToast({ message: 'Checkout quote expired or invalidated. Refreshing quote...', type: 'info' });
+              await requestAuthoritativeQuote();
+            } else {
+              const safeErrorMessage = mapQuoteErrorMessage(err);
+              setToast({ message: safeErrorMessage, type: 'error' });
+            }
+          }
+        },
+        onBlockedMethod: (reason) => {
+          setToast({ message: reason, type: 'error' });
+        },
+      });
   };
 
   if (!isInitialized || marketLoading) {
