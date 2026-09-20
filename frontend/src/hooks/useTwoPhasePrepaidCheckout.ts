@@ -26,6 +26,7 @@ import {
   computeHashedUserScope,
   getOrCreateCheckoutAttempt,
   getCheckoutAttempt,
+  clearCheckoutAttempt,
   updateCheckoutAttemptSession,
   withCheckoutLock,
   isCheckoutRecoveryStorageError,
@@ -39,7 +40,10 @@ import {
   isCheckoutSessionResponseInvalidError,
   type CheckoutApiError,
 } from '../lib/checkoutSessionService.ts';
-import { scrubStripeUrlParams } from '../lib/prepaidCheckoutPolling.ts';
+import {
+  scrubStripeUrlParams,
+  isTerminalSessionStatus,
+} from '../lib/prepaidCheckoutPolling.ts';
 import type { PrepaidPaymentModalProps } from '../components/checkout/PrepaidPaymentModal.tsx';
 
 export interface CartItemLike {
@@ -213,20 +217,10 @@ export function useTwoPhasePrepaidCheckout(
           return;
         }
 
-        // If active attempt is already converted, redirect immediately
-        if (activeAttempt.status === 'converted' && activeAttempt.convertedOrderDisplayId) {
-          if (convertedHandledSessionIdRef.current !== activeAttempt.sessionId) {
-            convertedHandledSessionIdRef.current = activeAttempt.sessionId;
-            clearCart();
-            router.push(`/order-success?orderId=${encodeURIComponent(activeAttempt.convertedOrderDisplayId)}`);
-          }
-          return;
-        }
-
         // If active attempt is non-terminal, reopen modal in secretless recovery mode (zero POST)
-        const isTerminal = (AUTHORITATIVE_TERMINAL_STATUSES as readonly string[]).includes(
-          activeAttempt.status
-        );
+        // Authoritative status resolution and correlated conversion are handled exclusively via the polling controller
+        const isTerminal =
+          activeAttempt.status !== 'creating' && isTerminalSessionStatus(activeAttempt.status);
 
         if (!isTerminal) {
           setModalSessionId(activeAttempt.sessionId);
@@ -236,6 +230,9 @@ export function useTwoPhasePrepaidCheckout(
           setModalExpectedGeneration(activeAttempt.generation);
           setHasSubmittedPayment(Boolean(activeAttempt.paymentSubmittedAt));
           setModalIsOpen(true);
+        } else if (activeAttempt.status === 'converted') {
+          // If active slot still holds a converted record, retire it cleanly so it does not linger in active namespace
+          clearCheckoutAttempt(hashedScope);
         }
       } catch {
         // Storage / recovery errors fail closed safely
@@ -247,7 +244,7 @@ export function useTwoPhasePrepaidCheckout(
     return () => {
       isMounted = false;
     };
-  }, [isInitialized, isAuthenticated, user, clearCart, router]);
+  }, [isInitialized, isAuthenticated, user]);
 
   // Handle authoritative conversion from usePrepaidCheckoutSession
   const handleConverted = useCallback(
