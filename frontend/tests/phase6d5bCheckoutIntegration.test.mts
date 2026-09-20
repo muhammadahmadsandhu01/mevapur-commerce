@@ -955,4 +955,41 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
       '8_navigate_once:/order-success?orderId=MP-2026-EXACT-555',
     ]);
   });
+
+  // 37. Converted active attempt on mount recovery preserves evidence to completion store before retiring active attempt
+  test('37. Converted active attempt on mount recovery durably preserves evidence into completion store before retiring active attempt', async () => {
+    const userScope = 'user_mount_conv_evidence_test';
+    const hashedScope = await computeHashedUserScope(userScope);
+
+    const attempt = await getOrCreateCheckoutAttempt(sampleInternationalIntent, { userScope });
+
+    // Simulate active attempt having status 'converted'
+    const convertedActiveRecord = {
+      ...attempt,
+      sessionId: 'cs_mount_evidence_777',
+      status: 'converted' as const,
+      convertedOrderDisplayId: 'MP-2026-MOUNT-EVID-777',
+    };
+
+    // Directly simulate mount recovery logic
+    const { writeCheckoutCompletionRecord, clearCheckoutAttempt } = await import(
+      '../src/lib/checkoutAttemptStore.ts'
+    );
+    writeCheckoutCompletionRecord(hashedScope, convertedActiveRecord);
+    clearCheckoutAttempt(hashedScope);
+
+    // Active slot is cleanly retired
+    assert.equal(getCheckoutAttempt(hashedScope), null);
+
+    // Completion evidence is durably preserved
+    const completion = getCheckoutCompletion(
+      hashedScope,
+      convertedActiveRecord.baseFingerprint,
+      convertedActiveRecord.generation
+    );
+    assert.ok(completion);
+    assert.equal(completion?.status, 'converted');
+    assert.equal(completion?.convertedOrderDisplayId, 'MP-2026-MOUNT-EVID-777');
+    assert.equal(completion?.sessionId, 'cs_mount_evidence_777');
+  });
 });

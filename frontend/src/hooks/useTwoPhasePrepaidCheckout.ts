@@ -27,6 +27,7 @@ import {
   getOrCreateCheckoutAttempt,
   getCheckoutAttempt,
   clearCheckoutAttempt,
+  writeCheckoutCompletionRecord,
   updateCheckoutAttemptSession,
   withCheckoutLock,
   isCheckoutRecoveryStorageError,
@@ -231,7 +232,8 @@ export function useTwoPhasePrepaidCheckout(
           setHasSubmittedPayment(Boolean(activeAttempt.paymentSubmittedAt));
           setModalIsOpen(true);
         } else if (activeAttempt.status === 'converted') {
-          // If active slot still holds a converted record, retire it cleanly so it does not linger in active namespace
+          // Durably preserve converted evidence in the completion namespace before retiring the active attempt
+          writeCheckoutCompletionRecord(hashedScope, activeAttempt);
           clearCheckoutAttempt(hashedScope);
         }
       } catch {
