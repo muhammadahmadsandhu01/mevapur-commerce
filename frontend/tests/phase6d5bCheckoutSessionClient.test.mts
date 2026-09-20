@@ -49,6 +49,7 @@ import {
   canonicalizeJson,
   computeSha256Hex,
   withCheckoutLock,
+  withCheckoutAttemptTransaction,
   subscribeCheckoutAttemptSync,
   isCheckoutRecoveryStorageError,
   CheckoutAttemptNonTerminalRotationError,
@@ -602,6 +603,132 @@ describe('Phase 6D-5B: Storefront CheckoutSession Client & Cryptographic Attempt
     assert.equal(lockRequested, true);
     assert.equal(lockMode, 'exclusive');
     assert.equal(result, 'lock_success');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 13b. withCheckoutLock coordinates getOrCreateCheckoutAttempt without nested lock deadlock
+  // ---------------------------------------------------------------------------
+  test('13b. withCheckoutAttemptTransaction acquires one same-scope lock and keeps the boundary single', async () => {
+    let requestCallCount = 0;
+    const activeLocks = new Set<string>();
+    const waiters: Array<() => void> = [];
+
+    const queuedLocks = {
+      request: async (name: string, options: { mode: string }, callback: () => Promise<unknown>) => {
+        requestCallCount++;
+        if (activeLocks.has(name)) {
+          await new Promise<void>((resolve) => {
+            waiters.push(resolve);
+          });
+        }
+
+        activeLocks.add(name);
+        try {
+          return await callback();
+        } finally {
+          activeLocks.delete(name);
+          const next = waiters.shift();
+          next?.();
+        }
+      },
+    };
+
+    Object.defineProperty(globalThis.navigator, 'locks', {
+      value: queuedLocks,
+      configurable: true,
+      writable: true,
+    });
+
+    const userScope = 'user_coord_lock_test';
+    const first = withCheckoutAttemptTransaction(userScope, async ({ hashedUserScope, getOrCreateCheckoutAttempt }) => {
+      const rec = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope });
+      assert.equal(hashedUserScope, await computeHashedUserScope(userScope));
+      return rec;
+    });
+
+    const second = withCheckoutAttemptTransaction(userScope, async ({ hashedUserScope, getOrCreateCheckoutAttempt }) => {
+      const rec = await getOrCreateCheckoutAttempt(sampleIntentInput, { userScope });
+      assert.equal(hashedUserScope, await computeHashedUserScope(userScope));
+      return rec;
+    });
+
+    const [firstAttempt, secondAttempt] = await Promise.all([first, second]);
+
+    assert.ok(firstAttempt.idempotencyKey);
+    assert.ok(secondAttempt.idempotencyKey);
+    assert.equal(firstAttempt.idempotencyKey, secondAttempt.idempotencyKey);
+    assert.equal(requestCallCount, 2, 'same-scope callers should serialize through one queued request each without nested same-name reentry');
+  });
+
+  test('13c. queued Web Locks serialize same-scope waiters while distinct scopes proceed independently', async () => {
+    const events: string[] = [];
+    const activeLocks = new Set<string>();
+    const queues: Record<string, Array<() => void>> = {};
+
+    const queuedLocks = {
+      request: async (name: string, options: { mode: string }, callback: () => Promise<unknown>) => {
+        const queue = queues[name] || (queues[name] = []);
+        const release = async () => {
+          const next = queue.shift();
+          next?.();
+        };
+
+        if (activeLocks.has(name)) {
+          events.push(`wait:${name}:${options.mode}`);
+          await new Promise<void>((resolve) => queue.push(resolve));
+        }
+
+        activeLocks.add(name);
+        events.push(`acquired:${name}:${options.mode}`);
+        try {
+          return await callback();
+        } finally {
+          activeLocks.delete(name);
+          events.push(`released:${name}:${options.mode}`);
+          await release();
+        }
+      },
+    };
+
+    Object.defineProperty(globalThis.navigator, 'locks', {
+      value: queuedLocks,
+      configurable: true,
+      writable: true,
+    });
+
+    const scopeA = 'user_transaction_a';
+    const scopeB = 'user_transaction_b';
+    const hashedScopeA = await computeHashedUserScope(scopeA);
+    const hashedScopeB = await computeHashedUserScope(scopeB);
+    const lockA = `mevapur_checkout_lock_${hashedScopeA}`;
+    const lockB = `mevapur_checkout_lock_${hashedScopeB}`;
+
+    const first = withCheckoutAttemptTransaction(scopeA, async () => {
+      events.push('first:run');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return 'first-ok';
+    });
+
+    const second = withCheckoutAttemptTransaction(scopeA, async () => {
+      events.push('second:run');
+      return 'second-ok';
+    });
+
+    const third = withCheckoutAttemptTransaction(scopeB, async () => {
+      events.push('third:run');
+      return 'third-ok';
+    });
+
+    const [firstResult, secondResult, thirdResult] = await Promise.all([first, second, third]);
+
+    assert.equal(firstResult, 'first-ok');
+    assert.equal(secondResult, 'second-ok');
+    assert.equal(thirdResult, 'third-ok');
+    assert.ok(events.includes(`acquired:${lockA}:exclusive`));
+    assert.ok(events.includes(`acquired:${lockB}:exclusive`));
+    assert.ok(events.some((entry) => entry.startsWith(`wait:${lockA}`)));
+    assert.ok(events.some((entry) => entry.startsWith(`released:${lockA}`)));
+    assert.ok(events.some((entry) => entry.startsWith(`released:${lockB}`)));
   });
 
   // ---------------------------------------------------------------------------

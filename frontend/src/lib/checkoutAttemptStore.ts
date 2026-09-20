@@ -808,6 +808,160 @@ export async function withCheckoutLock<T>(
 }
 
 /**
+ * Internal lock-free resolver that assumes a checkout-scoped transaction lock is already held.
+ * This is the authoritative single-boundary operation for attempt reuse/create logic.
+ */
+export async function getOrCreateCheckoutAttemptUnderLock(
+  hashedUserScope: string,
+  input: CheckoutIntentInput,
+  options?: {
+    forceNewAttempt?: boolean;
+    userScope?: string | null;
+  }
+): Promise<CheckoutAttemptRecord> {
+  const baseFingerprint = await computeCheckoutFingerprint(input, hashedUserScope);
+
+  const now = Date.now();
+
+  // 1. Check if a converted completion record exists for this exact baseFingerprint
+  const completionRecord = getCheckoutCompletion(hashedUserScope, baseFingerprint);
+  if (completionRecord) {
+    if (options?.forceNewAttempt) {
+      throw new CheckoutAttemptNonTerminalRotationError(
+        completionRecord.status,
+        completionRecord.sessionId || null,
+        `Cannot force a new checkout attempt on a converted session. Session has completed conversion.`
+      );
+    }
+    return completionRecord;
+  }
+
+  // 2. Check active attempt in storage
+  const existing = getCheckoutAttempt(hashedUserScope);
+
+  if (existing) {
+    if (existing.baseFingerprint === baseFingerprint) {
+      if (existing.status === 'converted') {
+        if (options?.forceNewAttempt) {
+          throw new CheckoutAttemptNonTerminalRotationError(
+            existing.status,
+            existing.sessionId || null,
+            `Cannot force a new checkout attempt on a converted session. Session has completed conversion.`
+          );
+        }
+        return existing;
+      }
+
+      if (options?.forceNewAttempt) {
+        // Rule 1: Generation rotation is ONLY allowed if authoritative prior status is terminal (failed, expired, cancelled)
+        const isAuthoritativeTerminal = (AUTHORITATIVE_TERMINAL_STATUSES as readonly string[]).includes(
+          existing.status
+        );
+
+        if (!isAuthoritativeTerminal || existing.paymentSubmittedAt) {
+          throw new CheckoutAttemptNonTerminalRotationError(
+            existing.status,
+            existing.sessionId || null,
+            `Cannot force a new checkout attempt when existing attempt status is '${existing.status}'. Generation rotation is strictly forbidden until the session reaches an authoritative terminal status (failed, expired, cancelled).`
+          );
+        }
+
+        const nextGen = existing.generation + 1;
+        const newIdempotencyKey = await deriveIdempotencyKey(baseFingerprint, nextGen);
+        const rotatedRecord: CheckoutAttemptRecord = {
+          schemaVersion: 1,
+          baseFingerprint,
+          generation: nextGen,
+          idempotencyKey: newIdempotencyKey,
+          status: 'creating',
+          createdAt: now,
+          updatedAt: now,
+          recoveryExpiresAt: now + DEFAULT_RECOVERY_TTL_MS,
+        };
+        writeCheckoutAttemptRecord(hashedUserScope, rotatedRecord);
+        return rotatedRecord;
+      }
+
+      // Re-use existing attempt and idempotency key across reloads and simultaneous tabs
+      return existing;
+    }
+
+    // Rule 2: Changed intent handling
+    if (existing.status === 'converted') {
+      // Prior intent in active slot was converted; clear it so fresh attempt can start
+      clearCheckoutAttempt(hashedUserScope);
+    } else if (existing.status === 'conflict') {
+      if (now > existing.recoveryExpiresAt) {
+        // Bounded conflict retention has expired; explicitly purge it before creating fresh attempt
+        clearCheckoutAttempt(hashedUserScope);
+      } else {
+        throw new CheckoutAttemptActiveIntentConflictError({
+          existingSessionId: existing.sessionId || null,
+          existingStatus: existing.status,
+          existingRecoveryExpiresAt: existing.recoveryExpiresAt,
+        });
+      }
+    } else {
+      const isAuthoritativeTerminal = (AUTHORITATIVE_TERMINAL_STATUSES as readonly string[]).includes(
+        existing.status
+      );
+
+      if (!isAuthoritativeTerminal || existing.paymentSubmittedAt) {
+        throw new CheckoutAttemptActiveIntentConflictError({
+          existingSessionId: existing.sessionId || null,
+          existingStatus: existing.status,
+          existingRecoveryExpiresAt: existing.recoveryExpiresAt,
+        });
+      }
+    }
+  }
+
+  // New intent or initial attempt -> generation 1
+  const generation = 1;
+  const idempotencyKey = await deriveIdempotencyKey(baseFingerprint, generation);
+  const freshRecord: CheckoutAttemptRecord = {
+    schemaVersion: 1,
+    baseFingerprint,
+    generation,
+    idempotencyKey,
+    status: 'creating',
+    createdAt: now,
+    updatedAt: now,
+    recoveryExpiresAt: now + DEFAULT_RECOVERY_TTL_MS,
+  };
+  writeCheckoutAttemptRecord(hashedUserScope, freshRecord);
+  return freshRecord;
+}
+
+/**
+ * Executes a checkout-scoped transaction under one lock boundary.
+ * The public getOrCreateCheckoutAttempt remains standalone lock-protected for other callers.
+ */
+export async function withCheckoutAttemptTransaction<T>(
+  userScope: string | null | undefined,
+  fn: (context: {
+    hashedUserScope: string;
+    getOrCreateCheckoutAttempt: (
+      input: CheckoutIntentInput,
+      options?: {
+        forceNewAttempt?: boolean;
+        userScope?: string | null;
+      }
+    ) => Promise<CheckoutAttemptRecord>;
+  }) => Promise<T>
+): Promise<T> {
+  const hashedUserScope = await computeHashedUserScope(userScope);
+
+  return withCheckoutLock(hashedUserScope, async () => {
+    return await fn({
+      hashedUserScope,
+      getOrCreateCheckoutAttempt: (input, options) =>
+        getOrCreateCheckoutAttemptUnderLock(hashedUserScope, input, options),
+    });
+  });
+}
+
+/**
  * Retrieves existing active attempt, recovers converted completion, or generates a new cryptographic attempt identity.
  * Operates under mutual exclusion and persists status "creating" before any backend POST.
  *
@@ -825,119 +979,8 @@ export async function getOrCreateCheckoutAttempt(
   }
 ): Promise<CheckoutAttemptRecord> {
   const hashedUserScope = await computeHashedUserScope(options?.userScope);
-  const baseFingerprint = await computeCheckoutFingerprint(input, hashedUserScope);
-
   return withCheckoutLock(hashedUserScope, async () => {
-    const now = Date.now();
-
-    // 1. Check if a converted completion record exists for this exact baseFingerprint
-    const completionRecord = getCheckoutCompletion(hashedUserScope, baseFingerprint);
-    if (completionRecord) {
-      if (options?.forceNewAttempt) {
-        throw new CheckoutAttemptNonTerminalRotationError(
-          completionRecord.status,
-          completionRecord.sessionId || null,
-          `Cannot force a new checkout attempt on a converted session. Session has completed conversion.`
-        );
-      }
-      return completionRecord;
-    }
-
-    // 2. Check active attempt in storage
-    const existing = getCheckoutAttempt(hashedUserScope);
-
-    if (existing) {
-      if (existing.baseFingerprint === baseFingerprint) {
-        if (existing.status === 'converted') {
-          if (options?.forceNewAttempt) {
-            throw new CheckoutAttemptNonTerminalRotationError(
-              existing.status,
-              existing.sessionId || null,
-              `Cannot force a new checkout attempt on a converted session. Session has completed conversion.`
-            );
-          }
-          return existing;
-        }
-
-        if (options?.forceNewAttempt) {
-          // Rule 1: Generation rotation is ONLY allowed if authoritative prior status is terminal (failed, expired, cancelled)
-          const isAuthoritativeTerminal = (AUTHORITATIVE_TERMINAL_STATUSES as readonly string[]).includes(
-            existing.status
-          );
-
-          if (!isAuthoritativeTerminal || existing.paymentSubmittedAt) {
-            throw new CheckoutAttemptNonTerminalRotationError(
-              existing.status,
-              existing.sessionId || null,
-              `Cannot force a new checkout attempt when existing attempt status is '${existing.status}'. Generation rotation is strictly forbidden until the session reaches an authoritative terminal status (failed, expired, cancelled).`
-            );
-          }
-
-          const nextGen = existing.generation + 1;
-          const newIdempotencyKey = await deriveIdempotencyKey(baseFingerprint, nextGen);
-          const rotatedRecord: CheckoutAttemptRecord = {
-            schemaVersion: 1,
-            baseFingerprint,
-            generation: nextGen,
-            idempotencyKey: newIdempotencyKey,
-            status: 'creating',
-            createdAt: now,
-            updatedAt: now,
-            recoveryExpiresAt: now + DEFAULT_RECOVERY_TTL_MS,
-          };
-          writeCheckoutAttemptRecord(hashedUserScope, rotatedRecord);
-          return rotatedRecord;
-        }
-
-        // Re-use existing attempt and idempotency key across reloads and simultaneous tabs
-        return existing;
-      }
-
-      // Rule 2: Changed intent handling
-      if (existing.status === 'converted') {
-        // Prior intent in active slot was converted; clear it so fresh attempt can start
-        clearCheckoutAttempt(hashedUserScope);
-      } else if (existing.status === 'conflict') {
-        if (now > existing.recoveryExpiresAt) {
-          // Bounded conflict retention has expired; explicitly purge it before creating fresh attempt
-          clearCheckoutAttempt(hashedUserScope);
-        } else {
-          throw new CheckoutAttemptActiveIntentConflictError({
-            existingSessionId: existing.sessionId || null,
-            existingStatus: existing.status,
-            existingRecoveryExpiresAt: existing.recoveryExpiresAt,
-          });
-        }
-      } else {
-        const isAuthoritativeTerminal = (AUTHORITATIVE_TERMINAL_STATUSES as readonly string[]).includes(
-          existing.status
-        );
-
-        if (!isAuthoritativeTerminal || existing.paymentSubmittedAt) {
-          throw new CheckoutAttemptActiveIntentConflictError({
-            existingSessionId: existing.sessionId || null,
-            existingStatus: existing.status,
-            existingRecoveryExpiresAt: existing.recoveryExpiresAt,
-          });
-        }
-      }
-    }
-
-    // New intent or initial attempt -> generation 1
-    const generation = 1;
-    const idempotencyKey = await deriveIdempotencyKey(baseFingerprint, generation);
-    const freshRecord: CheckoutAttemptRecord = {
-      schemaVersion: 1,
-      baseFingerprint,
-      generation,
-      idempotencyKey,
-      status: 'creating',
-      createdAt: now,
-      updatedAt: now,
-      recoveryExpiresAt: now + DEFAULT_RECOVERY_TTL_MS,
-    };
-    writeCheckoutAttemptRecord(hashedUserScope, freshRecord);
-    return freshRecord;
+    return getOrCreateCheckoutAttemptUnderLock(hashedUserScope, input, options);
   });
 }
 

@@ -24,10 +24,9 @@ import type {
 } from '../types/commerce.ts';
 import {
   computeHashedUserScope,
-  getOrCreateCheckoutAttempt,
   getCheckoutAttempt,
   updateCheckoutAttemptSession,
-  withCheckoutLock,
+  withCheckoutAttemptTransaction,
   isCheckoutRecoveryStorageError,
   isCheckoutAttemptActiveIntentConflictError,
   isCheckoutAttemptNonTerminalRotationError,
@@ -354,7 +353,6 @@ export function useTwoPhasePrepaidCheckout(
         submittingRef.current = true;
         setIsSubmitting(true);
 
-        const hashedUserScope = await computeHashedUserScope(userId);
         const normalizedPaymentMethod = normalizePrepaidPaymentMethod(paymentMethod);
 
         const intentInput: CheckoutIntentInput = {
@@ -385,8 +383,7 @@ export function useTwoPhasePrepaidCheckout(
           quoteItemsHash: quote.itemsHash || null,
         };
 
-        // Execute under Web Lock mutual exclusion across tabs
-        await withCheckoutLock(hashedUserScope, async () => {
+        await withCheckoutAttemptTransaction(userId, async ({ hashedUserScope, getOrCreateCheckoutAttempt }) => {
           // 1. Get or create deterministic attempt (persists 'creating' in store before network POST)
           const attempt = await getOrCreateCheckoutAttempt(intentInput, { userScope: userId });
 
