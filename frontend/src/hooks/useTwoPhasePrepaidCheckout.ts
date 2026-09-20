@@ -41,7 +41,6 @@ import {
 } from '../lib/checkoutSessionService.ts';
 import {
   scrubStripeUrlParams,
-  isTerminalSessionStatus,
 } from '../lib/prepaidCheckoutPolling.ts';
 import type { PrepaidPaymentModalProps } from '../components/checkout/PrepaidPaymentModal.tsx';
 
@@ -216,20 +215,15 @@ export function useTwoPhasePrepaidCheckout(
           return;
         }
 
-        // If active attempt is non-terminal, reopen modal in secretless recovery mode (zero POST)
         // Authoritative status resolution and correlated conversion are handled exclusively via the polling controller
-        const isTerminal =
-          activeAttempt.status !== 'creating' && isTerminalSessionStatus(activeAttempt.status);
-
-        if (!isTerminal) {
-          setModalSessionId(activeAttempt.sessionId);
-          setModalClientSecret(null); // Memory secret is not available on reload; enters recovery GET polling
-          setModalLeaseExpiresAt(activeAttempt.leaseExpiresAt || null);
-          setModalExpectedFingerprint(activeAttempt.baseFingerprint);
-          setModalExpectedGeneration(activeAttempt.generation);
-          setHasSubmittedPayment(Boolean(activeAttempt.paymentSubmittedAt));
-          setModalIsOpen(true);
-        }
+        // Reopen modal in secretless recovery mode (zero POST)
+        setModalSessionId(activeAttempt.sessionId);
+        setModalClientSecret(null); // Memory secret is not available on reload; enters recovery GET polling
+        setModalLeaseExpiresAt(activeAttempt.leaseExpiresAt || null);
+        setModalExpectedFingerprint(activeAttempt.baseFingerprint);
+        setModalExpectedGeneration(activeAttempt.generation);
+        setHasSubmittedPayment(Boolean(activeAttempt.paymentSubmittedAt));
+        setModalIsOpen(true);
       } catch {
         // Storage / recovery errors fail closed safely
       }

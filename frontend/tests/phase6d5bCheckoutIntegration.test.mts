@@ -956,8 +956,8 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
     ]);
   });
 
-  // 37. Mount recovery never unilaterally promotes or clears converted/terminal attempts locally
-  test('37. Mount recovery never unilaterally promotes or clears converted or terminal attempts without authoritative backend verification', async () => {
+  // 37. Mount recovery restores recovery liveness and delegates conversion exclusively to authoritative polling
+  test('37. Mount recovery restores recovery liveness for persisted sessionId and delegates conversion exclusively to authoritative polling', async () => {
     const userScope = 'user_mount_conv_evidence_test';
     const hashedScope = await computeHashedUserScope(userScope);
 
@@ -973,25 +973,14 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
     });
 
     // Simulating mount recovery logic:
-    // When activeAttempt.status is terminal, mount recovery is an absolute no-op:
-    // - Zero modal opening
-    // - Zero local completion writes
-    // - Zero active attempt deletions
+    // When activeAttempt has a valid sessionId, mount recovery restores recovery liveness:
+    // - Reopens recovery modal in secretless mode (modalClientSecret = null)
+    // - Performs zero local completion writes and zero unverified attempt mutations
     const activeBefore = getCheckoutAttempt(hashedScope);
     assert.ok(activeBefore);
+    assert.equal(activeBefore?.sessionId, 'cs_mount_evidence_777');
 
-    // Verify terminal status is correctly identified
-    const { isTerminalSessionStatus } = await import('../src/lib/prepaidCheckoutPolling.ts');
-    assert.equal(isTerminalSessionStatus('converted'), true);
-    assert.equal(isTerminalSessionStatus('cancelled'), true);
-    assert.equal(isTerminalSessionStatus('expired'), true);
-    assert.equal(isTerminalSessionStatus('failed'), true);
-    assert.equal(isTerminalSessionStatus('conflict'), true);
-    assert.equal(isTerminalSessionStatus('active'), false);
-    assert.equal(isTerminalSessionStatus('payment_pending'), false);
-
-    // When status is terminal, mount recovery does NOT write completion or clear attempt
-    // Authoritative conversion must happen through the 8-step server-driven sequence
+    // Before authoritative server polling, zero completion record exists
     const completionBefore = getCheckoutCompletion(
       hashedScope,
       attempt.baseFingerprint,
@@ -999,7 +988,7 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
     );
     assert.equal(completionBefore, null);
 
-    // Authoritative server conversion via updateCheckoutAttemptSession
+    // Authoritative server conversion via updateCheckoutAttemptSession (driven by usePrepaidCheckoutSession polling)
     updateCheckoutAttemptSession(hashedScope, {
       sessionId: 'cs_mount_evidence_777',
       status: 'converted',
@@ -1009,7 +998,7 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
       expectedIdempotencyKey: attempt.idempotencyKey,
     });
 
-    // Now cleanly retired and durably preserved in completion store
+    // Now cleanly retired from active slot and durably preserved in completion store
     assert.equal(getCheckoutAttempt(hashedScope), null);
     const completionAfter = getCheckoutCompletion(
       hashedScope,
