@@ -28,8 +28,6 @@ import {
   computeHashedUserScope,
   recordPaymentSubmitted as recordPaymentSubmittedInStore,
   updateCheckoutAttemptSession,
-  writeCheckoutCompletionRecord,
-  type CheckoutAttemptRecord,
 } from '../lib/checkoutAttemptStore.ts';
 
 export interface UsePrepaidCheckoutSessionOptions {
@@ -109,38 +107,17 @@ export function usePrepaidCheckoutSession(
     async (updatedSession: PublicCheckoutSession): Promise<boolean> => {
       try {
         const hashedScope = await computeHashedUserScope(userScope);
-        try {
-          updateCheckoutAttemptSession(hashedScope, {
-            sessionId: updatedSession.sessionId,
-            status: updatedSession.status,
-            leaseExpiresAt: updatedSession.leaseExpiresAt || undefined,
-            convertedOrderDisplayId: updatedSession.convertedOrderDisplayId,
-            expectedFingerprint,
-            expectedGeneration,
-          });
-          return true;
-        } catch (updateErr) {
-          // If update threw because no active record was in storage, but we have authoritative converted status, write completion record directly
-          if (updatedSession.status === 'converted' && updatedSession.convertedOrderDisplayId) {
-            const fallbackRecord: CheckoutAttemptRecord = {
-              schemaVersion: 1,
-              baseFingerprint: expectedFingerprint || '0'.repeat(64),
-              generation: expectedGeneration || 1,
-              idempotencyKey: 'checkout-v1-' + '0'.repeat(64),
-              sessionId: updatedSession.sessionId,
-              status: 'converted',
-              convertedOrderDisplayId: updatedSession.convertedOrderDisplayId,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              recoveryExpiresAt: Date.now() + 86400000,
-            };
-            writeCheckoutCompletionRecord(hashedScope, fallbackRecord);
-            return true;
-          }
-          throw updateErr;
-        }
+        const updated = updateCheckoutAttemptSession(hashedScope, {
+          sessionId: updatedSession.sessionId,
+          status: updatedSession.status,
+          leaseExpiresAt: updatedSession.leaseExpiresAt || undefined,
+          convertedOrderDisplayId: updatedSession.convertedOrderDisplayId,
+          expectedFingerprint,
+          expectedGeneration,
+        });
+        return updated !== null;
       } catch {
-        // Storage errors fail closed safely without crashing hook
+        // Storage errors or correlation mismatches fail closed safely without crashing hook
         return false;
       }
     },
@@ -153,10 +130,12 @@ export function usePrepaidCheckoutSession(
         return;
       }
 
-      // Ensure completion persistence succeeds BEFORE emitting onConverted
+      // Ensure completion persistence and correlation succeed BEFORE emitting onConverted
       const persisted = await syncAttemptStore(s);
       if (!persisted) {
-        setErrorMessage('Failed to persist order recovery evidence. Please refresh or contact support.');
+        setErrorMessage(
+          'Checkout completion could not be correlated with your active session. Your cart has been preserved. Please contact support if your payment was processed.'
+        );
         return;
       }
 

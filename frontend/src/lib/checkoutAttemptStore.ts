@@ -1074,6 +1074,20 @@ export function updateCheckoutAttemptSession(
     );
   }
 
+  // Verify sessionId matches
+  if (
+    updates.sessionId !== undefined &&
+    current.sessionId !== undefined &&
+    updates.sessionId !== current.sessionId
+  ) {
+    throw new CheckoutAttemptStaleUpdateError(
+      current.status,
+      attemptedStatus,
+      current.generation,
+      `Update sessionId (${updates.sessionId}) does not match current persisted attempt sessionId (${current.sessionId})`
+    );
+  }
+
   // Check explicit branching state transition policy
   const targetStatus = updates.status !== undefined ? updates.status : current.status;
   if (!isAllowedAttemptTransition(current.status, targetStatus)) {
@@ -1082,6 +1096,21 @@ export function updateCheckoutAttemptSession(
       targetStatus,
       current.generation,
       `State transition from '${current.status}' to '${targetStatus}' is not permitted by checkout attempt state machine policy`
+    );
+  }
+
+  // Authoritative converted status requires non-empty convertedOrderDisplayId
+  const effectiveDisplayId =
+    updates.convertedOrderDisplayId !== undefined
+      ? updates.convertedOrderDisplayId
+      : current.convertedOrderDisplayId;
+
+  if (targetStatus === 'converted' && (!effectiveDisplayId || typeof effectiveDisplayId !== 'string' || !effectiveDisplayId.trim())) {
+    throw new CheckoutAttemptStaleUpdateError(
+      current.status,
+      targetStatus,
+      current.generation,
+      'Cannot complete conversion: authoritative converted status requires a non-empty public convertedOrderDisplayId'
     );
   }
 
@@ -1108,9 +1137,7 @@ export function updateCheckoutAttemptSession(
           : current.leaseExpiresAt,
     status: targetStatus,
     convertedOrderDisplayId:
-      updates.convertedOrderDisplayId !== undefined
-        ? updates.convertedOrderDisplayId
-        : current.convertedOrderDisplayId,
+      effectiveDisplayId && typeof effectiveDisplayId === 'string' ? effectiveDisplayId.trim() : null,
     paymentSubmittedAt:
       updates.paymentSubmittedAt !== undefined ? updates.paymentSubmittedAt : current.paymentSubmittedAt,
     updatedAt: now,

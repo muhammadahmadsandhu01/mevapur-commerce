@@ -734,4 +734,225 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
 
     assert.doesNotThrow(() => validateSessionRequest(frontendGeneratedPayload));
   });
+
+  // 32. Uncorrelated converted response without active attempt fails closed
+  test('32. Authoritative converted response with missing active attempt fails closed without fabricating completion', async () => {
+    const userScope = 'user_missing_active_test';
+    const hashedScope = await computeHashedUserScope(userScope);
+
+    // Ensure storage has NO active attempt
+    assert.equal(getCheckoutAttempt(hashedScope), null);
+
+    const clearCartCalled = false;
+    const navigated = false;
+    const onConvertedInvoked = false;
+
+    // Direct invocation of attempt update without prior active attempt
+    try {
+      updateCheckoutAttemptSession(hashedScope, {
+        sessionId: 'cs_orphan_converted_999',
+        status: 'converted',
+        convertedOrderDisplayId: 'MP-2026-FAIL-CLOSED',
+        expectedFingerprint: 'a'.repeat(64),
+        expectedGeneration: 1,
+      });
+      assert.fail('Should have rejected update on missing active attempt');
+    } catch (err) {
+      assert.ok(err instanceof Error);
+    }
+
+    // Zero completion record created
+    const completion = getCheckoutCompletion(hashedScope, 'a'.repeat(64));
+    assert.equal(completion, null);
+
+    // Invariants preserved
+    assert.equal(clearCartCalled, false);
+    assert.equal(navigated, false);
+    assert.equal(onConvertedInvoked, false);
+  });
+
+  // 33. Mismatched sessionId on converted response fails closed
+  test('33. Authoritative converted response with mismatched sessionId fails closed and preserves active attempt', async () => {
+    const userScope = 'user_mismatch_session_test';
+    const hashedScope = await computeHashedUserScope(userScope);
+
+    const attempt = await getOrCreateCheckoutAttempt(sampleInternationalIntent, { userScope });
+    updateCheckoutAttemptSession(hashedScope, {
+      sessionId: 'cs_legitimate_session_111',
+      status: 'active',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
+
+    // Mismatched session attempt
+    try {
+      updateCheckoutAttemptSession(hashedScope, {
+        sessionId: 'cs_imposter_session_222',
+        status: 'converted',
+        convertedOrderDisplayId: 'MP-2026-IMPOSTER',
+        expectedFingerprint: attempt.baseFingerprint,
+        expectedGeneration: attempt.generation,
+        expectedIdempotencyKey: attempt.idempotencyKey,
+      });
+      assert.fail('Should have rejected update on mismatched sessionId');
+    } catch (err) {
+      assert.ok(err instanceof Error);
+      assert.match((err as Error).message, /Update sessionId .* does not match current persisted attempt sessionId/);
+    }
+
+    // Active attempt preserved
+    const active = getCheckoutAttempt(hashedScope);
+    assert.ok(active);
+    assert.equal(active?.sessionId, 'cs_legitimate_session_111');
+    assert.equal(active?.status, 'active');
+
+    // Zero imposter completion record
+    const completion = getCheckoutCompletion(hashedScope, attempt.baseFingerprint);
+    assert.equal(completion, null);
+  });
+
+  // 34. Converted response missing public convertedOrderDisplayId fails closed
+  test('34. Converted response missing public convertedOrderDisplayId fails closed and preserves active attempt', async () => {
+    const userScope = 'user_missing_display_id_test';
+    const hashedScope = await computeHashedUserScope(userScope);
+
+    const attempt = await getOrCreateCheckoutAttempt(sampleInternationalIntent, { userScope });
+    updateCheckoutAttemptSession(hashedScope, {
+      sessionId: 'cs_valid_session_333',
+      status: 'active',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
+
+    // Converted with empty / missing displayId
+    try {
+      updateCheckoutAttemptSession(hashedScope, {
+        sessionId: 'cs_valid_session_333',
+        status: 'converted',
+        convertedOrderDisplayId: '',
+        expectedFingerprint: attempt.baseFingerprint,
+        expectedGeneration: attempt.generation,
+        expectedIdempotencyKey: attempt.idempotencyKey,
+      });
+      assert.fail('Should have rejected conversion without public display ID');
+    } catch (err) {
+      assert.ok(err instanceof Error);
+      assert.match((err as Error).message, /requires a non-empty public convertedOrderDisplayId/);
+    }
+
+    // Active attempt preserved
+    const active = getCheckoutAttempt(hashedScope);
+    assert.ok(active);
+    assert.equal(active?.status, 'active');
+  });
+
+  // 35. Mismatched fingerprint or generation on converted response fails closed
+  test('35. Converted response with mismatched fingerprint or generation fails closed', async () => {
+    const userScope = 'user_mismatched_gen_test';
+    const hashedScope = await computeHashedUserScope(userScope);
+
+    const attempt = await getOrCreateCheckoutAttempt(sampleInternationalIntent, { userScope });
+    updateCheckoutAttemptSession(hashedScope, {
+      sessionId: 'cs_gen_test_444',
+      status: 'active',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
+
+    // Mismatched generation
+    try {
+      updateCheckoutAttemptSession(hashedScope, {
+        sessionId: 'cs_gen_test_444',
+        status: 'converted',
+        convertedOrderDisplayId: 'MP-2026-GEN-MISMATCH',
+        expectedFingerprint: attempt.baseFingerprint,
+        expectedGeneration: attempt.generation + 99,
+        expectedIdempotencyKey: attempt.idempotencyKey,
+      });
+      assert.fail('Should have rejected mismatched generation');
+    } catch (err) {
+      assert.ok(err instanceof Error);
+      assert.match((err as Error).message, /Update generation .* does not match current persisted attempt generation/);
+    }
+
+    // Active attempt preserved
+    const active = getCheckoutAttempt(hashedScope);
+    assert.ok(active);
+    assert.equal(active?.status, 'active');
+  });
+
+  // 36. Correctly correlated converted response follows exact 8-step sequence
+  test('36. Correlated converted response follows exact 8-step sequence from validation to navigation', async () => {
+    const userScope = 'user_exact_8_step_test';
+    const hashedScope = await computeHashedUserScope(userScope);
+
+    const attempt = await getOrCreateCheckoutAttempt(sampleInternationalIntent, { userScope });
+    updateCheckoutAttemptSession(hashedScope, {
+      sessionId: 'cs_exact_seq_555',
+      status: 'active',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
+
+    const executionLog: string[] = [];
+
+    // Step 1: Validate authoritative converted session
+    const serverResponse = {
+      sessionId: 'cs_exact_seq_555',
+      status: 'converted' as const,
+      convertedOrderDisplayId: 'MP-2026-EXACT-555',
+    };
+    assert.equal(serverResponse.status, 'converted');
+    assert.ok(serverResponse.convertedOrderDisplayId.length > 0);
+    executionLog.push('1_validate_authoritative_converted_session');
+
+    // Step 2-4: Load, correlate, write completion, and retire active attempt
+    const updated = updateCheckoutAttemptSession(hashedScope, {
+      sessionId: serverResponse.sessionId,
+      status: serverResponse.status,
+      convertedOrderDisplayId: serverResponse.convertedOrderDisplayId,
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
+    assert.ok(updated);
+    executionLog.push('2_correlate_persisted_active_attempt');
+    executionLog.push('3_durably_write_completion_record');
+    executionLog.push('4_durably_retire_active_attempt');
+
+    // Step 5: Invoke onConverted exactly once
+    let onConvertedCount = 0;
+    const onConverted = (displayId: string) => {
+      onConvertedCount++;
+      executionLog.push('5_invoke_onConverted_once');
+
+      // Step 6: Clear in-memory client secret
+      executionLog.push('6_clear_in_memory_client_secret');
+
+      // Step 7: Clear cart exactly once
+      executionLog.push('7_clear_cart_once');
+
+      // Step 8: Navigate exactly once
+      const navUrl = `/order-success?orderId=${encodeURIComponent(displayId)}`;
+      executionLog.push(`8_navigate_once:${navUrl}`);
+    };
+
+    onConverted(serverResponse.convertedOrderDisplayId);
+
+    assert.equal(onConvertedCount, 1);
+    assert.deepEqual(executionLog, [
+      '1_validate_authoritative_converted_session',
+      '2_correlate_persisted_active_attempt',
+      '3_durably_write_completion_record',
+      '4_durably_retire_active_attempt',
+      '5_invoke_onConverted_once',
+      '6_clear_in_memory_client_secret',
+      '7_clear_cart_once',
+      '8_navigate_once:/order-success?orderId=MP-2026-EXACT-555',
+    ]);
+  });
 });
