@@ -38,7 +38,6 @@ export default function CommerceGovernancePage() {
   const userRole = user?.role || 'admin';
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
-  const [merchantScopeId] = useState('default');
 
   // Core State
   const [versions, setVersions] = useState<CommerceConfigurationVersion[]>([]);

@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Package, User, MapPin, Phone, Mail,
   CreditCard, Truck, CheckCircle, Clock, XCircle,
-  Calendar, DollarSign, Printer, Send, Edit3,
-  Loader, AlertCircle, Save, X, Star, ShoppingBag
+  Calendar, DollarSign, Printer, Edit3,
+  Loader, AlertCircle, Save, X, ShoppingBag
 } from 'lucide-react';
 import api from '@/lib/api';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
@@ -154,11 +155,7 @@ export default function OrderDetailPage() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => {
-    fetchOrder();
-  }, [orderId]);
-
-  async function fetchOrder() {
+  const fetchOrder = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -183,7 +180,13 @@ export default function OrderDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [orderId]);
+
+  useEffect(() => {
+    void (async () => {
+      await fetchOrder();
+    })();
+  }, [fetchOrder]);
 
   const isCodEligible = (order: Order | null) => Boolean(
     order
@@ -644,11 +647,14 @@ export default function OrderDetailPage() {
                     border: '1px solid var(--border-color)',
                     transition: 'all 0.2s'
                   }}>
-                    <img
+                    <Image
                       src={productImage}
                       alt={productName}
+                      width={80}
+                      height={80}
+                      unoptimized
                       style={{ width: '80px', height: '80px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-                      onError={(e) => { (e.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '15px', marginBottom: '4px' }}>

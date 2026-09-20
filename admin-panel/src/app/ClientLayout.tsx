@@ -205,7 +205,6 @@ export default function ClientLayout({
   if (isPublicRoute) {
     return (
       <>
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
         <style jsx global nonce={nonce}>{GLOBAL_CSS}</style>
         {children}
       </>
@@ -214,7 +213,6 @@ export default function ClientLayout({
 
   return (
     <>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
       <style jsx global nonce={nonce}>{GLOBAL_CSS}</style>
 
       <AdminGuard>

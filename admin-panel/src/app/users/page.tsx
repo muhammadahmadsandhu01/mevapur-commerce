@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Users,
   Plus,
@@ -58,11 +58,7 @@ export default function UsersPage() {
     password: ''
   });
 
-  useEffect(() => {
-    fetchUsers();
-  }, [search, roleFilter]);
-
-  async function fetchUsers() {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       const params: Record<string, string> = {};
@@ -78,7 +74,13 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [roleFilter, search]);
+
+  useEffect(() => {
+    void (async () => {
+      await fetchUsers();
+    })();
+  }, [fetchUsers]);
 
   const handleSubmit = async () => {
     setError('');

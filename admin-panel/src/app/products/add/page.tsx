@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   Package, ChevronDown, ChevronUp, Save, Upload, X,
@@ -181,14 +182,12 @@ const Section = ({
   title,
   icon: Icon,
   children,
-  defaultOpen = true,
-  onSave
+  defaultOpen = true
 }: {
   title: string;
   icon: LucideIcon;
   children: React.ReactNode;
   defaultOpen?: boolean;
-  onSave?: () => void;
 }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -304,12 +303,10 @@ export default function AddProductPage() {
   const router = useRouter();
   const [formData, setFormData] = useState<ProductFormData>(initialFormData);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving] = useState(false);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [tagInput, setTagInput] = useState('');
-  const [activeTab, setActiveTab] = useState<'basic' | 'variants' | 'media'>('basic');
 
   // Auto-generate slug from name
   useEffect(() => {
@@ -487,26 +484,6 @@ export default function AddProductPage() {
     const newVariants = [...formData.variants];
     newVariants[index] = { ...newVariants[index], [field]: value };
     setFormData(prev => ({ ...prev, variants: newVariants }));
-  };
-
-  const addAttribute = () => {
-    setFormData(prev => ({
-      ...prev,
-      attributes: [...prev.attributes, { name: '', value: '' }]
-    }));
-  };
-
-  const updateAttribute = (index: number, field: 'name' | 'value', value: string) => {
-    const newAttributes = [...formData.attributes];
-    newAttributes[index] = { ...newAttributes[index], [field]: value };
-    setFormData(prev => ({ ...prev, attributes: newAttributes }));
-  };
-
-  const removeAttribute = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      attributes: prev.attributes.filter((_, i) => i !== index)
-    }));
   };
 
   const discount = formData.originalPrice && formData.originalPrice > formData.price
@@ -1249,9 +1226,12 @@ export default function AddProductPage() {
                     border: formData.primaryImage === img ? '3px solid var(--primary)' : '2px solid var(--border-color)',
                     cursor: 'pointer'
                   }}>
-                    <img
+                    <Image
                       src={img}
                       alt={`Product ${index + 1}`}
+                      width={120}
+                      height={120}
+                      unoptimized
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                     <button
@@ -1715,7 +1695,7 @@ export default function AddProductPage() {
               {/* Preview Image */}
               <div style={{ height: '200px', backgroundColor: 'var(--bg-primary)', position: 'relative' }}>
                 {formData.primaryImage ? (
-                  <img src={formData.primaryImage} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <Image src={formData.primaryImage} alt="Preview" width={320} height={200} unoptimized style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   <div style={{
                     width: '100%', height: '100%',

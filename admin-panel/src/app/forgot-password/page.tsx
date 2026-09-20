@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Mail, ArrowLeft, CheckCircle, Loader, AlertCircle, ArrowRight, ShieldAlert, Terminal } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
-import { branding } from '@/config/branding';
 import { authHttp } from '@/lib/authSession';
 
 export default function AdminForgotPasswordPage() {

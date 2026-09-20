@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PRODUCT_PLACEHOLDER, AVATAR_PLACEHOLDER } from '../src/lib/placeholder.ts';
-import { toggleTopBarPopover } from '../src/lib/notificationUi.ts';
 import { isPublicAuthRoute } from '../src/lib/authRoute.ts';
 
 // 1. Profile normalization/payload
@@ -93,6 +92,7 @@ test('CSRF headers are correctly appended to state-changing requests', () => {
 test('password change success state clears local auth state', () => {
   let authCleared = false;
   const clearAuthentication = (notify: boolean) => {
+    void notify;
     authCleared = true;
   };
 
@@ -108,6 +108,7 @@ test('password change success state clears local auth state', () => {
 test('forgot password service response does not enumerate account presence', () => {
   const forgotPasswordResponse = (userExists: boolean) => {
     // Audit log can be warning or success in backend, but response is always success: true
+    void userExists;
     return { success: true };
   };
 
@@ -167,6 +168,7 @@ test('aborted or stale search response results are discarded', () => {
 // 9. Unsafe navigation rejection
 test('navigation routing rejects external or protocol-relative target URLs', () => {
   const navigate = (href: string): string | null => {
+    void href;
     if (href.startsWith('/') && !href.startsWith('//') && !href.includes('\\')) {
       return href; // Safe local navigation
     }
@@ -302,6 +304,7 @@ test('successful search navigation clears and closes search state', () => {
   let searchFocusedIndex = 2;
 
   const handleNavigate = (href: string) => {
+    void href;
     searchOpen = false;
     searchQuery = '';
     searchResults = { products: [] };
@@ -364,7 +367,9 @@ test('only one clear control is rendered when input type is text', () => {
 // 20. Forgot Password link destination
 test('Forgot Password link destination is exact and navigable', () => {
   const getLoginRecoveryLink = () => {
-    return { href: '/forgot-password', label: 'Forgot Password?' };
+    const href = '/forgot-password';
+    void href;
+    return { href, label: 'Forgot Password?' };
   };
 
   const link = getLoginRecoveryLink();
@@ -393,6 +398,7 @@ test('accepted forgot-password request sets success status', () => {
 test('known and unknown account responses return identical success envelope', () => {
   const backendForgotAction = (emailExists: boolean) => {
     // Both user matching status must return identical output structure to prevent enumeration
+    void emailExists;
     return { success: true };
   };
 

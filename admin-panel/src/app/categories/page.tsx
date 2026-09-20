@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   FolderTree, Plus, Edit, Trash2, Search, ChevronRight,
-  Eye, X, Save, Star, AlertCircle, CheckCircle, Loader,
-  ArrowUpDown, Filter
+  CheckCircle, Star, Save, X
 } from 'lucide-react';
 import api from '@/lib/api';
 import { prepareCategoryPayload } from '@/lib/categoryHelpers';

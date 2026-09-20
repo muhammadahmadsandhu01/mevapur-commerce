@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Bell,
@@ -953,7 +954,7 @@ function GlobalSearchForm({ activePopover, onSearchFocus, navigate }: GlobalSear
                         >
                           {group.type === 'product' && (
                             <div style={{ width: '40px', height: '40px', borderRadius: '6px', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', flexShrink: 0 }}>
-                              <img src={image} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }} />
+                              <Image src={image} alt={title} width={40} height={40} unoptimized style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }} />
                             </div>
                           )}
                           {group.type === 'order' && (
@@ -963,7 +964,7 @@ function GlobalSearchForm({ activePopover, onSearchFocus, navigate }: GlobalSear
                           )}
                           {group.type === 'customer' && (
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', backgroundColor: 'var(--primary)', color: '#0B132B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', flexShrink: 0 }}>
-                              {image ? <img src={image} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : title.charAt(0).toUpperCase()}
+                              {image ? <Image src={image} alt={title} width={40} height={40} unoptimized style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : title.charAt(0).toUpperCase()}
                             </div>
                           )}
                           <div style={{ flex: 1, minWidth: 0 }}>

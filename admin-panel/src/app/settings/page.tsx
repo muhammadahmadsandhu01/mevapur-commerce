@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Store, Truck, Percent, CreditCard, Save, CheckCircle,
   AlertCircle, Loader, Globe, Share2, Link as LinkIcon,
@@ -89,44 +89,44 @@ const InputGroup = ({ id, label, value, onChange, type = 'text', placeholder = '
 };
 
 const ToggleField = ({ label, description, checked, onChange, activeColor = 'var(--primary)' }: ToggleFieldProps) => (
-  <div style={{ 
-    display: 'flex', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    padding: '16px', 
-    backgroundColor: 'var(--bg-primary)', 
-    borderRadius: '10px', 
-    border: '1px solid var(--border-color)' 
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '16px',
+    backgroundColor: 'var(--bg-primary)',
+    borderRadius: '10px',
+    border: '1px solid var(--border-color)'
   }}>
     <div>
       <div style={{ fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>{label}</div>
       {description && <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{description}</div>}
     </div>
-    <button 
+    <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      onClick={() => onChange(!checked)} 
-      style={{ 
-        width: '48px', 
-        height: '26px', 
-        backgroundColor: checked ? activeColor : '#D1D5DB', 
-        borderRadius: '13px', 
-        cursor: 'pointer', 
-        position: 'relative', 
+      onClick={() => onChange(!checked)}
+      style={{
+        width: '48px',
+        height: '26px',
+        backgroundColor: checked ? activeColor : '#D1D5DB',
+        borderRadius: '13px',
+        cursor: 'pointer',
+        position: 'relative',
         transition: 'all 0.2s',
         border: 'none'
       }}
     >
-      <div style={{ 
-        width: '20px', 
-        height: '20px', 
-        backgroundColor: 'white', 
-        borderRadius: '50%', 
-        position: 'absolute', 
-        top: '3px', 
-        left: checked ? '25px' : '3px', 
+      <div style={{
+        width: '20px',
+        height: '20px',
+        backgroundColor: 'white',
+        borderRadius: '50%',
+        position: 'absolute',
+        top: '3px',
+        left: checked ? '25px' : '3px',
         transition: 'all 0.2s',
         boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
       }} />
@@ -309,22 +309,22 @@ export default function SettingsPage() {
 
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  async function fetchSettings() {
+  const fetchSettings = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/settings');
       if (response.data.success) {
         const data = response.data.data;
-        if (data.store) setStoreData({ ...storeData, ...data.store });
-        if (data.shipping) setShippingData({ ...shippingData, ...data.shipping });
-        if (data.tax) setTaxData({ ...taxData, ...data.tax });
+        if (data.store) setStoreData((prev) => ({ ...prev, ...data.store }));
+        if (data.shipping) setShippingData((prev) => ({ ...prev, ...data.shipping }));
+        if (data.tax) setTaxData((prev) => ({ ...prev, ...data.tax }));
         if (data.payment) {
           setPaymentData(normalizePaymentSettings(data.payment));
         }
         setProviderCredentials(
           normalizeProviderCredentialStatus(data.providerCredentials)
         );
-        if (data.social) setSocialData({ ...socialData, ...data.social });
+        if (data.social) setSocialData((prev) => ({ ...prev, ...data.social }));
       }
     } catch {
       setProviderCredentials(null);
@@ -332,14 +332,14 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void fetchSettings();
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [fetchSettings]);
 
   // ✅ ENTERPRISE-LEVEL VALIDATION (Fixed logical errors from previous version)
   const validatePaymentData = () => {
@@ -476,7 +476,7 @@ export default function SettingsPage() {
           border: '1px solid var(--border-color)',
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
         }}>
-          
+
           {/* Store Info Tab */}
           {activeTab === 'store' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -524,11 +524,11 @@ export default function SettingsPage() {
           {/* Tax Tab */}
           {activeTab === 'tax' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <ToggleField 
-                label="Enable Tax" 
+              <ToggleField
+                label="Enable Tax"
                 description="Apply tax to all customer orders"
-                checked={taxData.tax_enabled} 
-                onChange={(v: boolean) => setTaxData({ ...taxData, tax_enabled: v })} 
+                checked={taxData.tax_enabled}
+                onChange={(v: boolean) => setTaxData({ ...taxData, tax_enabled: v })}
               />
               {taxData.tax_enabled && (
                 <div style={{ maxWidth: '400px' }}>

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ShoppingCart, Search, Download, Eye,
@@ -109,12 +110,7 @@ function OrdersListContent() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => {
-    fetchOrders();
-    fetchStats();
-  }, [page, statusFilter, dateFilter, sortBy, customerFilter]);
-
-  async function fetchStats() {
+  const fetchStats = useCallback(async () => {
     try {
       const response = await api.get('/orders/stats');
       if (response.data?.success && response.data?.data?.stats) {
@@ -123,9 +119,9 @@ function OrdersListContent() {
     } catch (error) {
       console.error('Error fetching order stats:', error);
     }
-  }
+  }, []);
 
-  async function fetchOrders() {
+  const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, limit: 15 };
@@ -162,7 +158,14 @@ function OrdersListContent() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [customerFilter, dateFilter, page, searchQuery, sortBy, statusFilter]);
+
+  useEffect(() => {
+    void (async () => {
+      await fetchOrders();
+      await fetchStats();
+    })();
+  }, [fetchOrders, fetchStats, page, statusFilter, dateFilter, sortBy, customerFilter]);
 
   const handleStatusUpdate = async () => {
     if (!updatingOrder || !newStatus) return;
@@ -907,9 +910,12 @@ function OrdersListContent() {
                     borderRadius: '8px',
                     border: '1px solid var(--border-color)'
                   }}>
-                    <img
+                    <Image
                       src={item.image || PRODUCT_PLACEHOLDER}
                       alt={item.name}
+                      width={60}
+                      height={60}
+                      unoptimized
                       onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                       style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover' }}
                     />

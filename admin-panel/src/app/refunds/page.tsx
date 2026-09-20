@@ -129,7 +129,7 @@ export default function RefundsPage() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.limit, pagination.page, providerFilter, statusFilter]);
+  }, [pagination, providerFilter, statusFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

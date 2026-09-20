@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
+import Image from 'next/image';
 import {
   Package, AlertTriangle, CheckCircle,
   Search, Download, ChevronDown, ChevronUp,
@@ -547,11 +548,14 @@ function InventoryContent() {
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <div style={{ width: '44px', height: '44px', borderRadius: '8px', backgroundColor: 'var(--bg-primary)', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border-color)' }}>
-                              <img
+                              <Image
                                 src={item.product.images?.[0] || PRODUCT_PLACEHOLDER}
                                 alt={item.product.name}
+                                width={44}
+                                height={44}
                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                onError={(e) => { (e.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
+                                unoptimized
+                                onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                               />
                             </div>
                             <div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import {
   Star, Search, Trash2, Eye, CheckCircle, XCircle,
   AlertCircle, MessageSquare, Loader, Flag,
@@ -484,9 +485,12 @@ export default function ReviewsPage() {
                     border: '1px solid var(--border-color)',
                     flexShrink: 0
                   }}>
-                    <img
+                    <Image
                       src={review.product?.images?.[0] || PRODUCT_PLACEHOLDER}
                       alt={review.product?.name || 'Product'}
+                      width={100}
+                      height={100}
+                      unoptimized
                       onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
@@ -820,9 +824,12 @@ export default function ReviewsPage() {
                   border: '1px solid var(--border-color)',
                   flexShrink: 0
                 }}>
-                  <img
+                  <Image
                     src={selectedReview.product?.images?.[0] || PRODUCT_PLACEHOLDER}
                     alt={selectedReview.product?.name || 'Product'}
+                    width={80}
+                    height={80}
+                    unoptimized
                     onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />

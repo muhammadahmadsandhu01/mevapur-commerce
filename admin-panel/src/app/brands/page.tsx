@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
+import {
   Tag, Plus, Edit, Trash2, Search, X, Save,
-  CheckCircle, Loader, Globe, Image as ImageIcon
+  CheckCircle, Globe
 } from 'lucide-react';
+import Image from 'next/image';
 import api from '@/lib/api';
 
 interface Brand {
@@ -83,7 +84,7 @@ export default function BrandsPage() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) return;
-    
+
     try {
       await api.delete(`/brands/${id}`);
       await fetchBrands();
@@ -309,10 +310,13 @@ export default function BrandsPage() {
                 overflow: 'hidden'
               }}>
                 {brand.logo ? (
-                  <img 
-                    src={brand.logo} 
+                  <Image
+                    src={brand.logo}
                     alt={brand.name}
+                    width={800}
+                    height={300}
                     style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '20px' }}
+                    unoptimized
                   />
                 ) : (
                   <div style={{
@@ -438,7 +442,7 @@ export default function BrandsPage() {
 
       {/* Modal */}
       {showModal && (
-        <div 
+        <div
           style={{
             position: 'fixed',
             inset: 0,
@@ -451,7 +455,7 @@ export default function BrandsPage() {
           }}
           onClick={closeModal}
         >
-          <div 
+          <div
             style={{
               backgroundColor: 'var(--card-bg)',
               borderRadius: '16px',

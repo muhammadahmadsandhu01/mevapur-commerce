@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Tag, Plus, Edit, Trash2, Search, X, Save,
-  CheckCircle, Copy, Calendar, Percent, DollarSign,
+  CheckCircle, Copy, Calendar,
   TrendingUp, ChevronLeft, ChevronRight, Archive, Ban
 } from 'lucide-react';
 import api from '@/lib/api';

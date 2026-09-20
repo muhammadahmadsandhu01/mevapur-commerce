@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  History, Search, Calendar, Monitor, AlertCircle, Loader,
+  History, Search, Calendar, Monitor, Loader,
   Download, ChevronLeft, ChevronRight, CheckCircle,
   XCircle, Activity, User
 } from 'lucide-react';

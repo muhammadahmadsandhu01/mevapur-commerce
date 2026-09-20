@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Package, Search, Plus, Edit, Trash2, Eye,
@@ -571,9 +572,12 @@ function ProductsPageContent() {
                             width: '56px', height: '56px', borderRadius: '8px', overflow: 'hidden',
                             backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', flexShrink: 0
                           }}>
-                            <img
+                            <Image
                               src={imageUrl}
                               alt={product.name}
+                              width={56}
+                              height={56}
+                              unoptimized
                               onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
@@ -759,9 +763,12 @@ function ProductsPageContent() {
               >
                 {/* Image */}
                 <div style={{ position: 'relative', height: '200px', backgroundColor: 'var(--bg-primary)', overflow: 'hidden' }}>
-                  <img
+                  <Image
                     src={imageUrl}
                     alt={product.name}
+                    width={300}
+                    height={200}
+                    unoptimized
                     onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s' }}
                     onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.05)')}

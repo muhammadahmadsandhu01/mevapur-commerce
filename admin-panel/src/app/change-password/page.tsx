@@ -7,7 +7,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  CheckCircle,
   AlertCircle,
   Loader,
   ShieldCheck,
@@ -15,7 +14,6 @@ import {
   KeyRound
 } from 'lucide-react';
 import api from '@/lib/api';
-import { useAuthStore } from '@/store/authStore';
 import { clearAuthentication } from '@/lib/authSession';
 
 export default function ChangePasswordPage() {
