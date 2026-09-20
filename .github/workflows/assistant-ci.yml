@@ -52,6 +52,13 @@ jobs:
           MONGODB_URI: ''
         run: npm run test:ci
 
+      - name: Run Backend Phase 7 Returns, Refunds, Disputes and Reconciliation Tests
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          MONGODB_URI: ''
+        run: npm run test:phase7
+
       - name: Install Frontend Dependencies
         working-directory: frontend
         run: npm ci
