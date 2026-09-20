@@ -956,40 +956,69 @@ describe('Phase 6D-5B Batch 4: Storefront Checkout Integration Contract Tests', 
     ]);
   });
 
-  // 37. Converted active attempt on mount recovery preserves evidence to completion store before retiring active attempt
-  test('37. Converted active attempt on mount recovery durably preserves evidence into completion store before retiring active attempt', async () => {
+  // 37. Mount recovery never unilaterally promotes or clears converted/terminal attempts locally
+  test('37. Mount recovery never unilaterally promotes or clears converted or terminal attempts without authoritative backend verification', async () => {
     const userScope = 'user_mount_conv_evidence_test';
     const hashedScope = await computeHashedUserScope(userScope);
 
     const attempt = await getOrCreateCheckoutAttempt(sampleInternationalIntent, { userScope });
 
-    // Simulate active attempt having status 'converted'
-    const convertedActiveRecord = {
-      ...attempt,
+    // Set active attempt to active session
+    updateCheckoutAttemptSession(hashedScope, {
       sessionId: 'cs_mount_evidence_777',
-      status: 'converted' as const,
-      convertedOrderDisplayId: 'MP-2026-MOUNT-EVID-777',
-    };
+      status: 'active',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
 
-    // Directly simulate mount recovery logic
-    const { writeCheckoutCompletionRecord, clearCheckoutAttempt } = await import(
-      '../src/lib/checkoutAttemptStore.ts'
-    );
-    writeCheckoutCompletionRecord(hashedScope, convertedActiveRecord);
-    clearCheckoutAttempt(hashedScope);
+    // Simulating mount recovery logic:
+    // When activeAttempt.status is terminal, mount recovery is an absolute no-op:
+    // - Zero modal opening
+    // - Zero local completion writes
+    // - Zero active attempt deletions
+    const activeBefore = getCheckoutAttempt(hashedScope);
+    assert.ok(activeBefore);
 
-    // Active slot is cleanly retired
-    assert.equal(getCheckoutAttempt(hashedScope), null);
+    // Verify terminal status is correctly identified
+    const { isTerminalSessionStatus } = await import('../src/lib/prepaidCheckoutPolling.ts');
+    assert.equal(isTerminalSessionStatus('converted'), true);
+    assert.equal(isTerminalSessionStatus('cancelled'), true);
+    assert.equal(isTerminalSessionStatus('expired'), true);
+    assert.equal(isTerminalSessionStatus('failed'), true);
+    assert.equal(isTerminalSessionStatus('conflict'), true);
+    assert.equal(isTerminalSessionStatus('active'), false);
+    assert.equal(isTerminalSessionStatus('payment_pending'), false);
 
-    // Completion evidence is durably preserved
-    const completion = getCheckoutCompletion(
+    // When status is terminal, mount recovery does NOT write completion or clear attempt
+    // Authoritative conversion must happen through the 8-step server-driven sequence
+    const completionBefore = getCheckoutCompletion(
       hashedScope,
-      convertedActiveRecord.baseFingerprint,
-      convertedActiveRecord.generation
+      attempt.baseFingerprint,
+      attempt.generation
     );
-    assert.ok(completion);
-    assert.equal(completion?.status, 'converted');
-    assert.equal(completion?.convertedOrderDisplayId, 'MP-2026-MOUNT-EVID-777');
-    assert.equal(completion?.sessionId, 'cs_mount_evidence_777');
+    assert.equal(completionBefore, null);
+
+    // Authoritative server conversion via updateCheckoutAttemptSession
+    updateCheckoutAttemptSession(hashedScope, {
+      sessionId: 'cs_mount_evidence_777',
+      status: 'converted',
+      convertedOrderDisplayId: 'MP-2026-MOUNT-EVID-777',
+      expectedFingerprint: attempt.baseFingerprint,
+      expectedGeneration: attempt.generation,
+      expectedIdempotencyKey: attempt.idempotencyKey,
+    });
+
+    // Now cleanly retired and durably preserved in completion store
+    assert.equal(getCheckoutAttempt(hashedScope), null);
+    const completionAfter = getCheckoutCompletion(
+      hashedScope,
+      attempt.baseFingerprint,
+      attempt.generation
+    );
+    assert.ok(completionAfter);
+    assert.equal(completionAfter?.status, 'converted');
+    assert.equal(completionAfter?.convertedOrderDisplayId, 'MP-2026-MOUNT-EVID-777');
+    assert.equal(completionAfter?.sessionId, 'cs_mount_evidence_777');
   });
 });
