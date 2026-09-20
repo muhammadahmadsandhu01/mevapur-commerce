@@ -21,6 +21,7 @@ const Payment = require('../../../models/Payment');
 const Order = require('../../../models/Order');
 const paymentStateMachine = require('../stateMachine/PaymentStateMachine');
 const refundService = require('../RefundService');
+const paymentDisputeService = require('../PaymentDisputeService');
 const { Money, MoneyMapper, CurrencyRegistry, OrderCurrencyResolver } = require('../../../modules/commerce');
 const {
   PAYMENT_STATUSES,
@@ -43,6 +44,14 @@ const REFUND_EVENT_TYPES = new Set([
   'refund.created',
   'refund.updated',
   'refund.failed'
+]);
+
+const DISPUTE_EVENT_TYPES = new Set([
+  'charge.dispute.created',
+  'charge.dispute.updated',
+  'charge.dispute.closed',
+  'charge.dispute.funds_withdrawn',
+  'charge.dispute.funds_reinstated'
 ]);
 
 const toMinorUnits = (amount, currency = 'USD') => {
@@ -188,6 +197,40 @@ class PaymentWebhookProcessor {
 
       if (REFUND_EVENT_TYPES.has(eventType)) {
         outcome = await this.processRefundEvent({
+          claimedEvent,
+          now,
+          session
+        });
+
+        const finalStatus = outcome === 'ignored'
+          ? WEBHOOK_PROCESSING_STATUSES.IGNORED
+          : WEBHOOK_PROCESSING_STATUSES.PROCESSED;
+
+        const updateResult = await PaymentWebhookEvent.updateOne({
+          _id: eventId,
+          status: WEBHOOK_PROCESSING_STATUSES.PROCESSING,
+          leaseId
+        }, {
+          $set: {
+            status: finalStatus,
+            processedAt: now,
+            leaseId: '',
+            leaseAcquiredAt: null,
+            leaseExpiresAt: null
+          }
+        });
+
+        if (updateResult.matchedCount === 0) {
+          const err = new AppError('Stale worker attempted to finalize webhook event after lease expiration', 409, 'PAYMENT_WEBHOOK_LEASE_EXPIRED');
+          err.isPermanent = true;
+          throw err;
+        }
+
+        return { outcome, status: finalStatus };
+      }
+
+      if (DISPUTE_EVENT_TYPES.has(eventType)) {
+        outcome = await this.processDisputeEvent({
           claimedEvent,
           now,
           session
@@ -698,6 +741,52 @@ class PaymentWebhookProcessor {
     }
 
     return 'processed';
+  }
+
+  /**
+   * Reconciles a dispute / chargeback webhook event using PaymentDisputeService.
+   */
+  async processDisputeEvent({ claimedEvent, now, session = null }) {
+    const {
+      provider,
+      providerEventId,
+      eventType,
+      eventData
+    } = claimedEvent;
+
+    const providerDisputeId = eventData?.providerDisputeId || claimedEvent.providerRefundId || claimedEvent.providerEventId;
+    const providerPaymentId = eventData?.providerPaymentId || claimedEvent.providerPaymentId;
+    const paymentId = eventData?.metadata?.paymentId || null;
+    const currency = claimedEvent.currency || eventData?.currency || 'PKR';
+    const amountMinor = claimedEvent.amountMinor || eventData?.amountMinor || 0;
+    const amount = amountMinor > 0 ? (amountMinor / 100) : (eventData?.amount || 0);
+
+    let status = 'needs_response';
+    if (eventType === 'charge.dispute.closed') {
+      const rawStatus = (eventData?.rawObjectStatus || eventData?.proposedStatus || '').toLowerCase();
+      status = rawStatus === 'won' ? 'won' : (rawStatus === 'charge_refunded' ? 'charge_refunded' : 'lost');
+    } else if (eventType === 'charge.dispute.updated') {
+      status = eventData?.proposedStatus || 'under_review';
+    } else if (eventType === 'charge.dispute.created') {
+      status = 'needs_response';
+    }
+
+    await paymentDisputeService.recordOrUpdateDispute({
+      providerDisputeId,
+      providerPaymentId,
+      paymentId,
+      provider,
+      amount,
+      currency,
+      fee: eventData?.fee || 0,
+      status,
+      reason: eventData?.reason || 'general',
+      evidenceDueBy: eventData?.evidenceDueBy || null,
+      providerEventId,
+      session
+    });
+
+    return 'dispute_processed';
   }
 
   /**

@@ -123,7 +123,8 @@ const statusHistorySchema = new mongoose.Schema({
 const {
   deMinimisDecisionSchema,
   taxProvenanceSchema,
-  customsItemSnapshotSchema
+  customsItemSnapshotSchema,
+  returnPolicySnapshotSchema
 } = require('./schemas/commerceSnapshotSchemas');
 
 const orderSchema = new mongoose.Schema({
@@ -382,6 +383,9 @@ const orderSchema = new mongoose.Schema({
     trim: true,
     maxlength: 128
   },
+  returnPolicySnapshot: { type: returnPolicySnapshotSchema, default: null },
+  isRto: { type: Boolean, default: false },
+  rtoReason: { type: String, default: '', maxlength: 500 },
   returnReservationVersion: { type: Number, default: 0, select: false }
 }, {
   timestamps: true,

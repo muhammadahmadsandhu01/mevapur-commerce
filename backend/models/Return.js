@@ -8,6 +8,11 @@ const generateReturnNumber = () => {
   return `RET-${date}-${entropy}`;
 };
 
+const {
+  returnPolicySnapshotSchema,
+  returnRoutingSnapshotSchema
+} = require('./schemas/commerceSnapshotSchemas');
+
 const returnRefundAllocationSnapshotSchema = new mongoose.Schema({
   merchandiseRefundExact: { type: MoneySchema, default: null },
   taxRefundExact: { type: MoneySchema, default: null },
@@ -117,6 +122,23 @@ const returnSchema = new mongoose.Schema({
   dutyRefundExact: { type: MoneySchema, default: null },
   shippingRefundExact: { type: MoneySchema, default: null },
   refundAllocationSnapshot: { type: returnRefundAllocationSnapshotSchema, default: null },
+  returnPolicySnapshot: { type: returnPolicySnapshotSchema, default: null },
+  returnRoutingSnapshot: { type: returnRoutingSnapshotSchema, default: null },
+  routingStatus: {
+    type: String,
+    enum: [
+      'PENDING',
+      'LABEL_GENERATED',
+      'IN_TRANSIT',
+      'RECEIVED_AT_HUB',
+      'RECEIVED_AT_ORIGIN',
+      'DISPOSED',
+      'KEPT_BY_CUSTOMER'
+    ],
+    default: 'PENDING'
+  },
+  isRto: { type: Boolean, default: false },
+  rtoReason: { type: String, default: null, trim: true, maxlength: 200 },
   shippingCost: {
     type: Number,
     default: 0

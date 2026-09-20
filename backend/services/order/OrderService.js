@@ -6,6 +6,8 @@ const User = require('../../models/User');
 const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const MarketPriceBook = require('../../models/MarketPriceBook');
 const Payment = require('../../models/Payment');
+const Return = require('../../models/Return');
+const InventoryTransaction = require('../../models/InventoryTransaction');
 const CouponService = require('./CouponService');
 const TaxService = require('./TaxService');
 const InventoryService = require('./InventoryService');
@@ -1482,6 +1484,131 @@ class OrderService {
 
       return { order, idempotentReplay: false };
     });
+  }
+
+  /**
+   * Handle Return-to-Origin (RTO) carrier events with exactly-once inventory restoration
+   * and isolation from active customer return races.
+   */
+  async handleReturnToOrigin({
+    orderId,
+    carrierEvent = 'DELIVERY_FAILURE',
+    reason = '',
+    locationId = null,
+    actor = { role: 'system', id: null }
+  }) {
+    const session = await mongoose.startSession();
+    try {
+      let result;
+      await session.withTransaction(async () => {
+        const order = await Order.findOne({
+          $or: [
+            mongoose.isObjectIdOrHexString(orderId) ? { _id: orderId } : { orderId },
+            { orderId }
+          ]
+        }).session(session);
+
+        if (!order) {
+          throw new AppError('Order not found', 404, ERROR_CODES.ORDER_NOT_FOUND);
+        }
+
+        if (order.isRto && order.orderStatus === ORDER_STATUSES.CANCELLED) {
+          result = { order, idempotentReplay: true };
+          return;
+        }
+
+        if (order.orderStatus === 'Delivered') {
+          throw new AppError('Delivered orders cannot be processed as RTO; a customer return is required', 409, 'RTO_ORDER_ALREADY_DELIVERED');
+        }
+
+        const activeReturn = await Return.exists({
+          order: order._id,
+          status: { $in: ['pending', 'approved', 'received', 'inspected'] }
+        }).session(session);
+
+        if (activeReturn) {
+          throw new AppError('Active customer return already exists for this order', 409, 'CUSTOMER_RETURN_EXISTS');
+        }
+
+        order.isRto = true;
+        order.rtoReason = reason || `RTO: ${carrierEvent}`;
+        order.orderStatus = ORDER_STATUSES.CANCELLED;
+        order.cancelledAt = new Date();
+        order.cancelReason = order.rtoReason;
+
+        order.statusTimeline.push({
+          status: ORDER_STATUSES.CANCELLED,
+          actor: actor.id || order.user,
+          actorRole: actor.role || 'system',
+          note: `Order returned to origin via carrier event: ${carrierEvent}. Reason: ${reason}`,
+          timestamp: new Date()
+        });
+
+        // Deterministically restock inventory once if not already restored
+        if (!order.inventoryRestoredAt) {
+          for (const item of order.items) {
+            const query = { _id: item.product };
+            const inc = {};
+            if (item.variantId) {
+              query['variants._id'] = item.variantId;
+              inc['variants.$.stock'] = item.quantity;
+              if (item.isDefaultVariant) inc.stock = item.quantity;
+            } else {
+              inc.stock = item.quantity;
+            }
+            const productBefore = await Product.findOneAndUpdate(
+              query,
+              { $inc: inc },
+              { session, new: false }
+            );
+
+            const previousStock = productBefore
+              ? (item.variantId && productBefore.variants ? (productBefore.variants.id(item.variantId)?.stock ?? 0) : (productBefore.stock ?? 0))
+              : 0;
+
+            await InventoryTransaction.create([{
+              product: item.product,
+              variantId: item.variantId || null,
+              order: order._id,
+              operationKey: `${order._id}:${item.product}:${item.variantId || 'root'}:rto`,
+              type: 'return',
+              quantity: item.quantity,
+              previousStock,
+              newStock: previousStock + item.quantity,
+              reason: `RTO stock restored: ${carrierEvent}`,
+              reference: order.orderId,
+              performedBy: actor.id || order.user,
+              metadata: {
+                isRto: true,
+                carrierEvent,
+                reason
+              }
+            }], { session });
+          }
+          order.inventoryRestoredAt = new Date();
+        }
+
+        await order.save({ session });
+
+        await AuditService.log({
+          userId: actor.id || order.user,
+          eventName: 'ORDER.RTO_PROCESSED',
+          action: 'RETURN_TO_ORIGIN',
+          status: 'SUCCESS',
+          metadata: {
+            orderId: String(order._id),
+            publicOrderId: order.orderId,
+            carrierEvent,
+            reason
+          }
+        }, session);
+
+        result = { order, idempotentReplay: false };
+      });
+      return result;
+    } finally {
+      await session.endSession();
+    }
   }
 }
 

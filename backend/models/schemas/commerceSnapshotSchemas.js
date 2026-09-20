@@ -116,11 +116,80 @@ const quoteBindingSnapshotSchema = new mongoose.Schema({
   itemsHash: { type: String, default: null, trim: true, maxlength: 128 }
 }, { _id: false });
 
+const returnPolicySnapshotSchema = new mongoose.Schema({
+  windowDays: { type: Number, default: 30, min: 0, max: 365 },
+  eligibleStatus: { type: String, default: 'Delivered' },
+  restockingFeePercentage: { type: Number, default: 0, min: 0, max: 100 },
+  restockingFeeExact: { type: MoneySchema, default: null },
+  returnShippingCostPayer: {
+    type: String,
+    enum: ['CUSTOMER', 'MERCHANT', 'SHARED'],
+    default: 'CUSTOMER'
+  },
+  nonReturnableCategories: {
+    type: [{ type: String, trim: true }],
+    default: []
+  },
+  requireApproval: { type: Boolean, default: true },
+  allowPartialReturns: { type: Boolean, default: true },
+  policyVersion: { type: String, default: '7.0' },
+  snapshotCreatedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
+const returnRoutingSnapshotSchema = new mongoose.Schema({
+  routingStrategy: {
+    type: String,
+    enum: [
+      'LOCAL_HUB',
+      'RETURN_TO_ORIGIN',
+      'MERCHANT_WAREHOUSE',
+      'CARRIER_DISPOSAL',
+      'CUSTOMER_KEEPS_ITEM',
+      'RESTRICTED_GOODS'
+    ],
+    required: true
+  },
+  destinationLocationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FulfillmentLocation',
+    default: null
+  },
+  destinationLocationCode: {
+    type: String,
+    default: '',
+    trim: true,
+    uppercase: true,
+    maxlength: 50
+  },
+  destinationCountry: {
+    type: String,
+    default: '',
+    trim: true,
+    uppercase: true,
+    maxlength: 2
+  },
+  responsibleParty: {
+    type: String,
+    enum: ['CUSTOMER', 'MERCHANT', 'CARRIER'],
+    default: 'CUSTOMER'
+  },
+  costResponsibility: {
+    type: String,
+    enum: ['CUSTOMER', 'MERCHANT', 'CARRIER', 'WAIVED'],
+    default: 'CUSTOMER'
+  },
+  estimatedReturnShippingCostExact: { type: MoneySchema, default: null },
+  routingReason: { type: String, default: '', maxlength: 500 },
+  decidedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
 module.exports = {
   deMinimisDecisionSchema,
   taxProvenanceSchema,
   customsItemSnapshotSchema,
   shipmentGroupItemSchema,
   shipmentGroupSnapshotSchema,
-  quoteBindingSnapshotSchema
+  quoteBindingSnapshotSchema,
+  returnPolicySnapshotSchema,
+  returnRoutingSnapshotSchema
 };

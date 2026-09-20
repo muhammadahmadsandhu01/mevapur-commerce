@@ -34,6 +34,8 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const returnRoutes = require('./routes/returnRoutes');
 const refundRoutes = require('./routes/refundRoutes');
+const paymentDisputeRoutes = require('./routes/paymentDisputeRoutes');
+const financeReconciliationRoutes = require('./routes/financeReconciliationRoutes');
 const commercialCoreRoutes = require('./routes/commercialCoreRoutes');
 const accountRoutes = require('./routes/accountRoutes');
 const assistantRoutes = require('./modules/assistant/assistant.routes');
@@ -150,6 +152,8 @@ const createApp = ({
   app.use('/api/inventory', inventoryRoutes);
   app.use('/api/returns', returnRoutes);
   app.use('/api/refunds', refundRoutes);
+  app.use('/api/disputes', paymentDisputeRoutes);
+  app.use('/api/finance-reconciliation', financeReconciliationRoutes);
   app.use('/api/commerce', commercialCoreRoutes);
   app.use('/api/account', accountRoutes);
 

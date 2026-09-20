@@ -463,16 +463,21 @@ class RefundService {
                   {
                     $subtract: [
                       {
-                        $cond: [
-                          { $gt: ['$paidAmount', 0] },
-                          '$paidAmount',
-                          '$amount'
+                        $subtract: [
+                          {
+                            $cond: [
+                              { $gt: ['$paidAmount', 0] },
+                              '$paidAmount',
+                              '$amount'
+                            ]
+                          },
+                          '$refundedAmount'
                         ]
                       },
-                      '$refundedAmount'
+                      '$refundReservedAmount'
                     ]
                   },
-                  '$refundReservedAmount'
+                  { $ifNull: ['$disputedAmount', 0] }
                 ]
               },
               refund.amount

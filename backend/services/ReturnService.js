@@ -4,6 +4,7 @@ const Payment = require('../models/Payment');
 const Refund = require('../models/Refund');
 const Return = require('../models/Return');
 const RefundService = require('./payment/RefundService');
+const ReturnRoutingService = require('./shipping/ReturnRoutingService');
 const { assertGenericTransition } = require('./ReturnStateMachine');
 const paymentProviderRegistry = require('../modules/payments/core/providerRegistry');
 const { AppError } = require('../common/errors/AppError');
@@ -343,15 +344,18 @@ class ReturnService {
     };
   }
 
-  assertCustomerEligibility(order, userId) {
+  assertCustomerEligibility(order, userId, policySnapshot = null) {
     if (String(order.user) !== String(userId)) {
       throw new AppError('Order not found', 404, ERROR_CODES.ORDER_NOT_FOUND);
     }
+    const policy = policySnapshot || order.returnPolicySnapshot || RETURN_POLICY;
+    const eligibleStatus = policy.eligibleStatus || RETURN_POLICY.eligibleStatus;
+    const windowDays = Number.isFinite(policy.windowDays) ? policy.windowDays : RETURN_POLICY.windowDays;
+
     if (
-      order.orderStatus !== RETURN_POLICY.eligibleStatus
+      order.orderStatus !== eligibleStatus
       || !order.deliveredAt
-      || Date.now() - order.deliveredAt.getTime()
-        > RETURN_POLICY.windowDays * 86400000
+      || Date.now() - order.deliveredAt.getTime() > windowDays * 86400000
     ) {
       throw new AppError(
         'This order is not eligible for a return request',
@@ -372,7 +376,32 @@ class ReturnService {
         if (!order) {
           throw new AppError('Order not found', 404, ERROR_CODES.ORDER_NOT_FOUND);
         }
-        if (requireOwnership) this.assertCustomerEligibility(order, userId);
+
+        const returnPolicySnapshot = order.returnPolicySnapshot ? {
+          windowDays: order.returnPolicySnapshot.windowDays ?? RETURN_POLICY.windowDays,
+          eligibleStatus: order.returnPolicySnapshot.eligibleStatus || RETURN_POLICY.eligibleStatus,
+          restockingFeePercentage: order.returnPolicySnapshot.restockingFeePercentage || 0,
+          restockingFeeExact: order.returnPolicySnapshot.restockingFeeExact || null,
+          returnShippingCostPayer: order.returnPolicySnapshot.returnShippingCostPayer || 'CUSTOMER',
+          nonReturnableCategories: order.returnPolicySnapshot.nonReturnableCategories || [],
+          requireApproval: order.returnPolicySnapshot.requireApproval !== false,
+          allowPartialReturns: order.returnPolicySnapshot.allowPartialReturns !== false,
+          policyVersion: order.returnPolicySnapshot.policyVersion || '7.0',
+          snapshotCreatedAt: order.returnPolicySnapshot.snapshotCreatedAt || order.createdAt || new Date()
+        } : {
+          windowDays: RETURN_POLICY.windowDays,
+          eligibleStatus: RETURN_POLICY.eligibleStatus,
+          restockingFeePercentage: 0,
+          restockingFeeExact: null,
+          returnShippingCostPayer: 'CUSTOMER',
+          nonReturnableCategories: [],
+          requireApproval: true,
+          allowPartialReturns: true,
+          policyVersion: '7.0',
+          snapshotCreatedAt: order.createdAt || new Date()
+        };
+
+        if (requireOwnership) this.assertCustomerEligibility(order, userId, returnPolicySnapshot);
 
         const activeReturn = await Return.exists({
           order: order._id,
@@ -391,6 +420,13 @@ class ReturnService {
           status: { $in: RESERVED_RETURN_STATUSES }
         }).session(session);
         const canonical = this.canonicalizeItems(order, input.items, priorReturns);
+
+        const returnRoutingSnapshot = await ReturnRoutingService.determineRouting({
+          order,
+          items: canonical.items,
+          policySnapshot: returnPolicySnapshot,
+          session
+        });
 
         // This write makes same-order request transactions conflict rather than
         // allowing two independent eligibility reads to reserve the same units.
@@ -412,6 +448,9 @@ class ReturnService {
           dutyRefundExact: canonical.dutyRefundExact,
           shippingRefundExact: canonical.shippingRefundExact,
           refundAllocationSnapshot: canonical.refundAllocationSnapshot,
+          returnPolicySnapshot,
+          returnRoutingSnapshot,
+          routingStatus: returnRoutingSnapshot.routingStrategy === 'RESTRICTED_GOODS' ? 'DISPOSED' : 'PENDING',
           customerNotes: input.customerNotes || ''
         }], { session });
       });
