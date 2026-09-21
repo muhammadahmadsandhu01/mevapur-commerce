@@ -95,7 +95,9 @@ export default function ExceptionsPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    void fetchExceptions();
+    void (async () => {
+      await fetchExceptions();
+    })();
     return () => {
       mountedRef.current = false;
     };

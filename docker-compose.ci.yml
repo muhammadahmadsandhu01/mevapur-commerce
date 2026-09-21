@@ -16,3 +16,16 @@ services:
   prometheus:
     ports:
       - "127.0.0.1:9090:9090"
+
+# ------------------------------------------------------------------------------
+# CI network override: backend_net is declared internal:true in the base
+# docker-compose.yml for production isolation. Docker ignores host port
+# bindings on internal networks, so the loopback port mappings above would
+# silently fail. This override removes the internal restriction exclusively
+# in CI so the runner host can reach MongoDB, Redis and Prometheus via the
+# published loopback ports (127.0.0.1) for runtime verification scripts.
+# Production deployments never use this file and remain network-isolated.
+# ------------------------------------------------------------------------------
+networks:
+  backend_net:
+    internal: false
