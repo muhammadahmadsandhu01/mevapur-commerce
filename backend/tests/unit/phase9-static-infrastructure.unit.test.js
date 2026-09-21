@@ -19,7 +19,7 @@ describe('Phase 9 — Static Infrastructure Contract Tests', () => {
   const frontendDir = path.resolve(repoRoot, 'frontend');
   const adminDir = path.resolve(repoRoot, 'admin-panel');
 
-  test('9.1 Dockerfiles are multi-stage, pinned to Node 24.20.0-alpine3.21, and run as non-root node user', () => {
+  test('9.1 Dockerfiles are multi-stage, pinned to Node 24.20.0-alpine3.24, and run as non-root node user', () => {
     const dockerfiles = [
       path.join(backendDir, 'Dockerfile'),
       path.join(backendDir, 'Dockerfile.worker'),
@@ -32,7 +32,7 @@ describe('Phase 9 — Static Infrastructure Contract Tests', () => {
       const content = fs.readFileSync(dfPath, 'utf8');
 
       // Check pinned Node version
-      expect(content).toMatch(/FROM node:24\.20\.0-alpine3\.21/);
+      expect(content).toMatch(/FROM node:24\.20\.0-alpine3\.24/);
 
       // Check non-root user
       expect(content).toMatch(/USER node/);

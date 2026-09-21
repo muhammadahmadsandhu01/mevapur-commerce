@@ -1,14 +1,14 @@
 # ==============================================================================
 # MevaPur Commerce Admin Panel — Multi-Stage Production Dockerfile
-# Base Image: node:24.20.0-alpine3.21 (Exact pinned Node.js 24 runtime)
+# Base Image: node:24.20.0-alpine3.24 (Exact pinned Node.js 24 runtime)
 # ==============================================================================
 
-FROM node:24.20.0-alpine3.21 AS deps
+FROM node:24.20.0-alpine3.24 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:24.20.0-alpine3.21 AS builder
+FROM node:24.20.0-alpine3.24 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
@@ -22,7 +22,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
 
 RUN npm run build
 
-FROM node:24.20.0-alpine3.21 AS runner
+FROM node:24.20.0-alpine3.24 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \

@@ -198,11 +198,10 @@ jobs:
 
       - name: Pull Pinned Base Images
         run: |
-          docker pull node:24.20.0-alpine3.21
+          docker pull node:24.20.0-alpine3.24
           docker pull mongo:7.0.14-jammy
           docker pull redis:7.4.1-alpine3.20
           docker pull nginx:1.27.2-alpine
-          docker pull mongodb/mongodb-database-tools:ubuntu2204-100.10.0
           docker pull prom/prometheus:v2.55.1
           docker pull aquasec/trivy:0.56.2
 
@@ -216,15 +215,17 @@ jobs:
 
       - name: Run Non-Root User & Image Secret Inspection
         run: |
-          docker run --rm mevapur-commerce-backend id -u | grep -E '^1000$' || (echo "Backend container runs as root!" && exit 1)
-          docker run --rm mevapur-commerce-frontend id -u | grep -E '^1000$' || (echo "Frontend container runs as root!" && exit 1)
-          docker run --rm mevapur-commerce-admin-panel id -u | grep -E '^1000$' || (echo "Admin container runs as root!" && exit 1)
+          docker run --rm mevapur/backend:latest id -u | grep -E '^1000$' || (echo "Backend container runs as root!" && exit 1)
+          docker run --rm mevapur/frontend:latest id -u | grep -E '^1000$' || (echo "Frontend container runs as root!" && exit 1)
+          docker run --rm mevapur/admin-panel:latest id -u | grep -E '^1000$' || (echo "Admin container runs as root!" && exit 1)
+          docker run --rm mevapur/worker:latest id -u | grep -E '^1000$' || (echo "Worker container runs as root!" && exit 1)
 
       - name: Run Trivy Vulnerability Scanner on Images
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur-commerce-backend
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur-commerce-frontend
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur-commerce-admin-panel
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur/backend:latest
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur/frontend:latest
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur/admin-panel:latest
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 image --severity HIGH,CRITICAL --exit-code 0 mevapur/worker:latest
 
       - name: Execute Phase 9 Unit and Integration Test Matrix
         working-directory: backend

@@ -2,7 +2,7 @@
 
 ## 1. Backup Strategy & Architecture
 
-- **Tooling**: Standard `mongodump` via `mongodb/mongodb-database-tools:ubuntu2204-100.10.0` or operational script `scripts/ops/backup-database.js`.
+- **Tooling**: Official MongoDB tools (`mongodump`/`mongorestore`) via `mongo:7.0.14-jammy` or operational script `scripts/ops/backup-database.js`.
 - **Integrity**: Every backup creates:
   1. Compressed archive: `database.archive.gz`
   2. Cryptographic checksum: `checksum.sha256` (SHA-256)

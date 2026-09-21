@@ -1,14 +1,14 @@
 # ==============================================================================
 # MevaPur Commerce Backend API — Multi-Stage Production Dockerfile
-# Base Image: node:24.20.0-alpine3.21 (Exact pinned Node.js 24 runtime)
+# Base Image: node:24.20.0-alpine3.24 (Exact pinned Node.js 24 runtime)
 # ==============================================================================
 
-FROM node:24.20.0-alpine3.21 AS dependencies
+FROM node:24.20.0-alpine3.24 AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-FROM node:24.20.0-alpine3.21 AS runner
+FROM node:24.20.0-alpine3.24 AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=5000
