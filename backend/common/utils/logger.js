@@ -80,19 +80,23 @@ const createCanonicalLogger = (
   ];
 
   if (shouldEnableFileLogging(environment)) {
-    const logDir = path.join(__dirname, '../../logs');
-    if (!fsModule.existsSync(logDir)) {
-      fsModule.mkdirSync(logDir, { recursive: true });
+    try {
+      const logDir = path.join(__dirname, '../../logs');
+      if (!fsModule.existsSync(logDir)) {
+        fsModule.mkdirSync(logDir, { recursive: true });
+      }
+      transports.push(
+        new winston.transports.File({
+          filename: path.join(logDir, 'error.log'),
+          level: 'error'
+        }),
+        new winston.transports.File({
+          filename: path.join(logDir, 'combined.log')
+        })
+      );
+    } catch {
+      // In restricted or containerized filesystems, fallback gracefully to console transport
     }
-    transports.push(
-      new winston.transports.File({
-        filename: path.join(logDir, 'error.log'),
-        level: 'error'
-      }),
-      new winston.transports.File({
-        filename: path.join(logDir, 'combined.log')
-      })
-    );
   }
 
   const logger = winston.createLogger({

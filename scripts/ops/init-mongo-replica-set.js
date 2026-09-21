@@ -137,7 +137,7 @@ async function initReplicaSet() {
 
   // Step 4: Idempotently create least-privileged application user on application database
   if (appUser && appPass) {
-    const targetDb = mongoose.connection.useDb(appDb);
+    const targetDb = mongoose.connection.client.db(appDb);
     try {
       await targetDb.command({
         createUser: appUser,
@@ -148,10 +148,11 @@ async function initReplicaSet() {
       });
       console.log(`[MONGO-INIT] Least-privileged app user "${appUser}" created on "${appDb}".`);
     } catch (err) {
-      if (err.codeName === 'UserAlreadyExists' || err.message.includes('already exists')) {
+      if (err.codeName === 'UserAlreadyExists' || (err.message && err.message.includes('already exists'))) {
         console.log(`[MONGO-INIT] App user "${appUser}" already exists on "${appDb}".`);
       } else {
-        console.warn(`[MONGO-INIT] Note on app user creation: ${err.message}`);
+        console.error(`[MONGO-INIT] Fatal error creating app user: ${err.message}`);
+        throw err;
       }
     }
   }

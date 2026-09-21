@@ -36,6 +36,8 @@ COPY --chown=node:node utils ./utils
 COPY --chown=node:node validators ./validators
 COPY --chown=node:node scripts ./scripts
 
+RUN mkdir -p /app/logs && chown -R node:node /app
+
 USER node
 
 EXPOSE 5000
