@@ -28,7 +28,7 @@ const mongoHost = process.env.MONGO_HOST || '127.0.0.1:27017';
 const appDb = process.env.MONGO_APP_DATABASE || 'mevapur-commerce';
 const appUser = process.env.MONGO_APP_USER || 'app_user';
 const appPass = process.env.MONGO_APP_PASSWORD || 'app_password';
-const dockerNetwork = process.env.DOCKER_NETWORK || 'backend_net';
+const dockerNetwork = process.env.DOCKER_NETWORK || 'mevapur-ci_backend_net';
 const backendPort = parseInt(process.env.BACKEND_PORT, 10) || 5000;
 
 const imageA = process.env.IMAGE_RELEASE_A || 'mevapur/backend:v1.0.0-phase8';
@@ -39,7 +39,7 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function probeHealth(port = backendPort, timeoutMs = 20000) {
+function probeHealth(port = backendPort, timeoutMs = 25000) {
   return new Promise(async (resolve, reject) => {
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
@@ -74,29 +74,22 @@ async function verifyContainerRollbackRuntime() {
   console.log(`[ROLLBACK-RUNTIME-VERIFY] Initiating real container rollback rehearsal: ${imageA} -> ${imageB} -> ${imageA}...`);
   const steps = [];
 
-  const mongoUri = `mongodb://${encodeURIComponent(appUser)}:${encodeURIComponent(appPass)}@${mongoHost}/${appDb}?authSource=${appDb}&replicaSet=rs0&directConnection=true`;
+  const hostMongoUri = `mongodb://${encodeURIComponent(appUser)}:${encodeURIComponent(appPass)}@${mongoHost}/${appDb}?authSource=${appDb}&replicaSet=rs0&directConnection=true`;
+  const containerMongoUri = `mongodb://${encodeURIComponent(appUser)}:${encodeURIComponent(appPass)}@mongodb:27017/${appDb}?authSource=${appDb}&replicaSet=rs0&directConnection=true`;
 
   // Connect to DB to manage fixture
-  const conn = await mongoose.createConnection(mongoUri, { serverSelectionTimeoutMS: 5000 }).asPromise();
+  const conn = await mongoose.createConnection(hostMongoUri, { serverSelectionTimeoutMS: 5000 }).asPromise();
   const db = conn.db;
   const fixtureColl = db.collection('rollback_runtime_fixture');
   await fixtureColl.deleteMany({});
 
   try {
-    // 0. Ensure images are tagged
-    try {
-      execDocker(`docker tag mevapur/backend:latest ${imageA}`);
-      execDocker(`docker tag mevapur/backend:latest ${imageB}`);
-    } catch (tagErr) {
-      console.warn('[ROLLBACK-RUNTIME-VERIFY] Note tagging images:', tagErr.message);
-    }
-
     // Ensure no existing rehearsal container is running
     try { execDocker(`docker rm -f ${containerName}`); } catch {}
 
     // STEP 1: Deploy Release A container
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 1: Starting Release A container (${imageA})...`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${mongoUri}" -e PORT=5000 ${imageA}`);
+    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${containerMongoUri}" -e PORT=5000 ${imageA}`);
 
     await probeHealth(backendPort, 25000);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release A container is healthy (/health/ready -> 200 OK).');
@@ -113,7 +106,7 @@ async function verifyContainerRollbackRuntime() {
     // STEP 2: Deploy Release B container (replaces Release A container)
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 2: Deploying Release B container (${imageB})...`);
     execDocker(`docker rm -f ${containerName}`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${mongoUri}" -e PORT=5000 ${imageB}`);
+    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${containerMongoUri}" -e PORT=5000 ${imageB}`);
 
     await probeHealth(backendPort, 25000);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release B container is healthy (/health/ready -> 200 OK).');
