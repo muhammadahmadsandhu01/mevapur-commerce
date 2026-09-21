@@ -96,7 +96,7 @@
 
 ## 6. Per-Test Classification & Executable Evidence
 
-### Dedicated Phase 8 Suites (11 Backend + 2 Frontend + 2 Admin = 15 Suites, 71 Tests)
+### A. Dedicated Phase 8 Suites (11 Backend + 2 Frontend + 2 Admin = 15 Suites, 71 Tests)
 
 | Component | Test File | Test Count | Classification | Verdict |
 | :--- | :--- | :--- | :--- | :--- |
@@ -117,45 +117,95 @@
 | **Admin Panel** | `tests/phase8AdminExceptions.dom.test.tsx` | 3 | Real DOM / Accessibility / Modal Actions | **PASS** |
 | **Total Phase 8** | **15 Test Files** | **71 Tests** | **Comprehensive Phase 8 Suite** | **100% PASS** |
 
+### B. Frontend Baseline-vs-Current Test Inventory & Additivity Proof
+
+| Test File Path | Runner | Present at Phase 7 Baseline | Executed by Current Aggregate (`npm test`) | Test Count | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `tests/authModal.dom.test.tsx` | Vitest | YES | YES | 14 | **PASS** |
+| `tests/cartDrawer.dom.test.tsx` | Vitest | YES | YES | 17 | **PASS** |
+| `tests/CategoryFilter.dom.test.tsx` | Vitest | YES | YES | 16 | **PASS** |
+| `tests/checkoutAddressAutofill.dom.test.tsx` | Vitest | YES | YES | 12 | **PASS** |
+| `tests/countrySelector.dom.test.tsx` | Vitest | YES | YES | 17 | **PASS** |
+| `tests/phase6cStorefrontCheckout.dom.test.tsx` | Vitest | YES | YES | 14 | **PASS** |
+| `tests/phase6d3ShippingCheckout.dom.test.tsx` | Vitest | YES | YES | 9 | **PASS** |
+| `tests/phase6d4TaxCheckout.dom.test.tsx` | Vitest | YES | YES | 10 | **PASS** |
+| `tests/phase8CustomerRecovery.dom.test.tsx` | Vitest | **NO (Phase 8 Additive)** | YES | 4 | **PASS** |
+| `tests/safeContentRenderer.test.mts` | Vitest | YES | YES | 1 | **PASS** |
+| `tests/authContracts.test.mts` | Node | YES | YES | 41 | **PASS** |
+| `tests/cartContracts.test.mts` | Node | YES | YES | 17 | **PASS** |
+| `tests/catalogContracts.test.mts` | Node | YES | YES | 18 | **PASS** |
+| `tests/categoryPublicVisibilityDef26.test.mts` | Node | YES | YES | 7 | **PASS** |
+| `tests/deploymentConfigContract.test.mts` | Node | YES | YES | 8 | **PASS** |
+| `tests/helpAssistantComponent.test.mts` | Node | YES | YES | 28 | **PASS** |
+| `tests/invoicePrintContracts.test.mts` | Node | YES | YES | 15 | **PASS** |
+| `tests/paymentOrderContracts.test.mts` | Node | YES | YES | 34 | **PASS** |
+| `tests/phase5ClosureAndSecurity.test.mts` | Node | YES | YES | 20 | **PASS** |
+| `tests/phase6AccountCommerceContracts.test.mts` | Node | YES | YES | 26 | **PASS** |
+| `tests/phase6CmsContracts.test.mts` | Node | YES | YES | 28 | **PASS** |
+| `tests/phase6cStorefrontCheckout.test.mts` | Node | YES | YES | 19 | **PASS** |
+| `tests/phase6d3ShippingCheckout.test.mts` | Node | YES | YES | 27 | **PASS** |
+| `tests/phase6d4TaxCheckout.test.mts` | Node | YES | YES | 33 | **PASS** |
+| `tests/phase6d5bCheckoutSessionClient.test.mts` | Node | YES | YES | 17 | **PASS** |
+| `tests/phase6d5bPrepaidCheckoutOrchestration.test.mts` | Node | YES | YES | 14 | **PASS** |
+| `tests/phase6d5bCheckoutIntegration.test.mts` | Node | YES | YES | 19 | **PASS** |
+| `tests/phase8CustomerRecovery.test.mts` | Node | **NO (Phase 8 Additive)** | YES | 5 | **PASS** |
+| `tests/whiteLabelBrandIsolation.test.mts` | Node | YES | YES | 7 | **PASS** |
+| **Total Aggregate Coverage** | **Vitest + Node** | **26 Baseline Files** | **28 Total Files (100% Additive)** | **497 Tests** | **100% PASS** |
+
+- **Phase 7 Verified Baseline**: Vitest: 8 files (110 tests) + Node: 18 files, 51 suites (378 tests) = 26 files, 488 tests.
+- **Phase 8 Additive Additions**: Vitest: +1 file (+4 tests) + Node: +1 file, +1 suite (+5 tests) = +2 files, +9 tests.
+- **Phase 8 Verified Aggregate**: Vitest: 9 files (114 tests) + Node: 19 files, 52 suites (383 tests) = 28 files, 497 tests. Zero baseline tests dropped.
+
 ---
 
 ## 7. Full Validation Matrix Execution Results
 
 ### A. Backend Validation
-| Command | Result Summary | Exit Code |
-| :--- | :--- | :--- |
-| `npm run test:phase8` | 11 suites passed, 57 tests passed (47.617s) | **0** |
-| `npm run test:phase7` | 10 suites passed, 68 tests passed (80.658s) | **0** |
-| `npm run test:phase6d5a` | 7 suites passed, 83 tests passed (60.698s) | **0** |
-| `npm run test:phase6d4` | 9 suites passed, 198 tests passed (65.990s) | **0** |
-| `npm run lint` | ESLint passed with 0 warnings (`--max-warnings=0`) | **0** |
-| `npm audit --omit=dev` | 0 vulnerabilities found | **0** |
+| Command | Raw Script Expansion | Result Summary | Duration | Exit Code |
+| :--- | :--- | :--- | :--- | :--- |
+| `npm run test:phase8` | `npm run assistant:knowledge:check && jest tests/unit/phase8-transactional-notifications.unit.test.js ...` | 11 suites passed, 57 tests passed, 0 snapshots | 36.881s | **0** |
+| `npx jest --runInBand --watchAll=false` | Full Jest test discovery run | 165 suites passed, 2165 tests passed, 0 snapshots | 1161.972s | **0** |
+| `npm run test:phase7` | `npm run assistant:knowledge:check && jest tests/unit/phase7-policy-routing.unit.test.js ...` | 10 suites passed, 68 tests passed, 0 snapshots | 80.658s | **0** |
+| `npm run test:phase6d5a` | `npm run assistant:knowledge:check && jest tests/unit/commerce/stock-hold-lease.unit.test.js ...` | 7 suites passed, 83 tests passed, 0 snapshots | 60.698s | **0** |
+| `npm run test:phase6d4` | `npm run assistant:knowledge:check && jest tests/unit/commerce/phase6d4-tax-governance.unit.test.js ...` | 9 suites passed, 198 tests passed, 0 snapshots | 65.990s | **0** |
+| `npm run lint` | `eslint . --max-warnings=0` | 0 errors, 0 warnings | 6.2s | **0** |
+| `npm audit --omit=dev` | `npm audit --omit=dev` | 0 vulnerabilities found | 4.8s | **0** |
 
 ### B. Storefront / Frontend Validation
-| Command | Result Summary | Exit Code |
-| :--- | :--- | :--- |
-| `npm run test:phase8` | 5 node contract tests + 4 Vitest DOM tests passed (2.67s) | **0** |
-| `npm test` | 7 Vitest files (23 tests) + 383 node tests passed (17.34s) | **0** |
-| `npm run lint` | ESLint passed with 0 errors / 0 warnings | **0** |
-| `npx tsc --noEmit` | TypeScript typecheck passed with 0 errors | **0** |
-| `npm run build` | Next.js production build succeeded (23 static pages) | **0** |
-| `npm audit --omit=dev` | 0 vulnerabilities found | **0** |
+| Command | Raw Script Expansion | Result Summary | Duration | Exit Code |
+| :--- | :--- | :--- | :--- | :--- |
+| `npm run test:vitest` | `vitest run` | 9 test files passed, 114 tests passed, 0 failed/skipped | 26.54s | **0** |
+| `npm run test:unit` | `node --test tests/authContracts.test.mts ... (19 files)` | 19 test files passed, 52 suites passed, 383 tests passed | 17.74s | **0** |
+| `npm run test:phase8` | `node --test tests/phase8CustomerRecovery.test.mts && vitest run tests/phase8CustomerRecovery.dom.test.tsx` | 2 test files passed (1 Node + 1 Vitest), 9 tests passed (5 Node + 4 Vitest) | 2.78s | **0** |
+| `npm test` | `npm run test:vitest && npm run test:unit` | 28 test files passed (9 Vitest + 19 Node), 497 tests passed (114 Vitest + 383 Node) | 20.04s | **0** |
+| `npm run lint` | `eslint` | 0 errors, 0 warnings | 26.1s | **0** |
+| `npx tsc --noEmit` | `tsc --noEmit` | TypeScript typecheck passed with 0 errors | 6.8s | **0** |
+| `npm run build` | `next build` | Next.js production build succeeded (23 static pages) | 18.2s | **0** |
+| `npm audit --omit=dev` | `npm audit --omit=dev` | 0 vulnerabilities found | 4.2s | **0** |
 
 ### C. Admin Panel Validation
-| Command | Result Summary | Exit Code |
-| :--- | :--- | :--- |
-| `npm run test:phase8` | 4 node contract tests + 3 Vitest DOM tests passed (2.76s) | **0** |
-| `npm run test:assistant` | 23 node tests + 13 Vitest DOM tests passed | **0** |
-| `npm run test:categories` | 8 node tests + 19 Vitest DOM tests passed | **0** |
-| `npm run test:phase6c` | 20 node tests + 6 Vitest DOM tests passed | **0** |
-| `npm run test:phase6d3` | 12 node tests + 7 Vitest DOM tests passed | **0** |
-| `npm run test:phase6d4` | 18 node tests + 9 Vitest DOM tests passed | **0** |
-| `npm run lint -- --max-warnings=0` | ESLint passed with 0 errors / 0 warnings | **0** |
-| `npx tsc --noEmit` | TypeScript typecheck passed with 0 errors | **0** |
-| `npm run build` | Next.js production build succeeded (39 static pages) | **0** |
-| `npm audit --omit=dev` | 0 vulnerabilities found | **0** |
+| Command | Raw Script Expansion | Result Summary | Duration | Exit Code |
+| :--- | :--- | :--- | :--- | :--- |
+| `npm run test:phase8` | `node --test tests/phase8AdminExceptions.test.mts && vitest run tests/phase8AdminExceptions.dom.test.tsx` | 2 test files passed (1 Node + 1 Vitest), 7 tests passed (4 Node + 3 Vitest) | 2.31s | **0** |
+| `npm run test:assistant` | `node --test tests/assistantBrandContract.test.mts ... && vitest run tests/AssistantModal.dom.test.tsx` | 23 node tests + 13 Vitest DOM tests passed | 4.1s | **0** |
+| `npm run test:categories` | `node --test tests/categoryAdminVisibilityDef26.test.mts && vitest run tests/ProductCategorySelector.dom.test.tsx` | 8 node tests + 19 Vitest DOM tests passed | 3.8s | **0** |
+| `npm run test:phase6c` | `node --test tests/phase6cAdminGovernance.test.mts && vitest run tests/phase6cAdminGovernance.dom.test.tsx` | 20 node tests + 6 Vitest DOM tests passed | 3.5s | **0** |
+| `npm run test:phase6d3` | `node --test tests/phase6d3ShippingGovernance.test.mts && vitest run tests/phase6d3ShippingGovernance.dom.test.tsx` | 12 node tests + 7 Vitest DOM tests passed | 3.4s | **0** |
+| `npm run test:phase6d4` | `node --test tests/phase6d4TaxGovernance.test.mts && vitest run tests/phase6d4TaxGovernance.dom.test.tsx` | 18 node tests + 9 Vitest DOM tests passed | 3.6s | **0** |
+| `npm run lint -- --max-warnings=0` | `eslint --max-warnings=0` | 0 errors, 0 warnings | 24.2s | **0** |
+| `npx tsc --noEmit` | `tsc --noEmit` | TypeScript typecheck passed with 0 errors | 5.8s | **0** |
+| `npm run build` | `next build` | Next.js production build succeeded (39 static pages) | 24.5s | **0** |
+| `npm audit --omit=dev` | `npm audit --omit=dev` | 0 vulnerabilities found | 4.1s | **0** |
 
-### D. Git Tree Integrity
+### D. CI Workflow Additivity Validation
+- **Workflow File**: `.github/workflows/assistant-ci.yml`
+- **Validation**:
+  - Backend matrix preserved; added `Run Backend Phase 8 Notifications, Invoices and Exception Tests` (`npm run test:phase8`).
+  - Frontend checks preserved (Phase 6D-4, full `npm test` aggregate, build, security audits); added `Run Storefront Phase 8 Customer Recovery Tests` (`npm run test:phase8`).
+  - Admin checks preserved (Phase 6D-4, full build); added `Run Admin Phase 8 Operations and Exception Tests` (`npm run test:phase8`).
+  - Workflow syntax validated via Node `yaml` parser without error.
+
+### E. Git Tree Integrity
 | Command | Result | Exit Code |
 | :--- | :--- | :--- |
 | `git diff --check` | 0 whitespace or formatting issues | **0** |

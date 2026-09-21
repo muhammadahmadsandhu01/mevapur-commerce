@@ -347,14 +347,22 @@ class OrderService {
   }
 
   isRetryableTransactionError(error) {
+    const msg = String(error?.message || error || '');
     return (
-      error?.hasErrorLabel?.('TransientTransactionError')
-      || error?.hasErrorLabel?.('UnknownTransactionCommitResult')
+      Boolean(error?.hasErrorLabel?.('TransientTransactionError'))
+      || Boolean(error?.hasErrorLabel?.('UnknownTransactionCommitResult'))
       || error?.code === 112
       || error?.code === 24
+      || error?.code === 251
       || error?.codeName === 'WriteConflict'
       || error?.codeName === 'LockTimeout'
-      || (typeof error?.message === 'string' && error.message.includes('Unable to acquire'))
+      || error?.codeName === 'NoSuchTransaction'
+      || msg.includes('Unable to acquire')
+      || msg.includes('lock')
+      || msg.includes('Lock')
+      || msg.includes('WriteConflict')
+      || msg.includes('transient')
+      || msg.includes('Transaction')
     );
   }
 
@@ -372,7 +380,7 @@ class OrderService {
 
     for (
       let attempt = 1;
-      attempt <= ORDER_LIMITS.MAX_TRANSACTION_ATTEMPTS;
+      attempt <= Math.max(ORDER_LIMITS.MAX_TRANSACTION_ATTEMPTS || 3, 5);
       attempt += 1
     ) {
       let session;
@@ -397,19 +405,29 @@ class OrderService {
         return result;
       } catch (error) {
         lastError = error;
-        if (session.inTransaction()) {
-          await session.abortTransaction();
+        try {
+          if (session && session.inTransaction()) {
+            await session.abortTransaction();
+          }
+        } catch (_abortErr) {
+          // Ignore abort error on already-aborted transaction
         }
-        await session.endSession();
+        try {
+          if (session) {
+            await session.endSession();
+          }
+        } catch (_endErr) {
+          // Ignore endSession error
+        }
 
         if (
           !this.isRetryableTransactionError(error)
-          || attempt === ORDER_LIMITS.MAX_TRANSACTION_ATTEMPTS
+          || attempt >= Math.max(ORDER_LIMITS.MAX_TRANSACTION_ATTEMPTS || 3, 5)
         ) {
           throw error;
         }
 
-        const jitter = Math.floor(Math.random() * 50) + 25 * attempt;
+        const jitter = Math.floor(Math.random() * 100) + 100 * attempt;
         await new Promise((resolve) => setTimeout(resolve, jitter));
       }
     }
