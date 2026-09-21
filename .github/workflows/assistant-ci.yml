@@ -264,11 +264,15 @@ jobs:
         #   - never baked into any image layer
         #   - removed unconditionally by the cleanup step
         # docker-compose.ci.yml mounts /tmp/mongo-keyfile into the mongodb
-        # container at /etc/mongodb/keyfile:ro (chmod 400, uid 999).
+        # container at /etc/mongodb/keyfile:ro (uid 999 = mongod user).
+        #
+        # chmod 444: world-readable so that MongoDB (uid 999 inside the
+        # container) can read the file regardless of which host uid created it.
+        # The CI runner cannot chown to uid 999 without sudo, so we rely on
+        # world-readable permissions for the disposable CI topology only.
         run: |
           openssl rand -base64 756 > /tmp/mongo-keyfile
-          chmod 400 /tmp/mongo-keyfile
-          chown 999:999 /tmp/mongo-keyfile || true
+          chmod 444 /tmp/mongo-keyfile
           test -s /tmp/mongo-keyfile
 
       - name: Start Disposable Docker Infrastructure Topology (CI Override)
