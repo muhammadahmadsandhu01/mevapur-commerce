@@ -203,19 +203,16 @@ services:
     container_name: mevapur-mongodb
     restart: unless-stopped
     command: ["--replSet", "rs0", "--bind_ip_all"]
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-root}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-rootpassword}
     volumes:
       - mongodb_data:/data/db
     networks:
       - backend_net
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --eval 'try { rs.status().ok === 1 && db.hello().isWritablePrimary === true ? quit(0) : quit(1) } catch(e) { quit(1) }'"]
-      interval: 10s
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'try { rs.status().ok === 1 && db.hello().isWritablePrimary === true ? quit(0) : quit(1) } catch(e) { quit(1) }' || mongosh -u ${MONGO_ROOT_USER:-root} -p ${MONGO_ROOT_PASSWORD:-rootpassword} --authenticationDatabase admin --quiet --eval 'try { rs.status().ok === 1 && db.hello().isWritablePrimary === true ? quit(0) : quit(1) } catch(e) { quit(1) }'"]
+      interval: 5s
       timeout: 5s
-      start_period: 10s
-      retries: 5
+      start_period: 5s
+      retries: 20
 
   # ----------------------------------------------------------------------------
   # 8. MongoDB Replica Set Initiator & User Provisioner
@@ -226,6 +223,7 @@ services:
     restart: "no"
     working_dir: /app
     environment:
+      - NODE_PATH=/app/node_modules
       - MONGO_HOST=mongodb:27017
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-root}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-rootpassword}
