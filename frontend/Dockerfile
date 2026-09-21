@@ -14,8 +14,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
 
 # Build arguments for build-time embedded NEXT_PUBLIC_* variables
-ARG NEXT_PUBLIC_API_URL=http://localhost:5000
-ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
+ARG NEXT_PUBLIC_API_URL=https://api.mevapur.test
+ARG NEXT_PUBLIC_SITE_URL=https://storefront.mevapur.test
 ARG NEXT_PUBLIC_DEFAULT_CURRENCY=PKR
 ARG NEXT_PUBLIC_DEFAULT_LOCALE=en-PK
 
