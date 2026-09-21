@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+coverage
+*.log
+*.patch
+.env*
+!*.env.example
+admin-colors-reference.patch
+.system_generated
+npm-debug.log*
+tests

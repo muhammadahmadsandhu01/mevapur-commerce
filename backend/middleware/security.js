@@ -5,6 +5,8 @@ const xss = require('xss-clean');
 const hpp = require('hpp');
 
 const ERROR_CODES = require('../constants/errorCodes');
+const RedisRateLimitStore = require('./redisRateLimitStore');
+const { getSharedRedisClient } = require('./rateLimiter');
 
 const parseRateLimitMax = (raw, defaultVal = 100, minVal = 1, maxVal = 10000) => {
   const parsed = parseInt(raw, 10);
@@ -22,35 +24,50 @@ const parseRateLimitWindowMs = (raw, defaultVal = 15 * 60 * 1000, minVal = 1000,
   return Math.min(parsed, maxVal);
 };
 
-// 1. Rate Limiting - Prevents DDoS and Brute Force
-const limiter = rateLimit({
-  windowMs: parseRateLimitWindowMs(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
-  limit: (req, res) => parseRateLimitMax(process.env.RATE_LIMIT_MAX, 100),
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: false,
-  skipFailedRequests: false,
-  skip: (req) => {
-    if (req.method === 'OPTIONS') return true;
-    const path = req.path || '';
-    if (path === '/health' || path === '/ready' || path === '/api/health' || path === '/api/ready') {
-      return true;
-    }
-    return false;
-  },
-  handler: (req, res, next, options) => {
-    return res.status(429).json({
-      success: false,
-      error: {
-        code: ERROR_CODES.RATE_LIMIT_EXCEEDED,
-        message: 'Too many requests from this IP, please try again after 15 minutes.'
-      },
-      meta: {
-        requestId: req.requestId || 'unknown'
+const createGlobalLimiter = (options = {}) => {
+  const client = options.redisClient || getSharedRedisClient();
+  const store = new RedisRateLimitStore({
+    redisClient: client,
+    prefix: 'rl:global:',
+    failClosed: false // Global limiter can degrade on read endpoints
+  });
+
+  return rateLimit({
+    windowMs: parseRateLimitWindowMs(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    limit: (req, res) => parseRateLimitMax(process.env.RATE_LIMIT_MAX, 100),
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    skipFailedRequests: false,
+    store,
+    skip: (req) => {
+      if (req.method === 'OPTIONS') return true;
+      const path = req.path || '';
+      if (
+        path === '/health' || path === '/ready' ||
+        path === '/api/health' || path === '/api/ready' ||
+        path === '/health/live' || path === '/health/ready'
+      ) {
+        return true;
       }
-    });
-  }
-});
+      return false;
+    },
+    handler: (req, res, next, options) => {
+      return res.status(429).json({
+        success: false,
+        error: {
+          code: ERROR_CODES.RATE_LIMIT_EXCEEDED,
+          message: 'Too many requests from this IP, please try again after 15 minutes.'
+        },
+        meta: {
+          requestId: req.requestId || 'unknown'
+        }
+      });
+    }
+  });
+};
+
+const limiter = createGlobalLimiter();
 
 // 2. Data Sanitization against NoSQL Injection
 const dataSanitizer = () => {
@@ -68,7 +85,7 @@ const xssCleaner = () => {
 // 4. Prevent Parameter Pollution
 const hppCleaner = () => {
   return hpp({
-    whitelist: ['price', 'rating', 'category', 'subcategory', 'brand', 'tags', 'attribute', 'sortBy', 'keyword', 'page', 'limit', 'minPrice', 'maxPrice', 'inStock', 'autocomplete',], 
+    whitelist: ['price', 'rating', 'category', 'subcategory', 'brand', 'tags', 'attribute', 'sortBy', 'keyword', 'page', 'limit', 'minPrice', 'maxPrice', 'inStock', 'autocomplete'], 
   });
 };
 
@@ -102,6 +119,7 @@ const securityHeaders = (runtimeConfig) => {
 
 module.exports = {
   limiter,
+  createGlobalLimiter,
   dataSanitizer,
   xssCleaner,
   hppCleaner,

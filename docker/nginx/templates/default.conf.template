@@ -1,0 +1,180 @@
+# ==============================================================================
+# MevaPur Commerce Nginx Virtual Host Configuration Template
+# Processed via envsubst by official Nginx image entrypoint
+# ==============================================================================
+
+# Default catch-all server: reject unmatched Host headers with 404
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 404 '{"error":{"code":"UNKNOWN_HOST","message":"Host header not recognized"}}';
+    add_header Content-Type application/json always;
+}
+
+# ------------------------------------------------------------------------------
+# 1. Storefront Virtual Host (${STOREFRONT_HOST})
+# ------------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${STOREFRONT_HOST};
+
+    # Next.js static asset caching
+    location /_next/static/ {
+        proxy_pass http://frontend_upstream;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        expires 365d;
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location /public/ {
+        proxy_pass http://frontend_upstream;
+        proxy_set_header Host $host;
+        expires 30d;
+        access_log off;
+    }
+
+    location /healthz {
+        proxy_pass http://frontend_upstream/healthz;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 60s;
+    }
+}
+
+# ------------------------------------------------------------------------------
+# 2. Admin Panel Virtual Host (${ADMIN_HOST})
+# ------------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${ADMIN_HOST};
+
+    location /_next/static/ {
+        proxy_pass http://admin_upstream;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        expires 365d;
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location /healthz {
+        proxy_pass http://admin_upstream/healthz;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://admin_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 60s;
+    }
+}
+
+# ------------------------------------------------------------------------------
+# 3. Backend API Virtual Host (${API_HOST})
+# ------------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${API_HOST};
+
+    # Dedicated webhook routing: forwards original request bytes unaltered
+    location /api/payments/webhooks {
+        proxy_pass http://backend_upstream;
+        proxy_http_version 1.1;
+        proxy_pass_request_headers on;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 60s;
+    }
+
+    location /api/payments/webhook {
+        proxy_pass http://backend_upstream;
+        proxy_http_version 1.1;
+        proxy_pass_request_headers on;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 60s;
+    }
+
+    # Deny public access to internal operational metrics
+    location /api/metrics {
+        return 403 '{"error":{"code":"ACCESS_DENIED","message":"Internal metrics endpoint not available via public gateway"}}';
+        add_header Content-Type application/json always;
+    }
+
+    # Health & Readiness Probes
+    location /health/live {
+        proxy_pass http://backend_upstream/health/live;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        access_log off;
+    }
+
+    location /health/ready {
+        proxy_pass http://backend_upstream/health/ready;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        access_log off;
+    }
+
+    location /api/health {
+        proxy_pass http://backend_upstream/api/health;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        access_log off;
+    }
+
+    location /api/ready {
+        proxy_pass http://backend_upstream/api/ready;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        access_log off;
+    }
+
+    # General API endpoints
+    location / {
+        proxy_pass http://backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 60s;
+    }
+}

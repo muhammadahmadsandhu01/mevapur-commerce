@@ -1,0 +1,29 @@
+# ==============================================================================
+# MevaPur Commerce Prometheus Scraping Configuration
+# Pinned Prometheus: prom/prometheus:v2.55.1
+# ==============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+rule_files:
+  - "/etc/prometheus/alert.rules.yml"
+
+scrape_configs:
+  - job_name: "mevapur-api"
+    metrics_path: "/api/metrics"
+    static_configs:
+      - targets: ["backend:5000"]
+        labels:
+          service: "backend-api"
+          environment: "production"
+
+  - job_name: "mevapur-proxy"
+    metrics_path: "/stub_status"
+    static_configs:
+      - targets: ["proxy:80"]
+        labels:
+          service: "reverse-proxy"
+          environment: "production"

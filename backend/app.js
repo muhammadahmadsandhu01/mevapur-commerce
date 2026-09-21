@@ -90,22 +90,78 @@ const createApp = ({
   app.use(cors(corsOptions));
   app.options('*', cors(corsOptions));
 
-  // Health Check (Works even if DB is down) - Unmetered, mounted before rate limiters
-  app.get('/api/health', (req, res) => {
+  // Wire Redis client to rate limiters if supplied
+  const { setSharedRedisClient } = require('./middleware/rateLimiter');
+  if (redisClient) {
+    setSharedRedisClient(redisClient);
+  }
+
+  // Health / Liveness Checks (Works even if DB is down) - Unmetered, mounted before rate limiters
+  const livenessHandler = (req, res) => {
     res.status(200).json({
       status: 'OK',
       message: 'HARZAAR API is running',
-      dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...'
+      dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Connecting...',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
     });
-  });
+  };
+  app.get('/api/health', livenessHandler);
+  app.get('/health/live', livenessHandler);
 
-  // Readiness is intentionally separate from liveness. It checks only internal
+  // Readiness is intentionally separate from liveness. It checks internal
   // runtime, lifecycle, database state, and Redis if configured - Unmetered, mounted before rate limiters
   const finalReadinessOptions = {
     ...readinessOptions,
     ...(redisClient ? { redisClient } : {})
   };
-  app.get('/api/ready', createReadinessHandler(finalReadinessOptions));
+  const readinessHandler = createReadinessHandler(finalReadinessOptions);
+  app.get('/api/ready', readinessHandler);
+  app.get('/health/ready', readinessHandler);
+
+  // Internal Operational Metrics Endpoint (Prometheus text format)
+  app.get('/api/metrics', async (req, res) => {
+    const isDbConnected = mongoose.connection.readyState === 1 ? 1 : 0;
+    const isRedisConnected = (redisClient && redisClient.isOpen) ? 1 : 0;
+    const uptimeSec = Math.floor(process.uptime());
+    const mem = process.memoryUsage();
+
+    let readinessStatus = 0;
+    try {
+      const { checkReadiness } = require('./operations/readiness');
+      const r = await checkReadiness(finalReadinessOptions);
+      readinessStatus = r.ready ? 1 : 0;
+    } catch {
+      readinessStatus = 0;
+    }
+
+    const prometheusText = [
+      '# HELP mevapur_up Process liveness indicator',
+      '# TYPE mevapur_up gauge',
+      'mevapur_up 1',
+      '# HELP mevapur_readiness_status Readiness status (1 = ready, 0 = not ready)',
+      '# TYPE mevapur_readiness_status gauge',
+      `mevapur_readiness_status ${readinessStatus}`,
+      '# HELP mevapur_database_connected MongoDB primary connection status',
+      '# TYPE mevapur_database_connected gauge',
+      `mevapur_database_connected ${isDbConnected}`,
+      '# HELP mevapur_redis_connected Redis connection status',
+      '# TYPE mevapur_redis_connected gauge',
+      `mevapur_redis_connected ${isRedisConnected}`,
+      '# HELP mevapur_uptime_seconds Process uptime in seconds',
+      '# TYPE mevapur_uptime_seconds counter',
+      `mevapur_uptime_seconds ${uptimeSec}`,
+      '# HELP mevapur_process_memory_rss_bytes Resident set size in bytes',
+      '# TYPE mevapur_process_memory_rss_bytes gauge',
+      `mevapur_process_memory_rss_bytes ${mem.rss}`,
+      '# HELP mevapur_process_memory_heap_used_bytes Heap used in bytes',
+      '# TYPE mevapur_process_memory_heap_used_bytes gauge',
+      `mevapur_process_memory_heap_used_bytes ${mem.heapUsed}`
+    ].join('\n') + '\n';
+
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.status(200).send(prometheusText);
+  });
 
   // Global API Rate Limiting (Applied to all /api routes below this point)
   app.use('/api', limiter);

@@ -127,6 +127,18 @@ async function runWorkerLoop(options) {
   while (!isShuttingDown && iteration < options.maxIterations) {
     iteration++;
     try {
+      const heartbeatPath = process.env.HEARTBEAT_FILE || '/tmp/worker-heartbeat.json';
+      try {
+        const fs = require('fs');
+        fs.writeFileSync(heartbeatPath, JSON.stringify({
+          worker: 'processTransactionalOutbox',
+          timestamp: new Date().toISOString(),
+          iteration
+        }));
+      } catch (_hbErr) {
+        // Non-fatal if tmpfs is not writable in test environments
+      }
+
       await processTransactionalOutbox(options);
     } catch (err) {
       logger.error('Worker iteration failed', { iteration, error: err?.message });

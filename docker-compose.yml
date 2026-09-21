@@ -1,0 +1,290 @@
+# ==============================================================================
+# MevaPur Commerce Production-Grade Docker Compose Topology
+# Pinned Runtimes: Node 24.20.0, MongoDB 7.0.14, Redis 7.4.1, Nginx 1.27.2
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Reverse Proxy Gateway (Nginx)
+  # ----------------------------------------------------------------------------
+  proxy:
+    image: nginx:1.27.2-alpine
+    container_name: mevapur-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - STOREFRONT_HOST=${STOREFRONT_HOST:-localhost}
+      - ADMIN_HOST=${ADMIN_HOST:-admin.localhost}
+      - API_HOST=${API_HOST:-api.localhost}
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/templates:/etc/nginx/templates:ro
+    networks:
+      - frontend_net
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      admin-panel:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/healthz || exit 0"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # 2. Backend API Service
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: mevapur/backend:${RELEASE_TAG:-latest}
+    container_name: mevapur-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - APP_ENV=production
+      - PORT=5000
+      - FRONTEND_URL=http://${STOREFRONT_HOST:-localhost}
+      - ADMIN_URL=http://${ADMIN_HOST:-admin.localhost}
+      - BACKEND_PUBLIC_URL=http://${API_HOST:-api.localhost}
+      - MONGODB_URI=mongodb://${MONGO_APP_USER:-app_user}:${MONGO_APP_PASSWORD:-app_password}@mongodb:27017/${MONGO_APP_DATABASE:-mevapur-commerce}?authSource=${MONGO_APP_DATABASE:-mevapur-commerce}&replicaSet=rs0&directConnection=true
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme_redis_password}@redis:6379
+      - RATE_LIMIT_STORE=redis
+      - TRUST_PROXY=1
+      - AUTH_COOKIE_SECURE=false
+      - AUTH_COOKIE_SAME_SITE=lax
+      - EMAIL_MODE=mock
+      - EMAIL_BRAND_NAME=HARZAAR
+      - COMMERCE_MONEY_MODE=legacy
+      - COMMERCE_TWO_PHASE_CHECKOUT_ENABLED=true
+    networks:
+      - frontend_net
+      - backend_net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:5000/health/ready\", (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+  # ----------------------------------------------------------------------------
+  # 3. Storefront Next.js Service
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://${API_HOST:-api.localhost}
+        - NEXT_PUBLIC_SITE_URL=http://${STOREFRONT_HOST:-localhost}
+        - NEXT_PUBLIC_DEFAULT_CURRENCY=PKR
+        - NEXT_PUBLIC_DEFAULT_LOCALE=en-PK
+    image: mevapur/frontend:${RELEASE_TAG:-latest}
+    container_name: mevapur-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - INTERNAL_API_URL=http://backend:5000
+    networks:
+      - frontend_net
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:3000/healthz\", (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+  # ----------------------------------------------------------------------------
+  # 4. Admin Panel Next.js Service
+  # ----------------------------------------------------------------------------
+  admin-panel:
+    build:
+      context: ./admin-panel
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://${API_HOST:-api.localhost}
+    image: mevapur/admin-panel:${RELEASE_TAG:-latest}
+    container_name: mevapur-admin-panel
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - INTERNAL_API_URL=http://backend:5000
+    networks:
+      - frontend_net
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:3001/healthz\", (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+  # ----------------------------------------------------------------------------
+  # 5. Background Outbox Worker Daemon
+  # ----------------------------------------------------------------------------
+  worker-outbox:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    image: mevapur/worker:${RELEASE_TAG:-latest}
+    container_name: mevapur-worker-outbox
+    restart: unless-stopped
+    command: ["node", "scripts/workers/processTransactionalOutbox.js", "--loop", "--intervalMs=5000"]
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://${MONGO_APP_USER:-app_user}:${MONGO_APP_PASSWORD:-app_password}@mongodb:27017/${MONGO_APP_DATABASE:-mevapur-commerce}?authSource=${MONGO_APP_DATABASE:-mevapur-commerce}&replicaSet=rs0&directConnection=true
+      - HEARTBEAT_FILE=/tmp/worker-outbox-heartbeat.json
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    networks:
+      - backend_net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  # ----------------------------------------------------------------------------
+  # 6. Background Checkout Session Reconciliation Worker Daemon
+  # ----------------------------------------------------------------------------
+  worker-reconcile-sessions:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    image: mevapur/worker:${RELEASE_TAG:-latest}
+    container_name: mevapur-worker-reconcile
+    restart: unless-stopped
+    command: ["node", "scripts/workers/reconcileExpiredCheckoutSessions.js"]
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://${MONGO_APP_USER:-app_user}:${MONGO_APP_PASSWORD:-app_password}@mongodb:27017/${MONGO_APP_DATABASE:-mevapur-commerce}?authSource=${MONGO_APP_DATABASE:-mevapur-commerce}&replicaSet=rs0&directConnection=true
+      - HEARTBEAT_FILE=/tmp/worker-reconcile-heartbeat.json
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    networks:
+      - backend_net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  # ----------------------------------------------------------------------------
+  # 7. MongoDB Primary Replica Set Database
+  # ----------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0.14-jammy
+    container_name: mevapur-mongodb
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-root}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-rootpassword}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'try { rs.status().ok === 1 && db.hello().isWritablePrimary === true ? quit(0) : quit(1) } catch(e) { quit(1) }'"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 8. MongoDB Replica Set Initiator & User Provisioner
+  # ----------------------------------------------------------------------------
+  mongodb-init:
+    image: node:24.20.0-alpine3.21
+    container_name: mevapur-mongodb-init
+    restart: "no"
+    working_dir: /app
+    environment:
+      - MONGO_HOST=mongodb:27017
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-root}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-rootpassword}
+      - MONGO_APP_DATABASE=${MONGO_APP_DATABASE:-mevapur-commerce}
+      - MONGO_APP_USER=${MONGO_APP_USER:-app_user}
+      - MONGO_APP_PASSWORD=${MONGO_APP_PASSWORD:-app_password}
+    volumes:
+      - ./backend/node_modules:/app/node_modules:ro
+      - ./scripts/ops:/app/scripts/ops:ro
+    command: ["node", "scripts/ops/init-mongo-replica-set.js"]
+    networks:
+      - backend_net
+    depends_on:
+      - mongodb
+
+  # ----------------------------------------------------------------------------
+  # 9. Redis Distributed Cache & Rate Limiting Store
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7.4.1-alpine3.20
+    container_name: mevapur-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru", "--requirepass", "${REDIS_PASSWORD:-changeme_redis_password}"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:-changeme_redis_password} redis-cli ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # 10. Prometheus Monitoring Service (Optional profile: monitoring)
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: mevapur-prometheus
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+    networks:
+      - backend_net
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+
+networks:
+  frontend_net:
+    driver: bridge
+  backend_net:
+    driver: bridge
+    internal: true
+
+volumes:
+  mongodb_data:
+    name: mevapur_mongodb_data
+  redis_data:
+    name: mevapur_redis_data

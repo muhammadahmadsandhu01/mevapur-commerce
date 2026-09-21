@@ -1,0 +1,86 @@
+# ==============================================================================
+# MevaPur Commerce Prometheus Alerting Rules
+# ==============================================================================
+
+groups:
+  - name: mevapur-operational-alerts
+    rules:
+      - alert: ApiDown
+        expr: up{job="mevapur-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend API instance is down"
+          description: "MevaPur Backend API has been unreachable for more than 1 minute."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#api-down"
+
+      - alert: ReadinessFailing
+        expr: mevapur_readiness_status == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend API readiness probe failing"
+          description: "API is reporting not ready due to database, redis, or lifecycle issues."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#readiness-failing"
+
+      - alert: HighHttp5xxRate
+        expr: (rate(mevapur_http_requests_total{status=~"5.."}[5m]) / rate(mevapur_http_requests_total[5m])) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated HTTP 5xx error rate"
+          description: "More than 5% of requests returned 5xx errors over the last 5 minutes."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#http-5xx-spike"
+
+      - alert: DatabaseUnavailable
+        expr: mevapur_database_connected == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MongoDB primary connection lost"
+          description: "Backend has lost connection to MongoDB primary replica set."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#database-down"
+
+      - alert: RedisUnavailable
+        expr: mevapur_redis_connected == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis distributed coordination store unreachable"
+          description: "Distributed rate limiting is failing closed or degraded."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#redis-down"
+
+      - alert: WorkerStalled
+        expr: (time() - mevapur_worker_heartbeat_timestamp_seconds) > 180
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Background worker loop stalled"
+          description: "Worker heartbeat has not updated in over 3 minutes."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#worker-stalled"
+
+      - alert: DeadLetterQueueGrowth
+        expr: increase(mevapur_outbox_dead_letter_total[10m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Transactional messages moving to Dead Letter queue"
+          description: "Poison-pill notifications detected in dead-letter table."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#dead-letter-spike"
+
+      - alert: ExceptionQueueSpike
+        expr: increase(mevapur_customer_exceptions_total{severity="CRITICAL"}[10m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Critical customer operations exceptions spike"
+          description: "Unusual increase in CRITICAL customer exceptions."
+          runbook_url: "docs/operations/INCIDENT_RESPONSE.md#exception-queue-spike"
