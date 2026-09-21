@@ -158,7 +158,7 @@ class TransactionalNotificationService {
           }
         },
         { new: true }
-      );
+      ).select('+leaseId');
 
       if (updated) {
         claimed.push(updated);

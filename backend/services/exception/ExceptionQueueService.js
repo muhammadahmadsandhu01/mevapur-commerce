@@ -37,6 +37,10 @@ class ExceptionQueueService {
     return `${type}:${domainType}:${domainId}:${errorCode}`.toLowerCase();
   }
 
+  async reportException(params) {
+    return this.recordException(params);
+  }
+
   async recordException({
     type,
     domainType,
@@ -51,14 +55,18 @@ class ExceptionQueueService {
     transactionalMessageId = null,
     severity = 'MEDIUM',
     errorCode = '',
-    sanitizedSummary,
+    sanitizedSummary = null,
+    rawErrorMessage = null,
+    errorMessage = null,
+    message = null,
     safeDetails = {},
     customerRecoveryGuidance = '',
     retryEligible = false,
     slaDueAt = null,
     dedupKey = null
   }) {
-    if (!type || !domainType || !domainId || !sanitizedSummary) {
+    const summary = String(sanitizedSummary || rawErrorMessage || errorMessage || message || errorCode || type || 'Operation exception').slice(0, 500);
+    if (!type || !domainType || !domainId || !summary) {
       throw new AppError('type, domainType, domainId, and sanitizedSummary are required', 400, 'INVALID_EXCEPTION_INPUT');
     }
 
@@ -73,7 +81,7 @@ class ExceptionQueueService {
     if (existingActive) {
       existingActive.attemptCount = (existingActive.attemptCount || 0) + 1;
       existingActive.version = (existingActive.version || 1) + 1;
-      existingActive.sanitizedSummary = sanitizedSummary.slice(0, 500);
+      existingActive.sanitizedSummary = summary;
       existingActive.safeDetails = safeDetails;
       existingActive.errorCode = errorCode;
       existingActive.updatedAt = new Date();
@@ -106,7 +114,7 @@ class ExceptionQueueService {
         severity,
         status: 'OPEN',
         errorCode,
-        sanitizedSummary: sanitizedSummary.slice(0, 500),
+        sanitizedSummary: summary,
         safeDetails,
         customerRecoveryGuidance: customerRecoveryGuidance.slice(0, 500),
         retryEligible: Boolean(retryEligible),
@@ -132,7 +140,7 @@ class ExceptionQueueService {
           {
             $inc: { attemptCount: 1, version: 1 },
             $set: {
-              sanitizedSummary: sanitizedSummary.slice(0, 500),
+              sanitizedSummary: summary,
               safeDetails,
               errorCode,
               updatedAt: new Date()
@@ -232,6 +240,49 @@ class ExceptionQueueService {
     };
   }
 
+  async computeMetrics(filter = {}) {
+    const [
+      openCount,
+      acknowledgedCount,
+      inProgressCount,
+      criticalCount,
+      highSeverityCount,
+      escalatedCount,
+      byTypeAgg
+    ] = await Promise.all([
+      CustomerOperationException.countDocuments({ ...filter, status: 'OPEN' }),
+      CustomerOperationException.countDocuments({ ...filter, status: 'ACKNOWLEDGED' }),
+      CustomerOperationException.countDocuments({ ...filter, status: 'IN_PROGRESS' }),
+      CustomerOperationException.countDocuments({ ...filter, severity: 'CRITICAL', status: { $ne: 'RESOLVED' } }),
+      CustomerOperationException.countDocuments({ ...filter, severity: 'HIGH', status: { $ne: 'RESOLVED' } }),
+      CustomerOperationException.countDocuments({ ...filter, status: 'ESCALATED' }),
+      CustomerOperationException.aggregate([
+        { $match: { ...filter, status: { $ne: 'RESOLVED' } } },
+        { $group: { _id: '$type', count: { $sum: 1 } } }
+      ])
+    ]);
+
+    const byType = {};
+    for (const item of byTypeAgg) {
+      byType[item._id] = item.count;
+    }
+
+    return {
+      openCount,
+      acknowledgedCount,
+      inProgressCount,
+      criticalCount,
+      highSeverityCount,
+      escalatedCount,
+      totalOpen: openCount + acknowledgedCount + inProgressCount + escalatedCount,
+      byType
+    };
+  }
+
+  async getMetrics(filter = {}) {
+    return this.computeMetrics(filter);
+  }
+
   async getExceptionById(id) {
     const exception = await CustomerOperationException.findById(id)
       .populate('customer', 'fullName email phone')
@@ -249,10 +300,14 @@ class ExceptionQueueService {
     return exception;
   }
 
-  async acknowledgeException(id, userId, { req = null } = {}) {
+  async acknowledgeException(id, userId, { expectedVersion = null, req = null } = {}) {
     const exception = await CustomerOperationException.findById(id);
     if (!exception) {
       throw new AppError('Exception not found', 404, 'EXCEPTION_NOT_FOUND');
+    }
+
+    if (expectedVersion !== null && expectedVersion !== undefined && exception.version !== expectedVersion) {
+      throw new AppError('Exception has been modified by another admin', 409, 'OPTIMISTIC_LOCK_CONFLICT');
     }
 
     if (exception.status === 'RESOLVED') {

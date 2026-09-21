@@ -192,7 +192,10 @@ const TEMPLATE_DEFINITIONS = {
 
 class MessageTemplateEngine {
   getTemplate(templateId) {
-    const template = TEMPLATE_DEFINITIONS[templateId];
+    if (!templateId) {
+      throw new AppError('Template identifier is required', 400, 'TEMPLATE_NOT_FOUND');
+    }
+    const template = TEMPLATE_DEFINITIONS[templateId] || TEMPLATE_DEFINITIONS[`${templateId}_V1`];
     if (!template) {
       throw new AppError(`Template '${templateId}' is not registered`, 400, 'TEMPLATE_NOT_FOUND');
     }

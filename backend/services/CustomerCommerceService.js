@@ -403,20 +403,26 @@ class CustomerCommerceService {
   async retryPayment(userId, reference, paymentDetails = {}) {
     const order = await ownOrder(userId, reference);
     const paymentStatus = (order.paymentStatus || order.payment?.status || '').toLowerCase();
+    const orderStatus = (order.orderStatus || '').toLowerCase();
 
-    if (paymentStatus === 'paid' || paymentStatus === 'completed') {
+    if (order.paymentMethod === 'cod') {
+      throw new AppError('Cash on delivery orders cannot be retried via online payment', 400, 'COD_RETRY_UNSUPPORTED');
+    }
+    if (paymentStatus === 'paid' || paymentStatus === 'completed' || paymentStatus === 'captured') {
       throw new AppError('Payment has already been completed for this order', 400, 'PAYMENT_ALREADY_COMPLETED');
     }
-    if ((order.orderStatus || '').toLowerCase() === 'cancelled') {
-      throw new AppError('Cannot retry payment for a cancelled order', 400, 'ORDER_CANCELLED');
+    if (orderStatus === 'cancelled' || orderStatus === 'delivered') {
+      throw new AppError(`Cannot retry payment for order in ${order.orderStatus} status`, 400, 'ORDER_STATUS_INVALID');
     }
 
     return {
       orderNumber: order.orderId,
       status: 'RETRY_INITIATED',
-      amount: order.totalAmount,
+      amount: Number(order.totalAmount || 0),
       currency: order.payment?.currency || 'PKR',
       paymentMethod: paymentDetails.paymentMethod || order.paymentMethod,
+      canRetryPayment: true,
+      supportReference: `SUP-${order.orderId.slice(-6)}`,
       message: 'Payment retry session initiated successfully.'
     };
   }

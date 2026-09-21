@@ -8,6 +8,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Order = require('../../models/Order');
 const OrderDocument = require('../../models/OrderDocument');
 const Refund = require('../../models/Refund');
@@ -80,64 +81,81 @@ class DocumentService {
       discountAmount: Number(item.discountAmount || 0)
     }));
 
-    const doc = await OrderDocument.create({
-      documentNumber: docNumber,
-      order: order._id,
-      orderRef: order.orderId || String(order._id),
-      customer: order.user,
-      documentType: classification.documentType,
-      title: classification.title,
-      badgeLabel: classification.badgeLabel,
-      isOfficialReceipt: classification.isOfficialReceipt,
-      classificationReason: classification.classificationReason,
-      classificationVersion: classification.classificationVersion,
-      currency: order.payment?.currency || 'PKR',
-      subtotal: Number(order.subtotal || 0),
-      discount: Number(order.discount || 0),
-      shipping: Number(order.shippingCost || 0),
-      tax: Number(order.taxAmount || 0),
-      duties: Number(order.duties || 0),
-      total: Number(order.totalAmount || 0),
-      refundedAmount: Number(order.refundedAmount || 0),
-      items,
-      customerSnapshot: {
-        fullName: order.shippingAddress?.fullName || '',
-        email: order.customerEmail || '',
-        phone: order.shippingAddress?.phone || ''
-      },
-      shippingAddressSnapshot: {
-        fullName: order.shippingAddress?.fullName || '',
-        phone: order.shippingAddress?.phone || '',
-        address: order.shippingAddress?.address || '',
-        addressLine2: order.shippingAddress?.addressLine2 || '',
-        city: order.shippingAddress?.city || '',
-        state: order.shippingAddress?.state || order.shippingAddress?.province || '',
-        postalCode: order.shippingAddress?.postalCode || '',
-        country: order.shippingAddress?.country || 'Pakistan',
-        countryCode: order.shippingAddress?.countryCode || 'PK'
-      },
-      merchantSnapshot: {
-        businessName: merchantConfig.businessName || 'HARZAAR',
-        taxId: merchantConfig.taxId || '',
-        isTaxRegistered: Boolean(merchantConfig.isTaxRegistered),
-        supportEmail: merchantConfig.supportEmail || 'support@harzaar.com',
-        address: merchantConfig.address || 'Lahore, Pakistan',
-        jurisdiction: merchantConfig.jurisdiction || 'PK'
-      },
-      taxJurisdictionSnapshot: {
-        countryCode: order.shippingAddress?.countryCode || 'PK',
-        taxType: order.taxesAndDuties?.taxType || 'Standard',
-        taxRatePercent: order.taxesAndDuties?.taxRatePercent || 0,
-        taxTreatment: order.taxesAndDuties?.taxTreatment || 'Inclusive'
-      },
-      status: 'ISSUED',
-      issuedAt: new Date()
-    });
+    let doc;
+    try {
+      doc = await OrderDocument.create({
+        documentNumber: docNumber,
+        order: order._id,
+        orderRef: order.orderId || String(order._id),
+        customer: order.user,
+        documentType: classification.documentType,
+        title: classification.title,
+        badgeLabel: classification.badgeLabel,
+        isOfficialReceipt: classification.isOfficialReceipt,
+        classificationReason: classification.classificationReason,
+        classificationVersion: classification.classificationVersion,
+        currency: order.payment?.currency || 'PKR',
+        subtotal: Number(order.subtotal || 0),
+        discount: Number(order.discount || 0),
+        shipping: Number(order.shippingCost || 0),
+        tax: Number(order.taxAmount || 0),
+        duties: Number(order.duties || 0),
+        total: Number(order.totalAmount || 0),
+        refundedAmount: Number(order.refundedAmount || 0),
+        items,
+        customerSnapshot: {
+          fullName: order.shippingAddress?.fullName || '',
+          email: order.customerEmail || '',
+          phone: order.shippingAddress?.phone || ''
+        },
+        shippingAddressSnapshot: {
+          fullName: order.shippingAddress?.fullName || '',
+          phone: order.shippingAddress?.phone || '',
+          address: order.shippingAddress?.address || '',
+          addressLine2: order.shippingAddress?.addressLine2 || '',
+          city: order.shippingAddress?.city || '',
+          state: order.shippingAddress?.state || order.shippingAddress?.province || '',
+          postalCode: order.shippingAddress?.postalCode || '',
+          country: order.shippingAddress?.country || 'Pakistan',
+          countryCode: order.shippingAddress?.countryCode || 'PK'
+        },
+        merchantSnapshot: {
+          businessName: merchantConfig.businessName || 'HARZAAR',
+          taxId: merchantConfig.taxId || '',
+          isTaxRegistered: Boolean(merchantConfig.isTaxRegistered),
+          supportEmail: merchantConfig.supportEmail || 'support@harzaar.com',
+          address: merchantConfig.address || 'Lahore, Pakistan',
+          jurisdiction: merchantConfig.jurisdiction || 'PK'
+        },
+        taxJurisdictionSnapshot: {
+          countryCode: order.shippingAddress?.countryCode || 'PK',
+          taxType: order.taxesAndDuties?.taxType || 'Standard',
+          taxRatePercent: order.taxesAndDuties?.taxRatePercent || 0,
+          taxTreatment: order.taxesAndDuties?.taxTreatment || 'Inclusive'
+        },
+        status: 'ISSUED',
+        issuedAt: new Date()
+      });
+    } catch (createErr) {
+      if (createErr.code === 11000 || createErr.name === 'MongoServerError') {
+        const existingAfterRace = await OrderDocument.findOne({
+          $or: [
+            { documentNumber: docNumber },
+            { order: order._id, documentType: classification.documentType }
+          ]
+        });
+        if (existingAfterRace) return existingAfterRace;
+      }
+      throw createErr;
+    }
 
     return doc;
   }
 
-  async getOrIssueCreditNote(refundId, { merchantConfig = {} } = {}) {
+  async getOrIssueCreditNote(arg1, arg2, options = {}) {
+    const refundId = (arg2 && (typeof arg2 === 'string' || arg2 instanceof mongoose.Types.ObjectId)) ? arg2 : arg1;
+    const opts = (arg2 && typeof arg2 === 'object' && !(arg2 instanceof mongoose.Types.ObjectId)) ? arg2 : options;
+    const { merchantConfig = {} } = opts;
     const refund = await Refund.findById(refundId);
     if (!refund) {
       throw new AppError('Refund not found', 404, ERROR_CODES.REFUND_NOT_FOUND);
@@ -160,58 +178,72 @@ class DocumentService {
     });
     if (existing) return existing;
 
-    const doc = await OrderDocument.create({
-      documentNumber: docNumber,
-      order: order._id,
-      orderRef: order.orderId || String(order._id),
-      customer: refund.customer || order.user,
-      documentType: classification.documentType,
-      title: classification.title,
-      badgeLabel: classification.badgeLabel,
-      isOfficialReceipt: classification.isOfficialReceipt,
-      classificationReason: classification.classificationReason,
-      classificationVersion: classification.classificationVersion,
-      currency: refund.currency || order.payment?.currency || 'PKR',
-      subtotal: Number(refund.amount || 0),
-      discount: 0,
-      shipping: 0,
-      tax: 0,
-      duties: 0,
-      total: Number(refund.amount || 0),
-      refundedAmount: Number(refund.amount || 0),
-      items: (refund.items || []).map((i) => ({
-        name: i.name || 'Refunded Line Item',
-        sku: i.sku || '',
-        quantity: i.quantity || 1,
-        unitPrice: Number(i.amount || refund.amount),
-        lineTotal: Number(i.amount || refund.amount),
-        taxAmount: 0,
-        discountAmount: 0
-      })),
-      customerSnapshot: {
-        fullName: order.shippingAddress?.fullName || '',
-        email: order.customerEmail || '',
-        phone: order.shippingAddress?.phone || ''
-      },
-      shippingAddressSnapshot: {
-        fullName: order.shippingAddress?.fullName || '',
-        phone: order.shippingAddress?.phone || '',
-        address: order.shippingAddress?.address || '',
-        city: order.shippingAddress?.city || '',
-        country: order.shippingAddress?.country || 'Pakistan',
-        countryCode: order.shippingAddress?.countryCode || 'PK'
-      },
-      merchantSnapshot: {
-        businessName: merchantConfig.businessName || 'HARZAAR',
-        taxId: merchantConfig.taxId || '',
-        isTaxRegistered: Boolean(merchantConfig.isTaxRegistered),
-        supportEmail: merchantConfig.supportEmail || 'support@harzaar.com',
-        jurisdiction: merchantConfig.jurisdiction || 'PK'
-      },
-      relatedRefundId: refund._id,
-      status: 'ISSUED',
-      issuedAt: new Date()
-    });
+    let doc;
+    try {
+      doc = await OrderDocument.create({
+        documentNumber: docNumber,
+        order: order._id,
+        orderRef: order.orderId || String(order._id),
+        customer: refund.customer || order.user,
+        documentType: classification.documentType,
+        title: classification.title,
+        badgeLabel: classification.badgeLabel,
+        isOfficialReceipt: classification.isOfficialReceipt,
+        classificationReason: classification.classificationReason,
+        classificationVersion: classification.classificationVersion,
+        currency: refund.currency || order.payment?.currency || 'PKR',
+        subtotal: Number(refund.amount || 0),
+        discount: 0,
+        shipping: 0,
+        tax: 0,
+        duties: 0,
+        total: Number(refund.amount || 0),
+        refundedAmount: Number(refund.amount || 0),
+        items: (refund.items || []).map((i) => ({
+          name: i.name || 'Refunded Line Item',
+          sku: i.sku || '',
+          quantity: i.quantity || 1,
+          unitPrice: Number(i.amount || refund.amount),
+          lineTotal: Number(i.amount || refund.amount),
+          taxAmount: 0,
+          discountAmount: 0
+        })),
+        customerSnapshot: {
+          fullName: order.shippingAddress?.fullName || '',
+          email: order.customerEmail || '',
+          phone: order.shippingAddress?.phone || ''
+        },
+        shippingAddressSnapshot: {
+          fullName: order.shippingAddress?.fullName || '',
+          phone: order.shippingAddress?.phone || '',
+          address: order.shippingAddress?.address || '',
+          city: order.shippingAddress?.city || '',
+          country: order.shippingAddress?.country || 'Pakistan',
+          countryCode: order.shippingAddress?.countryCode || 'PK'
+        },
+        merchantSnapshot: {
+          businessName: merchantConfig.businessName || 'HARZAAR',
+          taxId: merchantConfig.taxId || '',
+          isTaxRegistered: Boolean(merchantConfig.isTaxRegistered),
+          supportEmail: merchantConfig.supportEmail || 'support@harzaar.com',
+          jurisdiction: merchantConfig.jurisdiction || 'PK'
+        },
+        relatedRefundId: refund._id,
+        status: 'ISSUED',
+        issuedAt: new Date()
+      });
+    } catch (createErr) {
+      if (createErr.code === 11000 || createErr.name === 'MongoServerError') {
+        const existingAfterRace = await OrderDocument.findOne({
+          $or: [
+            { documentNumber: docNumber },
+            { relatedRefundId: refund._id }
+          ]
+        });
+        if (existingAfterRace) return existingAfterRace;
+      }
+      throw createErr;
+    }
 
     return doc;
   }

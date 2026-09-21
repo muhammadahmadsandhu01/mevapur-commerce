@@ -454,6 +454,34 @@ class ReturnService {
           customerNotes: input.customerNotes || ''
         }], { session });
       });
+      if (created) {
+        try {
+          const transactionalNotificationService = require('./notification/TransactionalNotificationService');
+          const order = await Order.findById(created.order);
+          const email = order?.shippingAddress?.email || '';
+          const customerName = order?.shippingAddress?.fullName || 'Customer';
+          if (email) {
+            await transactionalNotificationService.queueNotification({
+              domainType: 'return',
+              domainId: String(created._id),
+              channel: 'EMAIL',
+              templateId: 'RETURN_REQUESTED',
+              recipient: {
+                userId: created.customer || null,
+                email,
+                name: customerName
+              },
+              payload: {
+                returnNumber: String(created._id),
+                orderNumber: order?.orderId || String(created.order),
+                customerName
+              }
+            });
+          }
+        } catch (_notifErr) {
+          // Best-effort notification queuing
+        }
+      }
       return created;
     } finally {
       await session.endSession();
@@ -503,7 +531,50 @@ class ReturnService {
       status: entry.status,
       refund: null
     }, update, { new: true });
-    if (updated) return updated;
+    if (updated) {
+      try {
+        const transactionalNotificationService = require('./notification/TransactionalNotificationService');
+        const order = await Order.findById(updated.order);
+        const email = order?.shippingAddress?.email || '';
+        const customerName = order?.shippingAddress?.fullName || 'Customer';
+        if (email) {
+          let templateId = null;
+          let payload = {
+            returnNumber: String(updated._id),
+            orderNumber: order?.orderId || String(updated.order),
+            customerName
+          };
+
+          if (updated.status === 'approved') {
+            templateId = 'RETURN_APPROVED';
+            payload.instructions = 'Please package item(s) securely and use the provided return instructions.';
+          } else if (updated.status === 'rejected') {
+            templateId = 'RETURN_REJECTED';
+            payload.reason = updated.rejectedReason || 'Return conditions were not met';
+          } else if (updated.status === 'received') {
+            templateId = 'RETURN_RECEIVED';
+          }
+
+          if (templateId) {
+            await transactionalNotificationService.queueNotification({
+              domainType: 'return',
+              domainId: String(updated._id),
+              channel: 'EMAIL',
+              templateId,
+              recipient: {
+                userId: updated.customer || null,
+                email,
+                name: customerName
+              },
+              payload
+            });
+          }
+        }
+      } catch (_notifErr) {
+        // Best-effort notification queuing
+      }
+      return updated;
+    }
 
     const current = await Return.findById(entry._id).select('+refund');
     if (current?.status === input.status) return current;

@@ -40,6 +40,7 @@ class PaymentDisputeService {
     const activeSession = session || ownSession;
 
     let resultDispute = null;
+    let isNewDispute = false;
 
     const execute = async () => {
       // Find existing dispute
@@ -49,6 +50,7 @@ class PaymentDisputeService {
       }).session(activeSession);
 
       if (!dispute) {
+        isNewDispute = true;
         // Resolve payment
         let payment = null;
         if (paymentId) {
@@ -142,9 +144,9 @@ class PaymentDisputeService {
                 : 0n;
               payment.disputedAmountExact = MoneyMapper.toPersistence(Money.fromMinor(remMinor, dispute.currency));
 
-              // Check if other active disputes remain
-              const otherActive = await PaymentDispute.exists({
-                payment: payment._id,
+              // Check if payment has other active disputes
+              const otherActive = await PaymentDispute.findOne({
+                payment: dispute.payment,
                 _id: { $ne: dispute._id },
                 isResolved: false
               }).session(activeSession);
@@ -180,6 +182,63 @@ class PaymentDisputeService {
       }
     } else {
       await execute();
+    }
+
+    if (resultDispute && isNewDispute) {
+      try {
+        const transactionalNotificationService = require('../notification/TransactionalNotificationService');
+        const User = require('../../models/User');
+        const order = await Order.findById(resultDispute.order);
+        const customer = resultDispute.customer ? await User.findById(resultDispute.customer) : null;
+        const email = order?.shippingAddress?.email || customer?.email || '';
+        const customerName = order?.shippingAddress?.fullName || customer?.fullName || 'Customer';
+        if (email) {
+          await transactionalNotificationService.queueNotification({
+            domainType: 'payment',
+            domainId: String(resultDispute.payment),
+            channel: 'EMAIL',
+            templateId: 'DISPUTE_OPENED',
+            recipient: {
+              userId: resultDispute.customer || null,
+              email,
+              name: customerName
+            },
+            payload: {
+              orderNumber: order?.orderId || String(resultDispute.order),
+              customerName,
+              amount: Number(resultDispute.amount).toFixed(2),
+              currency: resultDispute.currency || 'USD'
+            }
+          });
+        }
+      } catch (_notifErr) {
+        // Safe logger
+      }
+
+      try {
+        const exceptionQueueService = require('../exception/ExceptionQueueService');
+        await exceptionQueueService.recordException({
+          type: 'PAYMENT_FAILED',
+          domainType: 'payment',
+          domainId: String(resultDispute.payment),
+          orderId: resultDispute.order,
+          paymentId: resultDispute.payment,
+          customerId: resultDispute.customer,
+          severity: 'HIGH',
+          errorCode: 'PAYMENT_DISPUTE_OPENED',
+          sanitizedSummary: `Payment dispute opened: ${resultDispute.providerDisputeId} (${resultDispute.currency} ${resultDispute.amount})`,
+          safeDetails: {
+            providerDisputeId: resultDispute.providerDisputeId,
+            provider: resultDispute.provider,
+            reason: resultDispute.reason,
+            amount: resultDispute.amount,
+            currency: resultDispute.currency
+          },
+          retryEligible: false
+        });
+      } catch (_exErr) {
+        // Safe logger
+      }
     }
 
     return resultDispute;

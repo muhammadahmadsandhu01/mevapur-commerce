@@ -940,6 +940,7 @@ class RefundService {
           reconciliationReasonCode: reasonCode
         }
       });
+      await this.postCompletionActions(completedContext);
     }
   }
 
@@ -1004,6 +1005,45 @@ class RefundService {
           currency: completedContext.refund.currency
         }
       });
+      await this.postCompletionActions(completedContext);
+    }
+  }
+
+  async postCompletionActions(completedContext) {
+    if (!completedContext) return;
+    try {
+      const documentService = require('../document/DocumentService');
+      await documentService.getOrIssueCreditNote(completedContext.order._id, completedContext.refund._id);
+    } catch (_docErr) {
+      // Document issuance is recorded or recovered
+    }
+
+    try {
+      const transactionalNotificationService = require('../notification/TransactionalNotificationService');
+      const email = completedContext.order.shippingAddress?.email || '';
+      const customerName = completedContext.order.shippingAddress?.fullName || 'Customer';
+      if (email) {
+        await transactionalNotificationService.queueNotification({
+          domainType: 'refund',
+          domainId: String(completedContext.refund._id),
+          channel: 'EMAIL',
+          templateId: 'REFUND_SUCCEEDED',
+          recipient: {
+            userId: completedContext.order.user || null,
+            email,
+            name: customerName
+          },
+          payload: {
+            refundNumber: String(completedContext.refund._id),
+            orderNumber: completedContext.order.orderId || String(completedContext.order._id),
+            customerName,
+            amount: Number(completedContext.refund.amount).toFixed(2),
+            currency: completedContext.refund.currency || 'USD'
+          }
+        });
+      }
+    } catch (_notifErr) {
+      // Best-effort notification queuing
     }
   }
 
@@ -1179,6 +1219,57 @@ class RefundService {
       });
     } finally {
       await session.endSession();
+    }
+
+    try {
+      const failedRefund = await Refund.findById(refundId).populate('order');
+      if (failedRefund) {
+        const exceptionQueueService = require('../exception/ExceptionQueueService');
+        await exceptionQueueService.recordException({
+          type: 'REFUND_FAILED',
+          domainType: 'refund',
+          domainId: String(refundId),
+          orderId: failedRefund.order?._id || failedRefund.order || null,
+          paymentId: failedRefund.payment || null,
+          refundId: failedRefund._id,
+          customerId: failedRefund.customer || null,
+          severity: 'HIGH',
+          errorCode: errorCode || 'REFUND_FAILED',
+          sanitizedSummary: `Refund failed for order ${failedRefund.order?.orderId || failedRefund.order || refundId}: ${errorCode}`,
+          safeDetails: {
+            refundId: String(refundId),
+            errorCode,
+            amount: failedRefund.amount,
+            currency: failedRefund.currency
+          },
+          retryEligible: true
+        });
+
+        const transactionalNotificationService = require('../notification/TransactionalNotificationService');
+        const email = failedRefund.order?.shippingAddress?.email || '';
+        const customerName = failedRefund.order?.shippingAddress?.fullName || 'Customer';
+        if (email) {
+          await transactionalNotificationService.queueNotification({
+            domainType: 'refund',
+            domainId: String(refundId),
+            channel: 'EMAIL',
+            templateId: 'REFUND_FAILED',
+            recipient: {
+              userId: failedRefund.customer || null,
+              email,
+              name: customerName
+            },
+            payload: {
+              refundNumber: String(failedRefund._id),
+              orderNumber: failedRefund.order?.orderId || String(failedRefund.order || refundId),
+              customerName,
+              reason: errorCode || 'Provider processing error'
+            }
+          });
+        }
+      }
+    } catch (_failErr) {
+      // Best-effort exception and notification recording
     }
   }
 

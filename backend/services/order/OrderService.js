@@ -351,7 +351,10 @@ class OrderService {
       error?.hasErrorLabel?.('TransientTransactionError')
       || error?.hasErrorLabel?.('UnknownTransactionCommitResult')
       || error?.code === 112
+      || error?.code === 24
       || error?.codeName === 'WriteConflict'
+      || error?.codeName === 'LockTimeout'
+      || (typeof error?.message === 'string' && error.message.includes('Unable to acquire'))
     );
   }
 
@@ -456,7 +459,7 @@ class OrderService {
       idAttempt += 1
     ) {
       try {
-        return await this.runTransaction(async (session) => {
+        const result = await this.runTransaction(async (session) => {
           const replay = await this.findIdempotentOrder(
             userId,
             idempotencyKey,
@@ -609,7 +612,8 @@ class OrderService {
             administrativeArea: normalizedAddress.administrativeArea,
             phone: phoneE164 || orderData.shippingAddress.phone || '',
             phoneE164,
-            phoneExtension
+            phoneExtension,
+            email: orderData.shippingAddress?.email || ''
           };
 
           // 0. Enforce Customer Profile Residence Country Completeness
@@ -1064,6 +1068,41 @@ class OrderService {
 
           return { order, isReplay: false };
         });
+
+        if (result.order && !result.isReplay) {
+          try {
+            const transactionalNotificationService = require('../notification/TransactionalNotificationService');
+            await transactionalNotificationService.queueNotification({
+              recipient: {
+                userId: result.order.user,
+                email: result.order.customerEmail || result.order.shippingAddress?.email || (await User.findById(result.order.user))?.email || '',
+                name: result.order.shippingAddress?.fullName || 'Customer'
+              },
+              channel: 'EMAIL',
+              templateId: 'ORDER_CONFIRMATION',
+              domainType: 'order',
+              domainId: result.order._id.toString(),
+              dedupKey: `order_confirmation:${result.order.orderId}`,
+              payload: {
+                orderNumber: result.order.orderId,
+                customerName: result.order.shippingAddress?.fullName || 'Customer',
+                total: result.order.totalAmount,
+                currency: result.order.currency || result.order.payment?.currency || 'USD'
+              }
+            });
+          } catch (_notifyErr) {
+            // Non-blocking
+          }
+
+          try {
+            const documentService = require('../document/DocumentService');
+            await documentService.getOrIssueOrderDocument(result.order._id);
+          } catch (_docErr) {
+            // Non-blocking
+          }
+        }
+
+        return result;
       } catch (error) {
         if (this.isIdempotencyDuplicate(error)) {
           const replay = await this.waitForIdempotentOrder(
@@ -1292,7 +1331,7 @@ class OrderService {
       });
     }
 
-    return this.runTransaction(async (session) => {
+    const result = await this.runTransaction(async (session) => {
       const order = await Order.findOne(this.referenceQuery(reference)).session(session);
       if (!order) {
         throw new AppError(
@@ -1347,6 +1386,53 @@ class OrderService {
 
       return { order, isReplay: false };
     });
+
+    if (result.order && !result.isReplay) {
+      try {
+        const transactionalNotificationService = require('../notification/TransactionalNotificationService');
+        if (orderStatus === ORDER_STATUSES.SHIPPED) {
+          await transactionalNotificationService.queueNotification({
+            recipient: {
+              userId: result.order.user,
+              email: result.order.customerEmail || result.order.shippingAddress?.email || '',
+              name: result.order.shippingAddress?.fullName || 'Customer'
+            },
+            channel: 'EMAIL',
+            templateId: 'SHIPMENT_CREATED',
+            domainType: 'order',
+            domainId: result.order._id.toString(),
+            dedupKey: `shipment_created:${result.order.orderId}`,
+            payload: {
+              orderNumber: result.order.orderId,
+              customerName: result.order.shippingAddress?.fullName || 'Customer',
+              trackingNumber: result.order.trackingNumber || 'Pending',
+              courierCompany: result.order.courierCompany || 'Standard Courier'
+            }
+          });
+        } else if (orderStatus === ORDER_STATUSES.DELIVERED) {
+          await transactionalNotificationService.queueNotification({
+            recipient: {
+              userId: result.order.user,
+              email: result.order.customerEmail || result.order.shippingAddress?.email || '',
+              name: result.order.shippingAddress?.fullName || 'Customer'
+            },
+            channel: 'EMAIL',
+            templateId: 'ORDER_DELIVERED',
+            domainType: 'order',
+            domainId: result.order._id.toString(),
+            dedupKey: `order_delivered:${result.order.orderId}`,
+            payload: {
+              orderNumber: result.order.orderId,
+              customerName: result.order.shippingAddress?.fullName || 'Customer'
+            }
+          });
+        }
+      } catch (_notifyErr) {
+        // Non-blocking
+      }
+    }
+
+    return result;
   }
 
   async updateTracking({ reference, actor, courierCompany, trackingNumber }) {
@@ -1370,7 +1456,7 @@ class OrderService {
   }
 
   async markCodPaid({ reference, actor, adminNote = '' }) {
-    return this.runTransaction(async (session) => {
+    const result = await this.runTransaction(async (session) => {
       const order = await Order.findOne(this.referenceQuery(reference)).session(session);
       if (!order) {
         throw new AppError(
@@ -1484,6 +1570,40 @@ class OrderService {
 
       return { order, idempotentReplay: false };
     });
+
+    if (result.order && !result.idempotentReplay) {
+      try {
+        const documentService = require('../document/DocumentService');
+        await documentService.getOrIssueOrderDocument(result.order._id);
+      } catch (_docErr) {
+        // Non-blocking
+      }
+      try {
+        const transactionalNotificationService = require('../notification/TransactionalNotificationService');
+        await transactionalNotificationService.queueNotification({
+          recipient: {
+            userId: result.order.user,
+            email: result.order.customerEmail || result.order.shippingAddress?.email || '',
+            name: result.order.shippingAddress?.fullName || 'Customer'
+          },
+          channel: 'EMAIL',
+          templateId: 'PAYMENT_SUCCEEDED',
+          domainType: 'payment',
+          domainId: result.order._id.toString(),
+          dedupKey: `payment_succeeded:cod:${result.order.orderId}`,
+          payload: {
+            orderNumber: result.order.orderId,
+            customerName: result.order.shippingAddress?.fullName || 'Customer',
+            amount: Number(result.order.totalAmount).toFixed(2),
+            currency: result.order.currency || result.order.payment?.currency || 'USD'
+          }
+        });
+      } catch (_notifyErr) {
+        // Non-blocking
+      }
+    }
+
+    return result;
   }
 
   /**

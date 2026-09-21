@@ -373,6 +373,27 @@ class PaymentWebhookProcessor {
           }
         });
 
+        try {
+          const exceptionQueueService = require('../../../services/exception/ExceptionQueueService');
+          await exceptionQueueService.reportException({
+            type: 'WEBHOOK_DEAD_LETTERED',
+            domainType: 'webhook',
+            domainId: claimedEvent.providerEventId || eventId.toString(),
+            severity: 'CRITICAL',
+            errorCode,
+            rawErrorMessage: errorMessage,
+            safeDetails: {
+              provider: claimedEvent.provider,
+              providerEventId: claimedEvent.providerEventId,
+              eventType: claimedEvent.eventType,
+              attemptCount
+            },
+            retryEligible: true
+          });
+        } catch (_exErr) {
+          // Non-blocking exception reporting
+        }
+
         return { outcome: 'dead_letter', status: WEBHOOK_PROCESSING_STATUSES.DEAD_LETTER };
       }
 
@@ -395,6 +416,27 @@ class PaymentWebhookProcessor {
           leaseExpiresAt: null
         }
       });
+
+      try {
+        const exceptionQueueService = require('../../../services/exception/ExceptionQueueService');
+        await exceptionQueueService.reportException({
+          type: 'WEBHOOK_PROCESSING_FAILED',
+          domainType: 'webhook',
+          domainId: claimedEvent.providerEventId || eventId.toString(),
+          severity: 'MEDIUM',
+          errorCode,
+          rawErrorMessage: errorMessage,
+          safeDetails: {
+            provider: claimedEvent.provider,
+            providerEventId: claimedEvent.providerEventId,
+            eventType: claimedEvent.eventType,
+            attemptCount
+          },
+          retryEligible: true
+        });
+      } catch (_exErr) {
+        // Non-blocking exception reporting
+      }
 
       return { outcome: 'retry_scheduled', status: WEBHOOK_PROCESSING_STATUSES.RETRY_SCHEDULED };
     } finally {
@@ -572,6 +614,37 @@ class PaymentWebhookProcessor {
           // Safe fallback if order used legacy inventory or already confirmed
         }
 
+        try {
+          const transactionalNotificationService = require('../../notification/TransactionalNotificationService');
+          await transactionalNotificationService.queueNotification({
+            recipient: {
+              userId: order.user,
+              email: order.customerEmail || order.shippingAddress?.email || '',
+              name: order.shippingAddress?.fullName || 'Customer'
+            },
+            channel: 'EMAIL',
+            templateId: 'PAYMENT_SUCCEEDED',
+            domainType: 'payment',
+            domainId: payment._id.toString(),
+            dedupKey: `payment_succeeded:${payment._id.toString()}:${providerPaymentId}`,
+            payload: {
+              orderNumber: order.orderId,
+              customerName: order.shippingAddress?.fullName || 'Customer',
+              amount: payment.paidAmount || payment.amount,
+              currency: authoritativeOrderCurrency
+            }
+          });
+        } catch (_notifyErr) {
+          // Non-blocking
+        }
+
+        try {
+          const documentService = require('../../document/DocumentService');
+          await documentService.getOrIssueOrderDocument(order._id);
+        } catch (_docErr) {
+          // Non-blocking
+        }
+
         return 'processed';
       }
 
@@ -613,6 +686,53 @@ class PaymentWebhookProcessor {
           });
         } catch (_resvErr) {
           // Safe fallback if order used legacy inventory
+        }
+
+        try {
+          const exceptionQueueService = require('../../../services/exception/ExceptionQueueService');
+          await exceptionQueueService.reportException({
+            type: 'PAYMENT_FAILED',
+            domainType: 'payment',
+            domainId: payment._id.toString(),
+            orderId: order._id,
+            customerId: order.user,
+            severity: 'HIGH',
+            errorCode: claimedEvent.errorCode || 'PAYMENT_FAILED_BY_PROVIDER',
+            rawErrorMessage: claimedEvent.errorMessage || 'Payment intent failed on processor',
+            safeDetails: {
+              provider: payment.provider,
+              providerPaymentId,
+              orderId: order.orderId,
+              amount: payment.amount,
+              currency: payment.currency
+            },
+            retryEligible: true
+          });
+        } catch (_exErr) {
+          // Non-blocking
+        }
+
+        try {
+          const transactionalNotificationService = require('../../notification/TransactionalNotificationService');
+          await transactionalNotificationService.queueNotification({
+            recipient: {
+              userId: order.user,
+              email: order.customerEmail || order.shippingAddress?.email || '',
+              name: order.shippingAddress?.fullName || 'Customer'
+            },
+            channel: 'EMAIL',
+            templateId: 'PAYMENT_FAILED',
+            domainType: 'payment',
+            domainId: payment._id.toString(),
+            dedupKey: `payment_failed:${payment._id.toString()}:${providerPaymentId}`,
+            payload: {
+              orderNumber: order.orderId,
+              customerName: order.shippingAddress?.fullName || 'Customer',
+              reason: claimedEvent.errorMessage || 'Payment failed on processor'
+            }
+          });
+        } catch (_notifyErr) {
+          // Non-blocking
         }
 
         return 'processed';
@@ -705,6 +825,52 @@ class PaymentWebhookProcessor {
           at: now
         });
         await payment.save(session ? { session } : {});
+
+        try {
+          const exceptionQueueService = require('../../../services/exception/ExceptionQueueService');
+          await exceptionQueueService.reportException({
+            type: 'PAYMENT_REQUIRES_ACTION',
+            domainType: 'payment',
+            domainId: payment._id.toString(),
+            orderId: order._id,
+            customerId: order.user,
+            severity: 'MEDIUM',
+            errorCode: 'PAYMENT_ACTION_REQUIRED',
+            rawErrorMessage: 'Payment requires additional authentication',
+            safeDetails: {
+              provider: payment.provider,
+              providerPaymentId,
+              orderId: order.orderId
+            },
+            retryEligible: true
+          });
+        } catch (_exErr) {
+          // Non-blocking
+        }
+
+        try {
+          const transactionalNotificationService = require('../../notification/TransactionalNotificationService');
+          await transactionalNotificationService.queueNotification({
+            recipient: {
+              userId: order.user,
+              email: order.customerEmail || order.shippingAddress?.email || '',
+              name: order.shippingAddress?.fullName || 'Customer'
+            },
+            channel: 'EMAIL',
+            templateId: 'PAYMENT_ACTION_REQUIRED',
+            domainType: 'payment',
+            domainId: payment._id.toString(),
+            dedupKey: `payment_requires_action:${payment._id.toString()}:${providerPaymentId}`,
+            payload: {
+              orderNumber: order.orderId,
+              customerName: order.shippingAddress?.fullName || 'Customer',
+              actionUrl: `/orders/${order.orderId}`
+            }
+          });
+        } catch (_notifyErr) {
+          // Non-blocking
+        }
+
         return 'processed';
       }
 
