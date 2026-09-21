@@ -59,6 +59,13 @@ jobs:
           MONGODB_URI: ''
         run: npm run test:phase7
 
+      - name: Run Backend Phase 8 Notifications, Invoices and Exception Tests
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          MONGODB_URI: ''
+        run: npm run test:phase8
+
       - name: Install Frontend Dependencies
         working-directory: frontend
         run: npm ci
@@ -88,6 +95,10 @@ jobs:
       - name: Run Storefront Phase 6D-4 Tax and Customs Checkout Tests
         working-directory: frontend
         run: npm run test:phase6d4
+
+      - name: Run Storefront Phase 8 Customer Recovery Tests
+        working-directory: frontend
+        run: npm run test:phase8
 
       - name: Run Storefront Phase 6D-1 Registration and Full Aggregate Test Suite
         working-directory: frontend
@@ -142,6 +153,10 @@ jobs:
       - name: Run Admin Phase 6D-4 Tax and Customs Governance Tests
         working-directory: admin-panel
         run: npm run test:phase6d4
+
+      - name: Run Admin Phase 8 Operations and Exception Tests
+        working-directory: admin-panel
+        run: npm run test:phase8
 
       - name: Build Admin Panel Application
         working-directory: admin-panel
