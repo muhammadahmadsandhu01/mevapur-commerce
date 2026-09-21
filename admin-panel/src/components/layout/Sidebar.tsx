@@ -28,7 +28,8 @@ import {
   DollarSign,
   X,
   FileSpreadsheet,
-  Globe
+  Globe,
+  ShieldAlert
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
@@ -71,6 +72,7 @@ const menuItems: MenuItem[] = [
   { icon: Truck, label: 'Shipping', href: '/shipping' },
   { icon: RotateCcw, label: 'Returns', href: '/returns' },
   { icon: DollarSign, label: 'Payments & Refunds', href: '/refunds' },
+  { icon: ShieldAlert, label: 'Exceptions', href: '/exceptions' },
   { icon: Bell, label: 'Notifications', href: '/notifications' },
   { icon: FileSpreadsheet, label: 'Reports', href: '/reports' },
   { icon: BarChart3, label: 'Analytics', href: '/analytics' },

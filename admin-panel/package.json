@@ -11,7 +11,8 @@
     "test:categories": "node --test tests/categoryAdminVisibilityDef26.test.mts && vitest run tests/ProductCategorySelector.dom.test.tsx",
     "test:phase6c": "node --test tests/phase6cAdminGovernance.test.mts && vitest run tests/phase6cAdminGovernance.dom.test.tsx",
     "test:phase6d3": "node --test tests/phase6d3ShippingGovernance.test.mts && vitest run tests/phase6d3ShippingGovernance.dom.test.tsx",
-    "test:phase6d4": "node --test tests/phase6d4TaxGovernance.test.mts && vitest run tests/phase6d4TaxGovernance.dom.test.tsx"
+    "test:phase6d4": "node --test tests/phase6d4TaxGovernance.test.mts && vitest run tests/phase6d4TaxGovernance.dom.test.tsx",
+    "test:phase8": "node --test tests/phase8AdminExceptions.test.mts && vitest run tests/phase8AdminExceptions.dom.test.tsx"
   },
   "engines": {
     "node": "24.x",

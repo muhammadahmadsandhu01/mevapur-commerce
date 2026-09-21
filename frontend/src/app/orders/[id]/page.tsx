@@ -258,6 +258,23 @@ export default function OrderDetailsPage() {
     }
   };
 
+  const [retryingPayment, setRetryingPayment] = useState(false);
+  const handleRetryPayment = async () => {
+    if (!order || retryingPayment) return;
+    setRetryingPayment(true);
+    try {
+      const response = await api.post(`/account/orders/${encodeURIComponent(order._id)}/retry-payment`);
+      if (response.data.success) {
+        setToast({ message: 'Payment retry session initiated. Proceeding to payment.', type: 'info' });
+        router.push(`/payment-instructions?orderId=${encodeURIComponent(order.orderId || order._id)}`);
+      }
+    } catch {
+      setToast({ message: 'Unable to initiate payment retry at this time. Please contact customer support.', type: 'error' });
+    } finally {
+      setRetryingPayment(false);
+    }
+  };
+
   // Helper to check 30-day return eligibility
   const isReturnEligible = (ord: Order): boolean => {
     if (ord.orderStatus !== 'Delivered' || !ord.deliveredAt) return false;
@@ -398,6 +415,48 @@ export default function OrderDetailsPage() {
             </span>
           </div>
         </div>
+
+        {/* Payment Failure Recovery Alert */}
+        {(order.paymentStatus === 'Failed' || order.paymentStatus === 'Rejected' || order.paymentStatus === 'Expired') && (
+          <div className="p-5 bg-rose-50 border border-rose-300 rounded-2xl text-slate-900" role="alert" data-testid="payment-recovery-banner">
+            <h2 className="text-sm font-extrabold text-rose-950 mb-1 flex items-center gap-2">
+              <AlertCircle size={17} className="text-rose-600" />
+              Payment Unsuccessful — Recovery Action Available
+            </h2>
+            <p className="text-xs text-slate-800 leading-relaxed mb-3">
+              We could not complete payment for this order. You can safely retry payment or contact customer support.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRetryPayment}
+                disabled={retryingPayment}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0b132b] text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition disabled:opacity-50"
+              >
+                {retryingPayment ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />} Retry Payment
+              </button>
+              <Link
+                href={`/pages/contact?order=${encodeURIComponent(order.orderId || order._id)}`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 bg-white text-xs font-bold rounded-lg hover:bg-slate-50 text-slate-700 transition"
+              >
+                Contact Support (Ref: SUP-{(order.orderId || order._id).slice(-6)})
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Shipment Delay / Exception Alert */}
+        {(order.orderStatus === 'Delayed' || order.orderStatus === 'Exception') && (
+          <div className="p-5 bg-blue-50 border border-blue-200 rounded-2xl text-slate-900" role="alert" data-testid="shipment-exception-banner">
+            <h2 className="text-sm font-extrabold text-blue-950 mb-1 flex items-center gap-2">
+              <Truck size={17} className="text-blue-600" />
+              Shipment Status Update — Delayed
+            </h2>
+            <p className="text-xs text-slate-800 leading-relaxed">
+              Your shipment is experiencing a carrier delay. Our logistics team is actively coordinating with {order.courierCompany || 'the courier'} to expedite delivery. Tracking reference: {order.trackingNumber || order.orderId}.
+            </p>
+          </div>
+        )}
 
         {/* Manual Payment Alert */}
         {isManualPayment && (
