@@ -16,6 +16,7 @@ const profileSchema = z.object({
 const addressBody = z.object({ fullName: text(100), phone: text(20), address: text(300), addressLine2: optionalText(200), city: text(100), province: text(100), postalCode: optionalText(20), country, isDefault: z.boolean().optional() }).strict();
 const addressUpdateSchema = addressBody.partial().strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one address field');
 const idParam = z.object({ id: objectId }).strict();
+const documentParam = z.object({ id: objectId, documentNumber: z.string().trim().min(3).max(100) }).strict();
 const productParam = z.object({ productId: objectId }).strict();
 const reviewSubmitSchema = z.object({ productId: objectId, rating: z.number().int().min(1).max(5), title: optionalText(100), comment: text(1000, 5) }).strict();
 const reviewUpdateSchema = z.object({ rating: z.number().int().min(1).max(5).optional(), title: optionalText(100), comment: text(1000, 5).optional() }).strict().refine((value) => Object.keys(value).length > 0, 'Provide at least one review field');
@@ -37,4 +38,4 @@ const returnInventoryReconciliationSchema = z.object({
   }
 });
 
-module.exports = { pagination, profileSchema, addressBody, addressUpdateSchema, idParam, productParam, reviewSubmitSchema, reviewUpdateSchema, returnRequestSchema, returnStatusUpdateSchema, returnRefundSchema, returnInventoryReconciliationSchema };
+module.exports = { pagination, profileSchema, addressBody, addressUpdateSchema, idParam, documentParam, productParam, reviewSubmitSchema, reviewUpdateSchema, returnRequestSchema, returnStatusUpdateSchema, returnRefundSchema, returnInventoryReconciliationSchema };

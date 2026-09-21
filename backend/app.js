@@ -42,6 +42,7 @@ const assistantRoutes = require('./modules/assistant/assistant.routes');
 const adminProductRoutes = require('./routes/adminProductRoutes');
 const adminCategoryRoutes = require('./routes/adminCategoryRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const exceptionRoutes = require('./routes/exceptionRoutes');
 
 const createApp = ({
   assistantConfig,
@@ -156,6 +157,8 @@ const createApp = ({
   app.use('/api/finance-reconciliation', financeReconciliationRoutes);
   app.use('/api/commerce', commercialCoreRoutes);
   app.use('/api/account', accountRoutes);
+  app.use('/api/admin/exceptions', exceptionRoutes);
+  app.use('/api/exceptions', exceptionRoutes);
 
   // Assistant Router (with optional injected Redis client / options)
   const finalAssistantOptions = {

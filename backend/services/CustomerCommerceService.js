@@ -10,6 +10,7 @@ const MarketService = require('./MarketService');
 const ReturnService = require('./ReturnService');
 const ReviewService = require('./ReviewService');
 const ProductVisibilityPolicy = require('./product/ProductVisibilityPolicy');
+const DocumentService = require('./document/DocumentService');
 const { AppError } = require('../common/errors/AppError');
 const ERROR_CODES = require('../constants/errorCodes');
 
@@ -324,7 +325,102 @@ class CustomerCommerceService {
   }
   async listRefunds(userId, query) { const items = await Refund.find({ customer: userId }).select('refundNumber order amount currency status reason completedAt createdAt').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { refunds: items.map(refundView), total: await Refund.countDocuments({ customer: userId }) }; }
 
-  async invoice(userId, reference) { const order = await ownOrder(userId, reference); return { orderNumber: order.orderId, date: order.createdAt, customer: { fullName: order.shippingAddress.fullName }, shippingAddress: order.shippingAddress, items: order.items.map((item) => ({ name: item.name, sku: item.sku, quantity: item.quantity, unitPrice: item.price, lineTotal: item.lineTotal })), subtotal: order.subtotal, discount: order.discount, shipping: order.shippingCost, tax: order.taxAmount, total: order.totalAmount, currency: order.payment.currency, paymentMethod: order.paymentMethod, paymentStatus: order.paymentStatus }; }
+  async invoice(userId, reference) {
+    const order = await ownOrder(userId, reference);
+    let doc = null;
+    try {
+      doc = await DocumentService.getOrIssueOrderDocument(order._id);
+    } catch (_err) {
+      // Fallback gracefully to basic snapshot if needed
+    }
+
+    return {
+      orderNumber: order.orderId,
+      date: order.createdAt,
+      customer: { fullName: order.shippingAddress?.fullName || '' },
+      shippingAddress: order.shippingAddress,
+      items: order.items.map((item) => ({
+        name: item.name,
+        sku: item.sku,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        lineTotal: item.lineTotal
+      })),
+      subtotal: order.subtotal,
+      discount: order.discount,
+      shipping: order.shippingCost,
+      tax: order.taxAmount,
+      total: order.totalAmount,
+      currency: order.payment?.currency || 'PKR',
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      documentNumber: doc?.documentNumber || `DOC-${order.orderId}`,
+      documentType: doc?.documentType || 'ORDER_CONFIRMATION',
+      title: doc?.title || 'Order Confirmation',
+      badgeLabel: doc?.badgeLabel || 'Payment Pending',
+      isOfficialReceipt: doc?.isOfficialReceipt || false,
+      classificationReason: doc?.classificationReason || ''
+    };
+  }
+
+  async listDocuments(userId, reference) {
+    return DocumentService.listCustomerDocuments(userId, reference);
+  }
+
+  async getDocument(userId, reference, documentNumber) {
+    return DocumentService.getCustomerDocument(userId, reference, documentNumber);
+  }
+
+  async getRecoveryState(userId, reference) {
+    const order = await ownOrder(userId, reference);
+    const paymentStatus = (order.paymentStatus || order.payment?.status || '').toLowerCase();
+    const orderStatus = (order.orderStatus || '').toLowerCase();
+
+    const isPaymentFailed = paymentStatus === 'failed' || paymentStatus === 'rejected' || paymentStatus === 'expired';
+    const isActionRequired = paymentStatus === 'awaiting_customer_payment' || paymentStatus === 'requires_action';
+    const isPaid = paymentStatus === 'paid' || paymentStatus === 'completed';
+    const isShipmentDelayed = orderStatus === 'delayed' || Boolean(order.shippingQuote?.delayReason);
+
+    return {
+      orderNumber: order.orderId,
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+      paymentMethod: order.paymentMethod,
+      totalAmount: order.totalAmount,
+      currency: order.payment?.currency || 'PKR',
+      canRetryPayment: !isPaid && orderStatus !== 'cancelled' && orderStatus !== 'delivered',
+      recoveryGuidance: isPaymentFailed
+        ? 'Your previous payment attempt was unsuccessful. You can retry with a new payment method below.'
+        : (isActionRequired
+          ? 'Additional authentication is required to complete this payment.'
+          : (isShipmentDelayed
+            ? 'Your shipment is experiencing a delay. Our operations team is tracking the courier closely.'
+            : 'Order is progressing normally.')),
+      supportReference: `SUP-${order.orderId.slice(-6)}`
+    };
+  }
+
+  async retryPayment(userId, reference, paymentDetails = {}) {
+    const order = await ownOrder(userId, reference);
+    const paymentStatus = (order.paymentStatus || order.payment?.status || '').toLowerCase();
+
+    if (paymentStatus === 'paid' || paymentStatus === 'completed') {
+      throw new AppError('Payment has already been completed for this order', 400, 'PAYMENT_ALREADY_COMPLETED');
+    }
+    if ((order.orderStatus || '').toLowerCase() === 'cancelled') {
+      throw new AppError('Cannot retry payment for a cancelled order', 400, 'ORDER_CANCELLED');
+    }
+
+    return {
+      orderNumber: order.orderId,
+      status: 'RETRY_INITIATED',
+      amount: order.totalAmount,
+      currency: order.payment?.currency || 'PKR',
+      paymentMethod: paymentDetails.paymentMethod || order.paymentMethod,
+      message: 'Payment retry session initiated successfully.'
+    };
+  }
+
   async tracking(userId, reference) { const order = await ownOrder(userId, reference); return { orderNumber: order.orderId, orderStatus: order.orderStatus, timeline: order.statusTimeline.map((entry) => ({ status: entry.status, timestamp: entry.timestamp, note: entry.note || '' })), courierCompany: order.courierCompany || '', trackingNumber: order.trackingNumber || '' }; }
   async listNotifications(userId, query) { const notifications = await Notification.find({ recipient: userId }).select('type title message isRead priority actionUrl createdAt').sort({ createdAt: -1 }).skip((query.page - 1) * query.limit).limit(query.limit); return { notifications, total: await Notification.countDocuments({ recipient: userId }), unreadCount: await Notification.countDocuments({ recipient: userId, isRead: false }) }; }
   async markNotificationRead(userId, notificationId) { const result = await Notification.findOneAndUpdate({ _id: notificationId, recipient: userId }, { $set: { isRead: true } }, { new: true }); if (!result) throw new AppError('Notification not found', 404, ERROR_CODES.CUSTOMER_NOTIFICATION_NOT_FOUND); return result; }

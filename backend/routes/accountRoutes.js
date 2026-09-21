@@ -16,7 +16,12 @@ router.get('/wishlist', controller.listWishlist); router.post('/wishlist/:produc
 router.get('/reviews', checked(schemas.pagination, 'query'), controller.listMyReviews);
 router.post('/reviews', checked(schemas.reviewSubmitSchema), controller.submitReview); router.patch('/reviews/:id', checked(schemas.idParam, 'params'), checked(schemas.reviewUpdateSchema), controller.updateReview); router.delete('/reviews/:id', checked(schemas.idParam, 'params'), controller.deleteReview);
 router.get('/returns', checked(schemas.pagination, 'query'), controller.listReturns); router.post('/returns', checked(schemas.returnRequestSchema), controller.requestReturn); router.get('/refunds', checked(schemas.pagination, 'query'), controller.listRefunds);
-router.get('/orders/:id/invoice', checked(schemas.idParam, 'params'), controller.invoice); router.get('/orders/:id/tracking', checked(schemas.idParam, 'params'), controller.tracking);
+router.get('/orders/:id/invoice', checked(schemas.idParam, 'params'), controller.invoice);
+router.get('/orders/:id/documents', checked(schemas.idParam, 'params'), controller.listDocuments);
+router.get('/orders/:id/documents/:documentNumber', checked(schemas.documentParam, 'params'), controller.getDocument);
+router.get('/orders/:id/recovery', checked(schemas.idParam, 'params'), controller.getRecoveryState);
+router.post('/orders/:id/retry-payment', checked(schemas.idParam, 'params'), controller.retryPayment);
+router.get('/orders/:id/tracking', checked(schemas.idParam, 'params'), controller.tracking);
 router.get('/notifications', checked(schemas.pagination, 'query'), controller.notifications); router.put('/notifications/mark-all-read', controller.markAllNotificationsRead); router.put('/notifications/:id/read', checked(schemas.idParam, 'params'), controller.markNotificationRead);
 
 module.exports = router;
