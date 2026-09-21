@@ -93,6 +93,7 @@ describe('Phase 8 — Admin Operations Exceptions Dashboard DOM Tests', () => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
         /Customer & Operations Exceptions/i
       );
+      expect(screen.getByText('EXP-2026-A1B2C3D4')).toBeInTheDocument();
     });
 
     // Check metric cards
@@ -100,7 +101,6 @@ describe('Phase 8 — Admin Operations Exceptions Dashboard DOM Tests', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
 
     // Check exception rows
-    expect(screen.getByText('EXP-2026-A1B2C3D4')).toBeInTheDocument();
     expect(screen.getByText(/Card was declined by issuing bank/i)).toBeInTheDocument();
     expect(screen.getByText('EXP-2026-E5F6G7H8')).toBeInTheDocument();
   });

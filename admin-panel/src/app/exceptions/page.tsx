@@ -95,12 +95,9 @@ export default function ExceptionsPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    const timer = window.setTimeout(() => {
-      void fetchExceptions();
-    }, 0);
+    void fetchExceptions();
     return () => {
       mountedRef.current = false;
-      clearTimeout(timer);
     };
   }, [fetchExceptions]);
 
