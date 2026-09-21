@@ -256,6 +256,21 @@ jobs:
         working-directory: backend
         run: npm run test:phase9
 
+      - name: Generate MongoDB Replica-Set Keyfile
+        # Generates ephemeral key material at runner runtime. The keyfile is:
+        #   - written to /tmp (outside the repository checkout)
+        #   - never printed in logs
+        #   - never committed or staged in git
+        #   - never baked into any image layer
+        #   - removed unconditionally by the cleanup step
+        # docker-compose.ci.yml mounts /tmp/mongo-keyfile into the mongodb
+        # container at /etc/mongodb/keyfile:ro (chmod 400, uid 999).
+        run: |
+          openssl rand -base64 756 > /tmp/mongo-keyfile
+          chmod 400 /tmp/mongo-keyfile
+          chown 999:999 /tmp/mongo-keyfile || true
+          test -s /tmp/mongo-keyfile
+
       - name: Start Disposable Docker Infrastructure Topology (CI Override)
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring up -d --wait || (docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci logs && exit 1)
@@ -322,3 +337,4 @@ jobs:
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring down -v --remove-orphans
           git worktree remove --force /tmp/baseline-src 2>/dev/null || true
+          rm -f /tmp/mongo-keyfile

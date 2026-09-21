@@ -8,6 +8,13 @@ services:
   mongodb:
     ports:
       - "127.0.0.1:27017:27017"
+    volumes:
+      # The keyfile is generated at CI runtime by the workflow step
+      # "Generate MongoDB Replica-Set Keyfile" using:
+      #   openssl rand -base64 756 > /tmp/mongo-keyfile && chmod 400 /tmp/mongo-keyfile
+      # It is never stored in this repository, never printed, and is removed
+      # by the unconditional cleanup step after the topology is torn down.
+      - /tmp/mongo-keyfile:/etc/mongodb/keyfile:ro
 
   redis:
     ports:
