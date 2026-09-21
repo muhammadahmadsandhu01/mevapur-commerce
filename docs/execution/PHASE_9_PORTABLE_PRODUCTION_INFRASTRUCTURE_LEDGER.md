@@ -77,15 +77,14 @@
 
 ### Critical Rollback Architecture
 1. **Separation of Concerns**: Unit tests and in-memory simulations (e.g. `MongoMemoryServer`) remain strictly inside `backend/tests/` for unit validation. They are NOT used for CI infrastructure acceptance.
-2. **Real Container Rollback Verification (`scripts/ops/verify-container-rollback-runtime.js`)**:
-   - Deploys real disposable Release A container image (`mevapur/backend:v1.0.0-phase8`).
-   - Seeds persistent database fixtures.
-   - Verifies readiness healthcheck (`/health/ready` -> 200 OK).
-   - Replaces container with Release B image (`mevapur/backend:v1.1.0-phase9`).
-   - Verifies readiness healthcheck (`/health/ready` -> 200 OK) and additive state.
-   - Restores Release A container.
-   - Verifies readiness healthcheck (`/health/ready` -> 200 OK) and proves 100% data integrity with zero data loss.
-   - Unconditionally stops and removes rehearsal containers.
+2. **Real Distinct Container Rollback Verification (`scripts/ops/verify-container-rollback-runtime.js`)**:
+   - Release A image (`mevapur/backend:phase9-baseline-6a7ce98d`) is built from baseline commit `6a7ce98dbd5499dfb1d9cb16990f4999e6da05b8`.
+   - Release B image (`mevapur/backend:phase9-candidate-${GITHUB_SHA}`) is built from candidate commit context.
+   - Proves image IDs are distinct and fails closed if image IDs match.
+   - Deploys real Release A container, verifies health (`/health/ready` -> 200 OK), and seeds persistent fixtures.
+   - Replaces container with Release B image, verifies health (`/health/ready` -> 200 OK), and verifies additive state.
+   - Restores Release A container, verifies health (`/health/ready` -> 200 OK), and proves 100% data integrity with zero data loss.
+   - Unconditionally stops and removes rehearsal containers and temporary baseline worktree.
 
 ---
 
@@ -94,9 +93,10 @@
 - **Local Tests Executed**:
   - `npm run test:phase9` (4 suites, 21 tests passed)
   - `node scripts/ops/verify-worker-runtime.js` (Heartbeat creation, loop update, SIGTERM exit 0 passed)
+  - `npm run lint` (0 warnings, 0 errors)
 - **Protected Patch Hash**: `AC29A7BC3B1544C334FA722A927A4041347672B444B908B1BA5937D9A4749310` (byte-for-byte verified)
 - **Working Tree Status**: Ready for forward commit
 
 ```text
-PHASE9_FINAL_CI_CORRECTIONS_PUSH_READY
+PHASE9_FINAL_DISTINCT_ROLLBACK_CORRECTION_PUSH_READY
 ```

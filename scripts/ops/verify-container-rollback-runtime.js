@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
  * @file verify-container-rollback-runtime.js
- * @description Real container image A -> B -> A rollback rehearsal verification for clean Ubuntu CI:
- * 1. Starts real Release A container, verifies health (200 OK), and seeds persistent database fixtures.
- * 2. Deploys real Release B container, verifies health (200 OK) and persistent fixture availability, adds Release B record.
- * 3. Restores real Release A container, verifies health (200 OK) and persistent fixture integrity (0 data loss).
- * 4. Cleans up disposable rehearsal containers and fixtures.
+ * @description Real distinct container image A -> B -> A rollback rehearsal verification for clean Ubuntu CI:
+ * 1. Proves Release A and Release B are distinct, genuinely different images (different Image IDs).
+ * 2. Starts real Release A container, verifies health (200 OK), and seeds persistent database fixtures.
+ * 3. Deploys real Release B container, verifies health (200 OK), validates persistent fixture availability, and adds candidate record.
+ * 4. Restores real Release A container, verifies health (200 OK), and validates 100% pre-existing fixture integrity (0 data loss).
+ * 5. Cleans up disposable rehearsal containers and fixtures.
  *
  * Usage:
- *   node scripts/ops/verify-container-rollback-runtime.js
+ *   node scripts/ops/verify-container-rollback-runtime.js [--imageA=mevapur/backend:phase9-baseline-6a7ce98d] [--imageB=mevapur/backend:phase9-candidate-...]
  */
 
 'use strict';
@@ -24,15 +25,28 @@ try {
   mongoose = require(path.resolve(__dirname, '../../backend/node_modules/mongoose'));
 }
 
+function parseCliArgs() {
+  const args = process.argv.slice(2);
+  const opts = {};
+  for (const arg of args) {
+    if (arg.startsWith('--imageA=')) opts.imageA = arg.split('=')[1];
+    if (arg.startsWith('--imageB=')) opts.imageB = arg.split('=')[1];
+    if (arg.startsWith('--network=')) opts.network = arg.split('=')[1];
+    if (arg.startsWith('--port=')) opts.port = parseInt(arg.split('=')[1], 10);
+  }
+  return opts;
+}
+
+const cliOpts = parseCliArgs();
 const mongoHost = process.env.MONGO_HOST || '127.0.0.1:27017';
 const appDb = process.env.MONGO_APP_DATABASE || 'mevapur-commerce';
 const appUser = process.env.MONGO_APP_USER || 'app_user';
 const appPass = process.env.MONGO_APP_PASSWORD || 'app_password';
-const dockerNetwork = process.env.DOCKER_NETWORK || 'mevapur-ci_backend_net';
-const backendPort = parseInt(process.env.BACKEND_PORT, 10) || 5000;
+const dockerNetwork = cliOpts.network || process.env.DOCKER_NETWORK || 'mevapur-ci_backend_net';
+const backendPort = cliOpts.port || parseInt(process.env.BACKEND_PORT, 10) || 5000;
 
-const imageA = process.env.IMAGE_RELEASE_A || 'mevapur/backend:v1.0.0-phase8';
-const imageB = process.env.IMAGE_RELEASE_B || 'mevapur/backend:v1.1.0-phase9';
+const imageA = cliOpts.imageA || process.env.IMAGE_RELEASE_A || 'mevapur/backend:phase9-baseline-6a7ce98d';
+const imageB = cliOpts.imageB || process.env.IMAGE_RELEASE_B || 'mevapur/backend:phase9-candidate';
 const containerName = 'mevapur-backend-rollback-rehearsal';
 
 async function sleep(ms) {
@@ -70,9 +84,32 @@ function execDocker(cmd) {
   }
 }
 
+function getImageId(imageTag) {
+  try {
+    return execSync(`docker image inspect ${imageTag} --format "{{.Id}}"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (err) {
+    throw new Error(`Failed to inspect image ID for "${imageTag}": ${err.stderr || err.message}`);
+  }
+}
+
 async function verifyContainerRollbackRuntime() {
-  console.log(`[ROLLBACK-RUNTIME-VERIFY] Initiating real container rollback rehearsal: ${imageA} -> ${imageB} -> ${imageA}...`);
+  console.log(`[ROLLBACK-RUNTIME-VERIFY] Initiating distinct release rollback rehearsal:`);
+  console.log(`[ROLLBACK-RUNTIME-VERIFY] Release A (Baseline):  ${imageA}`);
+  console.log(`[ROLLBACK-RUNTIME-VERIFY] Release B (Candidate): ${imageB}`);
   const steps = [];
+
+  // 1. Verify that Release A and Release B are distinct images with different Image IDs
+  const idA = getImageId(imageA);
+  const idB = getImageId(imageB);
+
+  console.log(`[ROLLBACK-RUNTIME-VERIFY] Release A Image ID: ${idA}`);
+  console.log(`[ROLLBACK-RUNTIME-VERIFY] Release B Image ID: ${idB}`);
+
+  if (idA === idB) {
+    throw new Error(`FATAL: Release A (${imageA}) and Release B (${imageB}) have identical Image IDs (${idA})! Rehearsal requires two genuinely distinct release images.`);
+  }
+  steps.push({ step: '0_PROVE_DISTINCT_RELEASE_IMAGES', idA, idB, status: 'PASSED' });
+  console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Proven: Release A and Release B are distinct images.');
 
   const hostMongoUri = `mongodb://${encodeURIComponent(appUser)}:${encodeURIComponent(appPass)}@${mongoHost}/${appDb}?authSource=${appDb}&replicaSet=rs0&directConnection=true`;
   const containerMongoUri = `mongodb://${encodeURIComponent(appUser)}:${encodeURIComponent(appPass)}@mongodb:27017/${appDb}?authSource=${appDb}&replicaSet=rs0&directConnection=true`;
@@ -96,11 +133,11 @@ async function verifyContainerRollbackRuntime() {
 
     // Seed Release A persistent fixtures
     const seedDocs = [
-      { fixtureId: 'FIX-001', name: 'Phase 8 Product Catalog Index', release: 'v1.0.0-phase8', createdAt: new Date() },
-      { fixtureId: 'FIX-002', name: 'Phase 8 Order Pipeline State', release: 'v1.0.0-phase8', createdAt: new Date() }
+      { fixtureId: 'FIX-001', name: 'Phase 9 Baseline Catalog Index', release: imageA, createdAt: new Date() },
+      { fixtureId: 'FIX-002', name: 'Phase 9 Baseline Order Pipeline State', release: imageA, createdAt: new Date() }
     ];
     await fixtureColl.insertMany(seedDocs);
-    const countA = await fixtureColl.countDocuments({ release: 'v1.0.0-phase8' });
+    const countA = await fixtureColl.countDocuments({ release: imageA });
     steps.push({ step: '1_DEPLOY_AND_SEED_RELEASE_A', count: countA, status: 'PASSED' });
 
     // STEP 2: Deploy Release B container (replaces Release A container)
@@ -112,7 +149,7 @@ async function verifyContainerRollbackRuntime() {
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release B container is healthy (/health/ready -> 200 OK).');
 
     // Additive Release B record
-    await fixtureColl.insertOne({ fixtureId: 'FIX-003', name: 'Phase 9 Added Feature State', release: 'v1.1.0-phase9', createdAt: new Date() });
+    await fixtureColl.insertOne({ fixtureId: 'FIX-003', name: 'Phase 9 Candidate Feature State', release: imageB, createdAt: new Date() });
     const totalCountB = await fixtureColl.countDocuments();
     if (totalCountB !== 3) {
       throw new Error(`Expected 3 records in Release B, found ${totalCountB}`);
@@ -122,13 +159,13 @@ async function verifyContainerRollbackRuntime() {
     // STEP 3: Rollback to Release A container
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 3: Rolling back to Release A container (${imageA})...`);
     execDocker(`docker rm -f ${containerName}`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${mongoUri}" -e PORT=5000 ${imageA}`);
+    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${containerMongoUri}" -e PORT=5000 ${imageA}`);
 
     await probeHealth(backendPort, 25000);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Restored Release A container is healthy (/health/ready -> 200 OK).');
 
     // Verify original Release A fixtures are intact and unchanged
-    const originalDocsAfterRollback = await fixtureColl.find({ release: 'v1.0.0-phase8' }).toArray();
+    const originalDocsAfterRollback = await fixtureColl.find({ release: imageA }).toArray();
     if (originalDocsAfterRollback.length !== 2) {
       throw new Error(`Data loss detected on rollback: expected 2 Release A records, found ${originalDocsAfterRollback.length}`);
     }
@@ -145,6 +182,8 @@ async function verifyContainerRollbackRuntime() {
       success: true,
       imageA,
       imageB,
+      idA,
+      idB,
       steps
     };
   } finally {

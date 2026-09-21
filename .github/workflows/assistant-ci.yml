@@ -217,11 +217,26 @@ jobs:
           docker run --rm --entrypoint=/bin/promtool -v ${{ github.workspace }}/docker/monitoring:/etc/prometheus prom/prometheus:v2.55.1 check config /etc/prometheus/prometheus.yml
           docker run --rm --entrypoint=/bin/promtool -v ${{ github.workspace }}/docker/monitoring:/etc/prometheus prom/prometheus:v2.55.1 check rules /etc/prometheus/alert.rules.yml
 
-      - name: Build Application Container Images
+      - name: Fetch Baseline Commit for Distinct Rollback Rehearsal
         run: |
-          docker compose build
-          docker tag mevapur/backend:latest mevapur/backend:v1.0.0-phase8
-          docker tag mevapur/backend:latest mevapur/backend:v1.1.0-phase9
+          git fetch origin 6a7ce98dbd5499dfb1d9cb16990f4999e6da05b8 || git fetch --depth=100 origin develop/global-commerce-rc3
+
+      - name: Build Application Container Images
+        run: docker compose build
+
+      - name: Build Distinct Release A (Baseline) and Release B (Candidate) Images
+        run: |
+          git worktree add /tmp/baseline-src 6a7ce98dbd5499dfb1d9cb16990f4999e6da05b8
+          docker build -t mevapur/backend:phase9-baseline-6a7ce98d /tmp/baseline-src/backend
+          docker build -t mevapur/backend:phase9-candidate-${{ github.sha }} ./backend
+          IMAGE_A_ID=$(docker image inspect mevapur/backend:phase9-baseline-6a7ce98d --format '{{.Id}}')
+          IMAGE_B_ID=$(docker image inspect mevapur/backend:phase9-candidate-${{ github.sha }} --format '{{.Id}}')
+          echo "Release A Image ID (6a7ce98d): $IMAGE_A_ID"
+          echo "Release B Image ID (${{ github.sha }}): $IMAGE_B_ID"
+          if [ "$IMAGE_A_ID" = "$IMAGE_B_ID" ]; then
+            echo "ERROR: Release A and Release B image IDs are identical! Rehearsal requires distinct images."
+            exit 1
+          fi
 
       - name: Run Non-Root User & Image Secret Inspection
         run: |
@@ -247,12 +262,7 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci ps
 
       - name: Validate Container Security & Network Port Ingress Isolation
-        run: |
-          docker inspect --format '{{json .HostConfig.SecurityOpt}}' mevapur-backend | grep -q "no-new-privileges:true" || (echo "Missing no-new-privileges on backend!" && exit 1)
-          docker inspect --format '{{json .HostConfig.SecurityOpt}}' mevapur-worker-outbox | grep -q "no-new-privileges:true" || (echo "Missing no-new-privileges on worker!" && exit 1)
-          docker inspect --format '{{json .HostConfig.PortBindings}}' mevapur-mongodb | grep -v "0.0.0.0:27017" || (echo "MongoDB bound to 0.0.0.0!" && exit 1)
-          docker inspect --format '{{json .HostConfig.PortBindings}}' mevapur-redis | grep -v "0.0.0.0:6379" || (echo "Redis bound to 0.0.0.0!" && exit 1)
-          docker inspect --format '{{json .HostConfig.PortBindings}}' mevapur-prometheus | grep -v "0.0.0.0:9090" || (echo "Prometheus bound to 0.0.0.0!" && exit 1)
+        run: node scripts/ops/verify-container-security-runtime.js
 
       - name: Execute Live MongoDB Replica Set Runtime Verification
         run: node scripts/ops/verify-mongo-runtime.js
@@ -296,14 +306,19 @@ jobs:
           MONGO_ROOT_USER: root
           MONGO_ROOT_PASSWORD: rootpassword
 
-      - name: Execute Live Container A -> B -> A Rollback Rehearsal
-        run: node scripts/ops/verify-container-rollback-runtime.js
+      - name: Execute Live Distinct Container A -> B -> A Rollback Rehearsal
+        run: |
+          node scripts/ops/verify-container-rollback-runtime.js \
+            --imageA=mevapur/backend:phase9-baseline-6a7ce98d \
+            --imageB=mevapur/backend:phase9-candidate-${{ github.sha }} \
+            --network=mevapur-ci_backend_net
         env:
           MONGO_HOST: 127.0.0.1:27017
           MONGO_APP_USER: app_user
           MONGO_APP_PASSWORD: app_password
-          DOCKER_NETWORK: mevapur-ci_backend_net
 
-      - name: Unconditional Container & Volume Cleanup
+      - name: Unconditional Container, Worktree & Volume Cleanup
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring down -v --remove-orphans
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring down -v --remove-orphans
+          git worktree remove --force /tmp/baseline-src 2>/dev/null || true
