@@ -79,7 +79,7 @@ const normalizeOrigin = (value, {
   }
   if (
     parsed.protocol === 'http:'
-    && !(allowLoopbackHttp && LOOPBACK_HOSTS.has(parsed.hostname))
+    && !(allowLoopbackHttp && (LOOPBACK_HOSTS.has(parsed.hostname) || parsed.hostname.endsWith('.localhost')))
   ) {
     throw new RuntimeConfigurationError(
       `${variableName} must use HTTPS outside loopback development`
