@@ -14,9 +14,13 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
 
 # Build arguments for build-time embedded NEXT_PUBLIC_* variables
+ARG NEXT_PUBLIC_SITE_NAME=HARZAAR
+ARG NEXT_PUBLIC_ADMIN_URL=https://admin.mevapur.test
 ARG NEXT_PUBLIC_API_URL=https://api.mevapur.test
 
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+ENV NEXT_PUBLIC_SITE_NAME=$NEXT_PUBLIC_SITE_NAME \
+    NEXT_PUBLIC_ADMIN_URL=$NEXT_PUBLIC_ADMIN_URL \
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
