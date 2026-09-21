@@ -231,9 +231,61 @@ jobs:
         working-directory: backend
         run: npm run test:phase9
 
-      - name: Execute A -> B -> A Rollback Rehearsal
-        run: node scripts/ops/rehearse-rollback.js --versionA=v1.0.0 --versionB=v1.1.0
+      - name: Start Disposable Docker Infrastructure Topology
+        run: |
+          docker compose -p mevapur --profile monitoring up -d --wait
+          docker compose -p mevapur ps
+
+      - name: Execute Live MongoDB Replica Set Runtime Verification
+        run: node scripts/ops/verify-mongo-runtime.js
+        env:
+          MONGO_HOST: 127.0.0.1:27017
+          MONGO_ROOT_USER: root
+          MONGO_ROOT_PASSWORD: rootpassword
+          MONGO_APP_DATABASE: mevapur-commerce
+          MONGO_APP_USER: app_user
+          MONGO_APP_PASSWORD: app_password
+
+      - name: Execute Live Redis Distributed Rate Limiting Runtime Verification
+        run: node scripts/ops/verify-redis-runtime.js
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: changeme_redis_password
+
+      - name: Execute Live Nginx Gateway Host Routing and Webhook Byte Verification
+        run: node scripts/ops/verify-nginx-runtime.js
+        env:
+          PROXY_HOST: 127.0.0.1
+          PROXY_PORT: 80
+          STOREFRONT_HOST: localhost
+          ADMIN_HOST: admin.localhost
+          API_HOST: api.localhost
+
+      - name: Execute Live Worker Heartbeat and SIGTERM Graceful Shutdown Verification
+        run: node scripts/ops/verify-worker-runtime.js
+
+      - name: Execute Live Prometheus Target Discovery and Metric Scrape Verification
+        run: node scripts/ops/verify-prometheus-runtime.js
+        env:
+          PROM_HOST: 127.0.0.1
+          PROM_PORT: 9090
+
+      - name: Execute Live Backup, Corruption Rejection and Safe Restore Verification
+        run: node scripts/ops/verify-backup-restore-runtime.js
+        env:
+          MONGO_HOST: 127.0.0.1:27017
+          MONGO_ROOT_USER: root
+          MONGO_ROOT_PASSWORD: rootpassword
+
+      - name: Execute Live Container A -> B -> A Rollback Rehearsal
+        run: node scripts/ops/verify-container-rollback-runtime.js
+        env:
+          MONGO_HOST: 127.0.0.1:27017
+          MONGO_APP_USER: app_user
+          MONGO_APP_PASSWORD: app_password
+          DOCKER_NETWORK: mevapur_backend_net
 
       - name: Unconditional Container & Volume Cleanup
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: docker compose -p mevapur --profile monitoring down -v --remove-orphans

@@ -133,6 +133,7 @@ async function runWorkerLoop(options) {
         fs.writeFileSync(heartbeatPath, JSON.stringify({
           worker: 'processTransactionalOutbox',
           timestamp: new Date().toISOString(),
+          pid: process.pid,
           iteration
         }));
       } catch (_hbErr) {
@@ -154,19 +155,29 @@ async function runWorkerLoop(options) {
 
 if (require.main === module) {
   const options = parseCliArgs();
-  const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/mevapur-commerce';
+  const mongoUri = process.env.MONGODB_URI;
 
-  mongoose.connect(mongoUri)
-    .then(async () => {
-      logger.info('Connected to MongoDB for transactional outbox worker', { options });
-      await runWorkerLoop(options);
-      await mongoose.disconnect();
-      process.exit(0);
-    })
-    .catch((err) => {
-      logger.error('Failed to run transactional outbox worker', { error: err?.message });
-      process.exit(1);
-    });
+  if (!mongoUri || mongoUri === 'mock' || mongoUri === 'offline') {
+    logger.info('Running transactional outbox worker in offline/mock mode', { options });
+    runWorkerLoop(options)
+      .then(() => process.exit(0))
+      .catch((err) => {
+        logger.error('Worker loop failed in offline mode', { error: err?.message });
+        process.exit(1);
+      });
+  } else {
+    mongoose.connect(mongoUri)
+      .then(async () => {
+        logger.info('Connected to MongoDB for transactional outbox worker', { options });
+        await runWorkerLoop(options);
+        await mongoose.disconnect();
+        process.exit(0);
+      })
+      .catch((err) => {
+        logger.error('Failed to run transactional outbox worker', { error: err?.message });
+        process.exit(1);
+      });
+  }
 }
 
 module.exports = {
