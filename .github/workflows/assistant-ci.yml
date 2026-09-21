@@ -258,7 +258,7 @@ jobs:
 
       - name: Start Disposable Docker Infrastructure Topology (CI Override)
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring up -d --wait
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring up -d --wait || (docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci logs && exit 1)
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci ps
 
       - name: Validate Container Security & Network Port Ingress Isolation

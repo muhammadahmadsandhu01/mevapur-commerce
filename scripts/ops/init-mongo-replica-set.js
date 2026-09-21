@@ -26,20 +26,29 @@ async function sleep(ms) {
 async function initReplicaSet() {
   console.log(`[MONGO-INIT] Connecting to MongoDB on ${mongoHost}...`);
 
-  // Direct connection without replicaSet query param initially
-  const directUri = `mongodb://${mongoHost}/admin?directConnection=true`;
+  const unauthUri = `mongodb://${mongoHost}/admin?directConnection=true`;
+  const authUri = `mongodb://${encodeURIComponent(rootUser)}:${encodeURIComponent(rootPass)}@${mongoHost}/admin?authSource=admin&directConnection=true`;
 
   let connected = false;
   let attempts = 0;
+  let useAuth = false;
+
   while (!connected && attempts < 30) {
     attempts++;
     try {
-      await mongoose.connect(directUri, { serverSelectionTimeoutMS: 2000 });
+      await mongoose.connect(unauthUri, { serverSelectionTimeoutMS: 2000 });
       connected = true;
-      console.log('[MONGO-INIT] Connected to MongoDB daemon directly.');
+      console.log('[MONGO-INIT] Connected to MongoDB daemon directly (unauthenticated).');
     } catch (err) {
-      console.log(`[MONGO-INIT] Waiting for MongoDB to be ready (attempt ${attempts}/30)...`);
-      await sleep(2000);
+      try {
+        await mongoose.connect(authUri, { serverSelectionTimeoutMS: 2000 });
+        connected = true;
+        useAuth = true;
+        console.log('[MONGO-INIT] Connected to MongoDB daemon with root credentials.');
+      } catch (authErr) {
+        console.log(`[MONGO-INIT] Waiting for MongoDB to be ready (attempt ${attempts}/30)...`);
+        await sleep(2000);
+      }
     }
   }
 
@@ -48,14 +57,24 @@ async function initReplicaSet() {
     process.exit(1);
   }
 
-  const adminDb = mongoose.connection.db.admin();
+  let adminDb = mongoose.connection.db.admin();
 
   // Step 1: Initialize replica set if not already initiated
   try {
     const status = await adminDb.command({ replSetGetStatus: 1 });
     console.log(`[MONGO-INIT] Replica set already active: ${status.set}`);
   } catch (err) {
-    if (err.codeName === 'NotYetInitialized' || err.message.includes('no replSet')) {
+    if (err.message && err.message.includes('requires authentication') && !useAuth) {
+      try {
+        await mongoose.disconnect();
+        await mongoose.connect(authUri, { serverSelectionTimeoutMS: 5000 });
+        adminDb = mongoose.connection.db.admin();
+        const status = await adminDb.command({ replSetGetStatus: 1 });
+        console.log(`[MONGO-INIT] Replica set active (authenticated): ${status.set}`);
+      } catch (reAuthErr) {
+        console.warn(`[MONGO-INIT] Note on authenticated status check: ${reAuthErr.message}`);
+      }
+    } else if (err.codeName === 'NotYetInitialized' || (err.message && err.message.includes('no replSet'))) {
       console.log('[MONGO-INIT] Initiating replica set rs0...');
       try {
         await adminDb.command({

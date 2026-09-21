@@ -71,12 +71,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mongodb-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:5000/health/ready\", (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
-      interval: 15s
+      interval: 5s
       timeout: 5s
-      start_period: 15s
-      retries: 3
+      start_period: 5s
+      retries: 10
     security_opt:
       - no-new-privileges:true
 
@@ -168,6 +170,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      mongodb-init:
+        condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
 
@@ -193,6 +197,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      mongodb-init:
+        condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
 

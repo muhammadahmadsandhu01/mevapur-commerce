@@ -124,9 +124,11 @@ async function verifyContainerRollbackRuntime() {
     // Ensure no existing rehearsal container is running
     try { execDocker(`docker rm -f ${containerName}`); } catch {}
 
+    const containerEnvFlags = `-e NODE_ENV=production -e APP_ENV=development -e JWT_SECRET=test_jwt_secret_must_be_at_least_32_characters_long_for_security -e MONGODB_URI="${containerMongoUri}" -e PORT=5000`;
+
     // STEP 1: Deploy Release A container
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 1: Starting Release A container (${imageA})...`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${containerMongoUri}" -e PORT=5000 ${imageA}`);
+    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 ${containerEnvFlags} ${imageA}`);
 
     await probeHealth(backendPort, 25000);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release A container is healthy (/health/ready -> 200 OK).');
@@ -143,7 +145,7 @@ async function verifyContainerRollbackRuntime() {
     // STEP 2: Deploy Release B container (replaces Release A container)
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 2: Deploying Release B container (${imageB})...`);
     execDocker(`docker rm -f ${containerName}`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${containerMongoUri}" -e PORT=5000 ${imageB}`);
+    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 ${containerEnvFlags} ${imageB}`);
 
     await probeHealth(backendPort, 25000);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release B container is healthy (/health/ready -> 200 OK).');
@@ -159,7 +161,7 @@ async function verifyContainerRollbackRuntime() {
     // STEP 3: Rollback to Release A container
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 3: Rolling back to Release A container (${imageA})...`);
     execDocker(`docker rm -f ${containerName}`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 -e NODE_ENV=production -e MONGODB_URI="${containerMongoUri}" -e PORT=5000 ${imageA}`);
+    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 ${containerEnvFlags} ${imageA}`);
 
     await probeHealth(backendPort, 25000);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Restored Release A container is healthy (/health/ready -> 200 OK).');
