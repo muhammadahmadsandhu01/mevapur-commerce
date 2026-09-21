@@ -207,8 +207,8 @@ jobs:
 
       - name: Validate Prometheus Configuration and Rules
         run: |
-          docker run --rm -v ${{ github.workspace }}/docker/monitoring:/etc/prometheus prom/prometheus:v2.55.1 promtool check config /etc/prometheus/prometheus.yml
-          docker run --rm -v ${{ github.workspace }}/docker/monitoring:/etc/prometheus prom/prometheus:v2.55.1 promtool check rules /etc/prometheus/alert.rules.yml
+          docker run --rm --entrypoint=/bin/promtool -v ${{ github.workspace }}/docker/monitoring:/etc/prometheus prom/prometheus:v2.55.1 check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint=/bin/promtool -v ${{ github.workspace }}/docker/monitoring:/etc/prometheus prom/prometheus:v2.55.1 check rules /etc/prometheus/alert.rules.yml
 
       - name: Build Application Container Images
         run: docker compose build
