@@ -17,6 +17,9 @@ const AuditService = require('../AuditService');
 const CheckoutQuoteService = require('../checkout/CheckoutQuoteService');
 const CommerceConfigurationService = require('../commerce/CommerceConfigurationService');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
+const defaultCodPolicyService = require('../payment/CodEligibilityPolicyService');
+const defaultGuestVerificationService = require('../auth/GuestPhoneVerificationService');
+const defaultOrderDeliveryOutcomeService = require('./OrderDeliveryOutcomeService');
 const TaxDutyEngine = require('../checkout/TaxDutyEngine');
 const shippingAdapterRegistry = require('../checkout/shipping/ShippingAdapterRegistry');
 const logger = require('../../utils/logger');
@@ -914,6 +917,50 @@ class OrderService {
             );
           }
 
+          if (orderData.paymentMethod === 'cod') {
+            const codDecision = await defaultCodPolicyService.evaluateCodEligibility({
+              destinationCountry,
+              currency: normalizedCurrency,
+              address: shippingAddress,
+              userId,
+              guestVerificationToken: orderData.guestVerificationToken,
+              cartItems: pricedItems.map((r) => ({
+                productId: r.product,
+                sku: r.sku,
+                quantity: r.quantity
+              })),
+              coupon,
+              payableTotalMoney: totalAmountExact,
+              merchantScopeId: orderData.merchantScopeId || 'default',
+              atDate: new Date()
+            });
+
+            if (!codDecision.available) {
+              throw new AppError(
+                codDecision.customerMessage || 'Cash on Delivery is unavailable for this order',
+                400,
+                codDecision.reasonCode
+              );
+            }
+
+            // If guest checkout, atomically consume guest verification token
+            if (!userId) {
+              const guestPhone = shippingAddress.phone || shippingAddress.phoneE164;
+              const tokenValid = await defaultGuestVerificationService.validateToken(
+                orderData.guestVerificationToken,
+                guestPhone,
+                true // atomically consume token
+              );
+              if (!tokenValid) {
+                throw new AppError(
+                  'Guest phone verification token is invalid or has expired',
+                  400,
+                  'COD_GUEST_PHONE_VERIFICATION_REQUIRED'
+                );
+              }
+            }
+          }
+
           const paymentProvider = paymentProviderRegistry.resolve(
             orderData.paymentMethod,
             {
@@ -1747,6 +1794,15 @@ class OrderService {
     } finally {
       await session.endSession();
     }
+  }
+
+  /**
+   * Records a courier delivery outcome with rolling RTO lock governance.
+   * @param {Object} params
+   * @returns {Promise<Object>}
+   */
+  async recordDeliveryOutcome(params) {
+    return defaultOrderDeliveryOutcomeService.recordDeliveryOutcome(params);
   }
 }
 

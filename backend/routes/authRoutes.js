@@ -42,6 +42,8 @@ const {
   invitationAcceptLimiter
 } = require('../middleware/rateLimiter');
 
+const { requestPhoneChallenge, verifyPhoneOtp } = require('../controllers/codGovernanceController');
+
 const router = express.Router();
 const authValidation = (schema, source = 'body') => validate(schema, {
   source,
@@ -49,6 +51,10 @@ const authValidation = (schema, source = 'body') => validate(schema, {
 });
 
 router.get('/csrf-token', getCsrfToken);
+
+// Guest COD Phone Verification Endpoints
+router.post('/phone/challenge', requestPhoneChallenge);
+router.post('/phone/verify', verifyPhoneOtp);
 
 router.post(
   '/register',

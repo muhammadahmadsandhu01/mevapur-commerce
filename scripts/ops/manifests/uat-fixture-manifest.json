@@ -6,6 +6,8 @@
     "fulfillmentlocations",
     "categories",
     "users",
+    "customercodrestrictions",
+    "codserviceabilityrules",
     "products",
     "productmarketofferings",
     "marketpricebooks",
@@ -32,6 +34,8 @@
     "marketpricebooks",
     "productmarketofferings",
     "products",
+    "codserviceabilityrules",
+    "customercodrestrictions",
     "users",
     "categories",
     "fulfillmentlocations"
@@ -40,11 +44,13 @@
     "fulfillmentlocations": 1,
     "categories": 1,
     "users": 6,
+    "customercodrestrictions": 2,
+    "codserviceabilityrules": 5,
     "products": 4,
     "productmarketofferings": 4,
     "marketpricebooks": 4,
     "inventorypositions": 4,
-    "coupons": 2,
+    "coupons": 3,
     "orders": 5,
     "payments": 5,
     "orderdocuments": 1,
@@ -243,6 +249,142 @@
         }
       }
     ],
+    "customercodrestrictions": [
+      {
+        "_id": "66f0000000000000000000f1",
+        "merchantScopeId": "default",
+        "customerId": "66f000000000000000000022",
+        "manualBlockActive": true,
+        "manualBlockReasonCode": "COD_CUSTOMER_BLOCKED",
+        "manualBlockedAt": "2026-09-01T00:00:00.000Z",
+        "manualBlockedBy": "66f000000000000000000025",
+        "temporaryLockUntil": null,
+        "overrideMode": "NONE",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "customerId": "66f000000000000000000022"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000f2",
+        "merchantScopeId": "default",
+        "customerId": "66f000000000000000000023",
+        "manualBlockActive": false,
+        "manualBlockReasonCode": null,
+        "temporaryLockUntil": "2026-10-15T00:00:00.000Z",
+        "temporaryLockReasonCode": "COD_CUSTOMER_TEMPORARILY_LOCKED",
+        "automaticLockSource": "ROLLING_RTO_THRESHOLD",
+        "overrideMode": "NONE",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "customerId": "66f000000000000000000023"
+        }
+      }
+    ],
+    "codserviceabilityrules": [
+      {
+        "_id": "66f0000000000000000000e1",
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "ISLAMABAD",
+        "normalizedPostalCode": "44000",
+        "zoneKey": "ISB-NORTH",
+        "isServiceable": true,
+        "status": "active",
+        "effectiveFrom": "2026-01-01T00:00:00.000Z",
+        "effectiveTo": null,
+        "notes": "Islamabad F-7 zone serviceable",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "countryCode": "PK",
+          "normalizedCity": "ISLAMABAD",
+          "normalizedPostalCode": "44000"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000e2",
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "KARACHI",
+        "normalizedPostalCode": "75600",
+        "zoneKey": "KHI-SOUTH",
+        "isServiceable": true,
+        "status": "active",
+        "effectiveFrom": "2026-01-01T00:00:00.000Z",
+        "effectiveTo": null,
+        "notes": "Karachi Clifton zone serviceable",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "countryCode": "PK",
+          "normalizedCity": "KARACHI",
+          "normalizedPostalCode": "75600"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000e3",
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "LAHORE",
+        "normalizedPostalCode": "54000",
+        "zoneKey": "LHR-CENTRAL",
+        "isServiceable": true,
+        "status": "active",
+        "effectiveFrom": "2026-01-01T00:00:00.000Z",
+        "effectiveTo": null,
+        "notes": "Lahore Gulberg zone serviceable",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "countryCode": "PK",
+          "normalizedCity": "LAHORE",
+          "normalizedPostalCode": "54000"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000e4",
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "RAWALPINDI",
+        "normalizedPostalCode": "46000",
+        "zoneKey": "RWP-MAIN",
+        "isServiceable": true,
+        "status": "active",
+        "effectiveFrom": "2026-01-01T00:00:00.000Z",
+        "effectiveTo": null,
+        "notes": "Rawalpindi central serviceable",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "countryCode": "PK",
+          "normalizedCity": "RAWALPINDI",
+          "normalizedPostalCode": "46000"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000e5",
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "SKARDU",
+        "normalizedPostalCode": "15100",
+        "zoneKey": "SKD-REMOTE",
+        "isServiceable": false,
+        "status": "active",
+        "effectiveFrom": "2026-01-01T00:00:00.000Z",
+        "effectiveTo": null,
+        "notes": "Skardu unserviceable remote zone",
+        "lockVersion": 1,
+        "identityFields": {
+          "merchantScopeId": "default",
+          "countryCode": "PK",
+          "normalizedCity": "SKARDU",
+          "normalizedPostalCode": "15100"
+        }
+      }
+    ],
     "products": [
       {
         "_id": "66f000000000000000000011",
@@ -346,6 +488,7 @@
         "status": "active",
         "visibility": "visible",
         "fulfillmentMode": "local",
+        "codEligible": true,
         "lockVersion": 1,
         "identityFields": {
           "productId": "66f000000000000000000011",
@@ -366,6 +509,7 @@
         "status": "active",
         "visibility": "visible",
         "fulfillmentMode": "local",
+        "codEligible": true,
         "lockVersion": 1,
         "identityFields": {
           "productId": "66f000000000000000000012",
@@ -386,6 +530,7 @@
         "status": "active",
         "visibility": "visible",
         "fulfillmentMode": "local",
+        "codEligible": true,
         "lockVersion": 1,
         "identityFields": {
           "productId": "66f000000000000000000013",
@@ -406,6 +551,7 @@
         "status": "active",
         "visibility": "visible",
         "fulfillmentMode": "local",
+        "codEligible": false,
         "lockVersion": 1,
         "identityFields": {
           "productId": "66f000000000000000000014",
@@ -599,6 +745,10 @@
         "isActive": true,
         "startDate": "2026-01-01T00:00:00.000Z",
         "endDate": "2027-12-31T23:59:59.000Z",
+        "paymentEligibility": {
+          "restrictionMode": "ANY",
+          "allowedMethods": []
+        },
         "description": "UAT 10% discount coupon for orders over 1000 PKR",
         "identityFields": {
           "code": "UATPERCENT10"
@@ -615,9 +765,36 @@
         "isActive": true,
         "startDate": "2026-01-01T00:00:00.000Z",
         "endDate": "2027-12-31T23:59:59.000Z",
+        "paymentEligibility": {
+          "restrictionMode": "ANY",
+          "allowedMethods": []
+        },
         "description": "UAT 500 PKR flat discount coupon for orders over 3000 PKR",
         "identityFields": {
           "code": "UATFIXED500"
+        }
+      },
+      {
+        "_id": "66f000000000000000000033",
+        "code": "PREPAIDONLY10",
+        "type": "percentage",
+        "value": 10,
+        "minOrderAmount": 500,
+        "currency": "PKR",
+        "status": "active",
+        "isActive": true,
+        "startDate": "2026-01-01T00:00:00.000Z",
+        "endDate": "2027-12-31T23:59:59.000Z",
+        "paymentEligibility": {
+          "restrictionMode": "ALLOWLIST",
+          "allowedMethods": [
+            "stripe",
+            "bank_transfer"
+          ]
+        },
+        "description": "Prepaid-only coupon requiring card or bank transfer (COD restricted)",
+        "identityFields": {
+          "code": "PREPAIDONLY10"
         }
       }
     ],

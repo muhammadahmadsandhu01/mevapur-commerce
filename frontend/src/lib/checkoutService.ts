@@ -62,6 +62,7 @@ export interface CheckoutPayload {
   customerNote?: string;
   quoteToken?: string;
   shippingServiceLevel?: string;
+  guestVerificationToken?: string;
 }
 
 export interface CreatedOrderResult {
@@ -417,7 +418,8 @@ export function serializeCheckoutPayload(
   shippingServiceLevelOrCustomerNote: string = 'standard',
   couponCode?: string,
   customerNote?: string,
-  currency?: string
+  currency?: string,
+  guestVerificationToken?: string
 ): CheckoutPayload {
   let effectiveQuoteToken: string | undefined = undefined;
   let effectiveServiceLevel: string = 'standard';
@@ -488,6 +490,10 @@ export function serializeCheckoutPayload(
 
   if (effectiveCustomerNote && effectiveCustomerNote.trim()) {
     payload.customerNote = effectiveCustomerNote.trim().slice(0, 500);
+  }
+
+  if (guestVerificationToken && typeof guestVerificationToken === 'string' && guestVerificationToken.trim()) {
+    payload.guestVerificationToken = guestVerificationToken.trim();
   }
 
   return payload;

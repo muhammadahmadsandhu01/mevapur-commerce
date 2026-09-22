@@ -390,7 +390,7 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
       });
 
       expect(resetResult.status).toBe('RESET_SUCCESS');
-      expect(resetResult.deletedCount).toBe(42);
+      expect(resetResult.deletedCount).toBe(50);
 
       const db = directConnection.db;
       for (const colName of manifest.dependencyOrder) {
@@ -553,7 +553,7 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
       });
 
       expect(resetResult.status).toBe('RESET_SUCCESS');
-      expect(resetResult.deletedCount).toBe(42);
+      expect(resetResult.deletedCount).toBe(50);
 
       for (const colName of manifest.dependencyOrder) {
         const count = await db.collection(colName).countDocuments({});
@@ -657,8 +657,8 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
       const { generateInventory, validateManifestFacts } = require('../../../scripts/ops/generate-manifest-inventory');
       const inv = generateInventory();
       expect(() => validateManifestFacts(inv)).not.toThrow();
-      expect(inv.collectionNames.length).toBe(15);
-      expect(inv.allDeterministicIds.length).toBe(42);
+      expect(inv.collectionNames.length).toBe(17);
+      expect(inv.allDeterministicIds.length).toBe(50);
       expect(inv.fulfillmentLocations[0].locationCode).toBe('KHI-WH-01');
       expect(inv.categories[0].slug).toBe('dry-fruits-nuts');
       expect(inv.products.length).toBe(4);

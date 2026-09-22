@@ -16,6 +16,7 @@ const CouponService = require('../order/CouponService');
 const TaxDutyEngine = require('./TaxDutyEngine');
 const shippingAdapterRegistry = require('./shipping/ShippingAdapterRegistry');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
+const defaultCodPolicyService = require('../payment/CodEligibilityPolicyService');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const InventoryAvailabilityService = require('../inventory/InventoryAvailabilityService');
 const InventoryAllocationService = require('../inventory/InventoryAllocationService');
@@ -93,6 +94,7 @@ class CheckoutQuoteService {
     taxEngine = TaxDutyEngine,
     shippingRegistry = shippingAdapterRegistry,
     paymentPolicy = defaultPaymentPolicy,
+    codPolicyService = defaultCodPolicyService,
     commerceConfigService = CommerceConfigurationService,
     inventoryAllocationService = InventoryAllocationService,
     serviceabilityService = defaultServiceabilityService,
@@ -102,6 +104,7 @@ class CheckoutQuoteService {
     this.taxEngine = taxEngine;
     this.shippingRegistry = shippingRegistry;
     this.paymentPolicy = paymentPolicy;
+    this.codPolicyService = codPolicyService;
     this.commerceConfigService = commerceConfigService;
     this.inventoryAllocationService = inventoryAllocationService;
     this.serviceabilityService = serviceabilityService;
@@ -609,7 +612,8 @@ class CheckoutQuoteService {
     currency = null,
     couponCode = null,
     shippingServiceLevel = 'standard',
-    shippingAdapter = null
+    shippingAdapter = null,
+    guestVerificationToken = null
   }) {
     // 1. Authoritative Seller & Market Context
     const market = await this.marketService.getConfig({ merchantScopeId });
@@ -898,19 +902,47 @@ class CheckoutQuoteService {
       .add(estimatedDutiesMoney);
 
     // 10. Payment Method Eligibility Synthesis
+    const codContext = {
+      destinationCountry,
+      currency: targetCurrency,
+      address: normalizedAddress,
+      userId,
+      guestVerificationToken,
+      cartItems: items,
+      coupon: couponDetails?.code ? {
+        code: couponDetails.code,
+        isCodAllowed: () => couponDetails.paymentEligibility?.restrictionMode === 'ALLOWLIST'
+          ? (couponDetails.paymentEligibility.allowedMethods || []).includes('cod')
+          : true,
+        paymentEligibility: couponDetails.paymentEligibility
+      } : null,
+      payableTotalMoney: grandTotalMoney,
+      merchantScopeId,
+      atDate: now
+    };
+
+    let codEligibility = { available: false, reasonCode: 'COD_COUNTRY_UNSUPPORTED', customerMessage: null, metadata: {} };
+    if (this.codPolicyService && isDomestic) {
+      codEligibility = await this.codPolicyService.evaluateCodEligibility(codContext);
+    }
+
     const availablePaymentMethods = await this.paymentPolicy.getPublicAvailableMethods({
       country: destinationCountry,
       deliveryCountry: destinationCountry,
       merchantCountry,
       currency: targetCurrency,
       baseCurrency: market.baseCurrency,
-      amount: Number(grandTotalMoney.toDecimalString())
+      amount: Number(grandTotalMoney.toDecimalString()),
+      ...codContext
     });
 
     // Filter available methods for customer
     const eligiblePaymentMethods = (availablePaymentMethods || []).filter((m) => {
       // International routes reject COD by default
       if (!isDomestic && (m.code === 'cod' || m.paymentType === 'offline')) {
+        return false;
+      }
+      if (m.code === 'cod' && !codEligibility.available) {
         return false;
       }
       return true;
@@ -1069,6 +1101,14 @@ class CheckoutQuoteService {
         paymentType: m.paymentType,
         isPrepaid: m.paymentType !== 'offline' && m.code !== 'cod'
       })),
+      paymentEligibility: {
+        cod: {
+          available: codEligibility.available,
+          reasonCode: codEligibility.reasonCode,
+          customerMessage: codEligibility.customerMessage,
+          metadata: codEligibility.metadata
+        }
+      },
       issuedAt,
       expiresAt
     };

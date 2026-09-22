@@ -121,6 +121,11 @@ const productMarketOfferingSchema = new mongoose.Schema({
     type: saleConstraintsSchema,
     default: () => ({ minQuantity: 1, maxQuantity: null })
   },
+  codEligible: {
+    type: Boolean,
+    default: true,
+    required: true
+  },
   lockVersion: {
     type: Number,
     default: 1,
@@ -212,6 +217,15 @@ productMarketOfferingSchema.methods.isCurrentlyEffective = function isCurrentlyE
   const from = new Date(this.effectiveFrom).getTime();
   const to = this.effectiveTo ? new Date(this.effectiveTo).getTime() : Infinity;
   return now >= from && now <= to;
+};
+
+/**
+ * Backward-compatible COD eligibility check.
+ * Treats explicit false as ineligible; undefined/null as eligible for legacy documents.
+ * @returns {boolean}
+ */
+productMarketOfferingSchema.methods.isCodEligible = function isCodEligible() {
+  return this.codEligible !== false;
 };
 
 module.exports = mongoose.models.ProductMarketOffering

@@ -6,6 +6,8 @@
     "fulfillmentlocations",
     "categories",
     "users",
+    "customercodrestrictions",
+    "codserviceabilityrules",
     "products",
     "productmarketofferings",
     "marketpricebooks",
@@ -32,6 +34,8 @@
     "marketpricebooks",
     "productmarketofferings",
     "products",
+    "codserviceabilityrules",
+    "customercodrestrictions",
     "users",
     "categories",
     "fulfillmentlocations"
@@ -40,6 +44,8 @@
     "fulfillmentlocations",
     "categories",
     "users",
+    "customercodrestrictions",
+    "codserviceabilityrules",
     "products",
     "productmarketofferings",
     "marketpricebooks",
@@ -57,11 +63,13 @@
     "fulfillmentlocations": 1,
     "categories": 1,
     "users": 6,
+    "customercodrestrictions": 2,
+    "codserviceabilityrules": 5,
     "products": 4,
     "productmarketofferings": 4,
     "marketpricebooks": 4,
     "inventorypositions": 4,
-    "coupons": 2,
+    "coupons": 3,
     "orders": 5,
     "payments": 5,
     "orderdocuments": 1,
@@ -85,6 +93,7 @@
     "66f000000000000000000026",
     "66f000000000000000000031",
     "66f000000000000000000032",
+    "66f000000000000000000033",
     "66f000000000000000000041",
     "66f000000000000000000042",
     "66f000000000000000000043",
@@ -112,7 +121,14 @@
     "66f0000000000000000000d1",
     "66f0000000000000000000d2",
     "66f0000000000000000000d3",
-    "66f0000000000000000000d4"
+    "66f0000000000000000000d4",
+    "66f0000000000000000000e1",
+    "66f0000000000000000000e2",
+    "66f0000000000000000000e3",
+    "66f0000000000000000000e4",
+    "66f0000000000000000000e5",
+    "66f0000000000000000000f1",
+    "66f0000000000000000000f2"
   ],
   "fulfillmentLocations": [
     {
@@ -331,6 +347,10 @@
       "code": "UATPERCENT10",
       "type": "percentage",
       "value": 10,
+      "paymentEligibility": {
+        "restrictionMode": "ANY",
+        "allowedMethods": []
+      },
       "identityFields": {
         "code": "UATPERCENT10"
       }
@@ -340,8 +360,140 @@
       "code": "UATFIXED500",
       "type": "fixed",
       "value": 500,
+      "paymentEligibility": {
+        "restrictionMode": "ANY",
+        "allowedMethods": []
+      },
       "identityFields": {
         "code": "UATFIXED500"
+      }
+    },
+    {
+      "_id": "66f000000000000000000033",
+      "code": "PREPAIDONLY10",
+      "type": "percentage",
+      "value": 10,
+      "paymentEligibility": {
+        "restrictionMode": "ALLOWLIST",
+        "allowedMethods": [
+          "stripe",
+          "bank_transfer"
+        ]
+      },
+      "identityFields": {
+        "code": "PREPAIDONLY10"
+      }
+    }
+  ],
+  "customerCodRestrictions": [
+    {
+      "_id": "66f0000000000000000000f1",
+      "merchantScopeId": "default",
+      "customerId": "66f000000000000000000022",
+      "manualBlockActive": true,
+      "manualBlockReasonCode": "COD_CUSTOMER_BLOCKED",
+      "temporaryLockUntil": null,
+      "overrideMode": "NONE",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "customerId": "66f000000000000000000022"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000f2",
+      "merchantScopeId": "default",
+      "customerId": "66f000000000000000000023",
+      "manualBlockActive": false,
+      "manualBlockReasonCode": null,
+      "temporaryLockUntil": "2026-10-15T00:00:00.000Z",
+      "temporaryLockReasonCode": "COD_CUSTOMER_TEMPORARILY_LOCKED",
+      "automaticLockSource": "ROLLING_RTO_THRESHOLD",
+      "overrideMode": "NONE",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "customerId": "66f000000000000000000023"
+      }
+    }
+  ],
+  "codServiceabilityRules": [
+    {
+      "_id": "66f0000000000000000000e1",
+      "merchantScopeId": "default",
+      "countryCode": "PK",
+      "normalizedCity": "ISLAMABAD",
+      "normalizedPostalCode": "44000",
+      "zoneKey": "ISB-NORTH",
+      "isServiceable": true,
+      "status": "active",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "ISLAMABAD",
+        "normalizedPostalCode": "44000"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000e2",
+      "merchantScopeId": "default",
+      "countryCode": "PK",
+      "normalizedCity": "KARACHI",
+      "normalizedPostalCode": "75600",
+      "zoneKey": "KHI-SOUTH",
+      "isServiceable": true,
+      "status": "active",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "KARACHI",
+        "normalizedPostalCode": "75600"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000e3",
+      "merchantScopeId": "default",
+      "countryCode": "PK",
+      "normalizedCity": "LAHORE",
+      "normalizedPostalCode": "54000",
+      "zoneKey": "LHR-CENTRAL",
+      "isServiceable": true,
+      "status": "active",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "LAHORE",
+        "normalizedPostalCode": "54000"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000e4",
+      "merchantScopeId": "default",
+      "countryCode": "PK",
+      "normalizedCity": "RAWALPINDI",
+      "normalizedPostalCode": "46000",
+      "zoneKey": "RWP-MAIN",
+      "isServiceable": true,
+      "status": "active",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "RAWALPINDI",
+        "normalizedPostalCode": "46000"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000e5",
+      "merchantScopeId": "default",
+      "countryCode": "PK",
+      "normalizedCity": "SKARDU",
+      "normalizedPostalCode": "15100",
+      "zoneKey": "SKD-REMOTE",
+      "isServiceable": false,
+      "status": "active",
+      "identityFields": {
+        "merchantScopeId": "default",
+        "countryCode": "PK",
+        "normalizedCity": "SKARDU",
+        "normalizedPostalCode": "15100"
       }
     }
   ],

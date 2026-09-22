@@ -1,5 +1,6 @@
 const paymentProviderRegistry = require('../../modules/payments/core/providerRegistry');
 const MerchantPaymentAccount = require('../../models/MerchantPaymentAccount');
+const defaultCodPolicyService = require('./CodEligibilityPolicyService');
 const { AppError } = require('../../common/errors/AppError');
 
 const normalizeCountryCode = (country) => {
@@ -21,9 +22,14 @@ const normalizeCountryCode = (country) => {
 };
 
 class PaymentCapabilityPolicy {
-  constructor({ registry = paymentProviderRegistry, AccountModel = MerchantPaymentAccount } = {}) {
+  constructor({
+    registry = paymentProviderRegistry,
+    AccountModel = MerchantPaymentAccount,
+    codPolicyService = defaultCodPolicyService
+  } = {}) {
     this.registry = registry;
     this.AccountModel = AccountModel;
+    this.codPolicyService = codPolicyService;
   }
 
   async getMerchantAccount(providerCode, environment) {
@@ -229,6 +235,7 @@ class PaymentCapabilityPolicy {
     const reqCurrency = context.currency ? String(context.currency).trim().toUpperCase() : '';
 
     // COD Domestic Policy (Section 2)
+    let codPolicyDecision = null;
     if (providerCode === 'cod' || manifest.isOfflineMethod) {
       const merchantCountry = normalizeCountryCode(
         context.merchantCountry !== undefined ? context.merchantCountry : account.merchantCountry
@@ -241,6 +248,37 @@ class PaymentCapabilityPolicy {
         eligibilityReason = 'PAYMENT_COUNTRY_UNSUPPORTED';
       } else if (reqCurrency && domesticCurrency && reqCurrency !== domesticCurrency) {
         eligibilityReason = 'PAYMENT_CURRENCY_UNSUPPORTED';
+      } else if (providerCode === 'cod' && this.codPolicyService) {
+        const hasGranularContext = Boolean(
+          context.evaluateCodPolicy ||
+          context.address ||
+          context.shippingAddress ||
+          (Array.isArray(context.cartItems) && context.cartItems.length > 0) ||
+          (Array.isArray(context.items) && context.items.length > 0) ||
+          context.payableTotalMoney ||
+          context.userId ||
+          context.guestVerificationToken
+        );
+
+        if (hasGranularContext) {
+          const codContext = {
+            destinationCountry: reqCountry,
+            currency: reqCurrency || domesticCurrency,
+            address: context.address || context.shippingAddress || null,
+            userId: context.userId || context.user?._id || context.customerId || null,
+            guestVerificationToken: context.guestVerificationToken || null,
+            cartItems: context.cartItems || context.items || [],
+            coupon: context.coupon || null,
+            payableTotalMoney: context.payableTotalMoney || (context.amount != null ? context.amount : null),
+            merchantScopeId: context.merchantScopeId || 'default',
+            atDate: context.atDate || new Date()
+          };
+
+          codPolicyDecision = await this.codPolicyService.evaluateCodEligibility(codContext);
+          if (!codPolicyDecision.available) {
+            eligibilityReason = codPolicyDecision.reasonCode;
+          }
+        }
       }
     } else {
       // Generic provider country / currency check from account & adapter manifest
@@ -280,6 +318,7 @@ class PaymentCapabilityPolicy {
       auditClassification,
       reason: finalReason,
       capabilities: provider.getCapabilities(),
+      codPolicyDecision,
       account: {
         environment: account.environment,
         merchantCountry: account.merchantCountry,
@@ -398,7 +437,14 @@ class PaymentCapabilityPolicy {
     const evaluation = await this.evaluateOperational(providerCode, {
       country,
       currency,
-      amount
+      amount,
+      address: order.shippingAddress,
+      cartItems: order.items,
+      userId: order.user || order.customerId,
+      guestVerificationToken: order.guestVerificationToken,
+      coupon: order.coupon,
+      payableTotalMoney: order.totalAmountExact || order.totalAmount,
+      merchantScopeId: order.merchantScopeId || 'default'
     });
 
     if (!evaluation.isOperational || !evaluation.eligible) {

@@ -307,6 +307,14 @@ export interface AuthoritativeQuote {
   taxesAndDuties: QuoteTaxesAndDuties;
   totals: QuoteTotals;
   eligiblePaymentMethods: EligiblePaymentMethod[];
+  paymentEligibility?: {
+    cod?: {
+      available: boolean;
+      reasonCode?: string | null;
+      customerMessage?: string | null;
+      metadata?: Record<string, unknown>;
+    };
+  };
   issuedAt: string;
   expiresAt: string;
   quoteToken: string;

@@ -38,6 +38,7 @@ const paymentDisputeRoutes = require('./routes/paymentDisputeRoutes');
 const financeReconciliationRoutes = require('./routes/financeReconciliationRoutes');
 const commercialCoreRoutes = require('./routes/commercialCoreRoutes');
 const accountRoutes = require('./routes/accountRoutes');
+const codGovernanceRoutes = require('./routes/codGovernanceRoutes');
 const assistantRoutes = require('./modules/assistant/assistant.routes');
 const adminProductRoutes = require('./routes/adminProductRoutes');
 const adminCategoryRoutes = require('./routes/adminCategoryRoutes');
@@ -228,6 +229,7 @@ const createApp = ({
 
   app.use('/api/admin/products', adminProductRoutes);
   app.use('/api/admin/categories', adminCategoryRoutes);
+  app.use('/api/admin/cod', codGovernanceRoutes);
   app.use('/api/uploads', uploadRoutes);
 
   // 404 Handler

@@ -141,6 +141,14 @@ export default function CheckoutPage() {
   const [availableMethods, setAvailableMethods] = useState<AvailablePaymentMethod[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<string>('');
 
+  // Guest Phone Verification for COD
+  const [guestVerificationToken, setGuestVerificationToken] = useState<string>('');
+  const [guestOtpChallengeId, setGuestOtpChallengeId] = useState<string>('');
+  const [guestOtpInput, setGuestOtpInput] = useState<string>('');
+  const [guestOtpSending, setGuestOtpSending] = useState<boolean>(false);
+  const [guestOtpVerifying, setGuestOtpVerifying] = useState<boolean>(false);
+  const [guestOtpError, setGuestOtpError] = useState<string | null>(null);
+
   // Coupon State
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<CouponPreviewResult | null>(null);
@@ -155,12 +163,8 @@ export default function CheckoutPage() {
     void bootstrap();
   }, [bootstrap]);
 
-  // Auth Guard: Only redirect when auth is initialized and user is not authenticated
-  useEffect(() => {
-    if (isInitialized && !isAuthenticated) {
-      router.push('/login?redirect=/checkout');
-    }
-  }, [isInitialized, isAuthenticated, router]);
+  // Auth Guard: In Batch 10C, guest checkout is supported for Pakistan domestic orders
+  // Authenticated users have profile details prefilled; unauthenticated users proceed as guests
 
   // Step 1: Load Authoritative Market Configuration
   useEffect(() => {
@@ -312,7 +316,8 @@ export default function CheckoutPage() {
           // If COD was selected and destination is international or COD is not eligible, clear COD immediately
           const isHomeCountry = Boolean(marketConfig?.homeCountry && activeCountryCode === marketConfig.homeCountry);
           const isCodEligible = Array.isArray(newQuote.eligiblePaymentMethods) && newQuote.eligiblePaymentMethods.some((m) => m.code === 'cod');
-          if ((!newQuote.isDomestic || !isHomeCountry || !isCodEligible) && paymentMethod === 'cod') {
+          const isCodPolicyAllowed = newQuote.paymentEligibility?.cod?.available !== false;
+          if ((!newQuote.isDomestic || !isHomeCountry || !isCodEligible || !isCodPolicyAllowed) && paymentMethod === 'cod') {
             setPaymentMethod('');
           }
         }
@@ -592,6 +597,66 @@ export default function CheckoutPage() {
     setMaterialChangeNotice(null);
   };
 
+  const handleRequestGuestOtp = async () => {
+    const rawPhone = formData.phone?.trim();
+    if (!rawPhone) {
+      setErrors((prev) => ({ ...prev, phone: 'Phone number is required for Cash on Delivery verification.' }));
+      setToast({ message: 'Please enter a valid phone number in the shipping address.', type: 'error' });
+      return;
+    }
+    setGuestOtpSending(true);
+    setGuestOtpError(null);
+    try {
+      const res = await fetch('/api/auth/phone/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: rawPhone })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || data.message || 'Failed to send verification code');
+      }
+      setGuestOtpChallengeId(data.data.challengeId);
+      setLiveAnnouncement('Verification code sent to your phone.');
+      setToast({ message: 'Verification code sent to your phone via SMS.', type: 'info' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send verification code';
+      setGuestOtpError(msg);
+      setToast({ message: msg, type: 'error' });
+    } finally {
+      setGuestOtpSending(false);
+    }
+  };
+
+  const handleVerifyGuestOtp = async () => {
+    if (!guestOtpChallengeId || !guestOtpInput.trim()) {
+      setGuestOtpError('Please enter the 6-digit verification code.');
+      return;
+    }
+    setGuestOtpVerifying(true);
+    setGuestOtpError(null);
+    try {
+      const res = await fetch('/api/auth/phone/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: guestOtpChallengeId, otp: guestOtpInput.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || data.message || 'Invalid verification code');
+      }
+      setGuestVerificationToken(data.data.verificationToken);
+      setLiveAnnouncement('Phone verified successfully for Cash on Delivery.');
+      setToast({ message: 'Phone verified successfully for Cash on Delivery.', type: 'info' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Invalid verification code';
+      setGuestOtpError(msg);
+      setToast({ message: msg, type: 'error' });
+    } finally {
+      setGuestOtpVerifying(false);
+    }
+  };
+
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -633,6 +698,12 @@ export default function CheckoutPage() {
     if (!paymentMethod) {
       setErrors((prev) => ({ ...prev, paymentMethod: 'Please select a payment method.' }));
       setToast({ message: 'Please select a payment method to continue.', type: 'error' });
+      return;
+    }
+
+    if (!user && paymentMethod === 'cod' && !guestVerificationToken) {
+      setErrors((prev) => ({ ...prev, paymentMethod: 'Phone verification is required for Guest Cash on Delivery.' }));
+      setToast({ message: 'Please verify your phone number to complete Cash on Delivery checkout.', type: 'error' });
       return;
     }
 
@@ -684,7 +755,8 @@ export default function CheckoutPage() {
               shippingServiceLevel,
               appliedCoupon?.code,
               formData.customerNote,
-              quote.currency
+              quote.currency,
+              guestVerificationToken
             );
 
             const result = await submitOrder(payload, attempt.idempotencyKey);
@@ -1211,6 +1283,17 @@ export default function CheckoutPage() {
               </div>
             )}
 
+            {/* COD Policy Restriction Notice */}
+            {quote?.paymentEligibility?.cod && !quote.paymentEligibility.cod.available && (
+              <div className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-semibold flex items-start gap-2.5" role="status">
+                <AlertCircle size={16} className="text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Cash on Delivery unavailable: </span>
+                  <span>{quote.paymentEligibility.cod.customerMessage || 'Please choose a prepaid payment method.'}</span>
+                </div>
+              </div>
+            )}
+
             {availableMethods.length === 0 ? (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-semibold flex items-center gap-2">
                 <AlertCircle size={16} />
@@ -1254,6 +1337,63 @@ export default function CheckoutPage() {
                         {m.code === 'raast' && 'Instant zero-fee account transfer via State Bank Raast ID.'}
                         {m.code === 'stripe' && 'Secure international card processing via encrypted checkout.'}
                       </p>
+
+                      {/* Guest COD Phone Verification UI */}
+                      {m.code === 'cod' && paymentMethod === 'cod' && !user && !guestVerificationToken && (
+                        <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                          <div className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                            <PhoneCall size={14} className="text-[#ff8a00]" />
+                            <span>Phone Verification Required for Guest COD</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Please verify phone number ({formData.phone || 'enter in shipping address'}) to place a Cash on Delivery order.
+                          </p>
+                          {!guestOtpChallengeId ? (
+                            <button
+                              type="button"
+                              id="send-guest-cod-otp-btn"
+                              onClick={(e) => { e.preventDefault(); void handleRequestGuestOtp(); }}
+                              disabled={guestOtpSending || !formData.phone}
+                              className="px-3 py-1.5 text-xs font-bold text-white bg-[#0b132b] hover:bg-[#1c2541] rounded-lg transition disabled:opacity-50"
+                            >
+                              {guestOtpSending ? 'Sending SMS Code...' : 'Send Verification Code'}
+                            </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  id="guest-cod-otp-input"
+                                  maxLength={6}
+                                  placeholder="6-digit code"
+                                  value={guestOtpInput}
+                                  onChange={(e) => setGuestOtpInput(e.target.value.replace(/\D/g, ''))}
+                                  className="w-32 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg text-center tracking-widest font-mono focus:ring-2 focus:ring-[#ff8a00]"
+                                />
+                                <button
+                                  type="button"
+                                  id="verify-guest-cod-otp-btn"
+                                  onClick={(e) => { e.preventDefault(); void handleVerifyGuestOtp(); }}
+                                  disabled={guestOtpVerifying || guestOtpInput.length !== 6}
+                                  className="px-3 py-1.5 text-xs font-bold text-white bg-[#ff8a00] hover:bg-[#e07a00] rounded-lg transition disabled:opacity-50"
+                                >
+                                  {guestOtpVerifying ? 'Verifying...' : 'Verify Code'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {guestOtpError && (
+                            <p className="text-[11px] text-rose-600 font-medium">{guestOtpError}</p>
+                          )}
+                        </div>
+                      )}
+
+                      {m.code === 'cod' && paymentMethod === 'cod' && !user && guestVerificationToken && (
+                        <div className="mt-2 text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+                          <CheckCircle2 size={14} className="text-emerald-600" />
+                          <span>Phone verified for Cash on Delivery</span>
+                        </div>
+                      )}
                     </div>
                   </label>
                 ))}

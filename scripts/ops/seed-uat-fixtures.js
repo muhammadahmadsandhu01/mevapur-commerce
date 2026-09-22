@@ -126,7 +126,7 @@ function convertMongoTypes(obj) {
     if (key === '_id' && typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val)) {
       out[key] = new mongoose.Types.ObjectId(val);
     } else if (
-      (key.endsWith('Id') || key === 'user' || key === 'order' || key === 'customer' || key === 'category' || key === 'payment') &&
+      (key.endsWith('Id') || key.endsWith('By') || key.endsWith('Actor') || key === 'user' || key === 'order' || key === 'customer' || key === 'category' || key === 'payment') &&
       typeof val === 'string' &&
       /^[0-9a-fA-F]{24}$/.test(val)
     ) {
