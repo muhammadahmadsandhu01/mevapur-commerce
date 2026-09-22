@@ -159,6 +159,21 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
         expect(err.message).toContain('external-public-cluster.com');
       }
     });
+
+    test('7d. Hostname with .local suffix (e.g. attacker.local, remote-db.local) is strictly rejected before connection', () => {
+      const maliciousLocalUri = 'mongodb://attacker.local:27017/disposable_uat_test';
+      expect(() => parseAndValidateUri(maliciousLocalUri)).toThrow(/is not a permitted local\/disposable target/);
+
+      const remoteDbLocalUri = 'mongodb://adminUser:secret123@remote-db.local:27017/disposable_uat_test';
+      try {
+        parseAndValidateUri(remoteDbLocalUri);
+        throw new Error('Should have failed');
+      } catch (err) {
+        expect(err.message).toContain('is not a permitted local/disposable target');
+        expect(err.message).not.toContain('secret123');
+        expect(err.message).toContain('***:***');
+      }
+    });
   });
 
   describe('2. Dry-Run & Provider Mock Enforcement', () => {
@@ -582,6 +597,60 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
 
       const ownership = await db.collection('_uat_fixture_ownership').findOne({});
       expect(ownership).toBeNull();
+    });
+
+    test('28. Authoritative production models query seeded documents successfully', async () => {
+      await seedUatFixtures({
+        mongoUri: testDbUri,
+        applyToken: REQUIRED_SEED_TOKEN
+      });
+
+      const ProductMarketOffering = require('../../models/ProductMarketOffering');
+      const MarketPriceBook = require('../../models/MarketPriceBook');
+      const InventoryPosition = require('../../models/InventoryPosition');
+      const OrderDocument = require('../../models/OrderDocument');
+      const TransactionalMessage = require('../../models/TransactionalMessage');
+      const Return = require('../../models/Return');
+      const Refund = require('../../models/Refund');
+      const CustomerOperationException = require('../../models/CustomerOperationException');
+      const FulfillmentLocation = require('../../models/FulfillmentLocation');
+
+      const pmo = directConnection.models.ProductMarketOffering || directConnection.model('ProductMarketOffering', ProductMarketOffering.schema);
+      const mpb = directConnection.models.MarketPriceBook || directConnection.model('MarketPriceBook', MarketPriceBook.schema);
+      const inv = directConnection.models.InventoryPosition || directConnection.model('InventoryPosition', InventoryPosition.schema);
+      const ordDoc = directConnection.models.OrderDocument || directConnection.model('OrderDocument', OrderDocument.schema);
+      const msg = directConnection.models.TransactionalMessage || directConnection.model('TransactionalMessage', TransactionalMessage.schema);
+      const ret = directConnection.models.Return || directConnection.model('Return', Return.schema);
+      const ref = directConnection.models.Refund || directConnection.model('Refund', Refund.schema);
+      const exc = directConnection.models.CustomerOperationException || directConnection.model('CustomerOperationException', CustomerOperationException.schema);
+      const fl = directConnection.models.FulfillmentLocation || directConnection.model('FulfillmentLocation', FulfillmentLocation.schema);
+
+      const offeringCount = await pmo.countDocuments({ marketCountry: 'PK' });
+      expect(offeringCount).toBe(4);
+
+      const priceCount = await mpb.countDocuments({ currency: 'PKR' });
+      expect(priceCount).toBe(4);
+
+      const invCount = await inv.countDocuments({ locationCode: 'KHI-WH-01' });
+      expect(invCount).toBe(4);
+
+      const docCount = await ordDoc.countDocuments({ documentNumber: 'DOC-UAT-REC-001' });
+      expect(docCount).toBe(1);
+
+      const msgCount = await msg.countDocuments({ channel: 'EMAIL' });
+      expect(msgCount).toBe(2);
+
+      const returnCount = await ret.countDocuments({ returnNumber: 'RET-UAT-001' });
+      expect(returnCount).toBe(1);
+
+      const refundCount = await ref.countDocuments({ refundNumber: 'REF-UAT-001' });
+      expect(refundCount).toBe(1);
+
+      const exceptionCount = await exc.countDocuments({ exceptionNumber: 'EXC-UAT-PAYMENT-001' });
+      expect(exceptionCount).toBe(1);
+
+      const flCount = await fl.countDocuments({ locationCode: 'KHI-WH-01' });
+      expect(flCount).toBe(1);
     });
   });
 });

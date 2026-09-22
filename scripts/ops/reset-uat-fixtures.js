@@ -56,9 +56,9 @@ function parseAndValidateUri(rawUri) {
     'mongodb',
     'mongo'
   ]);
-  const isAllowedHost = ALLOWED_LOCAL_HOSTS.has(host) || host.endsWith('.local');
+  const isAllowedHost = ALLOWED_LOCAL_HOSTS.has(host);
   if (!isAllowedHost) {
-    throw new Error(`Safety check rejected: Host "${host}" in URI ${redactMongoUri(uri)} is not a permitted local/disposable target. Only local endpoints (localhost, 127.0.0.1, ::1, mongodb, mongo) are permitted.`);
+    throw new Error(`Safety check rejected: Host "${host}" in URI ${redactMongoUri(uri)} is not a permitted local/disposable target. Only exact approved endpoints (localhost, 127.0.0.1, ::1, or Docker service aliases mongodb, mongo) are permitted.`);
   }
 
   const dbName = parsed.pathname ? parsed.pathname.replace(/^\//, '').split('?')[0].trim() : '';
