@@ -16,7 +16,7 @@
 
 const http = require('http');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 let mongoose;
 try {
@@ -53,10 +53,35 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function probeHealth(port = backendPort, timeoutMs = 25000) {
+function getContainerLogs(name) {
+  try {
+    return execSync(`docker logs --tail 50 ${name}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch {
+    return '(unable to retrieve container logs)';
+  }
+}
+
+function getContainerState(name) {
+  try {
+    return execSync(`docker inspect ${name} --format "{{.State.Status}} (exit {{.State.ExitCode}})"`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function probeHealth(port = backendPort, timeoutMs = 25000, name = containerName) {
   return new Promise(async (resolve, reject) => {
     const startTime = Date.now();
+    let lastStatus = null;
+    let lastError = null;
+
     while (Date.now() - startTime < timeoutMs) {
+      const state = getContainerState(name);
+      if (state.startsWith('exited') || state.startsWith('dead')) {
+        const logs = getContainerLogs(name);
+        return reject(new Error(`Container ${name} terminated prematurely [${state}]. Logs:\n${logs}`));
+      }
+
       try {
         const res = await new Promise((resResolve, resReject) => {
           const req = http.get(`http://127.0.0.1:${port}/health/ready`, { timeout: 2000 }, (r) => {
@@ -66,14 +91,58 @@ function probeHealth(port = backendPort, timeoutMs = 25000) {
           req.on('timeout', () => { req.destroy(); resReject(new Error('Timeout')); });
         });
 
+        lastStatus = res;
         if (res === 200) {
           return resolve(true);
         }
-      } catch {}
+      } catch (err) {
+        lastError = err.message;
+      }
       await sleep(1000);
     }
-    reject(new Error(`Container healthcheck timed out after ${timeoutMs}ms on port ${port}`));
+
+    const logs = getContainerLogs(name);
+    const finalState = getContainerState(name);
+    reject(new Error(`Container healthcheck timed out after ${timeoutMs}ms on port ${port} (lastStatus: ${lastStatus}, lastError: ${lastError}, state: ${finalState}). Logs:\n${logs}`));
   });
+}
+
+function runRehearsalContainer(imageTag, port, containerMongoUri) {
+  const envVars = [
+    'NODE_ENV=production',
+    'APP_ENV=development',
+    'PORT=5000',
+    'LOG_FILE_ENABLED=false',
+    'FRONTEND_URL=http://localhost:3000',
+    'ADMIN_URL=http://localhost:3001',
+    'BACKEND_PUBLIC_URL=http://localhost:5000',
+    `MONGODB_URI=${containerMongoUri}`,
+    'EMAIL_MODE=mock',
+    'EMAIL_BRAND_NAME=HARZAAR',
+    'COMMERCE_MONEY_MODE=legacy',
+    'COMMERCE_TWO_PHASE_CHECKOUT_ENABLED=true',
+    'RATE_LIMIT_STORE=memory',
+    'AI_RATE_LIMIT_STORE=memory',
+    'JWT_SECRET=test_jwt_secret_must_be_at_least_32_characters_long_for_security'
+  ];
+
+  const args = [
+    'run', '-d',
+    '--name', containerName,
+    '--network', dockerNetwork,
+    '-p', `${port}:5000`
+  ];
+
+  for (const env of envVars) {
+    args.push('-e', env);
+  }
+  args.push(imageTag);
+
+  const res = spawnSync('docker', args, { encoding: 'utf8' });
+  if (res.status !== 0) {
+    throw new Error(`Failed to start docker container ${containerName} (${imageTag}): ${res.stderr || res.stdout}`);
+  }
+  return res.stdout.trim();
 }
 
 function execDocker(cmd) {
@@ -124,13 +193,11 @@ async function verifyContainerRollbackRuntime() {
     // Ensure no existing rehearsal container is running
     try { execDocker(`docker rm -f ${containerName}`); } catch {}
 
-    const containerEnvFlags = `-e NODE_ENV=production -e APP_ENV=development -e JWT_SECRET=test_jwt_secret_must_be_at_least_32_characters_long_for_security -e MONGODB_URI="${containerMongoUri}" -e PORT=5000`;
-
     // STEP 1: Deploy Release A container
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 1: Starting Release A container (${imageA})...`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 ${containerEnvFlags} ${imageA}`);
+    runRehearsalContainer(imageA, backendPort, containerMongoUri);
 
-    await probeHealth(backendPort, 25000);
+    await probeHealth(backendPort, 25000, containerName);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release A container is healthy (/health/ready -> 200 OK).');
 
     // Seed Release A persistent fixtures
@@ -145,9 +212,9 @@ async function verifyContainerRollbackRuntime() {
     // STEP 2: Deploy Release B container (replaces Release A container)
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 2: Deploying Release B container (${imageB})...`);
     execDocker(`docker rm -f ${containerName}`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 ${containerEnvFlags} ${imageB}`);
+    runRehearsalContainer(imageB, backendPort, containerMongoUri);
 
-    await probeHealth(backendPort, 25000);
+    await probeHealth(backendPort, 25000, containerName);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Release B container is healthy (/health/ready -> 200 OK).');
 
     // Additive Release B record
@@ -161,9 +228,9 @@ async function verifyContainerRollbackRuntime() {
     // STEP 3: Rollback to Release A container
     console.log(`[ROLLBACK-RUNTIME-VERIFY] Step 3: Rolling back to Release A container (${imageA})...`);
     execDocker(`docker rm -f ${containerName}`);
-    execDocker(`docker run -d --name ${containerName} --network ${dockerNetwork} -p ${backendPort}:5000 ${containerEnvFlags} ${imageA}`);
+    runRehearsalContainer(imageA, backendPort, containerMongoUri);
 
-    await probeHealth(backendPort, 25000);
+    await probeHealth(backendPort, 25000, containerName);
     console.log('[ROLLBACK-RUNTIME-VERIFY] ✓ Restored Release A container is healthy (/health/ready -> 200 OK).');
 
     // Verify original Release A fixtures are intact and unchanged
@@ -190,7 +257,9 @@ async function verifyContainerRollbackRuntime() {
     };
   } finally {
     try { execDocker(`docker rm -f ${containerName}`); } catch {}
-    await conn.close();
+    if (conn) {
+      await conn.close();
+    }
   }
 }
 
