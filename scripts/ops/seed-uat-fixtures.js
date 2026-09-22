@@ -55,11 +55,16 @@ function parseAndValidateUri(rawUri) {
   }
 
   const host = parsed.hostname.toLowerCase();
-  const PROD_HOST_PATTERNS = ['prod', 'production', 'cluster0', 'mongodb.net', 'live'];
-  for (const pat of PROD_HOST_PATTERNS) {
-    if (host.includes(pat)) {
-      throw new Error(`Safety check rejected: Hostname "${host}" indicates a production or remote cloud cluster. Only local disposable/test hosts are allowed.`);
-    }
+  const ALLOWED_LOCAL_HOSTS = new Set([
+    'localhost',
+    '127.0.0.1',
+    '::1',
+    'mongodb',
+    'mongo'
+  ]);
+  const isAllowedHost = ALLOWED_LOCAL_HOSTS.has(host) || host.endsWith('.local');
+  if (!isAllowedHost) {
+    throw new Error(`Safety check rejected: Host "${host}" in URI ${redactMongoUri(uri)} is not a permitted local/disposable target. Only local endpoints (localhost, 127.0.0.1, ::1, mongodb, mongo) are permitted.`);
   }
 
   const dbName = parsed.pathname ? parsed.pathname.replace(/^\//, '').split('?')[0].trim() : '';
@@ -142,7 +147,8 @@ async function seedUatFixtures({
   applyToken = null,
   dryRun = false,
   manifestPath = MANIFEST_PATH,
-  fixturePassword = process.env.UAT_FIXTURE_PASSWORD
+  fixturePassword = process.env.UAT_FIXTURE_PASSWORD,
+  injectFailureBeforeOwnership = false
 } = {}) {
   // 1. Safety Guard: Environment validation
   validateEnvironment();
@@ -247,78 +253,152 @@ async function seedUatFixtures({
       };
     }
 
-    // 11. Seeding Execution with Compensating Cleanup Tracking
-    const insertedByCurrentRun = [];
+    // 11. Transaction Capability Detection
+    let supportsTransactions = false;
     try {
-      for (const colName of manifest.dependencyOrder) {
-        const records = manifest.datasets[colName] || [];
-        const col = db.collection(colName);
+      const helloCmd = await db.command({ hello: 1 }).catch(() => db.command({ isMaster: 1 }));
+      supportsTransactions = Boolean(helloCmd.setName || helloCmd.isreplicaset);
+    } catch {
+      supportsTransactions = false;
+    }
 
-        for (const record of records) {
-          const fingerprint = computeIdentityFingerprint(colName, record._id, record.identityFields);
-          const rawDoc = JSON.parse(JSON.stringify(record));
-          delete rawDoc.identityFields;
+    // 12. Seeding Execution: Replica Set Transaction or Standalone Compensating Fallback
+    const insertedRecords = [];
+    if (supportsTransactions) {
+      const session = connection.client.startSession();
+      try {
+        await session.withTransaction(async () => {
+          for (const colName of manifest.dependencyOrder) {
+            const records = manifest.datasets[colName] || [];
+            const col = db.collection(colName);
 
-          if (colName === 'users') {
-            rawDoc.password = hashedPassword;
+            for (const record of records) {
+              const fingerprint = computeIdentityFingerprint(colName, record._id, record.identityFields);
+              const rawDoc = JSON.parse(JSON.stringify(record));
+              delete rawDoc.identityFields;
+
+              if (colName === 'users') {
+                rawDoc.password = hashedPassword;
+              }
+
+              const docToInsert = convertMongoTypes(rawDoc);
+              await col.insertOne(docToInsert, { session });
+
+              insertedRecords.push({
+                collection: colName,
+                documentId: String(record._id),
+                identityFields: record.identityFields,
+                fingerprint
+              });
+            }
           }
 
-          const docToInsert = convertMongoTypes(rawDoc);
-          await col.insertOne(docToInsert);
+          if (injectFailureBeforeOwnership) {
+            throw new Error('SIMULATED_TRANSACTION_FAILURE');
+          }
 
-          insertedByCurrentRun.push({
-            collection: colName,
-            documentId: String(record._id),
-            identityFields: record.identityFields,
-            fingerprint
-          });
-        }
-      }
-
-      // Record Ownership Document
-      const ownershipDoc = {
-        namespace: manifest.fixtureNamespace,
-        fixtureSpecificationVersion: manifest.specificationVersion,
-        seedRunId: crypto.randomUUID(),
-        collections: manifest.dependencyOrder,
-        insertedRecords: insertedByCurrentRun.map((r) => ({
-          collection: r.collection,
-          documentId: r.documentId,
-          identityFields: r.identityFields,
-          fingerprint: r.fingerprint,
-          status: 'INSERTED'
-        })),
-        status: 'COMPLETED',
-        createdAt: new Date(),
-        seederVersion: '1.0.0'
-      };
-      await ownershipCol.insertOne(ownershipDoc);
-
-      // Verify counts
-      for (const [colName, expected] of Object.entries(manifest.expectedCounts)) {
-        const count = await db.collection(colName).countDocuments({
-          _id: { $in: manifest.datasets[colName].map((r) => new mongoose.Types.ObjectId(r._id)) }
+          // Record Ownership Document inside transaction
+          const ownershipDoc = {
+            namespace: manifest.fixtureNamespace,
+            fixtureSpecificationVersion: manifest.specificationVersion,
+            seedRunId: crypto.randomUUID(),
+            collections: manifest.dependencyOrder,
+            insertedRecords: insertedRecords.map((r) => ({
+              collection: r.collection,
+              documentId: r.documentId,
+              identityFields: r.identityFields,
+              fingerprint: r.fingerprint,
+              status: 'INSERTED'
+            })),
+            status: 'COMPLETED',
+            createdAt: new Date(),
+            seederVersion: '1.0.0'
+          };
+          await ownershipCol.insertOne(ownershipDoc, { session });
         });
-        if (count !== expected) {
-          throw new Error(`Post-seed count mismatch in "${colName}": expected ${expected}, got ${count}`);
-        }
+      } finally {
+        await session.endSession();
       }
+    } else {
+      // Standalone MongoDB Fallback: Compensating Cleanup Tracking
+      const insertedByCurrentRun = [];
+      try {
+        for (const colName of manifest.dependencyOrder) {
+          const records = manifest.datasets[colName] || [];
+          const col = db.collection(colName);
 
-      return {
-        status: 'SEEDED_SUCCESS',
-        namespace: manifest.fixtureNamespace,
-        recordCount: insertedByCurrentRun.length,
-        message: `Successfully seeded ${insertedByCurrentRun.length} deterministic UAT fixtures.`
-      };
-    } catch (insertErr) {
-      // Compensating Cleanup in Reverse Dependency Order
-      for (const item of [...insertedByCurrentRun].reverse()) {
-        try {
-          await db.collection(item.collection).deleteOne({ _id: new mongoose.Types.ObjectId(item.documentId) });
-        } catch {}
+          for (const record of records) {
+            const fingerprint = computeIdentityFingerprint(colName, record._id, record.identityFields);
+            const rawDoc = JSON.parse(JSON.stringify(record));
+            delete rawDoc.identityFields;
+
+            if (colName === 'users') {
+              rawDoc.password = hashedPassword;
+            }
+
+            const docToInsert = convertMongoTypes(rawDoc);
+            await col.insertOne(docToInsert);
+
+            insertedByCurrentRun.push({
+              collection: colName,
+              documentId: String(record._id),
+              identityFields: record.identityFields,
+              fingerprint
+            });
+            insertedRecords.push(insertedByCurrentRun[insertedByCurrentRun.length - 1]);
+          }
+        }
+
+        if (injectFailureBeforeOwnership) {
+          throw new Error('SIMULATED_FALLBACK_FAILURE');
+        }
+
+        // Record Ownership Document
+        const ownershipDoc = {
+          namespace: manifest.fixtureNamespace,
+          fixtureSpecificationVersion: manifest.specificationVersion,
+          seedRunId: crypto.randomUUID(),
+          collections: manifest.dependencyOrder,
+          insertedRecords: insertedByCurrentRun.map((r) => ({
+            collection: r.collection,
+            documentId: r.documentId,
+            identityFields: r.identityFields,
+            fingerprint: r.fingerprint,
+            status: 'INSERTED'
+          })),
+          status: 'COMPLETED',
+          createdAt: new Date(),
+          seederVersion: '1.0.0'
+        };
+        await ownershipCol.insertOne(ownershipDoc);
+      } catch (insertErr) {
+        // Compensating Cleanup in Reverse Dependency Order
+        for (const item of [...insertedByCurrentRun].reverse()) {
+          try {
+            await db.collection(item.collection).deleteOne({ _id: new mongoose.Types.ObjectId(item.documentId) });
+          } catch {}
+        }
+        throw new Error(`Seeding failed (compensating cleanup executed): ${redactMongoUri(insertErr.message)}`);
       }
-      throw new Error(`Seeding failed (compensating cleanup executed): ${redactMongoUri(insertErr.message)}`);
     }
+
+    // Verify counts
+    for (const [colName, expected] of Object.entries(manifest.expectedCounts)) {
+      const count = await db.collection(colName).countDocuments({
+        _id: { $in: manifest.datasets[colName].map((r) => new mongoose.Types.ObjectId(r._id)) }
+      });
+      if (count !== expected) {
+        throw new Error(`Post-seed count mismatch in "${colName}": expected ${expected}, got ${count}`);
+      }
+    }
+
+    return {
+      status: 'SEEDED_SUCCESS',
+      namespace: manifest.fixtureNamespace,
+      recordCount: insertedRecords.length,
+      supportsTransactions,
+      message: `Successfully seeded ${insertedRecords.length} deterministic UAT fixtures (${supportsTransactions ? 'replica set transaction' : 'standalone compensating tracking'}).`
+    };
   } finally {
     if (connection) {
       await connection.close();

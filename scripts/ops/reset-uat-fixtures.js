@@ -3,7 +3,7 @@
  * @file reset-uat-fixtures.js
  * @description Deterministic UAT fixture reset tool for Phase 10 Manual QA, Load Testing, and Launch Readiness.
  * Deletes strictly by exact manifest-owned IDs in reverse dependency order after verifying stable identity fingerprints.
- * Never uses dropDatabase(), collection.drop(), or broad wildcard deletions. Removes ownership record last.
+ * Never drops databases or collections, and never uses broad wildcard deletions. Removes ownership record last.
  *
  * Usage:
  *   node scripts/ops/reset-uat-fixtures.js --apply-token=PHASE10_UAT_RESET_CONFIRMED [--dry-run]
@@ -49,11 +49,16 @@ function parseAndValidateUri(rawUri) {
   }
 
   const host = parsed.hostname.toLowerCase();
-  const PROD_HOST_PATTERNS = ['prod', 'production', 'cluster0', 'mongodb.net', 'live'];
-  for (const pat of PROD_HOST_PATTERNS) {
-    if (host.includes(pat)) {
-      throw new Error(`Safety check rejected: Hostname "${host}" indicates a production or remote cloud cluster. Only local disposable/test hosts are allowed.`);
-    }
+  const ALLOWED_LOCAL_HOSTS = new Set([
+    'localhost',
+    '127.0.0.1',
+    '::1',
+    'mongodb',
+    'mongo'
+  ]);
+  const isAllowedHost = ALLOWED_LOCAL_HOSTS.has(host) || host.endsWith('.local');
+  if (!isAllowedHost) {
+    throw new Error(`Safety check rejected: Host "${host}" in URI ${redactMongoUri(uri)} is not a permitted local/disposable target. Only local endpoints (localhost, 127.0.0.1, ::1, mongodb, mongo) are permitted.`);
   }
 
   const dbName = parsed.pathname ? parsed.pathname.replace(/^\//, '').split('?')[0].trim() : '';
@@ -196,17 +201,43 @@ async function resetUatFixtures({
       };
     }
 
-    // 9. Deletion Phase in Reverse Dependency Order
-    let deletedCount = 0;
-    for (const item of deletionPlan) {
-      const result = await db.collection(item.collection).deleteOne({ _id: item.id });
-      if (result.deletedCount > 0) {
-        deletedCount += result.deletedCount;
-      }
+    // 9. Transaction Capability Detection
+    let supportsTransactions = false;
+    try {
+      const helloCmd = await db.command({ hello: 1 }).catch(() => db.command({ isMaster: 1 }));
+      supportsTransactions = Boolean(helloCmd.setName || helloCmd.isreplicaset);
+    } catch {
+      supportsTransactions = false;
     }
 
-    // 10. Remove Ownership Record Last
-    await ownershipCol.deleteOne({ _id: ownershipRecord._id });
+    // 10. Deletion Phase in Reverse Dependency Order
+    let deletedCount = 0;
+    if (supportsTransactions) {
+      const session = connection.client.startSession();
+      try {
+        await session.withTransaction(async () => {
+          for (const item of deletionPlan) {
+            const result = await db.collection(item.collection).deleteOne({ _id: item.id }, { session });
+            if (result.deletedCount > 0) {
+              deletedCount += result.deletedCount;
+            }
+          }
+          // Remove Ownership Record Last inside transaction
+          await ownershipCol.deleteOne({ _id: ownershipRecord._id }, { session });
+        });
+      } finally {
+        await session.endSession();
+      }
+    } else {
+      for (const item of deletionPlan) {
+        const result = await db.collection(item.collection).deleteOne({ _id: item.id });
+        if (result.deletedCount > 0) {
+          deletedCount += result.deletedCount;
+        }
+      }
+      // Remove Ownership Record Last
+      await ownershipCol.deleteOne({ _id: ownershipRecord._id });
+    }
 
     // 11. Post-Reset Zero-Orphan Verification
     const allManifestIds = [];

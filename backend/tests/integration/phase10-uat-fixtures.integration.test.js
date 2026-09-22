@@ -9,7 +9,7 @@
 const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { MongoMemoryServer, MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const {
   seedUatFixtures,
@@ -138,6 +138,27 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
         expect(err.message).toContain('***:***');
       }
     });
+
+    test('7b. Localhost disposable UAT target is accepted', () => {
+      const validLocalUri = 'mongodb://127.0.0.1:27017/disposable_uat_test';
+      const parsed = parseAndValidateUri(validLocalUri);
+      expect(parsed.dbName).toBe('disposable_uat_test');
+      expect(parsed.host).toBe('127.0.0.1:27017');
+    });
+
+    test('7c. Arbitrary remote/public MongoDB host is rejected before connection and credentials redacted', () => {
+      const remoteUri = 'mongodb://remoteUser:superSecretPassword789@external-public-cluster.com:27017/disposable_uat_test';
+      expect(() => parseAndValidateUri(remoteUri)).toThrow(/is not a permitted local\/disposable target/);
+
+      try {
+        parseAndValidateUri(remoteUri);
+      } catch (err) {
+        expect(err.message).not.toContain('superSecretPassword789');
+        expect(err.message).not.toContain('remoteUser');
+        expect(err.message).toContain('***:***');
+        expect(err.message).toContain('external-public-cluster.com');
+      }
+    });
   });
 
   describe('2. Dry-Run & Provider Mock Enforcement', () => {
@@ -171,8 +192,32 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
       expect(guestUser).toBeNull();
     });
 
-    test('12. Live provider adapters are never called (forced to mock)', async () => {
+    test('12. Live provider adapters are never called (verified via HTTP/HTTPS spies)', async () => {
       expect(process.env.EMAIL_MODE).toBe('mock');
+
+      const http = require('http');
+      const https = require('https');
+      const httpSpy = jest.spyOn(http, 'request');
+      const httpsSpy = jest.spyOn(https, 'request');
+
+      await seedUatFixtures({
+        mongoUri: testDbUri,
+        applyToken: REQUIRED_SEED_TOKEN
+      });
+
+      expect(httpSpy).not.toHaveBeenCalled();
+      expect(httpsSpy).not.toHaveBeenCalled();
+
+      await resetUatFixtures({
+        mongoUri: testDbUri,
+        applyToken: REQUIRED_RESET_TOKEN
+      });
+
+      expect(httpSpy).not.toHaveBeenCalled();
+      expect(httpsSpy).not.toHaveBeenCalled();
+
+      httpSpy.mockRestore();
+      httpsSpy.mockRestore();
     });
   });
 
@@ -449,6 +494,94 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
       // Assert neither script invokes deleteMany({}) without exact filter
       expect(cleanSeed).not.toMatch(/\.deleteMany\s*\(\s*\{\s*\}\s*\)/);
       expect(cleanReset).not.toMatch(/\.deleteMany\s*\(\s*\{\s*\}\s*\)/);
+    });
+  });
+
+  describe('6. Transaction and Fallback Verification', () => {
+    let replSet;
+    let replUri;
+    let replConnection;
+
+    beforeAll(async () => {
+      replSet = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
+      replUri = replSet.getUri('disposable_uat_repl_test');
+      replConnection = await mongoose.createConnection(replUri).asPromise();
+    }, 60000);
+
+    afterAll(async () => {
+      if (replConnection) {
+        await replConnection.close();
+      }
+      if (replSet) {
+        await replSet.stop();
+      }
+    });
+
+    test('25. Transaction-path successful seed and reset on MongoDB replica set', async () => {
+      const seedResult = await seedUatFixtures({
+        mongoUri: replUri,
+        applyToken: REQUIRED_SEED_TOKEN
+      });
+
+      expect(seedResult.status).toBe('SEEDED_SUCCESS');
+      expect(seedResult.supportsTransactions).toBe(true);
+
+      const db = replConnection.db;
+      for (const [colName, expectedCount] of Object.entries(manifest.expectedCounts)) {
+        const count = await db.collection(colName).countDocuments({});
+        expect(count).toBe(expectedCount);
+      }
+
+      const resetResult = await resetUatFixtures({
+        mongoUri: replUri,
+        applyToken: REQUIRED_RESET_TOKEN
+      });
+
+      expect(resetResult.status).toBe('RESET_SUCCESS');
+      expect(resetResult.deletedCount).toBe(42);
+
+      for (const colName of manifest.dependencyOrder) {
+        const count = await db.collection(colName).countDocuments({});
+        expect(count).toBe(0);
+      }
+    }, 30000);
+
+    test('26. Injected transaction failure aborts transaction and leaves zero partial fixture documents', async () => {
+      await expect(
+        seedUatFixtures({
+          mongoUri: replUri,
+          applyToken: REQUIRED_SEED_TOKEN,
+          injectFailureBeforeOwnership: true
+        })
+      ).rejects.toThrow(/SIMULATED_TRANSACTION_FAILURE/);
+
+      const db = replConnection.db;
+      for (const colName of manifest.dependencyOrder) {
+        const count = await db.collection(colName).countDocuments({});
+        expect(count).toBe(0);
+      }
+
+      const ownership = await db.collection('_uat_fixture_ownership').findOne({});
+      expect(ownership).toBeNull();
+    }, 30000);
+
+    test('27. Fallback compensation on standalone MongoDB leaves zero partial fixture documents upon failure', async () => {
+      await expect(
+        seedUatFixtures({
+          mongoUri: testDbUri,
+          applyToken: REQUIRED_SEED_TOKEN,
+          injectFailureBeforeOwnership: true
+        })
+      ).rejects.toThrow(/SIMULATED_FALLBACK_FAILURE/);
+
+      const db = directConnection.db;
+      for (const colName of manifest.dependencyOrder) {
+        const count = await db.collection(colName).countDocuments({});
+        expect(count).toBe(0);
+      }
+
+      const ownership = await db.collection('_uat_fixture_ownership').findOne({});
+      expect(ownership).toBeNull();
     });
   });
 });
