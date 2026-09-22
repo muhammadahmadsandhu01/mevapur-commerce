@@ -1,0 +1,233 @@
+{
+  "targetCommitSha": "0deb3ebffbe26afc576391c57608cb8fa36bc50f",
+  "evidenceTimestamp": "20260922T120000Z",
+  "evaluatedAt": "2026-09-22T16:43:12.103Z",
+  "reproducibilityClassification": "BYTE_DETERMINISTIC",
+  "provenanceVerdict": "VERIFIED",
+  "runs": {
+    "run1": {
+      "durationMs": 48803,
+      "artifactCount": 24,
+      "requestCount": 802,
+      "externalRequestCount": 0
+    },
+    "run2": {
+      "durationMs": 38684,
+      "artifactCount": 24,
+      "requestCount": 802,
+      "externalRequestCount": 0
+    }
+  },
+  "normalizedPropertiesCompared": {
+    "artifactFilenameInventory": "IDENTICAL",
+    "viewportMatrix": "IDENTICAL",
+    "zeroHorizontalOverflowChecks": "IDENTICAL_ZERO_OVERFLOW",
+    "axeWcagAuditResults": "IDENTICAL_ZERO_CRITICAL_SERIOUS_VIOLATIONS",
+    "networkHermeticityStatus": "ZERO_EXTERNAL_CALLS_VERIFIED",
+    "screenshotDimensions": "IDENTICAL_ALL_VIEWPORTS",
+    "screenshotByteDeterminism": "BYTE_EXACT_MATCH"
+  },
+  "totalScreenshotsCompared": 22,
+  "byteExactCount": 22,
+  "semanticOnlyCount": 0,
+  "screenshotArtifacts": [
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_A11Y-01-skiplink_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "6f4d9e77bb296220e107bf1c50a952319aab627b17d9a7a6214fee46b016972e",
+      "sha256Run2": "6f4d9e77bb296220e107bf1c50a952319aab627b17d9a7a6214fee46b016972e",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_CAT-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_CHK-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_CHK-02_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_COD-ACC-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_COD-ACC-02_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_COD-ACC-07_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_CRT-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_DOC-01-receipt_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_DOC-01-taxinvoice_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_NAV-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_NAV-01_375x812_20260922T120000Z.png",
+      "dimensionsRun1": "375x812",
+      "dimensionsRun2": "375x812",
+      "dimensionsMatch": true,
+      "sha256Run1": "654433a31f2732dd8e9520ab8dab1efa2d81e44096b146693da4ab0494025061",
+      "sha256Run2": "654433a31f2732dd8e9520ab8dab1efa2d81e44096b146693da4ab0494025061",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_ORD-01-list_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_ORD-01-timeline_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_PRD-01-instock_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_PRD-01-outofstock_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_RET-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-1024x768_1024x768_20260922T120000Z.png",
+      "dimensionsRun1": "1024x768",
+      "dimensionsRun2": "1024x768",
+      "dimensionsMatch": true,
+      "sha256Run1": "5f077c548b7b9f178b8568c0a1cb16dfc1a9cfdab636068a400b785a3f54f9a6",
+      "sha256Run2": "5f077c548b7b9f178b8568c0a1cb16dfc1a9cfdab636068a400b785a3f54f9a6",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-1440x900_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "sha256Run2": "451374aff0fea99ab40307b54edafc53733301c6ae3869ae70acc5463b4743a7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-320x800_320x800_20260922T120000Z.png",
+      "dimensionsRun1": "320x800",
+      "dimensionsRun2": "320x800",
+      "dimensionsMatch": true,
+      "sha256Run1": "540d58f7a5da7b1381199aa1cdf601e3113ff897f553698eaec15d04ad91853d",
+      "sha256Run2": "540d58f7a5da7b1381199aa1cdf601e3113ff897f553698eaec15d04ad91853d",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-375x812_375x812_20260922T120000Z.png",
+      "dimensionsRun1": "375x812",
+      "dimensionsRun2": "375x812",
+      "dimensionsMatch": true,
+      "sha256Run1": "654433a31f2732dd8e9520ab8dab1efa2d81e44096b146693da4ab0494025061",
+      "sha256Run2": "654433a31f2732dd8e9520ab8dab1efa2d81e44096b146693da4ab0494025061",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-768x1024_768x1024_20260922T120000Z.png",
+      "dimensionsRun1": "768x1024",
+      "dimensionsRun2": "768x1024",
+      "dimensionsMatch": true,
+      "sha256Run1": "9351b57a401b1df2099e345642bed231539e9c934697f40fcbceb3e406ecc56f",
+      "sha256Run2": "9351b57a401b1df2099e345642bed231539e9c934697f40fcbceb3e406ecc56f",
+      "byteDeterministic": true
+    }
+  ]
+}
