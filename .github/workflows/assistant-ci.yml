@@ -259,14 +259,16 @@ jobs:
       - name: Generate MongoDB Replica-Set Keyfile
         # MongoDB enforces strict keyfile permissions: the file must be mode
         # 400 or 600 and owned by the mongod user (uid 999). The CI runner
-        # cannot chown to uid 999 without sudo, and chmod 444 is explicitly
-        # rejected ("permissions are too open").
+        # cannot chown to uid 999 without sudo.
         #
-        # Solution: run a disposable Alpine container as uid 999 to generate
-        # the keyfile and write it to /tmp on the host via a bind-mount. The
-        # resulting /tmp/mongo-keyfile is owned by uid 999 with mode 400 —
-        # exactly what MongoDB requires when the file is bind-mounted into
-        # the mevapur-mongodb container at /etc/mongodb/keyfile.
+        # Solution: run a disposable mongo:7.0.14-jammy container as uid 999
+        # (which has openssl) to generate the keyfile and write it to /tmp on
+        # the host via a bind-mount. The resulting /tmp/mongo-keyfile is owned
+        # by uid 999 with mode 400 — exactly what MongoDB requires.
+        #
+        # Cleanup: the file is owned by uid 999 so the runner cannot rm it
+        # directly. The cleanup step uses 'sudo rm -f' (ubuntu-latest runners
+        # have passwordless sudo) to remove it unconditionally.
         #
         # The keyfile is:
         #   - written to /tmp (outside the repository checkout)
@@ -278,7 +280,7 @@ jobs:
           docker run --rm \
             --user 999:999 \
             -v /tmp:/output \
-            alpine \
+            mongo:7.0.14-jammy \
             sh -c "openssl rand -base64 756 > /output/mongo-keyfile && chmod 400 /output/mongo-keyfile"
           test -s /tmp/mongo-keyfile
 
@@ -348,4 +350,7 @@ jobs:
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p mevapur-ci --profile monitoring down -v --remove-orphans
           git worktree remove --force /tmp/baseline-src 2>/dev/null || true
-          rm -f /tmp/mongo-keyfile
+          # /tmp/mongo-keyfile is owned by uid 999 (generated inside the mongo
+          # container). The runner user cannot rm it directly; use sudo which
+          # is available passwordless on ubuntu-latest GitHub Actions runners.
+          sudo rm -f /tmp/mongo-keyfile 2>/dev/null || true
