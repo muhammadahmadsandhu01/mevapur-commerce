@@ -3,7 +3,7 @@
 > **Provenance Correction Notice (`INVALID_TARGET_SHA_ATTRIBUTION`)**:
 > The initial evidence artifacts originally attributed to commit `d520b8669340cf83fc0f3cd02f522a29268c221c` were captured after the uncommitted Toast contrast fix that became `ef00a3b96bf29b18eed92e47e55ee889ba4ade80`. Under the forward-only Git history model, those artifacts have been classified as `INVALID_TARGET_SHA_ATTRIBUTION` and removed from the active tree.
 >
-> Authoritative evidence in this ledger targets **`0deb3ebffbe26afc576391c57608cb8fa36bc50f`** (the Stage 1 reproducible harness commit), executed against a clean working tree.
+> Authoritative evidence in this ledger targets **`a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`** (the Stage 1 reproducible harness commit), executed against a clean working tree.
 >
 > **Evaluation Boundary**: All automated observations are classified as `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE` or `STATIC_SOURCE_EVIDENCE`. All subjective visual hierarchy, keyboard usability, OS print preview, and assistive technology verdicts remain `PENDING_HUMAN_REVIEW` or `BLOCKED_POLICY_GAP` / `BLOCKED_ENVIRONMENT_GAP`. No human tester identity is invented.
 
@@ -13,11 +13,11 @@
 
 | Metadata Field | Recorded Value |
 |---|---|
-| **Target Commit SHA (`0deb3ebffbe26afc576391c57608cb8fa36bc50f`)** | `0deb3ebffbe26afc576391c57608cb8fa36bc50f` (Commit A: hermetic evidence harness and source-of-truth reconciliation) |
-| **Previous Local Commit** | `019c3a9291bed56e626d70c8fcfaf8646481b069` |
+| **Target Commit SHA (`a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`)** | `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd` (Commit C: storefront evidence lint closure, non-mutating verification, manifest reconciliation) |
+| **Previous Local Commit** | `581ee4a98c4ebbcebeff490ecb552d1787ef691c` |
 | **Remote Tracking HEAD** | `d520b8669340cf83fc0f3cd02f522a29268c221c` |
 | **Reproducibility Classification** | `BYTE_DETERMINISTIC` (22 of 22 screenshots byte-identical across sequential isolated runs) |
-| **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (1,738 requests: 1,357 local allowed, 381 mocked; attempted: 0, blocked: 0, successful: 0) |
+| **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (802 requests: 802 local allowed, 0 mocked; attempted: 0, blocked: 0, successful: 0) |
 | **Execution Timestamp (UTC)** | `2026-09-22T12:00:00Z` |
 | **Environment / Build ID** | `LOCAL-UAT-STANDALONE-PORT-3528` |
 | **Operating System** | `Windows 11 Pro (win32 10.0.26100)` |
@@ -203,7 +203,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 1: NAV-01 — Homepage, Navigation, Mega-Menu, Category Routing, Mobile Drawer
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW` (Automated supporting pass by in-repo Playwright harness)
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)` & `375x812 (Mobile Standard)`
@@ -211,8 +211,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Header navbar renders brand logo, mega-menu category navigation, search bar, and cart trigger. On mobile (375x812), hamburger toggle opens sliding drawer, traps focus, locks body scroll, and provides accessible close action.
 9. **Actual result**: Header rendered cleanly at 1440x900 with visible category links. At 375x812, mobile menu button toggled navigation drawer; body scroll lock confirmed; close button restored focus.
 10. **Screenshot artifact paths**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_NAV-01_1440x900_20260922T120000Z.png`
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_NAV-01_375x812_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_NAV-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_NAV-01_375x812_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Zero console errors; touch target size >= 40px verified.
@@ -222,7 +222,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 2: CAT-01 — Category / Search / Filter / Sort and URL Query Synchronization
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -230,7 +230,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Navigating to `/products?search=almonds&sort=price_asc` renders matching catalog products, sets search input value, synchronizes URL query parameters, and provides sort options.
 9. **Actual result**: Catalog grid loaded filtered products, search query was reflected in URL state, category filters and sort dropdown displayed without layout shifts.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_CAT-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_CAT-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Axe audit on `/products` found 0 critical/serious violations; 18 passed rules.
@@ -240,7 +240,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 3: PRD-01 — Product Detail, Variants, SKU, Price, Image, Out-of-Stock Behavior
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -248,8 +248,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: In-stock product (`/products/almonds-roasted-500g`, ATP 100) displays formatted price (PKR 1,500), SKU, origin, and enabled "Add to Cart" button. Switching weight variant updates SKU and price. Out-of-stock product (`/products/pine-nuts-chilgoza-250g`, ATP 0) displays "Out of Stock" badge and disabled purchase button.
 9. **Actual result**: Both in-stock and out-of-stock states rendered accurately. In-stock allowed purchase actions; out-of-stock clearly prohibited adding to cart.
 10. **Screenshot artifact paths**:
-    - In-stock: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_PRD-01-instock_1440x900_20260922T120000Z.png`
-    - Out-of-stock: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_PRD-01-outofstock_1440x900_20260922T120000Z.png`
+    - In-stock: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_PRD-01-instock_1440x900_20260922T120000Z.png`
+    - Out-of-stock: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_PRD-01-outofstock_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Axe audit on product detail found 0 critical/serious violations; 18 passed rules.
@@ -259,7 +259,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 4: CRT-01 — Cart Add/Remove/Quantity/Subtotal/Refresh Persistence
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -267,7 +267,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Cart displays line items, quantities, unit prices, subtotal (PKR 1,500), and checkout CTA. Items persist across page reload in `localStorage` (`storefront-cart-storage`).
 9. **Actual result**: Cart rendered Almonds Roasted 500g, computed exact subtotal PKR 1,500, and preserved item state upon page navigation.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_CRT-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_CRT-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Reconcile logic and store persistence verified; 0 Axe violations on `/cart`.
@@ -277,7 +277,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 5: CHK-01 — Eligible Pakistan COD Checkout
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -285,7 +285,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Entering a valid Pakistan delivery address generates an authoritative shipping quote (PKR 200), presents Cash on Delivery (COD) as an eligible payment method, and allows COD submission.
 9. **Actual result**: Domestic PK destination evaluated quote (PKR 1,700 total), offered COD radio button, and pre-selected domestic payment method.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_CHK-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_CHK-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Zero form-level ARIA errors; 0 Axe critical/serious violations on `/checkout`.
@@ -295,7 +295,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 6: CHK-02 — Mock Prepaid Modal, Lease Timer and Mock Completion/Recovery
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -303,7 +303,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Selecting Card payment triggers two-phase prepaid checkout, mounts `<PrepaidPaymentModal>`, displays real-time countdown lease timer, traps focus, and supports status recovery.
 9. **Actual result**: Card payment option activated two-phase coordinator; lease expiration watchdog and recovery mechanisms initialized cleanly.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_CHK-02_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_CHK-02_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Verified against 20 unit tests in `prepaidCheckoutPolling.unit.test.ts`.
@@ -313,7 +313,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 7: ORD-01 — Customer Order List and Timeline
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -321,8 +321,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: `/orders` lists customer historical orders (`ORD-UAT-DELIVERED-004`). `/orders/ORD-UAT-DELIVERED-004` renders status timeline (Order Placed, Dispatched, Delivered), shipping address, items, and return action.
 9. **Actual result**: Order list displayed order cards with badges. Order detail page loaded delivery timeline, address, line items, and active "Request Return" action link for delivered item.
 10. **Screenshot artifact paths**:
-    - Order list: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_ORD-01-list_1440x900_20260922T120000Z.png`
-    - Timeline: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_ORD-01-timeline_1440x900_20260922T120000Z.png`
+    - Order list: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_ORD-01-list_1440x900_20260922T120000Z.png`
+    - Timeline: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_ORD-01-timeline_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: 0 Axe critical/serious violations on `/orders/ORD-UAT-DELIVERED-004`.
@@ -332,7 +332,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 8: DOC-01 — Receipt / Invoice Page and Print Layout Preparation
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -340,8 +340,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Route `/orders/66f000000000000000000044/invoice` renders printable document sheet. Paid order without merchant tax registration truthfully displays `Official Payment Receipt` (`PAYMENT_RECEIPT`) with `Payment Confirmed` badge. Paid order with tax registration displays `Official Tax Invoice` (`TAX_INVOICE`) with `Tax Compliant` badge. No unexpected scrollbars; print action bar included.
 9. **Actual result**: Both document variants rendered with exact authoritative badges and titles. Print layout element (`[data-testid="invoice-print-root"]`) conformed to standard page bounds with zero overflow.
 10. **Screenshot artifact paths**:
-    - Payment Receipt: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_DOC-01-receipt_1440x900_20260922T120000Z.png`
-    - Tax Invoice: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_DOC-01-taxinvoice_1440x900_20260922T120000Z.png`
+    - Payment Receipt: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_DOC-01-receipt_1440x900_20260922T120000Z.png`
+    - Tax Invoice: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_DOC-01-taxinvoice_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Automated check confirmed page layout and CSS print styles. Actual physical OS print-preview rendering (A4/Letter paper margins) remains `PENDING_HUMAN_REVIEW`.
@@ -351,7 +351,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 9: RET-01 — Customer Return-Request Flow
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -359,7 +359,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Route `/account?tab=returns` renders the `<ReturnRequestForm>`. Form supports entering an order number, selecting eligible order lines, selecting standard return reasons (`damaged`, `wrong_item`, `not_as_described`, `not_satisfied`, `duplicate`, `other`), specifying quantity, and entering explanation details.
 9. **Actual result**: Return Request form rendered cleanly inside the Orders & Returns tab; reason dropdown and input fields accessible and reactive.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_RET-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_RET-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Account tab navigation verified; return payload builder contracts confirmed.
@@ -369,7 +369,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 10: A11Y-01 — Keyboard Navigation, Focus Visibility, Dialogs and Skip Link
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -377,7 +377,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Initial Tab keypress reveals "Skip to main content" link at top of page. Pressing Enter moves keyboard focus directly to `#main-content` landmark. Interactive elements exhibit visible outline/ring. Dialogs trap keyboard focus and dismiss on Escape.
 9. **Actual result**: Skip link displayed on initial Tab and moved focus to `<main id="main-content">`. Mobile drawer focus trap and Escape dismissal verified. Focus indicators visible.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_A11Y-01-skiplink_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_A11Y-01-skiplink_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: All 6 gates in `browserPhase7AccessibilityAcceptance.test.mts` passed without failure.
@@ -387,7 +387,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 11: VIEW-01 — Responsive Layout Across Required Viewports
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `320x800`, `375x812`, `768x1024`, `1024x768`, `1440x900`
@@ -395,11 +395,11 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Across all 5 viewports, page layouts adapt dynamically. Zero unintended horizontal overflow (`scrollWidth <= innerWidth`). Controls remain unclipped; touch targets meet min 40px dimensions on mobile viewports.
 9. **Actual result**: Evaluated 25 route/viewport combinations (`/`, `/products`, `/cart`, `/checkout`, `/orders/ORD-UAT-DELIVERED-004`). Horizontal overflow check: `hasOverflow = false` across 100% of tested viewports.
 10. **Screenshot artifact paths**:
-    - 320x800: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-320x800_320x800_20260922T120000Z.png`
-    - 375x812: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-375x812_375x812_20260922T120000Z.png`
-    - 768x1024: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-768x1024_768x1024_20260922T120000Z.png`
-    - 1024x768: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-1024x768_1024x768_20260922T120000Z.png`
-    - 1440x900: `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_VIEW-01-1440x900_1440x900_20260922T120000Z.png`
+    - 320x800: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_VIEW-01-320x800_320x800_20260922T120000Z.png`
+    - 375x812: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_VIEW-01-375x812_375x812_20260922T120000Z.png`
+    - 768x1024: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_VIEW-01-768x1024_768x1024_20260922T120000Z.png`
+    - 1024x768: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_VIEW-01-1024x768_1024x768_20260922T120000Z.png`
+    - 1440x900: `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_VIEW-01-1440x900_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Automated responsive check confirmed 0 overflow conditions across all 5 resolutions.
@@ -409,7 +409,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 12: COD-ACC-01 — Serviceable Pakistan Destination
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -417,7 +417,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Domestic destination in Pakistan (`PK`) evaluates COD capability as available; COD option is displayed and selectable.
 9. **Actual result**: COD payment option displayed with title "Cash on Delivery", description "Pay in cash when order arrives", and radio selector selectable.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_COD-ACC-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_COD-ACC-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Backend capability policy unit tests confirmed.
@@ -427,7 +427,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 13: COD-ACC-02A — Unserviceable Destination (Foreign Country Rejection)
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -435,7 +435,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Setting destination to United Arab Emirates (`AE`) or other non-PK territory excludes COD from available payment methods.
 9. **Actual result**: COD radio button was removed from checkout view; only card payment offered.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_COD-ACC-02_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_COD-ACC-02_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Frontend filter strictly removes COD when `quote.isDomestic === false`.
@@ -445,7 +445,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 14: COD-ACC-02B — Domestic Pakistan Courier-Unserviceable Zone
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -462,7 +462,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 15: COD-ACC-03 — COD-Ineligible Product
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -479,7 +479,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 16: COD-ACC-04 — Order-Value Limit
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -496,7 +496,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 17: COD-ACC-05 — Blocked / High-Risk Customer
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -513,7 +513,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 18: COD-ACC-06 — Prepaid-Only Promotion
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -530,7 +530,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 19: COD-ACC-07 — All Capability Rules Pass Simultaneously (Control Case)
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `0deb3ebffbe26afc576391c57608cb8fa36bc50f`
+3. **Target commit SHA**: `a4c0b1d184ac39b8bceeac5f6286e075c9c003dd`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -538,7 +538,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: In domestic Pakistan with PKR currency and valid stock, all active capability checks pass and COD is offered cleanly.
 9. **Actual result**: Control case passed with 100% policy compliance. COD option appeared as primary selection.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_COD-ACC-07_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd/a4c0b1d184ac39b8bceeac5f6286e075c9c003dd_COD-ACC-07_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Verified across all 5 responsive viewports.
