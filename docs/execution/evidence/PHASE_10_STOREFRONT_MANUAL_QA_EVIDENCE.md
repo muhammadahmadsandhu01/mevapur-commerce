@@ -17,7 +17,7 @@
 | **Previous Local Commit** | `019c3a9291bed56e626d70c8fcfaf8646481b069` |
 | **Remote Tracking HEAD** | `d520b8669340cf83fc0f3cd02f522a29268c221c` |
 | **Reproducibility Classification** | `BYTE_DETERMINISTIC` (22 of 22 screenshots byte-identical across sequential isolated runs) |
-| **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (1,738 requests: 1,357 local allowed, 381 mocked, 0 external) |
+| **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (1,738 requests: 1,357 local allowed, 381 mocked; attempted: 0, blocked: 0, successful: 0) |
 | **Execution Timestamp (UTC)** | `2026-09-22T12:00:00Z` |
 | **Environment / Build ID** | `LOCAL-UAT-STANDALONE-PORT-3528` |
 | **Operating System** | `Windows 11 Pro (win32 10.0.26100)` |
@@ -26,6 +26,7 @@
 | **Backend API Route State** | `Deterministic in-memory route intercepts (MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE)` |
 | **Evidence Harness** | `frontend/tests/phase10StorefrontEvidence.mts` (`npm run test:phase10:evidence`) |
 | **Docker Engine Status** | `INSTALLED_ENGINE_STOPPED` (Docker daemon not running) |
+| **Environment Helpers Status** | `STATICALLY_VERIFIED_RUNTIME_PENDING` (Helpers authored and guarded; runtime pending Docker engine startup) |
 | **Integrated Human Environment** | `BLOCKED_ENVIRONMENT_GAP` (Integrated backend + replica set not booted for manual session) |
 | **Batch 10C Policy Status** | `BLOCKED_POLICY_GAP` (P10C-GAP-001 through P10C-GAP-005 require governance/owner decision) |
 | **Human Sign-off Status** | `PENDING_HUMAN_REVIEW` (Human acceptance closure strictly reserved for owner) |
@@ -264,7 +265,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 6. **Viewport/device**: `1440x900 (Desktop HD)`
 7. **Test-case ID**: `CRT-01`
 8. **Expected result**: Cart displays line items, quantities, unit prices, subtotal (PKR 1,500), and checkout CTA. Items persist across page reload in `localStorage` (`storefront-cart-storage`).
-9. **Actual result**: Cart rendered California Almonds 500g, computed exact subtotal PKR 1,500, and preserved item state upon page navigation.
+9. **Actual result**: Cart rendered Almonds Roasted 500g, computed exact subtotal PKR 1,500, and preserved item state upon page navigation.
 10. **Screenshot artifact path**:
     - `docs/execution/evidence/artifacts/phase10-storefront/0deb3ebffbe26afc576391c57608cb8fa36bc50f/0deb3ebffbe26afc576391c57608cb8fa36bc50f_CRT-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
@@ -588,7 +589,7 @@ Starting only `node .next/standalone/server.js` is therefore insufficient for ma
 
 ### Step-by-Step Integrated Startup Procedure (For Human Reviewer)
 
-> **Notice**: Startup and teardown procedures have been documented below. In addition, narrowly scoped executable companion helpers (`scripts/ops/start-phase10-uat-environment.js` and `scripts/ops/stop-phase10-uat-environment.js`) have been provided. These helpers enforce disposable database name guards (`mevapur_uat_phase10`), loopback-only bindings (`127.0.0.1`), mock provider flags, runtime-generated ephemeral secrets, and bounded readiness polling. They will not bypass a stopped Docker daemon or start Docker Desktop.
+> **Notice**: Startup and teardown procedures have been documented below. In addition, narrowly scoped executable companion helpers (`scripts/ops/start-phase10-uat-environment.js` and `scripts/ops/stop-phase10-uat-environment.js`) have been provided and classified as `STATICALLY_VERIFIED_RUNTIME_PENDING` (Docker daemon remains stopped; runtime behavior is pending engine startup). These helpers enforce disposable database name guards (`mevapur_uat_phase10`), loopback-only bindings (`127.0.0.1`), mock provider flags, runtime-generated ephemeral secrets, and bounded readiness polling. They will not bypass a stopped Docker daemon or start Docker Desktop.
 
 ```powershell
 # 1. Compile frontend with safe public API URL

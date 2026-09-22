@@ -19,26 +19,60 @@ import assert from 'node:assert/strict';
 import test, { describe, before, after } from 'node:test';
 import path from 'node:path';
 import fs from 'node:fs';
-import { spawn, type ChildProcess } from 'node:child_process';
+import os from 'node:os';
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
-const TARGET_SHA = process.env.TARGET_SHA || 'EVIDENCE_TARGET_SHA_PENDING';
+const repoRoot = path.resolve(process.cwd(), '..');
+
+// ============================================================
+// Population Mode vs Non-Mutating Verification Mode
+// ============================================================
+const isPopulationRequested =
+  process.env.POPULATE_TARGET === 'true' || process.argv.includes('--populate-target');
+const explicitTargetSha = (process.env.TARGET_SHA || '').trim();
+const isExplicit40HexSha = /^[0-9a-f]{40}$/i.test(explicitTargetSha);
+
+let resolvedArtifactDir: string;
+let isDisposableTempDir = false;
+
+if (isPopulationRequested) {
+  if (!isExplicit40HexSha) {
+    throw new Error(
+      `Artifact population rejected: TARGET_SHA must be an explicit 40-character hex commit SHA. Received: "${explicitTargetSha}". EVIDENCE_TARGET_SHA_PENDING and malformed values are rejected.`
+    );
+  }
+  try {
+    execSync('git diff-index --quiet HEAD --', { cwd: repoRoot, stdio: 'pipe' });
+  } catch {
+    throw new Error('Artifact population rejected: working tree has uncommitted tracked modifications.');
+  }
+
+  resolvedArtifactDir = path.resolve(
+    repoRoot,
+    'docs',
+    'execution',
+    'evidence',
+    'artifacts',
+    'phase10-storefront',
+    explicitTargetSha
+  );
+} else if (process.env.ARTIFACT_DIR) {
+  resolvedArtifactDir = path.resolve(process.env.ARTIFACT_DIR);
+  isDisposableTempDir = false;
+} else {
+  // Normal verification mode: create disposable OS temporary directory
+  resolvedArtifactDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase10-evidence-'));
+  isDisposableTempDir = true;
+}
+
+const ARTIFACT_DIR = resolvedArtifactDir;
+const TARGET_SHA = isExplicit40HexSha ? explicitTargetSha : 'DISPOSABLE_VERIFICATION_RUN';
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3528;
 const BASE_URL = process.env.BASE_URL || `http://127.0.0.1:${PORT}`;
 const CHROME_PATH = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const UTC_TIMESTAMP = process.env.STOREFRONT_EVIDENCE_TIMESTAMP || '20260922T120000Z';
-
-const repoRoot = path.resolve(process.cwd(), '..');
-const ARTIFACT_DIR = process.env.ARTIFACT_DIR || path.resolve(
-  repoRoot,
-  'docs',
-  'execution',
-  'evidence',
-  'artifacts',
-  'phase10-storefront',
-  TARGET_SHA
-);
 
 const VIEWPORTS = [
   { id: '320x800', name: 'Mobile Mini (320x800)', width: 320, height: 800 },
@@ -51,8 +85,100 @@ const VIEWPORTS = [
 // ============================================================
 // Authoritative Batch 10B Fixture Manifest Hydration
 // ============================================================
+interface ManifestCategoryFixture {
+  _id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  isFeatured?: boolean;
+}
+
+interface ManifestProductFixture {
+  _id: string;
+  name: string;
+  slug: string;
+  sku: string;
+  category: string;
+  shortDescription: string;
+  description: string;
+  price: number;
+  originalPrice?: number;
+  discount?: number;
+  stock: number;
+  lowStockThreshold?: number;
+  status: string;
+  isActive: boolean;
+  isFeatured?: boolean;
+  weight?: number;
+  weightGrams?: number;
+  allowCOD: boolean;
+  countryOfOrigin?: string;
+}
+
+interface ManifestOrderFixture {
+  _id: string;
+  orderId: string;
+  user: string;
+  idempotencyKey?: string;
+  requestHash?: string;
+  items: Array<{
+    product: string;
+    name: string;
+    sku: string;
+    price: number;
+    quantity: number;
+    lineTotal: number;
+  }>;
+  shippingAddress: {
+    fullName: string;
+    phone: string;
+    address: string;
+    city: string;
+    province?: string;
+    postalCode: string;
+    country: string;
+    countryCode: string;
+  };
+  paymentMethod: string;
+  paymentStatus: string;
+  currency: string;
+  payment?: {
+    provider?: string;
+    transactionId?: string;
+    currency?: string;
+    paidAt?: string;
+  };
+  orderStatus: string;
+  deliveredAt?: string;
+  trackingNumber?: string;
+  courierCompany?: string;
+  subtotal: number;
+  shippingCost: number;
+  taxAmount: number;
+  totalAmount: number;
+  statusTimeline?: Array<{
+    status: string;
+    actor?: string;
+    actorRole?: string;
+    timestamp?: string;
+    note?: string;
+  }>;
+}
+
+interface ManifestDatasets {
+  categories: ManifestCategoryFixture[];
+  products: ManifestProductFixture[];
+  orders: ManifestOrderFixture[];
+}
+
+interface RawManifestSpecification {
+  specificationVersion: string;
+  fixtureNamespace: string;
+  datasets: ManifestDatasets;
+}
+
 const MANIFEST_PATH = path.resolve(repoRoot, 'scripts/ops/manifests/uat-fixture-manifest.json');
-const rawManifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+const rawManifest: RawManifestSpecification = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
 
 // Hermetic local public asset for product image rendering
 const LOCAL_IMAGE_ASSET = '/placeholder.png';
@@ -65,7 +191,7 @@ const manifestCategory = {
   isFeatured: rawManifest.datasets.categories[0].isFeatured,
 };
 
-const manifestProducts = rawManifest.datasets.products.map((p: any) => ({
+const manifestProducts = rawManifest.datasets.products.map((p: ManifestProductFixture) => ({
   _id: p._id,
   name: p.name,
   slug: p.slug,
@@ -119,8 +245,11 @@ const manifestMarketConfig = {
 };
 
 const rawDeliveredOrder = rawManifest.datasets.orders.find(
-  (o: any) => o.orderId === 'ORD-UAT-DELIVERED-004'
+  (o: ManifestOrderFixture) => o.orderId === 'ORD-UAT-DELIVERED-004'
 );
+if (!rawDeliveredOrder) {
+  throw new Error('Authoritative order ORD-UAT-DELIVERED-004 not found in manifest');
+}
 
 const manifestDeliveredOrder = {
   _id: rawDeliveredOrder._id,
@@ -245,7 +374,9 @@ interface RequestLedgerEntry {
 }
 
 const requestLedger: RequestLedgerEntry[] = [];
-let externalRequestCount = 0;
+let attemptedExternalRequestCount = 0;
+let blockedExternalRequestCount = 0;
+let successfulExternalRequestCount = 0;
 
 function redactUrl(rawUrl: string): string {
   try {
@@ -314,11 +445,19 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
 
     // 2. Normalize client API calls to same-origin loopback
     const origOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: any[]) {
+    XMLHttpRequest.prototype.open = function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async: boolean = true,
+      username?: string | null,
+      password?: string | null
+    ): void {
+      let finalUrl = url;
       if (typeof url === 'string' && url.includes('api.mevapur.test')) {
-        url = url.replace('https://api.mevapur.test', window.location.origin);
+        finalUrl = url.replace('https://api.mevapur.test', window.location.origin);
       }
-      return (origOpen as any).call(this, method, url, ...rest);
+      origOpen.call(this, method, finalUrl, async, username, password);
     };
 
     const origFetch = window.fetch;
@@ -359,7 +498,8 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
     try {
       parsed = new URL(rawUrl);
     } catch {
-      externalRequestCount++;
+      attemptedExternalRequestCount++;
+      blockedExternalRequestCount++;
       requestLedger.push({
         url: redacted,
         method,
@@ -378,7 +518,8 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
 
     // 3. Reject any non-loopback requests
     if (!isLoopback) {
-      externalRequestCount++;
+      attemptedExternalRequestCount++;
+      blockedExternalRequestCount++;
       let classification = 'EXTERNAL_HOST_BLOCKED';
       if (parsed.hostname.includes('cloudinary') || parsed.hostname.includes('unsplash')) {
         classification = 'EXTERNAL_IMAGE_CDN_BLOCKED';
@@ -395,7 +536,13 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
         resourceType,
         timestamp: new Date().toISOString(),
       });
-      return route.abort('blockedbyclient');
+      try {
+        await route.abort('blockedbyclient');
+        return;
+      } catch {
+        successfulExternalRequestCount++;
+        return;
+      }
     }
 
     // 4. Same-origin loopback handling
@@ -743,7 +890,9 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
       localAllowedCount: number;
       mockedCount: number;
       externalBlockedCount: number;
-      externalRequestCount: number;
+      attemptedExternalRequestCount: number;
+      blockedExternalRequestCount: number;
+      successfulExternalRequestCount: number;
       isHermetic: boolean;
     };
   } = {
@@ -804,28 +953,44 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
   });
 
   after(async () => {
-    if (browser) await browser.close();
-    if (serverProcess) {
-      serverProcess.kill('SIGTERM');
-      serverProcess.kill('SIGKILL');
+    try {
+      if (browser) await browser.close();
+      if (serverProcess) {
+        serverProcess.kill('SIGTERM');
+        await new Promise((r) => setTimeout(r, 600));
+        serverProcess.kill('SIGKILL');
+      }
+
+      // Attach network ledger summary
+      executionSummary.networkLedgerSummary = {
+        totalRequests: requestLedger.length,
+        localAllowedCount: requestLedger.filter((r) => r.disposition === 'LOCAL_ALLOWED').length,
+        mockedCount: requestLedger.filter((r) => r.disposition === 'MOCKED').length,
+        externalBlockedCount: requestLedger.filter((r) => r.disposition === 'EXTERNAL_BLOCKED').length,
+        attemptedExternalRequestCount,
+        blockedExternalRequestCount,
+        successfulExternalRequestCount,
+        isHermetic: attemptedExternalRequestCount === 0 && successfulExternalRequestCount === 0,
+      };
+
+      // Write machine-readable summaries if ARTIFACT_DIR exists
+      if (fs.existsSync(ARTIFACT_DIR)) {
+        const summaryPath = path.join(ARTIFACT_DIR, 'phase10-evidence-summary.json');
+        fs.writeFileSync(summaryPath, JSON.stringify(executionSummary, null, 2), 'utf8');
+
+        const ledgerPath = path.join(ARTIFACT_DIR, 'request-ledger.json');
+        fs.writeFileSync(ledgerPath, JSON.stringify(requestLedger, null, 2), 'utf8');
+      }
+    } finally {
+      // Normal verification mode cleanup: remove disposable temporary directory in finally
+      if (isDisposableTempDir && fs.existsSync(ARTIFACT_DIR)) {
+        try {
+          fs.rmSync(ARTIFACT_DIR, { recursive: true, force: true });
+        } catch {
+          // ignore disposable directory cleanup error
+        }
+      }
     }
-
-    // Attach network ledger summary
-    executionSummary.networkLedgerSummary = {
-      totalRequests: requestLedger.length,
-      localAllowedCount: requestLedger.filter((r) => r.disposition === 'LOCAL_ALLOWED').length,
-      mockedCount: requestLedger.filter((r) => r.disposition === 'MOCKED').length,
-      externalBlockedCount: requestLedger.filter((r) => r.disposition === 'EXTERNAL_BLOCKED').length,
-      externalRequestCount,
-      isHermetic: externalRequestCount === 0,
-    };
-
-    // Write machine-readable summaries
-    const summaryPath = path.join(ARTIFACT_DIR, 'phase10-evidence-summary.json');
-    fs.writeFileSync(summaryPath, JSON.stringify(executionSummary, null, 2), 'utf8');
-
-    const ledgerPath = path.join(ARTIFACT_DIR, 'request-ledger.json');
-    fs.writeFileSync(ledgerPath, JSON.stringify(requestLedger, null, 2), 'utf8');
   });
 
   async function captureScreenshot(page: Page, testCaseId: string, viewportId: string): Promise<string> {
@@ -1113,9 +1278,19 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
 
   test('HERM-01: Network Hermeticity Audit & Request Ledger Verification', async () => {
     assert.equal(
-      externalRequestCount,
+      attemptedExternalRequestCount,
       0,
-      `Network hermeticity violation: ${externalRequestCount} non-loopback requests detected in evidence harness.`
+      `Network hermeticity violation: ${attemptedExternalRequestCount} external requests attempted.`
+    );
+    assert.equal(
+      blockedExternalRequestCount,
+      0,
+      `Expected 0 blocked external requests, got ${blockedExternalRequestCount}.`
+    );
+    assert.equal(
+      successfulExternalRequestCount,
+      0,
+      `Expected 0 successful external requests, got ${successfulExternalRequestCount}.`
     );
     assert.ok(
       requestLedger.length > 0,
@@ -1127,5 +1302,31 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
       0,
       `Zero requests should have been directed to external hosts: ${JSON.stringify(blockedRequests, null, 2)}`
     );
+  });
+
+  test('HERM-02: Non-Mutating Verification Mode & Git Tree Safety', async () => {
+    // 1. Verify EVIDENCE_TARGET_SHA_PENDING directory does not exist anywhere in repo
+    const pendingDir = path.resolve(
+      repoRoot,
+      'docs',
+      'execution',
+      'evidence',
+      'artifacts',
+      'phase10-storefront',
+      'EVIDENCE_TARGET_SHA_PENDING'
+    );
+    assert.equal(
+      fs.existsSync(pendingDir),
+      false,
+      'EVIDENCE_TARGET_SHA_PENDING directory must never exist in repository artifacts tree.'
+    );
+
+    // 2. Verify normal verification mode does not touch tracked artifacts tree
+    if (!isPopulationRequested && !process.env.ARTIFACT_DIR) {
+      assert.ok(
+        ARTIFACT_DIR.startsWith(os.tmpdir()),
+        `Normal verification mode must write only to OS temporary directory, got: ${ARTIFACT_DIR}`
+      );
+    }
   });
 });

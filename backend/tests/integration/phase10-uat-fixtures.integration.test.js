@@ -652,5 +652,17 @@ describe('Phase 10 Deterministic UAT Fixtures & Reset Tooling Integration Tests'
       const flCount = await fl.countDocuments({ locationCode: 'KHI-WH-01' });
       expect(flCount).toBe(1);
     });
+
+    test('29. Authoritative manifest inventory generator generates valid inventory matching all facts', () => {
+      const { generateInventory, validateManifestFacts } = require('../../../scripts/ops/generate-manifest-inventory');
+      const inv = generateInventory();
+      expect(() => validateManifestFacts(inv)).not.toThrow();
+      expect(inv.collectionNames.length).toBe(15);
+      expect(inv.allDeterministicIds.length).toBe(42);
+      expect(inv.fulfillmentLocations[0].locationCode).toBe('KHI-WH-01');
+      expect(inv.categories[0].slug).toBe('dry-fruits-nuts');
+      expect(inv.products.length).toBe(4);
+      expect(inv.users.length).toBe(6);
+    });
   });
 });

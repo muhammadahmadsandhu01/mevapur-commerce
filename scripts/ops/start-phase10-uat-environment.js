@@ -2,6 +2,8 @@
  * scripts/ops/start-phase10-uat-environment.js
  *
  * Scoped helper to boot disposable integrated Phase 10 UAT environment.
+ * Classification: STATICALLY_VERIFIED_RUNTIME_PENDING
+ * (Docker daemon stopped; runtime execution pending engine startup)
  *
  * Safety Guards:
  * - Loopback-only bindings (127.0.0.1)

@@ -1,0 +1,390 @@
+{
+  "fixtureNamespace": "phase10_uat_v1",
+  "specificationVersion": "1.0.0",
+  "description": "Immutable deterministic UAT fixture specification for Phase 10 Manual QA, Load Testing, and Launch Readiness.",
+  "dependencyOrder": [
+    "fulfillmentlocations",
+    "categories",
+    "users",
+    "products",
+    "productmarketofferings",
+    "marketpricebooks",
+    "inventorypositions",
+    "coupons",
+    "orders",
+    "payments",
+    "orderdocuments",
+    "returns",
+    "refunds",
+    "transactionalmessages",
+    "customeroperationexceptions"
+  ],
+  "cleanupOrder": [
+    "customeroperationexceptions",
+    "transactionalmessages",
+    "refunds",
+    "returns",
+    "orderdocuments",
+    "payments",
+    "orders",
+    "coupons",
+    "inventorypositions",
+    "marketpricebooks",
+    "productmarketofferings",
+    "products",
+    "users",
+    "categories",
+    "fulfillmentlocations"
+  ],
+  "collectionNames": [
+    "fulfillmentlocations",
+    "categories",
+    "users",
+    "products",
+    "productmarketofferings",
+    "marketpricebooks",
+    "inventorypositions",
+    "coupons",
+    "orders",
+    "payments",
+    "orderdocuments",
+    "returns",
+    "refunds",
+    "transactionalmessages",
+    "customeroperationexceptions"
+  ],
+  "recordCounts": {
+    "fulfillmentlocations": 1,
+    "categories": 1,
+    "users": 6,
+    "products": 4,
+    "productmarketofferings": 4,
+    "marketpricebooks": 4,
+    "inventorypositions": 4,
+    "coupons": 2,
+    "orders": 5,
+    "payments": 5,
+    "orderdocuments": 1,
+    "returns": 1,
+    "refunds": 1,
+    "transactionalmessages": 2,
+    "customeroperationexceptions": 1
+  },
+  "allDeterministicIds": [
+    "66f000000000000000000001",
+    "66f000000000000000000002",
+    "66f000000000000000000011",
+    "66f000000000000000000012",
+    "66f000000000000000000013",
+    "66f000000000000000000014",
+    "66f000000000000000000021",
+    "66f000000000000000000022",
+    "66f000000000000000000023",
+    "66f000000000000000000024",
+    "66f000000000000000000025",
+    "66f000000000000000000026",
+    "66f000000000000000000031",
+    "66f000000000000000000032",
+    "66f000000000000000000041",
+    "66f000000000000000000042",
+    "66f000000000000000000043",
+    "66f000000000000000000044",
+    "66f000000000000000000045",
+    "66f000000000000000000051",
+    "66f000000000000000000052",
+    "66f000000000000000000053",
+    "66f000000000000000000054",
+    "66f000000000000000000055",
+    "66f000000000000000000061",
+    "66f000000000000000000071",
+    "66f000000000000000000081",
+    "66f000000000000000000091",
+    "66f000000000000000000092",
+    "66f0000000000000000000a1",
+    "66f0000000000000000000b1",
+    "66f0000000000000000000b2",
+    "66f0000000000000000000b3",
+    "66f0000000000000000000b4",
+    "66f0000000000000000000c1",
+    "66f0000000000000000000c2",
+    "66f0000000000000000000c3",
+    "66f0000000000000000000c4",
+    "66f0000000000000000000d1",
+    "66f0000000000000000000d2",
+    "66f0000000000000000000d3",
+    "66f0000000000000000000d4"
+  ],
+  "fulfillmentLocations": [
+    {
+      "_id": "66f000000000000000000001",
+      "locationCode": "KHI-WH-01",
+      "displayName": "Karachi Central Warehouse",
+      "countryCode": "PK",
+      "subdivision": "SD",
+      "city": "Karachi",
+      "postalCode": "75500",
+      "identityFields": {
+        "locationCode": "KHI-WH-01"
+      }
+    }
+  ],
+  "categories": [
+    {
+      "_id": "66f000000000000000000002",
+      "name": "Dry Fruits & Nuts",
+      "slug": "dry-fruits-nuts",
+      "isActive": true,
+      "isFeatured": true,
+      "identityFields": {
+        "slug": "dry-fruits-nuts"
+      }
+    }
+  ],
+  "users": [
+    {
+      "_id": "66f000000000000000000021",
+      "email": "customer-pk-cod@mevapur.test",
+      "role": "customer",
+      "fullName": "UAT Customer PK COD",
+      "residenceCountry": "PK",
+      "identityFields": {
+        "email": "customer-pk-cod@mevapur.test"
+      }
+    },
+    {
+      "_id": "66f000000000000000000022",
+      "email": "customer-pk-prepaid@mevapur.test",
+      "role": "customer",
+      "fullName": "UAT Customer PK Prepaid",
+      "residenceCountry": "PK",
+      "identityFields": {
+        "email": "customer-pk-prepaid@mevapur.test"
+      }
+    },
+    {
+      "_id": "66f000000000000000000023",
+      "email": "customer-ae-disabled@mevapur.test",
+      "role": "customer",
+      "fullName": "UAT Customer AE Disabled",
+      "residenceCountry": "AE",
+      "identityFields": {
+        "email": "customer-ae-disabled@mevapur.test"
+      }
+    },
+    {
+      "_id": "66f000000000000000000024",
+      "email": "customer-gb-disabled@mevapur.test",
+      "role": "customer",
+      "fullName": "UAT Customer GB Disabled",
+      "residenceCountry": "GB",
+      "identityFields": {
+        "email": "customer-gb-disabled@mevapur.test"
+      }
+    },
+    {
+      "_id": "66f000000000000000000025",
+      "email": "admin-uat@mevapur.test",
+      "role": "admin",
+      "fullName": "UAT Administrator",
+      "identityFields": {
+        "email": "admin-uat@mevapur.test"
+      }
+    },
+    {
+      "_id": "66f000000000000000000026",
+      "email": "support-uat@mevapur.test",
+      "role": "support",
+      "fullName": "UAT Support Agent",
+      "identityFields": {
+        "email": "support-uat@mevapur.test"
+      }
+    }
+  ],
+  "transientGuestPersona": {
+    "email": "guest-checkout@mevapur.test",
+    "fullName": "Guest UAT Customer",
+    "note": "GUEST_SESSION_TRANSIENT_ONLY_NEVER_PERSISTED_AS_USER"
+  },
+  "products": [
+    {
+      "_id": "66f000000000000000000011",
+      "name": "Almonds Roasted 500g",
+      "slug": "almonds-roasted-500g",
+      "sku": "SKU-ALM-500G",
+      "category": "66f000000000000000000002",
+      "price": 1500,
+      "stock": 100,
+      "allowCOD": true,
+      "status": "published",
+      "identityFields": {
+        "sku": "SKU-ALM-500G"
+      }
+    },
+    {
+      "_id": "66f000000000000000000012",
+      "name": "Pistachios Saffron 250g",
+      "slug": "pistachios-saffron-250g",
+      "sku": "SKU-PIS-250G",
+      "category": "66f000000000000000000002",
+      "price": 2200,
+      "stock": 5,
+      "allowCOD": true,
+      "status": "published",
+      "identityFields": {
+        "sku": "SKU-PIS-250G"
+      }
+    },
+    {
+      "_id": "66f000000000000000000013",
+      "name": "Pine Nuts Chilgoza 250g",
+      "slug": "pine-nuts-chilgoza-250g",
+      "sku": "SKU-CHIL-250G",
+      "category": "66f000000000000000000002",
+      "price": 4500,
+      "stock": 0,
+      "allowCOD": true,
+      "status": "published",
+      "identityFields": {
+        "sku": "SKU-CHIL-250G"
+      }
+    },
+    {
+      "_id": "66f000000000000000000014",
+      "name": "Walnut Kernels Special 500g",
+      "slug": "walnut-kernels-special-500g",
+      "sku": "SKU-WAL-500G",
+      "category": "66f000000000000000000002",
+      "price": 1800,
+      "stock": 50,
+      "allowCOD": true,
+      "status": "published",
+      "identityFields": {
+        "sku": "SKU-WAL-500G"
+      }
+    }
+  ],
+  "orders": [
+    {
+      "_id": "66f000000000000000000041",
+      "orderId": "ORD-UAT-PENDING-001",
+      "user": "66f000000000000000000021",
+      "orderStatus": "pending",
+      "paymentMethod": "cod",
+      "totalAmount": 1500,
+      "currency": "PKR",
+      "identityFields": {
+        "orderId": "ORD-UAT-PENDING-001"
+      }
+    },
+    {
+      "_id": "66f000000000000000000042",
+      "orderId": "ORD-UAT-PROCESSING-002",
+      "user": "66f000000000000000000021",
+      "orderStatus": "processing",
+      "paymentMethod": "cod",
+      "totalAmount": 1500,
+      "currency": "PKR",
+      "identityFields": {
+        "orderId": "ORD-UAT-PROCESSING-002"
+      }
+    },
+    {
+      "_id": "66f000000000000000000043",
+      "orderId": "ORD-UAT-SHIPPED-003",
+      "user": "66f000000000000000000021",
+      "orderStatus": "shipped",
+      "paymentMethod": "cod",
+      "totalAmount": 1500,
+      "currency": "PKR",
+      "identityFields": {
+        "orderId": "ORD-UAT-SHIPPED-003"
+      }
+    },
+    {
+      "_id": "66f000000000000000000044",
+      "orderId": "ORD-UAT-DELIVERED-004",
+      "user": "66f000000000000000000021",
+      "orderStatus": "delivered",
+      "paymentMethod": "cod",
+      "totalAmount": 1500,
+      "currency": "PKR",
+      "identityFields": {
+        "orderId": "ORD-UAT-DELIVERED-004"
+      }
+    },
+    {
+      "_id": "66f000000000000000000045",
+      "orderId": "ORD-UAT-RETURN-005",
+      "user": "66f000000000000000000021",
+      "orderStatus": "delivered",
+      "paymentMethod": "cod",
+      "totalAmount": 1500,
+      "currency": "PKR",
+      "identityFields": {
+        "orderId": "ORD-UAT-RETURN-005"
+      }
+    }
+  ],
+  "coupons": [
+    {
+      "_id": "66f000000000000000000031",
+      "code": "UATPERCENT10",
+      "type": "percentage",
+      "value": 10,
+      "identityFields": {
+        "code": "UATPERCENT10"
+      }
+    },
+    {
+      "_id": "66f000000000000000000032",
+      "code": "UATFIXED500",
+      "type": "fixed",
+      "value": 500,
+      "identityFields": {
+        "code": "UATFIXED500"
+      }
+    }
+  ],
+  "inventoryPositions": [
+    {
+      "_id": "66f0000000000000000000b1",
+      "locationCode": "KHI-WH-01",
+      "canonicalSku": "SKU-ALM-500G",
+      "onHand": 100,
+      "identityFields": {
+        "locationCode": "KHI-WH-01",
+        "canonicalSku": "SKU-ALM-500G"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000b2",
+      "locationCode": "KHI-WH-01",
+      "canonicalSku": "SKU-PIS-250G",
+      "onHand": 5,
+      "identityFields": {
+        "locationCode": "KHI-WH-01",
+        "canonicalSku": "SKU-PIS-250G"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000b3",
+      "locationCode": "KHI-WH-01",
+      "canonicalSku": "SKU-CHIL-250G",
+      "onHand": 0,
+      "identityFields": {
+        "locationCode": "KHI-WH-01",
+        "canonicalSku": "SKU-CHIL-250G"
+      }
+    },
+    {
+      "_id": "66f0000000000000000000b4",
+      "locationCode": "KHI-WH-01",
+      "canonicalSku": "SKU-WAL-500G",
+      "onHand": 50,
+      "identityFields": {
+        "locationCode": "KHI-WH-01",
+        "canonicalSku": "SKU-WAL-500G"
+      }
+    }
+  ]
+}

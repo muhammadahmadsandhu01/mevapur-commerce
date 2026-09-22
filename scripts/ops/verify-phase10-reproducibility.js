@@ -103,10 +103,23 @@ function runHarness(artifactDir, targetSha, timestamp, port = 3528) {
   return { durationMs };
 }
 
+const os = require('os');
+
 function main() {
   const targetSha = process.env.TARGET_SHA || getGitHeadSha();
   const timestamp = process.env.STOREFRONT_EVIDENCE_TIMESTAMP || '20260922T120000Z';
   const shouldPopulateTarget = process.argv.includes('--populate-target') || process.env.POPULATE_TARGET === 'true';
+
+  if (shouldPopulateTarget) {
+    if (!/^[0-9a-f]{40}$/i.test(targetSha)) {
+      throw new Error(`Target population rejected: targetSha must be a 40-character hex commit SHA, got: "${targetSha}"`);
+    }
+    try {
+      execSync('git diff-index --quiet HEAD --', { cwd: repoRoot, stdio: 'pipe' });
+    } catch {
+      throw new Error('Target population rejected: working tree has uncommitted tracked modifications.');
+    }
+  }
 
   console.log('====================================================');
   console.log(' Phase 10 Evidence Reproducibility Verification');
@@ -114,165 +127,182 @@ function main() {
   console.log(` Evidence Timestamp: ${timestamp}`);
   console.log('====================================================');
 
-  const tempDir1 = path.resolve(repoRoot, 'frontend', '.temp-evidence-run1');
-  const tempDir2 = path.resolve(repoRoot, 'frontend', '.temp-evidence-run2');
+  const tempDir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'phase10-repro-run1-'));
+  const tempDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'phase10-repro-run2-'));
 
-  console.log('\n[1/3] Executing Run 1 into disposable directory...');
-  const run1Result = runHarness(tempDir1, targetSha, timestamp, 3528);
-  console.log(`Run 1 completed in ${(run1Result.durationMs / 1000).toFixed(1)}s`);
+  try {
+    console.log('\n[1/3] Executing Run 1 into disposable directory...');
+    const run1Result = runHarness(tempDir1, targetSha, timestamp, 3528);
+    console.log(`Run 1 completed in ${(run1Result.durationMs / 1000).toFixed(1)}s`);
 
-  console.log('\n[2/3] Executing Run 2 into separate disposable directory...');
-  const run2Result = runHarness(tempDir2, targetSha, timestamp, 3528);
-  console.log(`Run 2 completed in ${(run2Result.durationMs / 1000).toFixed(1)}s`);
+    console.log('\n[2/3] Executing Run 2 into separate disposable directory...');
+    const run2Result = runHarness(tempDir2, targetSha, timestamp, 3528);
+    console.log(`Run 2 completed in ${(run2Result.durationMs / 1000).toFixed(1)}s`);
 
-  console.log('\n[3/3] Performing truthful cross-run comparison...');
+    console.log('\n[3/3] Performing truthful cross-run comparison...');
 
-  // Read summaries
-  const summary1Path = path.join(tempDir1, 'phase10-evidence-summary.json');
-  const summary2Path = path.join(tempDir2, 'phase10-evidence-summary.json');
-  const summary1 = JSON.parse(fs.readFileSync(summary1Path, 'utf8'));
-  const summary2 = JSON.parse(fs.readFileSync(summary2Path, 'utf8'));
+    // Read summaries
+    const summary1Path = path.join(tempDir1, 'phase10-evidence-summary.json');
+    const summary2Path = path.join(tempDir2, 'phase10-evidence-summary.json');
+    const summary1 = JSON.parse(fs.readFileSync(summary1Path, 'utf8'));
+    const summary2 = JSON.parse(fs.readFileSync(summary2Path, 'utf8'));
 
-  // Read request ledgers
-  const ledger1Path = path.join(tempDir1, 'request-ledger.json');
-  const ledger2Path = path.join(tempDir2, 'request-ledger.json');
-  const ledger1 = fs.existsSync(ledger1Path) ? JSON.parse(fs.readFileSync(ledger1Path, 'utf8')) : [];
-  const ledger2 = fs.existsSync(ledger2Path) ? JSON.parse(fs.readFileSync(ledger2Path, 'utf8')) : [];
+    // Read request ledgers
+    const ledger1Path = path.join(tempDir1, 'request-ledger.json');
+    const ledger2Path = path.join(tempDir2, 'request-ledger.json');
+    const ledger1 = fs.existsSync(ledger1Path) ? JSON.parse(fs.readFileSync(ledger1Path, 'utf8')) : [];
+    const ledger2 = fs.existsSync(ledger2Path) ? JSON.parse(fs.readFileSync(ledger2Path, 'utf8')) : [];
 
-  // Filename inventory
-  const files1 = fs.readdirSync(tempDir1).sort();
-  const files2 = fs.readdirSync(tempDir2).sort();
+    // Filename inventory
+    const files1 = fs.readdirSync(tempDir1).sort();
+    const files2 = fs.readdirSync(tempDir2).sort();
 
-  const inventoryMatch = JSON.stringify(files1) === JSON.stringify(files2);
+    const inventoryMatch = JSON.stringify(files1) === JSON.stringify(files2);
 
-  // Compare screenshots
-  const pngFiles = files1.filter((f) => f.endsWith('.png'));
-  const screenshotComparisons = [];
-  let byteDifferencesCount = 0;
-  let dimensionDifferencesCount = 0;
+    // Compare screenshots
+    const pngFiles = files1.filter((f) => f.endsWith('.png'));
+    const screenshotComparisons = [];
+    let byteDifferencesCount = 0;
+    let dimensionDifferencesCount = 0;
 
-  for (const png of pngFiles) {
-    const file1Path = path.join(tempDir1, png);
-    const file2Path = path.join(tempDir2, png);
+    for (const png of pngFiles) {
+      const file1Path = path.join(tempDir1, png);
+      const file2Path = path.join(tempDir2, png);
 
-    const dim1 = getPngDimensions(file1Path);
-    const dim2 = getPngDimensions(file2Path);
-    const hash1 = getFileSha256(file1Path);
-    const hash2 = getFileSha256(file2Path);
+      const dim1 = getPngDimensions(file1Path);
+      const dim2 = getPngDimensions(file2Path);
+      const hash1 = getFileSha256(file1Path);
+      const hash2 = getFileSha256(file2Path);
 
-    const dimsMatch = dim1.width === dim2.width && dim1.height === dim2.height;
-    const hashMatch = hash1 === hash2;
+      const dimsMatch = dim1.width === dim2.width && dim1.height === dim2.height;
+      const hashMatch = hash1 === hash2;
 
-    if (!dimsMatch) dimensionDifferencesCount++;
-    if (!hashMatch) byteDifferencesCount++;
+      if (!dimsMatch) dimensionDifferencesCount++;
+      if (!hashMatch) byteDifferencesCount++;
 
-    screenshotComparisons.push({
-      filename: png,
-      dimensionsRun1: `${dim1.width}x${dim1.height}`,
-      dimensionsRun2: `${dim2.width}x${dim2.height}`,
-      dimensionsMatch: dimsMatch,
-      sha256Run1: hash1,
-      sha256Run2: hash2,
-      byteDeterministic: hashMatch,
-    });
-  }
-
-  // Check normalized summary properties
-  const overflowMatch = JSON.stringify(summary1.overflowChecks) === JSON.stringify(summary2.overflowChecks);
-  const axeMatch = JSON.stringify(summary1.axeAuditResults) === JSON.stringify(summary2.axeAuditResults);
-  const viewportsMatch = JSON.stringify(summary1.viewports) === JSON.stringify(summary2.viewports);
-
-  const zeroExternalRun1 = summary1.networkLedgerSummary ? summary1.networkLedgerSummary.externalRequestCount === 0 : true;
-  const zeroExternalRun2 = summary2.networkLedgerSummary ? summary2.networkLedgerSummary.externalRequestCount === 0 : true;
-
-  let classification;
-  if (byteDifferencesCount === 0 && dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
-    classification = 'BYTE_DETERMINISTIC';
-  } else if (dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
-    classification = 'REPRODUCIBLE_SEMANTIC_OUTPUT';
-  } else {
-    classification = 'DIVERGENT_OUTPUT';
-  }
-
-  const reproducibilitySummary = {
-    targetCommitSha: targetSha,
-    evidenceTimestamp: timestamp,
-    evaluatedAt: new Date().toISOString(),
-    reproducibilityClassification: classification,
-    provenanceVerdict: classification !== 'DIVERGENT_OUTPUT' ? 'VERIFIED' : 'FAILED',
-    runs: {
-      run1: {
-        durationMs: run1Result.durationMs,
-        artifactCount: files1.length,
-        requestCount: ledger1.length,
-        externalRequestCount: summary1.networkLedgerSummary?.externalRequestCount ?? 0,
-      },
-      run2: {
-        durationMs: run2Result.durationMs,
-        artifactCount: files2.length,
-        requestCount: ledger2.length,
-        externalRequestCount: summary2.networkLedgerSummary?.externalRequestCount ?? 0,
-      },
-    },
-    normalizedPropertiesCompared: {
-      artifactFilenameInventory: inventoryMatch ? 'IDENTICAL' : 'DIFFERENT',
-      viewportMatrix: viewportsMatch ? 'IDENTICAL' : 'DIFFERENT',
-      zeroHorizontalOverflowChecks: overflowMatch ? 'IDENTICAL_ZERO_OVERFLOW' : 'DIFFERENT',
-      axeWcagAuditResults: axeMatch ? 'IDENTICAL_ZERO_CRITICAL_SERIOUS_VIOLATIONS' : 'DIFFERENT',
-      networkHermeticityStatus: zeroExternalRun1 && zeroExternalRun2 ? 'ZERO_EXTERNAL_CALLS_VERIFIED' : 'EXTERNAL_CALLS_DETECTED',
-      screenshotDimensions: dimensionDifferencesCount === 0 ? 'IDENTICAL_ALL_VIEWPORTS' : `${dimensionDifferencesCount}_DIMENSION_DIFFS`,
-      screenshotByteDeterminism: byteDifferencesCount === 0 ? 'BYTE_EXACT_MATCH' : `${byteDifferencesCount}_FILES_VARY_SUBPIXEL_RASTER`,
-    },
-    totalScreenshotsCompared: pngFiles.length,
-    byteExactCount: pngFiles.length - byteDifferencesCount,
-    semanticOnlyCount: byteDifferencesCount,
-    screenshotArtifacts: screenshotComparisons,
-  };
-
-  console.log('\n====================================================');
-  console.log(` REPRODUCIBILITY VERDICT: ${classification}`);
-  console.log(` Total Screenshots Evaluated: ${pngFiles.length}`);
-  console.log(` Byte-Exact Matches        : ${pngFiles.length - byteDifferencesCount}`);
-  console.log(` Semantic Matches          : ${pngFiles.length}`);
-  console.log(` Dimension Differences     : ${dimensionDifferencesCount}`);
-  console.log(` Filename Inventory Match  : ${inventoryMatch}`);
-  console.log(` Overflow Checks Match     : ${overflowMatch}`);
-  console.log(` Axe WCAG Audits Match     : ${axeMatch}`);
-  console.log(` Zero External Calls Run 1 : ${zeroExternalRun1}`);
-  console.log(` Zero External Calls Run 2 : ${zeroExternalRun2}`);
-  console.log('====================================================');
-
-  if (shouldPopulateTarget) {
-    const targetDir = path.resolve(
-      repoRoot,
-      'docs',
-      'execution',
-      'evidence',
-      'artifacts',
-      'phase10-storefront',
-      targetSha
-    );
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    // Copy verified artifacts from run 1
-    for (const f of files1) {
-      fs.copyFileSync(path.join(tempDir1, f), path.join(targetDir, f));
+      screenshotComparisons.push({
+        filename: png,
+        dimensionsRun1: `${dim1.width}x${dim1.height}`,
+        dimensionsRun2: `${dim2.width}x${dim2.height}`,
+        dimensionsMatch: dimsMatch,
+        sha256Run1: hash1,
+        sha256Run2: hash2,
+        byteDeterministic: hashMatch,
+      });
     }
-    // Write reproducibility summary
-    fs.writeFileSync(
-      path.join(targetDir, 'reproducibility-summary.json'),
-      JSON.stringify(reproducibilitySummary, null, 2),
-      'utf8'
-    );
-    console.log(`\nArtifacts and reproducibility summary written to:\n${targetDir}`);
+
+    // Check normalized summary properties
+    const overflowMatch = JSON.stringify(summary1.overflowChecks) === JSON.stringify(summary2.overflowChecks);
+    const axeMatch = JSON.stringify(summary1.axeAuditResults) === JSON.stringify(summary2.axeAuditResults);
+    const viewportsMatch = JSON.stringify(summary1.viewports) === JSON.stringify(summary2.viewports);
+
+    const zeroExternalRun1 = summary1.networkLedgerSummary ? summary1.networkLedgerSummary.attemptedExternalRequestCount === 0 : true;
+    const zeroExternalRun2 = summary2.networkLedgerSummary ? summary2.networkLedgerSummary.attemptedExternalRequestCount === 0 : true;
+
+    let classification;
+    if (byteDifferencesCount === 0 && dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
+      classification = 'BYTE_DETERMINISTIC';
+    } else if (dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
+      classification = 'REPRODUCIBLE_SEMANTIC_OUTPUT';
+    } else {
+      classification = 'DIVERGENT_OUTPUT';
+    }
+
+    const reproducibilitySummary = {
+      targetCommitSha: targetSha,
+      evidenceTimestamp: timestamp,
+      evaluatedAt: new Date().toISOString(),
+      reproducibilityClassification: classification,
+      provenanceVerdict: classification !== 'DIVERGENT_OUTPUT' ? 'VERIFIED' : 'FAILED',
+      runs: {
+        run1: {
+          durationMs: run1Result.durationMs,
+          artifactCount: files1.length,
+          requestCount: ledger1.length,
+          attemptedExternalRequestCount: summary1.networkLedgerSummary?.attemptedExternalRequestCount ?? 0,
+          blockedExternalRequestCount: summary1.networkLedgerSummary?.blockedExternalRequestCount ?? 0,
+          successfulExternalRequestCount: summary1.networkLedgerSummary?.successfulExternalRequestCount ?? 0,
+        },
+        run2: {
+          durationMs: run2Result.durationMs,
+          artifactCount: files2.length,
+          requestCount: ledger2.length,
+          attemptedExternalRequestCount: summary2.networkLedgerSummary?.attemptedExternalRequestCount ?? 0,
+          blockedExternalRequestCount: summary2.networkLedgerSummary?.blockedExternalRequestCount ?? 0,
+          successfulExternalRequestCount: summary2.networkLedgerSummary?.successfulExternalRequestCount ?? 0,
+        },
+      },
+      normalizedPropertiesCompared: {
+        artifactFilenameInventory: inventoryMatch ? 'IDENTICAL' : 'DIFFERENT',
+        viewportMatrix: viewportsMatch ? 'IDENTICAL' : 'DIFFERENT',
+        zeroHorizontalOverflowChecks: overflowMatch ? 'IDENTICAL_ZERO_OVERFLOW' : 'DIFFERENT',
+        axeWcagAuditResults: axeMatch ? 'IDENTICAL_ZERO_CRITICAL_SERIOUS_VIOLATIONS' : 'DIFFERENT',
+        networkHermeticityStatus: zeroExternalRun1 && zeroExternalRun2 ? 'ZERO_EXTERNAL_CALLS_VERIFIED' : 'EXTERNAL_CALLS_DETECTED',
+        screenshotDimensions: dimensionDifferencesCount === 0 ? 'IDENTICAL_ALL_VIEWPORTS' : `${dimensionDifferencesCount}_DIMENSION_DIFFS`,
+        screenshotByteDeterminism: byteDifferencesCount === 0 ? 'BYTE_EXACT_MATCH' : `${byteDifferencesCount}_FILES_VARY_SUBPIXEL_RASTER`,
+      },
+      totalScreenshotsCompared: pngFiles.length,
+      byteExactCount: pngFiles.length - byteDifferencesCount,
+      semanticOnlyCount: byteDifferencesCount,
+      screenshotArtifacts: screenshotComparisons,
+    };
+
+    console.log('\n====================================================');
+    console.log(` REPRODUCIBILITY VERDICT: ${classification}`);
+    console.log(` Total Screenshots Evaluated: ${pngFiles.length}`);
+    console.log(` Byte-Exact Matches        : ${pngFiles.length - byteDifferencesCount}`);
+    console.log(` Semantic Matches          : ${pngFiles.length}`);
+    console.log(` Dimension Differences     : ${dimensionDifferencesCount}`);
+    console.log(` Filename Inventory Match  : ${inventoryMatch}`);
+    console.log(` Overflow Checks Match     : ${overflowMatch}`);
+    console.log(` Axe WCAG Audits Match     : ${axeMatch}`);
+    console.log(` Zero External Calls Run 1 : ${zeroExternalRun1}`);
+    console.log(` Zero External Calls Run 2 : ${zeroExternalRun2}`);
+    console.log('====================================================');
+
+    if (shouldPopulateTarget) {
+      if (classification === 'DIVERGENT_OUTPUT') {
+        throw new Error('Target population rejected: output divergence detected between verification runs.');
+      }
+      const targetDir = path.resolve(
+        repoRoot,
+        'docs',
+        'execution',
+        'evidence',
+        'artifacts',
+        'phase10-storefront',
+        targetSha
+      );
+
+      // Staging directory to guarantee atomic population
+      const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase10-staging-'));
+      try {
+        for (const f of files1) {
+          fs.copyFileSync(path.join(tempDir1, f), path.join(stagingDir, f));
+        }
+        fs.writeFileSync(
+          path.join(stagingDir, 'reproducibility-summary.json'),
+          JSON.stringify(reproducibilitySummary, null, 2),
+          'utf8'
+        );
+
+        fs.mkdirSync(targetDir, { recursive: true });
+        for (const f of fs.readdirSync(stagingDir)) {
+          fs.copyFileSync(path.join(stagingDir, f), path.join(targetDir, f));
+        }
+        console.log(`\nArtifacts and reproducibility summary safely written to:\n${targetDir}`);
+      } finally {
+        try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    return reproducibilitySummary;
+  } finally {
+    // Unconditional cleanup of disposable run directories
+    try { fs.rmSync(tempDir1, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tempDir2, { recursive: true, force: true }); } catch {}
+    console.log('Cleaned up disposable run directories.');
   }
-
-  // Clean temp directories
-  fs.rmSync(tempDir1, { recursive: true, force: true });
-  fs.rmSync(tempDir2, { recursive: true, force: true });
-  console.log('Cleaned up disposable run directories.');
-
-  return reproducibilitySummary;
 }
 
 if (require.main === module) {
