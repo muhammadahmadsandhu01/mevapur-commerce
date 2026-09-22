@@ -1,0 +1,279 @@
+{
+  "targetCommitSha": "7797e50448d9c2f7cd537e68616c9c910d90227c",
+  "evidenceTimestamp": "20260922T120000Z",
+  "evaluatedAt": "2026-09-22T19:10:39.100Z",
+  "reproducibilityClassification": "REPRODUCIBLE_SEMANTIC_OUTPUT",
+  "provenanceVerdict": "VERIFIED",
+  "runs": {
+    "run1": {
+      "durationMs": 52169,
+      "artifactCount": 24,
+      "totalRequestCount": 1680,
+      "localAllowedRequestCount": 1322,
+      "mockedRequestCount": 358,
+      "attemptedExternalRequestCount": 0,
+      "blockedExternalRequestCount": 0,
+      "successfulExternalRequestCount": 0,
+      "mockedCountsByFamily": {
+        "/auth/*": 106,
+        "/api/content/*": 32,
+        "/api/settings/*": 46,
+        "/api/categories/*": 67,
+        "/api/assistant/*": 46,
+        "/api/products/*": 28,
+        "/api/brands/*": 6,
+        "/api/account/*": 5,
+        "/api/market/*": 5,
+        "/api/payments/methods": 5,
+        "/api/checkout/quote": 1,
+        "/api/orders/*": 4,
+        "/api/account/orders/*": 3,
+        "/api/account/returns/*": 2,
+        "/api/refunds/*": 2
+      },
+      "ledgerArithmeticValid": true
+    },
+    "run2": {
+      "durationMs": 52053,
+      "artifactCount": 24,
+      "totalRequestCount": 1732,
+      "localAllowedRequestCount": 1366,
+      "mockedRequestCount": 366,
+      "attemptedExternalRequestCount": 0,
+      "blockedExternalRequestCount": 0,
+      "successfulExternalRequestCount": 0,
+      "mockedCountsByFamily": {
+        "/auth/*": 109,
+        "/api/content/*": 28,
+        "/api/settings/*": 46,
+        "/api/categories/*": 69,
+        "/api/assistant/*": 46,
+        "/api/products/*": 33,
+        "/api/brands/*": 6,
+        "/api/account/*": 5,
+        "/api/market/*": 4,
+        "/api/payments/methods": 5,
+        "/api/checkout/quote": 1,
+        "/api/orders/*": 7,
+        "/api/account/orders/*": 3,
+        "/api/account/returns/*": 2,
+        "/api/refunds/*": 2
+      },
+      "ledgerArithmeticValid": true
+    }
+  },
+  "normalizedPropertiesCompared": {
+    "artifactFilenameInventory": "IDENTICAL",
+    "viewportMatrix": "IDENTICAL",
+    "zeroHorizontalOverflowChecks": "IDENTICAL_ZERO_OVERFLOW",
+    "axeWcagAuditResults": "IDENTICAL_ZERO_CRITICAL_SERIOUS_VIOLATIONS",
+    "networkHermeticityStatus": "ZERO_EXTERNAL_CALLS_VERIFIED",
+    "mockedRequestsPresence": "MOCKED_REQUESTS_RECORDED",
+    "requestLedgerReconciliation": "RECONCILED_EXACT",
+    "screenshotDimensions": "IDENTICAL_ALL_VIEWPORTS",
+    "screenshotByteDeterminism": "3_FILES_VARY_SUBPIXEL_RASTER"
+  },
+  "totalScreenshotsCompared": 22,
+  "byteExactCount": 19,
+  "semanticOnlyCount": 3,
+  "screenshotArtifacts": [
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_A11Y-01-skiplink_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "cf6ba027691b131510964c3f08598728ccfebc8bd92cb9eb532578a1dedf6fc7",
+      "sha256Run2": "cf6ba027691b131510964c3f08598728ccfebc8bd92cb9eb532578a1dedf6fc7",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_CAT-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "51d302031427b6e3d9e6f9ec4fff40235c0d4cf290a982b0f29b69b9b4513544",
+      "sha256Run2": "51d302031427b6e3d9e6f9ec4fff40235c0d4cf290a982b0f29b69b9b4513544",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_CHK-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "95ae5dc05c8bf542d2c3ca768699f8370319916aaaac6519b5f5c34623917b4b",
+      "sha256Run2": "95ae5dc05c8bf542d2c3ca768699f8370319916aaaac6519b5f5c34623917b4b",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_CHK-02_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "95ae5dc05c8bf542d2c3ca768699f8370319916aaaac6519b5f5c34623917b4b",
+      "sha256Run2": "95ae5dc05c8bf542d2c3ca768699f8370319916aaaac6519b5f5c34623917b4b",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "4d994d1c934f64b1b1058e602ac689de52779749616722a622c7bcf5e8b2d8b2",
+      "sha256Run2": "4d994d1c934f64b1b1058e602ac689de52779749616722a622c7bcf5e8b2d8b2",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-02_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "efeccf3d47aa2200a393e6a6fe1a7a76e88307052b9e833d7ec43867e1586c10",
+      "sha256Run2": "efeccf3d47aa2200a393e6a6fe1a7a76e88307052b9e833d7ec43867e1586c10",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-07_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "4d994d1c934f64b1b1058e602ac689de52779749616722a622c7bcf5e8b2d8b2",
+      "sha256Run2": "4d994d1c934f64b1b1058e602ac689de52779749616722a622c7bcf5e8b2d8b2",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_CRT-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "827a99a45422c22e6d684ea3c6d56b005d49b3d036d556f729f7c88ff8c29838",
+      "sha256Run2": "827a99a45422c22e6d684ea3c6d56b005d49b3d036d556f729f7c88ff8c29838",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_DOC-01-receipt_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "6d31afefab0b4ff240c80eb781107719bd55e2cb28d8a0b1ea9ef495d93b8109",
+      "sha256Run2": "6d31afefab0b4ff240c80eb781107719bd55e2cb28d8a0b1ea9ef495d93b8109",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_DOC-01-taxinvoice_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "ac189e385e80b73e58cee8f657a8728cc59bbbc045ad1bfa61d045ce16d32b04",
+      "sha256Run2": "ac189e385e80b73e58cee8f657a8728cc59bbbc045ad1bfa61d045ce16d32b04",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_NAV-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "27cd61917bee99ea70390029d0bb2781a2daa2b7173e69a40db824045a1cadc0",
+      "sha256Run2": "27cd61917bee99ea70390029d0bb2781a2daa2b7173e69a40db824045a1cadc0",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_NAV-01_375x812_20260922T120000Z.png",
+      "dimensionsRun1": "375x812",
+      "dimensionsRun2": "375x812",
+      "dimensionsMatch": true,
+      "sha256Run1": "5a84ed2413a113cc5565e12f091060fe5377fda4818192e9608ad6e6ffa50fe9",
+      "sha256Run2": "5a84ed2413a113cc5565e12f091060fe5377fda4818192e9608ad6e6ffa50fe9",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_ORD-01-list_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "cff15db54089b5ca08a3fc2b873f8328fb84838f8ee6130dbf7baf13ea362b24",
+      "sha256Run2": "cff15db54089b5ca08a3fc2b873f8328fb84838f8ee6130dbf7baf13ea362b24",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_ORD-01-timeline_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "ce73a389bf7299cab981d1d99095fd425c98c373bc231648d002f63eafb076ee",
+      "sha256Run2": "ce73a389bf7299cab981d1d99095fd425c98c373bc231648d002f63eafb076ee",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_PRD-01-instock_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "a919857491d9d2fb77d5b45b659c66495c113da18cc89bad9528716c89d43b3c",
+      "sha256Run2": "a919857491d9d2fb77d5b45b659c66495c113da18cc89bad9528716c89d43b3c",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_PRD-01-outofstock_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "fa2e372b2fb092ccc9b4ff68261818bfd4ff7134525c43cbb0b737cf31548321",
+      "sha256Run2": "fa2e372b2fb092ccc9b4ff68261818bfd4ff7134525c43cbb0b737cf31548321",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_RET-01_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "371614857e1e1cb244f38cfce1c6ecd5797e97449405a30e63157776c0db7b79",
+      "sha256Run2": "371614857e1e1cb244f38cfce1c6ecd5797e97449405a30e63157776c0db7b79",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-1024x768_1024x768_20260922T120000Z.png",
+      "dimensionsRun1": "1024x768",
+      "dimensionsRun2": "1024x768",
+      "dimensionsMatch": true,
+      "sha256Run1": "5a4207c4c63db0de0000ed22abaf58966efe8b89320e6ab2e6d11851ee9fe396",
+      "sha256Run2": "0e744c303504b265117e52c214fd320129e7552649448b6e9762e9b577665d2a",
+      "byteDeterministic": false
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-1440x900_1440x900_20260922T120000Z.png",
+      "dimensionsRun1": "1440x900",
+      "dimensionsRun2": "1440x900",
+      "dimensionsMatch": true,
+      "sha256Run1": "191ecee9351adae1e2aa98473a6efb1c02944e783b4d55a0ac5f709d69cae26c",
+      "sha256Run2": "191ecee9351adae1e2aa98473a6efb1c02944e783b4d55a0ac5f709d69cae26c",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-320x800_320x800_20260922T120000Z.png",
+      "dimensionsRun1": "320x800",
+      "dimensionsRun2": "320x800",
+      "dimensionsMatch": true,
+      "sha256Run1": "6ee13049b1f39128cafd426caf4cb54de54d9c098091e72a520e55c43f5a2cec",
+      "sha256Run2": "2caf180510f2c029cfd397aefad519d1b4f6069505e083287f988bc5ed8c1b59",
+      "byteDeterministic": false
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-375x812_375x812_20260922T120000Z.png",
+      "dimensionsRun1": "375x812",
+      "dimensionsRun2": "375x812",
+      "dimensionsMatch": true,
+      "sha256Run1": "d82154f132edd871488179cdeaea9172b6796c4cd6289b7579ed3d259b944d41",
+      "sha256Run2": "d82154f132edd871488179cdeaea9172b6796c4cd6289b7579ed3d259b944d41",
+      "byteDeterministic": true
+    },
+    {
+      "filename": "7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-768x1024_768x1024_20260922T120000Z.png",
+      "dimensionsRun1": "768x1024",
+      "dimensionsRun2": "768x1024",
+      "dimensionsMatch": true,
+      "sha256Run1": "affc8b86d3d5d1e9324198c92a713bd3e7e6ba7df284499d91f743a2086bab72",
+      "sha256Run2": "454b43aaebfa803548756f4e883560cc81d2d8790d35d50d4c43ff02d9bd1f61",
+      "byteDeterministic": false
+    }
+  ]
+}

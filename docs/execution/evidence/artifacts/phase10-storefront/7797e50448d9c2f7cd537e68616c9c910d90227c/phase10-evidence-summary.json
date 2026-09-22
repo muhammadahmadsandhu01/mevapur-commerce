@@ -1,0 +1,209 @@
+{
+  "targetSha": "7797e50448d9c2f7cd537e68616c9c910d90227c",
+  "utcTimestamp": "20260922T120000Z",
+  "browserVersion": "153.0.8010.50",
+  "evidenceType": "MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE",
+  "authoritativeManifest": "scripts/ops/manifests/uat-fixture-manifest.json",
+  "viewports": [
+    {
+      "id": "320x800",
+      "name": "Mobile Mini (320x800)",
+      "width": 320,
+      "height": 800
+    },
+    {
+      "id": "375x812",
+      "name": "Mobile Standard (375x812)",
+      "width": 375,
+      "height": 812
+    },
+    {
+      "id": "768x1024",
+      "name": "Tablet Portrait (768x1024)",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "id": "1024x768",
+      "name": "Desktop Standard (1024x768)",
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "id": "1440x900",
+      "name": "Desktop HD (1440x900)",
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "artifacts": {
+    "NAV-01": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_NAV-01_1440x900_20260922T120000Z.png",
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_NAV-01_375x812_20260922T120000Z.png"
+    ],
+    "CAT-01": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CAT-01_1440x900_20260922T120000Z.png"
+    ],
+    "PRD-01-instock": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_PRD-01-instock_1440x900_20260922T120000Z.png"
+    ],
+    "PRD-01-outofstock": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_PRD-01-outofstock_1440x900_20260922T120000Z.png"
+    ],
+    "CRT-01": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CRT-01_1440x900_20260922T120000Z.png"
+    ],
+    "CHK-01": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CHK-01_1440x900_20260922T120000Z.png"
+    ],
+    "CHK-02": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CHK-02_1440x900_20260922T120000Z.png"
+    ],
+    "ORD-01-list": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_ORD-01-list_1440x900_20260922T120000Z.png"
+    ],
+    "ORD-01-timeline": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_ORD-01-timeline_1440x900_20260922T120000Z.png"
+    ],
+    "DOC-01-receipt": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_DOC-01-receipt_1440x900_20260922T120000Z.png"
+    ],
+    "DOC-01-taxinvoice": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_DOC-01-taxinvoice_1440x900_20260922T120000Z.png"
+    ],
+    "RET-01": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_RET-01_1440x900_20260922T120000Z.png"
+    ],
+    "A11Y-01-skiplink": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_A11Y-01-skiplink_1440x900_20260922T120000Z.png"
+    ],
+    "VIEW-01-320x800": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-320x800_320x800_20260922T120000Z.png"
+    ],
+    "VIEW-01-375x812": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-375x812_375x812_20260922T120000Z.png"
+    ],
+    "VIEW-01-768x1024": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-768x1024_768x1024_20260922T120000Z.png"
+    ],
+    "VIEW-01-1024x768": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-1024x768_1024x768_20260922T120000Z.png"
+    ],
+    "VIEW-01-1440x900": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-1440x900_1440x900_20260922T120000Z.png"
+    ],
+    "COD-ACC-01": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-01_1440x900_20260922T120000Z.png"
+    ],
+    "COD-ACC-02": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-02_1440x900_20260922T120000Z.png"
+    ],
+    "COD-ACC-07": [
+      "docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-07_1440x900_20260922T120000Z.png"
+    ]
+  },
+  "overflowChecks": {
+    "/@320x800": false,
+    "/products@320x800": false,
+    "/cart@320x800": false,
+    "/checkout@320x800": false,
+    "/orders/ORD-UAT-DELIVERED-004@320x800": false,
+    "/@375x812": false,
+    "/products@375x812": false,
+    "/cart@375x812": false,
+    "/checkout@375x812": false,
+    "/orders/ORD-UAT-DELIVERED-004@375x812": false,
+    "/@768x1024": false,
+    "/products@768x1024": false,
+    "/cart@768x1024": false,
+    "/checkout@768x1024": false,
+    "/orders/ORD-UAT-DELIVERED-004@768x1024": false,
+    "/@1024x768": false,
+    "/products@1024x768": false,
+    "/cart@1024x768": false,
+    "/checkout@1024x768": false,
+    "/orders/ORD-UAT-DELIVERED-004@1024x768": false,
+    "/@1440x900": false,
+    "/products@1440x900": false,
+    "/cart@1440x900": false,
+    "/checkout@1440x900": false,
+    "/orders/ORD-UAT-DELIVERED-004@1440x900": false
+  },
+  "axeAuditResults": {
+    "/": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 28
+    },
+    "/products": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 29
+    },
+    "/products/almonds-roasted-500g": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 30
+    },
+    "/cart": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 28
+    },
+    "/checkout": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 29
+    },
+    "/orders/ORD-UAT-DELIVERED-004": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 28
+    },
+    "/orders/66f000000000000000000044/invoice": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 30
+    },
+    "/account": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 31
+    },
+    "/login": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 29
+    },
+    "/register": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 30
+    },
+    "/forgot-password": {
+      "criticalOrSeriousViolations": 0,
+      "passesCount": 29
+    }
+  },
+  "networkLedgerSummary": {
+    "totalRequestCount": 1680,
+    "localAllowedRequestCount": 1322,
+    "mockedRequestCount": 358,
+    "attemptedExternalRequestCount": 0,
+    "blockedExternalRequestCount": 0,
+    "successfulExternalRequestCount": 0,
+    "mockedCountsByFamily": {
+      "/auth/*": 106,
+      "/api/content/*": 32,
+      "/api/settings/*": 46,
+      "/api/categories/*": 67,
+      "/api/assistant/*": 46,
+      "/api/products/*": 28,
+      "/api/brands/*": 6,
+      "/api/account/*": 5,
+      "/api/market/*": 5,
+      "/api/payments/methods": 5,
+      "/api/checkout/quote": 1,
+      "/api/orders/*": 4,
+      "/api/account/orders/*": 3,
+      "/api/account/returns/*": 2,
+      "/api/refunds/*": 2
+    },
+    "ledgerArithmeticValid": true,
+    "isHermetic": true,
+    "totalRequests": 1680,
+    "localAllowedCount": 1322,
+    "mockedCount": 358,
+    "externalBlockedCount": 0
+  }
+}
