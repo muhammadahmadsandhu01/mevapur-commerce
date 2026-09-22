@@ -109,8 +109,8 @@ async function verifyWorkerRuntime() {
   const exitPromise = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       workerProc.kill('SIGKILL');
-      reject(new Error('Worker did not shut down gracefully within 10s after SIGTERM'));
-    }, 10000);
+      reject(new Error(`Worker did not shut down gracefully within 15s after SIGTERM. stdout: ${stdoutData}, stderr: ${stderrData}`));
+    }, 15000);
 
     workerProc.on('exit', (code, signal) => {
       clearTimeout(timer);

@@ -40,6 +40,15 @@ async function processTransactionalOutbox({
   isProcessing = true;
 
   try {
+    if (mongoose.connection.readyState !== 1) {
+      logger.info('Transactional outbox processing skipped: database not connected');
+      return {
+        claimedCount: 0,
+        processedCount: 0,
+        offline: true
+      };
+    }
+
     if (dryRun) {
       const candidates = await transactionalNotificationService.claimBatch({
         limit: batchSize,
