@@ -1,0 +1,1137 @@
+{
+  "specificationVersion": "1.0.0",
+  "fixtureNamespace": "phase10_uat_v1",
+  "description": "Immutable deterministic UAT fixture specification for Phase 10 Manual QA, Load Testing, and Launch Readiness.",
+  "dependencyOrder": [
+    "fulfillmentlocations",
+    "categories",
+    "users",
+    "products",
+    "productmarketofferings",
+    "marketpricebooks",
+    "inventorypositions",
+    "coupons",
+    "orders",
+    "payments",
+    "orderdocuments",
+    "returns",
+    "refunds",
+    "transactionalmessages",
+    "customeroperationexceptions"
+  ],
+  "cleanupOrder": [
+    "customeroperationexceptions",
+    "transactionalmessages",
+    "refunds",
+    "returns",
+    "orderdocuments",
+    "payments",
+    "orders",
+    "coupons",
+    "inventorypositions",
+    "marketpricebooks",
+    "productmarketofferings",
+    "products",
+    "users",
+    "categories",
+    "fulfillmentlocations"
+  ],
+  "expectedCounts": {
+    "fulfillmentlocations": 1,
+    "categories": 1,
+    "users": 6,
+    "products": 4,
+    "productmarketofferings": 4,
+    "marketpricebooks": 4,
+    "inventorypositions": 4,
+    "coupons": 2,
+    "orders": 5,
+    "payments": 5,
+    "orderdocuments": 1,
+    "returns": 1,
+    "refunds": 1,
+    "transactionalmessages": 2,
+    "customeroperationexceptions": 1
+  },
+  "transientPayloads": {
+    "guestCheckoutPersona": {
+      "note": "GUEST_SESSION_TRANSIENT_ONLY_NEVER_PERSISTED_AS_USER",
+      "email": "guest-checkout@mevapur.test",
+      "shippingAddress": {
+        "fullName": "Guest UAT Customer",
+        "phone": "+923009998877",
+        "address": "Apartment 4B, Gulberg Heights",
+        "city": "Lahore",
+        "province": "Punjab",
+        "postalCode": "54000",
+        "country": "Pakistan",
+        "countryCode": "PK"
+      },
+      "cartItems": [
+        {
+          "sku": "SKU-ALM-500G",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  "datasets": {
+    "fulfillmentlocations": [
+      {
+        "_id": "66f000000000000000000001",
+        "merchantScopeId": "default",
+        "locationCode": "KHI-WH-01",
+        "displayName": "Karachi Central Warehouse",
+        "status": "active",
+        "countryCode": "PK",
+        "subdivision": "SD",
+        "city": "Karachi",
+        "postalCode": "75500",
+        "addressLine1": "Plot 45, Korangi Industrial Area",
+        "timeZone": "Asia/Karachi",
+        "priority": 1,
+        "identityFields": {
+          "locationCode": "KHI-WH-01"
+        }
+      }
+    ],
+    "categories": [
+      {
+        "_id": "66f000000000000000000002",
+        "name": "Dry Fruits & Nuts",
+        "slug": "dry-fruits-nuts",
+        "description": "Premium quality natural dry fruits and nuts.",
+        "isActive": true,
+        "isFeatured": true,
+        "displayOrder": 1,
+        "identityFields": {
+          "slug": "dry-fruits-nuts"
+        }
+      }
+    ],
+    "users": [
+      {
+        "_id": "66f000000000000000000021",
+        "fullName": "UAT Customer PK COD",
+        "email": "customer-pk-cod@mevapur.test",
+        "phone": "+923001234567",
+        "role": "customer",
+        "merchantScopeId": "default",
+        "isVerified": true,
+        "residenceCountry": "PK",
+        "preferredMarketCountry": "PK",
+        "addresses": [
+          {
+            "fullName": "UAT Customer PK COD",
+            "phone": "+923001234567",
+            "address": "House 12, Street 4, Sector F-7/2",
+            "city": "Islamabad",
+            "state": "Islamabad",
+            "postalCode": "44000",
+            "country": "Pakistan",
+            "countryCode": "PK",
+            "isDefault": true
+          }
+        ],
+        "identityFields": {
+          "email": "customer-pk-cod@mevapur.test"
+        }
+      },
+      {
+        "_id": "66f000000000000000000022",
+        "fullName": "UAT Customer PK Prepaid",
+        "email": "customer-pk-prepaid@mevapur.test",
+        "phone": "+923002345678",
+        "role": "customer",
+        "merchantScopeId": "default",
+        "isVerified": true,
+        "residenceCountry": "PK",
+        "preferredMarketCountry": "PK",
+        "addresses": [
+          {
+            "fullName": "UAT Customer PK Prepaid",
+            "phone": "+923002345678",
+            "address": "Plot 10, Clifton Block 2",
+            "city": "Karachi",
+            "state": "Sindh",
+            "postalCode": "75600",
+            "country": "Pakistan",
+            "countryCode": "PK",
+            "isDefault": true
+          }
+        ],
+        "identityFields": {
+          "email": "customer-pk-prepaid@mevapur.test"
+        }
+      },
+      {
+        "_id": "66f000000000000000000023",
+        "fullName": "UAT Customer AE Disabled",
+        "email": "customer-ae-disabled@mevapur.test",
+        "phone": "+971501234567",
+        "role": "customer",
+        "merchantScopeId": "default",
+        "isVerified": true,
+        "residenceCountry": "AE",
+        "preferredMarketCountry": "AE",
+        "addresses": [
+          {
+            "fullName": "UAT Customer AE Disabled",
+            "phone": "+971501234567",
+            "address": "Downtown Dubai Tower 1",
+            "city": "Dubai",
+            "state": "Dubai",
+            "postalCode": "00000",
+            "country": "United Arab Emirates",
+            "countryCode": "AE",
+            "isDefault": true
+          }
+        ],
+        "identityFields": {
+          "email": "customer-ae-disabled@mevapur.test"
+        }
+      },
+      {
+        "_id": "66f000000000000000000024",
+        "fullName": "UAT Customer GB Disabled",
+        "email": "customer-gb-disabled@mevapur.test",
+        "phone": "+447911123456",
+        "role": "customer",
+        "merchantScopeId": "default",
+        "isVerified": true,
+        "residenceCountry": "GB",
+        "preferredMarketCountry": "GB",
+        "addresses": [
+          {
+            "fullName": "UAT Customer GB Disabled",
+            "phone": "+447911123456",
+            "address": "10 Downing Street",
+            "city": "London",
+            "state": "Greater London",
+            "postalCode": "SW1A 2AA",
+            "country": "United Kingdom",
+            "countryCode": "GB",
+            "isDefault": true
+          }
+        ],
+        "identityFields": {
+          "email": "customer-gb-disabled@mevapur.test"
+        }
+      },
+      {
+        "_id": "66f000000000000000000025",
+        "fullName": "UAT Administrator",
+        "email": "admin-uat@mevapur.test",
+        "phone": "+923003456789",
+        "role": "admin",
+        "merchantScopeId": "default",
+        "isVerified": true,
+        "identityFields": {
+          "email": "admin-uat@mevapur.test"
+        }
+      },
+      {
+        "_id": "66f000000000000000000026",
+        "fullName": "UAT Support Agent",
+        "email": "support-uat@mevapur.test",
+        "phone": "+923004567890",
+        "role": "support",
+        "merchantScopeId": "default",
+        "isVerified": true,
+        "identityFields": {
+          "email": "support-uat@mevapur.test"
+        }
+      }
+    ],
+    "products": [
+      {
+        "_id": "66f000000000000000000011",
+        "name": "Almonds Roasted 500g",
+        "slug": "almonds-roasted-500g",
+        "sku": "SKU-ALM-500G",
+        "category": "66f000000000000000000002",
+        "shortDescription": "Crispy roasted and lightly salted natural California almonds.",
+        "description": "Premium handpicked roasted almonds in a vacuum sealed 500g pack.",
+        "price": 1500,
+        "stock": 100,
+        "lowStockThreshold": 10,
+        "status": "published",
+        "isActive": true,
+        "weight": 500,
+        "weightGrams": 500,
+        "allowCOD": true,
+        "countryOfOrigin": "Pakistan",
+        "identityFields": {
+          "sku": "SKU-ALM-500G"
+        }
+      },
+      {
+        "_id": "66f000000000000000000012",
+        "name": "Pistachios Saffron 250g",
+        "slug": "pistachios-saffron-250g",
+        "sku": "SKU-PIS-250G",
+        "category": "66f000000000000000000002",
+        "shortDescription": "Saffron roasted premium Persian pistachios.",
+        "description": "Finest saffron coated pistachios packed in protective 250g pouches.",
+        "price": 2200,
+        "stock": 5,
+        "lowStockThreshold": 10,
+        "status": "published",
+        "isActive": true,
+        "weight": 250,
+        "weightGrams": 250,
+        "allowCOD": true,
+        "countryOfOrigin": "Pakistan",
+        "identityFields": {
+          "sku": "SKU-PIS-250G"
+        }
+      },
+      {
+        "_id": "66f000000000000000000013",
+        "name": "Pine Nuts Chilgoza 250g",
+        "slug": "pine-nuts-chilgoza-250g",
+        "sku": "SKU-CHIL-250G",
+        "category": "66f000000000000000000002",
+        "shortDescription": "Wild harvested roasted pine nuts (Chilgoza).",
+        "description": "High altitude wild harvested organic pine nuts in 250g pack.",
+        "price": 4500,
+        "stock": 0,
+        "lowStockThreshold": 5,
+        "status": "published",
+        "isActive": true,
+        "weight": 250,
+        "weightGrams": 250,
+        "allowCOD": true,
+        "countryOfOrigin": "Pakistan",
+        "identityFields": {
+          "sku": "SKU-CHIL-250G"
+        }
+      },
+      {
+        "_id": "66f000000000000000000014",
+        "name": "Walnut Kernels Special 500g",
+        "slug": "walnut-kernels-special-500g",
+        "sku": "SKU-WAL-500G",
+        "category": "66f000000000000000000002",
+        "shortDescription": "Natural light half walnut kernels promotional deal.",
+        "description": "Extra light premium walnut kernels rich in Omega-3.",
+        "price": 1800,
+        "originalPrice": 2000,
+        "discount": 10,
+        "stock": 50,
+        "lowStockThreshold": 10,
+        "status": "published",
+        "isActive": true,
+        "isFeatured": true,
+        "weight": 500,
+        "weightGrams": 500,
+        "allowCOD": true,
+        "countryOfOrigin": "Pakistan",
+        "identityFields": {
+          "sku": "SKU-WAL-500G"
+        }
+      }
+    ],
+    "productmarketofferings": [
+      {
+        "_id": "66f0000000000000000000c1",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000011",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-ALM-500G",
+        "marketCountry": "PK",
+        "pricingPolicy": "inherit_product_price",
+        "version": 1,
+        "status": "active",
+        "visibility": "visible",
+        "fulfillmentMode": "local",
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000011",
+          "marketCountry": "PK",
+          "scopeKey": "product"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000c2",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000012",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-PIS-250G",
+        "marketCountry": "PK",
+        "pricingPolicy": "inherit_product_price",
+        "version": 1,
+        "status": "active",
+        "visibility": "visible",
+        "fulfillmentMode": "local",
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000012",
+          "marketCountry": "PK",
+          "scopeKey": "product"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000c3",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000013",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-CHIL-250G",
+        "marketCountry": "PK",
+        "pricingPolicy": "inherit_product_price",
+        "version": 1,
+        "status": "active",
+        "visibility": "visible",
+        "fulfillmentMode": "local",
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000013",
+          "marketCountry": "PK",
+          "scopeKey": "product"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000c4",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000014",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-WAL-500G",
+        "marketCountry": "PK",
+        "pricingPolicy": "inherit_product_price",
+        "version": 1,
+        "status": "active",
+        "visibility": "visible",
+        "fulfillmentMode": "local",
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000014",
+          "marketCountry": "PK",
+          "scopeKey": "product"
+        }
+      }
+    ],
+    "marketpricebooks": [
+      {
+        "_id": "66f0000000000000000000d1",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000011",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-ALM-500G",
+        "marketCountry": "PK",
+        "currency": "PKR",
+        "currencyExponent": 2,
+        "amountMinor": "150000",
+        "priceSource": "manual",
+        "status": "active",
+        "version": 1,
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000011",
+          "marketCountry": "PK",
+          "currency": "PKR",
+          "scopeKey": "product"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000d2",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000012",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-PIS-250G",
+        "marketCountry": "PK",
+        "currency": "PKR",
+        "currencyExponent": 2,
+        "amountMinor": "220000",
+        "priceSource": "manual",
+        "status": "active",
+        "version": 1,
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000012",
+          "marketCountry": "PK",
+          "currency": "PKR",
+          "scopeKey": "product"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000d3",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000013",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-CHIL-250G",
+        "marketCountry": "PK",
+        "currency": "PKR",
+        "currencyExponent": 2,
+        "amountMinor": "450000",
+        "priceSource": "manual",
+        "status": "active",
+        "version": 1,
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000013",
+          "marketCountry": "PK",
+          "currency": "PKR",
+          "scopeKey": "product"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000d4",
+        "merchantScopeId": "default",
+        "productId": "66f000000000000000000014",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "sku": "SKU-WAL-500G",
+        "marketCountry": "PK",
+        "currency": "PKR",
+        "currencyExponent": 2,
+        "amountMinor": "180000",
+        "compareAtAmountMinor": "200000",
+        "priceSource": "manual",
+        "status": "active",
+        "version": 1,
+        "lockVersion": 1,
+        "identityFields": {
+          "productId": "66f000000000000000000014",
+          "marketCountry": "PK",
+          "currency": "PKR",
+          "scopeKey": "product"
+        }
+      }
+    ],
+    "inventorypositions": [
+      {
+        "_id": "66f0000000000000000000b1",
+        "merchantScopeId": "default",
+        "locationId": "66f000000000000000000001",
+        "locationCode": "KHI-WH-01",
+        "productId": "66f000000000000000000011",
+        "canonicalSku": "SKU-ALM-500G",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "onHand": 100,
+        "reserved": 0,
+        "unavailable": 0,
+        "safetyStock": 0,
+        "reorderPoint": 10,
+        "lockVersion": 1,
+        "identityFields": {
+          "locationCode": "KHI-WH-01",
+          "canonicalSku": "SKU-ALM-500G"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000b2",
+        "merchantScopeId": "default",
+        "locationId": "66f000000000000000000001",
+        "locationCode": "KHI-WH-01",
+        "productId": "66f000000000000000000012",
+        "canonicalSku": "SKU-PIS-250G",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "onHand": 5,
+        "reserved": 0,
+        "unavailable": 0,
+        "safetyStock": 0,
+        "reorderPoint": 5,
+        "lockVersion": 1,
+        "identityFields": {
+          "locationCode": "KHI-WH-01",
+          "canonicalSku": "SKU-PIS-250G"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000b3",
+        "merchantScopeId": "default",
+        "locationId": "66f000000000000000000001",
+        "locationCode": "KHI-WH-01",
+        "productId": "66f000000000000000000013",
+        "canonicalSku": "SKU-CHIL-250G",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "onHand": 0,
+        "reserved": 0,
+        "unavailable": 0,
+        "safetyStock": 0,
+        "reorderPoint": 5,
+        "lockVersion": 1,
+        "identityFields": {
+          "locationCode": "KHI-WH-01",
+          "canonicalSku": "SKU-CHIL-250G"
+        }
+      },
+      {
+        "_id": "66f0000000000000000000b4",
+        "merchantScopeId": "default",
+        "locationId": "66f000000000000000000001",
+        "locationCode": "KHI-WH-01",
+        "productId": "66f000000000000000000014",
+        "canonicalSku": "SKU-WAL-500G",
+        "scopeType": "product",
+        "scopeKey": "product",
+        "onHand": 50,
+        "reserved": 0,
+        "unavailable": 0,
+        "safetyStock": 0,
+        "reorderPoint": 10,
+        "lockVersion": 1,
+        "identityFields": {
+          "locationCode": "KHI-WH-01",
+          "canonicalSku": "SKU-WAL-500G"
+        }
+      }
+    ],
+    "coupons": [
+      {
+        "_id": "66f000000000000000000031",
+        "code": "UATPERCENT10",
+        "type": "percentage",
+        "value": 10,
+        "minOrderAmount": 1000,
+        "currency": "PKR",
+        "status": "active",
+        "isActive": true,
+        "startDate": "2026-01-01T00:00:00.000Z",
+        "endDate": "2027-12-31T23:59:59.000Z",
+        "description": "UAT 10% discount coupon for orders over 1000 PKR",
+        "identityFields": {
+          "code": "UATPERCENT10"
+        }
+      },
+      {
+        "_id": "66f000000000000000000032",
+        "code": "UATFIXED500",
+        "type": "fixed",
+        "value": 500,
+        "minOrderAmount": 3000,
+        "currency": "PKR",
+        "status": "active",
+        "isActive": true,
+        "startDate": "2026-01-01T00:00:00.000Z",
+        "endDate": "2027-12-31T23:59:59.000Z",
+        "description": "UAT 500 PKR flat discount coupon for orders over 3000 PKR",
+        "identityFields": {
+          "code": "UATFIXED500"
+        }
+      }
+    ],
+    "orders": [
+      {
+        "_id": "66f000000000000000000041",
+        "orderId": "ORD-UAT-PENDING-001",
+        "user": "66f000000000000000000021",
+        "idempotencyKey": "IDEM-UAT-001",
+        "requestHash": "HASH-UAT-001",
+        "items": [
+          {
+            "product": "66f000000000000000000011",
+            "name": "Almonds Roasted 500g",
+            "sku": "SKU-ALM-500G",
+            "price": 1500,
+            "quantity": 1,
+            "lineTotal": 1500
+          }
+        ],
+        "shippingAddress": {
+          "fullName": "UAT Customer PK COD",
+          "phone": "+923001234567",
+          "address": "House 12, Street 4, Sector F-7/2",
+          "city": "Islamabad",
+          "province": "Islamabad",
+          "postalCode": "44000",
+          "country": "Pakistan",
+          "countryCode": "PK"
+        },
+        "paymentMethod": "cod",
+        "paymentStatus": "Pending",
+        "currency": "PKR",
+        "payment": {
+          "provider": "Cash on Delivery",
+          "transactionId": "",
+          "currency": "PKR"
+        },
+        "orderStatus": "pending",
+        "subtotal": 1500,
+        "shippingCost": 0,
+        "taxAmount": 0,
+        "totalAmount": 1500,
+        "statusTimeline": [
+          {
+            "status": "pending",
+            "actor": "66f000000000000000000021",
+            "actorRole": "customer",
+            "timestamp": "2026-09-22T10:00:00.000Z",
+            "note": "UAT pending order placed"
+          }
+        ],
+        "identityFields": {
+          "orderId": "ORD-UAT-PENDING-001"
+        }
+      },
+      {
+        "_id": "66f000000000000000000042",
+        "orderId": "ORD-UAT-PROCESSING-002",
+        "user": "66f000000000000000000021",
+        "idempotencyKey": "IDEM-UAT-002",
+        "requestHash": "HASH-UAT-002",
+        "items": [
+          {
+            "product": "66f000000000000000000011",
+            "name": "Almonds Roasted 500g",
+            "sku": "SKU-ALM-500G",
+            "price": 1500,
+            "quantity": 1,
+            "lineTotal": 1500
+          }
+        ],
+        "shippingAddress": {
+          "fullName": "UAT Customer PK COD",
+          "phone": "+923001234567",
+          "address": "House 12, Street 4, Sector F-7/2",
+          "city": "Islamabad",
+          "province": "Islamabad",
+          "postalCode": "44000",
+          "country": "Pakistan",
+          "countryCode": "PK"
+        },
+        "paymentMethod": "cod",
+        "paymentStatus": "Pending",
+        "currency": "PKR",
+        "payment": {
+          "provider": "Cash on Delivery",
+          "transactionId": "",
+          "currency": "PKR"
+        },
+        "orderStatus": "processing",
+        "subtotal": 1500,
+        "shippingCost": 0,
+        "taxAmount": 0,
+        "totalAmount": 1500,
+        "statusTimeline": [
+          {
+            "status": "pending",
+            "actor": "66f000000000000000000021",
+            "actorRole": "customer",
+            "timestamp": "2026-09-22T10:00:00.000Z"
+          },
+          {
+            "status": "processing",
+            "actor": "66f000000000000000000025",
+            "actorRole": "admin",
+            "timestamp": "2026-09-22T10:05:00.000Z",
+            "note": "UAT admin confirmed processing"
+          }
+        ],
+        "identityFields": {
+          "orderId": "ORD-UAT-PROCESSING-002"
+        }
+      },
+      {
+        "_id": "66f000000000000000000043",
+        "orderId": "ORD-UAT-SHIPPED-003",
+        "user": "66f000000000000000000021",
+        "idempotencyKey": "IDEM-UAT-003",
+        "requestHash": "HASH-UAT-003",
+        "items": [
+          {
+            "product": "66f000000000000000000011",
+            "name": "Almonds Roasted 500g",
+            "sku": "SKU-ALM-500G",
+            "price": 1500,
+            "quantity": 1,
+            "lineTotal": 1500
+          }
+        ],
+        "shippingAddress": {
+          "fullName": "UAT Customer PK COD",
+          "phone": "+923001234567",
+          "address": "House 12, Street 4, Sector F-7/2",
+          "city": "Islamabad",
+          "province": "Islamabad",
+          "postalCode": "44000",
+          "country": "Pakistan",
+          "countryCode": "PK"
+        },
+        "paymentMethod": "cod",
+        "paymentStatus": "Pending",
+        "currency": "PKR",
+        "payment": {
+          "provider": "Cash on Delivery",
+          "transactionId": "",
+          "currency": "PKR"
+        },
+        "orderStatus": "shipped",
+        "trackingNumber": "TRK-UAT-789012",
+        "courierCompany": "TCS",
+        "subtotal": 1500,
+        "shippingCost": 0,
+        "taxAmount": 0,
+        "totalAmount": 1500,
+        "statusTimeline": [
+          {
+            "status": "pending",
+            "actor": "66f000000000000000000021",
+            "actorRole": "customer",
+            "timestamp": "2026-09-22T10:00:00.000Z"
+          },
+          {
+            "status": "shipped",
+            "actor": "66f000000000000000000025",
+            "actorRole": "admin",
+            "timestamp": "2026-09-22T10:10:00.000Z",
+            "note": "Dispatched via TCS"
+          }
+        ],
+        "identityFields": {
+          "orderId": "ORD-UAT-SHIPPED-003"
+        }
+      },
+      {
+        "_id": "66f000000000000000000044",
+        "orderId": "ORD-UAT-DELIVERED-004",
+        "user": "66f000000000000000000021",
+        "idempotencyKey": "IDEM-UAT-004",
+        "requestHash": "HASH-UAT-004",
+        "items": [
+          {
+            "product": "66f000000000000000000011",
+            "name": "Almonds Roasted 500g",
+            "sku": "SKU-ALM-500G",
+            "price": 1500,
+            "quantity": 1,
+            "lineTotal": 1500
+          }
+        ],
+        "shippingAddress": {
+          "fullName": "UAT Customer PK COD",
+          "phone": "+923001234567",
+          "address": "House 12, Street 4, Sector F-7/2",
+          "city": "Islamabad",
+          "province": "Islamabad",
+          "postalCode": "44000",
+          "country": "Pakistan",
+          "countryCode": "PK"
+        },
+        "paymentMethod": "cod",
+        "paymentStatus": "Paid",
+        "currency": "PKR",
+        "payment": {
+          "provider": "Cash on Delivery",
+          "transactionId": "COD-COLL-001",
+          "currency": "PKR",
+          "paidAt": "2026-09-22T10:20:00.000Z"
+        },
+        "orderStatus": "delivered",
+        "deliveredAt": "2026-09-22T10:20:00.000Z",
+        "trackingNumber": "TRK-UAT-789012",
+        "courierCompany": "TCS",
+        "subtotal": 1500,
+        "shippingCost": 0,
+        "taxAmount": 0,
+        "totalAmount": 1500,
+        "statusTimeline": [
+          {
+            "status": "pending",
+            "actor": "66f000000000000000000021",
+            "actorRole": "customer",
+            "timestamp": "2026-09-22T10:00:00.000Z"
+          },
+          {
+            "status": "delivered",
+            "actor": "66f000000000000000000025",
+            "actorRole": "admin",
+            "timestamp": "2026-09-22T10:20:00.000Z",
+            "note": "Cash collected upon delivery"
+          }
+        ],
+        "identityFields": {
+          "orderId": "ORD-UAT-DELIVERED-004"
+        }
+      },
+      {
+        "_id": "66f000000000000000000045",
+        "orderId": "ORD-UAT-RETURN-005",
+        "user": "66f000000000000000000021",
+        "idempotencyKey": "IDEM-UAT-005",
+        "requestHash": "HASH-UAT-005",
+        "items": [
+          {
+            "product": "66f000000000000000000011",
+            "name": "Almonds Roasted 500g",
+            "sku": "SKU-ALM-500G",
+            "price": 1500,
+            "quantity": 1,
+            "lineTotal": 1500
+          }
+        ],
+        "shippingAddress": {
+          "fullName": "UAT Customer PK COD",
+          "phone": "+923001234567",
+          "address": "House 12, Street 4, Sector F-7/2",
+          "city": "Islamabad",
+          "province": "Islamabad",
+          "postalCode": "44000",
+          "country": "Pakistan",
+          "countryCode": "PK"
+        },
+        "paymentMethod": "cod",
+        "paymentStatus": "Refunded",
+        "currency": "PKR",
+        "orderStatus": "delivered",
+        "deliveredAt": "2026-09-22T10:20:00.000Z",
+        "subtotal": 1500,
+        "shippingCost": 0,
+        "taxAmount": 0,
+        "totalAmount": 1500,
+        "statusTimeline": [
+          {
+            "status": "pending",
+            "actor": "66f000000000000000000021",
+            "actorRole": "customer",
+            "timestamp": "2026-09-22T10:00:00.000Z"
+          },
+          {
+            "status": "delivered",
+            "actor": "66f000000000000000000025",
+            "actorRole": "admin",
+            "timestamp": "2026-09-22T10:20:00.000Z"
+          }
+        ],
+        "identityFields": {
+          "orderId": "ORD-UAT-RETURN-005"
+        }
+      }
+    ],
+    "payments": [
+      {
+        "_id": "66f000000000000000000051",
+        "merchantScopeId": "default",
+        "order": "66f000000000000000000041",
+        "user": "66f000000000000000000021",
+        "provider": "cod",
+        "providerDisplayName": "Cash on Delivery",
+        "paymentType": "offline",
+        "status": "Pending",
+        "amount": 1500,
+        "currency": "PKR",
+        "identityFields": {
+          "provider": "cod",
+          "order": "66f000000000000000000041"
+        }
+      },
+      {
+        "_id": "66f000000000000000000052",
+        "merchantScopeId": "default",
+        "order": "66f000000000000000000042",
+        "user": "66f000000000000000000021",
+        "provider": "cod",
+        "providerDisplayName": "Cash on Delivery",
+        "paymentType": "offline",
+        "status": "Pending",
+        "amount": 1500,
+        "currency": "PKR",
+        "identityFields": {
+          "provider": "cod",
+          "order": "66f000000000000000000042"
+        }
+      },
+      {
+        "_id": "66f000000000000000000053",
+        "merchantScopeId": "default",
+        "order": "66f000000000000000000043",
+        "user": "66f000000000000000000021",
+        "provider": "cod",
+        "providerDisplayName": "Cash on Delivery",
+        "paymentType": "offline",
+        "status": "Pending",
+        "amount": 1500,
+        "currency": "PKR",
+        "identityFields": {
+          "provider": "cod",
+          "order": "66f000000000000000000043"
+        }
+      },
+      {
+        "_id": "66f000000000000000000054",
+        "merchantScopeId": "default",
+        "order": "66f000000000000000000044",
+        "user": "66f000000000000000000021",
+        "provider": "cod",
+        "providerDisplayName": "Cash on Delivery",
+        "paymentType": "offline",
+        "status": "Completed",
+        "amount": 1500,
+        "paidAmount": 1500,
+        "capturedAmount": 1500,
+        "capturedAt": "2026-09-22T10:20:00.000Z",
+        "currency": "PKR",
+        "identityFields": {
+          "provider": "cod",
+          "order": "66f000000000000000000044"
+        }
+      },
+      {
+        "_id": "66f000000000000000000055",
+        "merchantScopeId": "default",
+        "order": "66f000000000000000000045",
+        "user": "66f000000000000000000021",
+        "provider": "cod",
+        "providerDisplayName": "Cash on Delivery",
+        "paymentType": "offline",
+        "status": "Refunded",
+        "amount": 1500,
+        "paidAmount": 1500,
+        "refundedAmount": 1500,
+        "currency": "PKR",
+        "identityFields": {
+          "provider": "cod",
+          "order": "66f000000000000000000045"
+        }
+      }
+    ],
+    "orderdocuments": [
+      {
+        "_id": "66f000000000000000000061",
+        "documentNumber": "DOC-UAT-REC-001",
+        "order": "66f000000000000000000044",
+        "orderRef": "ORD-UAT-DELIVERED-004",
+        "customer": "66f000000000000000000021",
+        "documentType": "PAYMENT_RECEIPT",
+        "title": "Payment Receipt",
+        "isOfficialReceipt": true,
+        "currency": "PKR",
+        "subtotal": 1500,
+        "total": 1500,
+        "items": [
+          {
+            "name": "Almonds Roasted 500g",
+            "sku": "SKU-ALM-500G",
+            "quantity": 1,
+            "unitPrice": 1500,
+            "lineTotal": 1500
+          }
+        ],
+        "customerSnapshot": {
+          "fullName": "UAT Customer PK COD",
+          "email": "customer-pk-cod@mevapur.test",
+          "phone": "+923001234567"
+        },
+        "identityFields": {
+          "documentNumber": "DOC-UAT-REC-001"
+        }
+      }
+    ],
+    "returns": [
+      {
+        "_id": "66f000000000000000000071",
+        "returnNumber": "RET-UAT-001",
+        "order": "66f000000000000000000045",
+        "customer": "66f000000000000000000021",
+        "items": [
+          {
+            "product": "66f000000000000000000011",
+            "name": "Almonds Roasted 500g",
+            "quantity": 1,
+            "price": 1500,
+            "refundAmount": 1500,
+            "reason": "not_satisfied",
+            "condition": "new"
+          }
+        ],
+        "status": "refunded",
+        "refundMethod": "bank_transfer",
+        "refundAmount": 1500,
+        "identityFields": {
+          "returnNumber": "RET-UAT-001"
+        }
+      }
+    ],
+    "refunds": [
+      {
+        "_id": "66f000000000000000000081",
+        "refundNumber": "REF-UAT-001",
+        "payment": "66f000000000000000000055",
+        "order": "66f000000000000000000045",
+        "customer": "66f000000000000000000021",
+        "amount": 1500,
+        "currency": "PKR",
+        "status": "COMPLETED",
+        "reason": "Customer return accepted",
+        "identityFields": {
+          "refundNumber": "REF-UAT-001"
+        }
+      }
+    ],
+    "transactionalmessages": [
+      {
+        "_id": "66f000000000000000000091",
+        "dedupKey": "MSG-UAT-PENDING-001",
+        "domainType": "order",
+        "domainId": "ORD-UAT-PENDING-001",
+        "channel": "EMAIL",
+        "templateId": "order_confirmation",
+        "templateVersion": "1.0",
+        "recipient": {
+          "userId": "66f000000000000000000021",
+          "email": "customer-pk-cod@mevapur.test",
+          "phone": "+923001234567",
+          "name": "UAT Customer PK COD"
+        },
+        "status": "PENDING",
+        "priority": "HIGH",
+        "renderedSubject": "Order Confirmation - ORD-UAT-PENDING-001",
+        "identityFields": {
+          "dedupKey": "MSG-UAT-PENDING-001"
+        }
+      },
+      {
+        "_id": "66f000000000000000000092",
+        "dedupKey": "MSG-UAT-DEADLETTER-002",
+        "domainType": "order",
+        "domainId": "ORD-UAT-PROCESSING-002",
+        "channel": "EMAIL",
+        "templateId": "order_confirmation",
+        "templateVersion": "1.0",
+        "recipient": {
+          "userId": "66f000000000000000000021",
+          "email": "customer-pk-cod@mevapur.test",
+          "phone": "+923001234567",
+          "name": "UAT Customer PK COD"
+        },
+        "status": "DEAD_LETTERED",
+        "priority": "HIGH",
+        "retryCount": 5,
+        "lastError": "Simulated SMTP timeout",
+        "renderedSubject": "Order Confirmation - ORD-UAT-PROCESSING-002",
+        "identityFields": {
+          "dedupKey": "MSG-UAT-DEADLETTER-002"
+        }
+      }
+    ],
+    "customeroperationexceptions": [
+      {
+        "_id": "66f0000000000000000000a1",
+        "exceptionNumber": "EXC-UAT-PAYMENT-001",
+        "dedupKey": "DEDUP-EXC-UAT-PAYMENT-001",
+        "type": "PAYMENT_FAILED",
+        "domainType": "order",
+        "domainId": "ORD-UAT-PENDING-001",
+        "customer": "66f000000000000000000021",
+        "order": "66f000000000000000000041",
+        "severity": "MEDIUM",
+        "status": "OPEN",
+        "description": "Payment verification stalled for COD order ORD-UAT-PENDING-001",
+        "identityFields": {
+          "exceptionNumber": "EXC-UAT-PAYMENT-001",
+          "dedupKey": "DEDUP-EXC-UAT-PAYMENT-001"
+        }
+      }
+    ]
+  }
+}
