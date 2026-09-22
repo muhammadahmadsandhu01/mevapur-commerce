@@ -109,7 +109,8 @@ async function verifyBackupRestoreRuntime() {
       mongoHost,
       user: rootUser,
       password: rootPass,
-      authSource: 'admin'
+      authSource: 'admin',
+      directConnection: true
     });
   } catch (err) {
     if (err.message.includes('Checksum mismatch')) {
@@ -133,7 +134,8 @@ async function verifyBackupRestoreRuntime() {
       mongoHost,
       user: rootUser,
       password: rootPass,
-      authSource: 'admin'
+      authSource: 'admin',
+      directConnection: true
     });
   } catch (err) {
     if (err.message.includes('is protected')) {
@@ -156,7 +158,8 @@ async function verifyBackupRestoreRuntime() {
     mongoHost,
     user: rootUser,
     password: rootPass,
-    authSource: 'admin'
+    authSource: 'admin',
+    directConnection: true
   });
 
   if (!restoreRes.success) {

@@ -42,7 +42,8 @@ async function restoreDatabase({
   mongoHost = '127.0.0.1:27017',
   authSource = null,
   user = null,
-  password = null
+  password = null,
+  directConnection = true
 } = {}) {
   // 1. Guard check: Apply token validation
   if (applyToken !== REQUIRED_APPLY_TOKEN) {
@@ -70,12 +71,12 @@ async function restoreDatabase({
     throw new Error('Restore rejected: Backup directory is missing manifest.json or database.archive.gz');
   }
 
-  // 3. Verify SHA-256 checksum before reading archive
-  console.log('[RESTORE] Verifying archive checksum...');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const archiveBytes = fs.readFileSync(archivePath);
-  const actualHash = crypto.createHash('sha256').update(archiveBytes).digest('hex');
 
+  // 3. Verify archive SHA-256 checksum
+  console.log('[RESTORE] Verifying archive checksum...');
+  const actualHash = crypto.createHash('sha256').update(archiveBytes).digest('hex');
   if (actualHash !== manifest.sha256) {
     throw new Error(`Restore rejected: Checksum mismatch! Manifest expects ${manifest.sha256}, but archive hash is ${actualHash}`);
   }
@@ -87,13 +88,25 @@ async function restoreDatabase({
   const dumpData = JSON.parse(decompressed.toString('utf8'));
 
   // 5. Connect to target database
-  let targetUri = `mongodb://${mongoHost}/${normalizedTarget}`;
+  const params = [];
+  if (authSource || (user && password)) {
+    params.push(`authSource=${encodeURIComponent(authSource || normalizedTarget)}`);
+  }
+  if (directConnection || !mongoHost.includes(',')) {
+    params.push('directConnection=true');
+  }
+  const queryStr = params.length > 0 ? `?${params.join('&')}` : '';
+
+  let targetUri = `mongodb://${mongoHost}/${normalizedTarget}${queryStr}`;
   if (user && password) {
-    targetUri = `mongodb://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${mongoHost}/${normalizedTarget}?authSource=${authSource || normalizedTarget}`;
+    targetUri = `mongodb://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${mongoHost}/${normalizedTarget}${queryStr}`;
   }
 
   console.log(`[RESTORE] Connecting to target database: ${normalizedTarget}...`);
-  const conn = await mongoose.createConnection(targetUri, { serverSelectionTimeoutMS: 5000 }).asPromise();
+  const conn = await mongoose.createConnection(targetUri, {
+    serverSelectionTimeoutMS: 5000,
+    directConnection: Boolean(directConnection)
+  }).asPromise();
   const db = conn.db;
 
   // 6. Restore collections, documents, and indexes
@@ -153,6 +166,7 @@ function parseCliArgs() {
     if (arg.startsWith('--confirm-target-db=')) options.targetDbName = arg.split('=')[1];
     if (arg.startsWith('--apply-token=')) options.applyToken = arg.split('=')[1];
     if (arg.startsWith('--mongoHost=')) options.mongoHost = arg.split('=')[1];
+    if (arg.startsWith('--directConnection=')) options.directConnection = arg.split('=')[1] !== 'false';
   }
   return options;
 }
