@@ -127,62 +127,77 @@ In accordance with Phase 10 governance, COD acceptance criteria have been audite
 
 ### Formal COD Policy Decision Register (No Implementation Authorized)
 
-#### Gap Record: P10C-GAP-001 — Domestic Courier / Postal-Code Serviceability
+#### Gap Record: P10C-GAP-001
+- **Domain**: Domestic courier COD serviceability and postal-code/zone exclusion
+- **Acceptance case**: `COD-ACC-02B`
+- **Current deficiency**: No domestic Pakistan serviceability/exclusion data is enforced
+- **Owner decision required**: Courier API, maintained postal-code/zone rules, and fail-open versus fail-closed behavior for unknown locations
 - **Status**: `OWNER_DECISION_REQUIRED`
-- **Current code evidence**: `backend/services/payment/PaymentCapabilityPolicy.js` evaluates only country code `destinationCountry === 'PK'`. It contains no postal code lookup, courier serviceable zone map, or remote area exclusion list.
-- **Affected acceptance cases**: `COD-ACC-02B`
-- **Minimum decision required**: Product owner must decide whether:
-  1. Domestic Pakistan postal codes are considered universally serviceable by the primary logistics partner for initial launch;
-  2. A static exclusion list of unserviceable postal codes should be maintained; or
-  3. Dynamic real-time courier API validation is required.
-- **Implementation deferred**: `true`
-- **Batch 10C impact**: `COD-ACC-02B` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-001`.
+- **implementationDeferred**: `true`
 
-#### Gap Record: P10C-GAP-002 — Product-Level COD Eligibility
+#### Gap Record: P10C-GAP-002
+- **Domain**: Product-level COD eligibility governance
+- **Acceptance case**: `COD-ACC-03`
+- **Current deficiency**: No product/category-level COD exclusion exists
+- **Owner decision required**: Product boolean, category policy, or rules-based restriction and mixed-cart behavior
 - **Status**: `OWNER_DECISION_REQUIRED`
-- **Current code evidence**: `backend/models/Product.js` defines an `allowCOD` Boolean field, but `PaymentCapabilityPolicy.js` and checkout quote services do not inspect cart line-item products or enforce cart-level COD disqualification if any item has `allowCOD: false`.
-- **Affected acceptance cases**: `COD-ACC-03`
-- **Minimum decision required**: Product owner must decide whether:
-  1. All catalog products are eligible for COD at launch;
-  2. A single non-COD item in cart disqualifies COD tender for the entire order; or
-  3. Split-shipment / mixed-cart workflows are supported.
-- **Implementation deferred**: `true`
-- **Batch 10C impact**: `COD-ACC-03` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-002`.
+- **implementationDeferred**: `true`
 
-#### Gap Record: P10C-GAP-003 — COD Order-Value Ceiling
+#### Gap Record: P10C-GAP-003
+- **Domain**: Configurable COD order-value ceiling
+- **Acceptance case**: `COD-ACC-04`
+- **Current deficiency**: No maximum COD order value is enforced
+- **Owner must decide**:
+  1. maximum amount;
+  2. currency;
+  3. inclusive or exclusive threshold;
+  4. evaluation before or after discount;
+  5. inclusion of shipping;
+  6. inclusion of tax.
 - **Status**: `OWNER_DECISION_REQUIRED`
-- **Current code evidence**: `backend/services/payment/PaymentCapabilityPolicy.js` evaluates payment methods without checking order total against any upper ceiling or currency-specific threshold.
-- **Affected acceptance cases**: `COD-ACC-04`
-- **Minimum decision required**: Product owner must explicitly provide:
-  1. **Maximum COD amount** (exact numerical ceiling);
-  2. **Currency** (e.g. `PKR`);
-  3. **Threshold inclusivity** (whether order total matching the threshold is allowed or rejected);
-  4. **Evaluation boundary** (whether the threshold evaluates against merchandise subtotal before discounts, or final payable total including shipping fees and taxes).
-- **Implementation deferred**: `true`
-- **Batch 10C impact**: `COD-ACC-04` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-003`.
+- **implementationDeferred**: `true`
 
-#### Gap Record: P10C-GAP-004 — Customer COD Risk / Block Policy
+#### Gap Record: P10C-GAP-004
+- **Domain**: Customer COD risk/block policy
+- **Acceptance case**: `COD-ACC-05`
+- **Current deficiency**: No active-customer fraud/risk tier or repeat-refusal COD restriction
+- **Owner decision required**: Manual flag, automated RTO/refusal threshold, expiry/reinstatement, and guest handling
 - **Status**: `OWNER_DECISION_REQUIRED`
-- **Current code evidence**: `backend/models/User.js` tracks `isVerified` and account status, but no customer risk tier, return-to-origin (RTO) refusal count, or COD blacklist/flagging mechanism is evaluated during checkout tender selection.
-- **Affected acceptance cases**: `COD-ACC-05`
-- **Minimum decision required**: Product owner must decide whether:
-  1. Initial launch permits all authenticated and guest users to use COD without customer-level risk filtering;
-  2. A manual admin flag (`codBlocked`) restricts specific customer accounts; or
-  3. An automated RTO refusal threshold (e.g. 2 consecutive rejected deliveries) triggers COD restriction.
-- **Implementation deferred**: `true`
-- **Batch 10C impact**: `COD-ACC-05` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-004`.
+- **implementationDeferred**: `true`
 
-#### Gap Record: P10C-GAP-005 — Prepaid-Only Promotion Governance
+#### Gap Record: P10C-GAP-005
+- **Domain**: Prepaid-only promotion governance
+- **Acceptance case**: `COD-ACC-06`
+- **Current deficiency**: Coupon/promotional rules cannot require prepaid tender
+- **Owner decision required**: Coupon flag or rules engine behavior and checkout messaging
 - **Status**: `OWNER_DECISION_REQUIRED`
-- **Current code evidence**: `backend/models/Coupon.js` and coupon validation service support percentage and fixed discounts, minimum spend, and expiration, but lack payment tender constraints (`allowedPaymentMethods` / `prepaidOnly`).
-- **Affected acceptance cases**: `COD-ACC-06`
-- **Minimum decision required**: Product owner must decide whether:
-  1. Marketing coupons are tender-agnostic for launch; or
-  2. Coupons can enforce `tenderExclusivity: ['stripe']`, preventing coupon application or invalidating coupon discount if COD tender is selected.
-- **Implementation deferred**: `true`
-- **Batch 10C impact**: `COD-ACC-06` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-005`.
+- **implementationDeferred**: `true`
 
-> **Governance Rule**: No policy gap may be marked `PASS`, `PENDING_HUMAN_REVIEW`, or `DEFERRED` without an explicit written decision by the product owner. In Batch 10C, all 5 gaps remain `OWNER_DECISION_REQUIRED` with `implementation deferred: true`.
+### Future Candidate Policies (Non-Conflicting IDs)
+
+The following candidate policies are preserved for future roadmap planning and must NOT replace or reuse `P10C-GAP-001` through `P10C-GAP-005`:
+
+#### Candidate Policy: P10C-FUTURE-001 — Guest COD Phone / OTP Verification
+- **Domain**: Unauthenticated guest checkout fraud mitigation
+- **Candidate scope**: Mandatory SMS/WhatsApp one-time passcode verification prior to dispatching COD orders placed by guest customers.
+- **Status**: `DEFERRED_FUTURE_CANDIDATE`
+
+#### Candidate Policy: P10C-FUTURE-002 — COD Fee / Delivery Surcharge Policy
+- **Domain**: Cash handling logistics cost recovery
+- **Candidate scope**: Additional fixed fee or percentage-based COD surcharge added to the order total at checkout.
+- **Status**: `DEFERRED_FUTURE_CANDIDATE`
+
+#### Candidate Policy: P10C-FUTURE-003 — Generic Address Validation / Geofencing
+- **Domain**: Address verification and geocoding accuracy
+- **Candidate scope**: Integration with address normalization or coordinate geofencing services.
+- **Status**: `DEFERRED_FUTURE_CANDIDATE`
+
+#### Candidate Policy: P10C-FUTURE-004 — Return-to-Origin (RTO) Penalty Implementation Details
+- **Domain**: Post-refusal customer account handling
+- **Candidate scope**: Customer penalty scoring, shipping deposit requirements, or automated restrictions following rejected delivery attempts.
+- **Status**: `DEFERRED_FUTURE_CANDIDATE`
+
+> **Governance Rule**: No policy gap may be marked `PASS`, `PENDING_HUMAN_REVIEW`, or `DEFERRED` without an explicit written decision by the product owner. In Batch 10C, all 5 locked gaps remain `OWNER_DECISION_REQUIRED` with `implementationDeferred: true`. No policy decisions or numeric limits are invented.
 
 ---
 

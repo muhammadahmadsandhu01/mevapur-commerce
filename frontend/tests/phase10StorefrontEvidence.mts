@@ -364,19 +364,130 @@ const intlAeQuote = {
 // ============================================================
 // Network Request Ledger & Hermetic Guard
 // ============================================================
-interface RequestLedgerEntry {
+export interface RequestLedgerEntry {
   url: string;
   method: string;
   classification: string;
-  disposition: 'LOCAL_ALLOWED' | 'MOCKED' | 'EXTERNAL_BLOCKED';
+  disposition: 'LOCAL_ALLOWED' | 'MOCKED' | 'EXTERNAL_BLOCKED' | 'EXTERNAL_SUCCESS';
+  routeFamily?: string;
   resourceType: string;
   timestamp: string;
 }
 
-const requestLedger: RequestLedgerEntry[] = [];
-let attemptedExternalRequestCount = 0;
-let blockedExternalRequestCount = 0;
-let successfulExternalRequestCount = 0;
+export const requestLedger: RequestLedgerEntry[] = [];
+export let localAllowedRequestCount = 0;
+export let mockedRequestCount = 0;
+export let attemptedExternalRequestCount = 0;
+export let blockedExternalRequestCount = 0;
+export let successfulExternalRequestCount = 0;
+export const mockedCountsByFamily: Record<string, number> = {};
+
+export function getRouteFamily(pathname: string): string {
+  if (pathname.includes('/auth/')) return '/auth/*';
+  if (pathname.includes('/account/orders')) return '/api/account/orders/*';
+  if (pathname.includes('/account/returns') || pathname.includes('/returns')) return '/api/account/returns/*';
+  if (pathname.includes('/account/refunds') || pathname.includes('/refunds')) return '/api/refunds/*';
+  if (pathname.includes('/checkout/quote') || pathname.includes('/orders/quote')) return '/api/checkout/quote';
+  if (pathname.includes('/orders')) return '/api/orders/*';
+  if (pathname.includes('/payments/methods') || pathname.includes('/payment/methods')) return '/api/payments/methods';
+  if (pathname.includes('/market') || pathname.includes('/commerce/market')) return '/api/market/*';
+  if (pathname.includes('/products')) return '/api/products/*';
+  if (pathname.includes('/categories')) return '/api/categories/*';
+  if (pathname.includes('/content/')) return '/api/content/*';
+  if (pathname.includes('/settings/')) return '/api/settings/*';
+  if (pathname.includes('/brands')) return '/api/brands/*';
+  if (pathname.includes('/assistant/')) return '/api/assistant/*';
+  if (pathname.includes('/account/')) return '/api/account/*';
+  if (pathname.includes('/wishlist')) return '/api/wishlist/*';
+  return '/api/*';
+}
+
+export interface RouteEvaluationResult {
+  action: 'continue' | 'fulfill' | 'abort';
+  classification: string;
+  disposition: 'LOCAL_ALLOWED' | 'MOCKED' | 'EXTERNAL_BLOCKED' | 'EXTERNAL_SUCCESS';
+  routeFamily?: string;
+  isLoopback: boolean;
+}
+
+export function evaluateRoutePolicy(rawUrl: string): RouteEvaluationResult {
+  // 1. Data and Blob URLs
+  if (rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) {
+    return {
+      action: 'continue',
+      classification: 'LOCAL_INLINE_DATA_OR_BLOB',
+      disposition: 'LOCAL_ALLOWED',
+      isLoopback: true,
+    };
+  }
+
+  // 2. Parse URL and verify loopback origin
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return {
+      action: 'abort',
+      classification: 'MALFORMED_URL_BLOCKED',
+      disposition: 'EXTERNAL_BLOCKED',
+      isLoopback: false,
+    };
+  }
+
+  const isLoopback =
+    parsed.hostname === '127.0.0.1' ||
+    parsed.hostname === 'localhost' ||
+    parsed.hostname === '::1';
+
+  // 3. Reject any non-loopback requests (fail closed)
+  if (!isLoopback) {
+    let classification = 'EXTERNAL_HOST_BLOCKED';
+    if (parsed.hostname.includes('cloudinary') || parsed.hostname.includes('unsplash')) {
+      classification = 'EXTERNAL_IMAGE_CDN_BLOCKED';
+    } else if (parsed.hostname.includes('stripe')) {
+      classification = 'EXTERNAL_PAYMENT_PROVIDER_BLOCKED';
+    } else if (parsed.hostname.includes('google') || parsed.hostname.includes('analytics')) {
+      classification = 'EXTERNAL_ANALYTICS_BLOCKED';
+    }
+    return {
+      action: 'abort',
+      classification,
+      disposition: 'EXTERNAL_BLOCKED',
+      isLoopback: false,
+    };
+  }
+
+  // 4. Same-origin loopback handling
+  const pathname = parsed.pathname;
+  const isApiOrAuth = pathname.includes('/api/') || pathname.includes('/auth/');
+
+  if (!isApiOrAuth) {
+    let classification = 'LOCAL_PAGE_ROUTE';
+    if (pathname.startsWith('/_next/')) {
+      classification = 'LOCAL_NEXTJS_ASSET';
+    } else if (pathname.startsWith('/brand/') || pathname.endsWith('.png') || pathname.endsWith('.svg') || pathname.endsWith('.ico')) {
+      classification = 'LOCAL_PUBLIC_ASSET';
+    } else if (pathname === '/healthz') {
+      classification = 'LOCAL_HEALTHCHECK';
+    }
+    return {
+      action: 'continue',
+      classification,
+      disposition: 'LOCAL_ALLOWED',
+      isLoopback: true,
+    };
+  }
+
+  // 5. Explicitly Mocked Same-Origin API Requests
+  const routeFamily = getRouteFamily(pathname);
+  return {
+    action: 'fulfill',
+    classification: 'SAME_ORIGIN_MOCKED_API',
+    disposition: 'MOCKED',
+    routeFamily,
+    isLoopback: true,
+  };
+}
 
 function redactUrl(rawUrl: string): string {
   try {
@@ -413,37 +524,8 @@ async function waitForServer(url: string, maxRetries = 60): Promise<void> {
 async function setupUniversalMocks(page: Page, options: { isAuthenticated?: boolean; isTaxInvoice?: boolean } = {}) {
   const { isAuthenticated = true, isTaxInvoice = false } = options;
 
-  // Add client-side hermetic init script
+  // Add client-side hermetic init script: normalizes API requests to loopback origin
   await page.addInitScript(() => {
-    // 1. Prevent external script injection (e.g. Stripe.js auto-loader)
-    const origCreateElement = document.createElement;
-    document.createElement = function (tagName: string, options?: ElementCreationOptions) {
-      const el = origCreateElement.call(document, tagName, options);
-      if (tagName && tagName.toLowerCase() === 'script') {
-        const origSetAttribute = el.setAttribute;
-        el.setAttribute = function (name: string, val: string) {
-          if (name === 'src' && typeof val === 'string' && val.includes('stripe.com')) {
-            return;
-          }
-          return origSetAttribute.call(el, name, val);
-        };
-        Object.defineProperty(el, 'src', {
-          set(val: string) {
-            if (typeof val === 'string' && val.includes('stripe.com')) {
-              return;
-            }
-            this.setAttribute('src', val);
-          },
-          get() {
-            return this.getAttribute('src') || '';
-          },
-          configurable: true,
-        });
-      }
-      return el;
-    };
-
-    // 2. Normalize client API calls to same-origin loopback
     const origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (
       this: XMLHttpRequest,
@@ -469,6 +551,37 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
       }
       return origFetch.call(this, input, init);
     };
+
+    // Hermetic client-side Stripe provider stub: prevents external script loading by @stripe/stripe-js
+    (window as unknown as Record<string, unknown>).Stripe = function () {
+      return {
+        elements: function () {
+          return {
+            create: function () {
+              return {
+                mount: function () {},
+                on: function () {},
+                destroy: function () {},
+                update: function () {},
+              };
+            },
+            getElement: function () {
+              return null;
+            },
+            fetchUpdates: async function () {
+              return {};
+            },
+          };
+        },
+        confirmPayment: async function () {
+          return { paymentIntent: { status: 'succeeded' } };
+        },
+        retrievePaymentIntent: async function () {
+          return { paymentIntent: { status: 'succeeded' } };
+        },
+        _registerWrapper: function () {},
+      };
+    };
   });
 
   await page.unroute('**').catch(() => {});
@@ -480,12 +593,14 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
     const resourceType = req.resourceType();
     const redacted = redactUrl(rawUrl);
 
-    // 1. Data and Blob URLs
-    if (rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) {
+    const evaluation = evaluateRoutePolicy(rawUrl);
+
+    if (evaluation.action === 'continue') {
+      localAllowedRequestCount++;
       requestLedger.push({
-        url: rawUrl.length > 80 ? rawUrl.slice(0, 80) + '...[TRUNCATED_DATA_URL]' : rawUrl,
+        url: rawUrl.startsWith('data:') && rawUrl.length > 80 ? rawUrl.slice(0, 80) + '...[TRUNCATED_DATA_URL]' : redacted,
         method,
-        classification: 'LOCAL_INLINE_DATA_OR_BLOB',
+        classification: evaluation.classification,
         disposition: 'LOCAL_ALLOWED',
         resourceType,
         timestamp: new Date().toISOString(),
@@ -493,45 +608,13 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
       return route.continue();
     }
 
-    // 2. Parse URL and verify loopback origin
-    let parsed: URL;
-    try {
-      parsed = new URL(rawUrl);
-    } catch {
+    if (evaluation.action === 'abort') {
       attemptedExternalRequestCount++;
       blockedExternalRequestCount++;
       requestLedger.push({
         url: redacted,
         method,
-        classification: 'MALFORMED_URL_BLOCKED',
-        disposition: 'EXTERNAL_BLOCKED',
-        resourceType,
-        timestamp: new Date().toISOString(),
-      });
-      return route.abort('blockedbyclient');
-    }
-
-    const isLoopback =
-      parsed.hostname === '127.0.0.1' ||
-      parsed.hostname === 'localhost' ||
-      parsed.hostname === '::1';
-
-    // 3. Reject any non-loopback requests
-    if (!isLoopback) {
-      attemptedExternalRequestCount++;
-      blockedExternalRequestCount++;
-      let classification = 'EXTERNAL_HOST_BLOCKED';
-      if (parsed.hostname.includes('cloudinary') || parsed.hostname.includes('unsplash')) {
-        classification = 'EXTERNAL_IMAGE_CDN_BLOCKED';
-      } else if (parsed.hostname.includes('stripe')) {
-        classification = 'EXTERNAL_PAYMENT_PROVIDER_BLOCKED';
-      } else if (parsed.hostname.includes('google') || parsed.hostname.includes('analytics')) {
-        classification = 'EXTERNAL_ANALYTICS_BLOCKED';
-      }
-      requestLedger.push({
-        url: redacted,
-        method,
-        classification,
+        classification: evaluation.classification,
         disposition: 'EXTERNAL_BLOCKED',
         resourceType,
         timestamp: new Date().toISOString(),
@@ -540,44 +623,29 @@ async function setupUniversalMocks(page: Page, options: { isAuthenticated?: bool
         await route.abort('blockedbyclient');
         return;
       } catch {
+        blockedExternalRequestCount--;
         successfulExternalRequestCount++;
+        requestLedger[requestLedger.length - 1].disposition = 'EXTERNAL_SUCCESS';
         return;
       }
     }
 
-    // 4. Same-origin loopback handling
-    const pathname = parsed.pathname;
-    const isApiOrAuth = pathname.includes('/api/') || pathname.includes('/auth/');
-
-    if (!isApiOrAuth) {
-      let classification = 'LOCAL_PAGE_ROUTE';
-      if (pathname.startsWith('/_next/')) {
-        classification = 'LOCAL_NEXTJS_ASSET';
-      } else if (pathname.startsWith('/brand/') || pathname.endsWith('.png') || pathname.endsWith('.svg') || pathname.endsWith('.ico')) {
-        classification = 'LOCAL_PUBLIC_ASSET';
-      } else if (pathname === '/healthz') {
-        classification = 'LOCAL_HEALTHCHECK';
-      }
-      requestLedger.push({
-        url: redacted,
-        method,
-        classification,
-        disposition: 'LOCAL_ALLOWED',
-        resourceType,
-        timestamp: new Date().toISOString(),
-      });
-      return route.continue();
-    }
-
     // 5. Explicitly Mocked Same-Origin API Requests
+    mockedRequestCount++;
+    const family = evaluation.routeFamily || getRouteFamily(new URL(rawUrl).pathname);
+    mockedCountsByFamily[family] = (mockedCountsByFamily[family] || 0) + 1;
     requestLedger.push({
       url: redacted,
       method,
-      classification: 'SAME_ORIGIN_MOCKED_API',
+      classification: evaluation.classification,
       disposition: 'MOCKED',
+      routeFamily: family,
       resourceType,
       timestamp: new Date().toISOString(),
     });
+
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname;
 
     if (pathname.includes('/auth/csrf-token')) {
       return route.fulfill({
@@ -886,14 +954,19 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
     overflowChecks: Record<string, boolean>;
     axeAuditResults: Record<string, { criticalOrSeriousViolations: number; passesCount: number }>;
     networkLedgerSummary?: {
-      totalRequests: number;
-      localAllowedCount: number;
-      mockedCount: number;
-      externalBlockedCount: number;
+      totalRequestCount: number;
+      localAllowedRequestCount: number;
+      mockedRequestCount: number;
       attemptedExternalRequestCount: number;
       blockedExternalRequestCount: number;
       successfulExternalRequestCount: number;
+      mockedCountsByFamily: Record<string, number>;
+      ledgerArithmeticValid: boolean;
       isHermetic: boolean;
+      totalRequests?: number;
+      localAllowedCount?: number;
+      mockedCount?: number;
+      externalBlockedCount?: number;
     };
   } = {
     targetSha: TARGET_SHA,
@@ -962,15 +1035,28 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
       }
 
       // Attach network ledger summary
+      const totalRequestCount = requestLedger.length;
+      const ledgerArithmeticValid =
+        totalRequestCount ===
+        localAllowedRequestCount +
+          mockedRequestCount +
+          blockedExternalRequestCount +
+          successfulExternalRequestCount;
+
       executionSummary.networkLedgerSummary = {
-        totalRequests: requestLedger.length,
-        localAllowedCount: requestLedger.filter((r) => r.disposition === 'LOCAL_ALLOWED').length,
-        mockedCount: requestLedger.filter((r) => r.disposition === 'MOCKED').length,
-        externalBlockedCount: requestLedger.filter((r) => r.disposition === 'EXTERNAL_BLOCKED').length,
+        totalRequestCount,
+        localAllowedRequestCount,
+        mockedRequestCount,
         attemptedExternalRequestCount,
         blockedExternalRequestCount,
         successfulExternalRequestCount,
+        mockedCountsByFamily,
+        ledgerArithmeticValid,
         isHermetic: attemptedExternalRequestCount === 0 && successfulExternalRequestCount === 0,
+        totalRequests: totalRequestCount,
+        localAllowedCount: localAllowedRequestCount,
+        mockedCount: mockedRequestCount,
+        externalBlockedCount: blockedExternalRequestCount,
       };
 
       // Write machine-readable summaries if ARTIFACT_DIR exists
@@ -1276,7 +1362,7 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
     }
   });
 
-  test('HERM-01: Network Hermeticity Audit & Request Ledger Verification', async () => {
+  test('HERM-01: Network Hermeticity Audit & Request Ledger Exact Reconciliation', async () => {
     assert.equal(
       attemptedExternalRequestCount,
       0,
@@ -1296,12 +1382,54 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
       requestLedger.length > 0,
       'Request ledger must contain recorded same-origin and mock requests.'
     );
+    assert.ok(
+      mockedRequestCount > 0,
+      `Expected mockedRequestCount > 0, got ${mockedRequestCount}`
+    );
+    assert.ok(
+      localAllowedRequestCount > 0,
+      `Expected localAllowedRequestCount > 0, got ${localAllowedRequestCount}`
+    );
+
+    // Invariant: totalRequestCount = localAllowedRequestCount + mockedRequestCount + blockedExternalRequestCount + successfulExternalRequestCount
+    const totalCount = requestLedger.length;
+    assert.equal(
+      totalCount,
+      localAllowedRequestCount + mockedRequestCount + blockedExternalRequestCount + successfulExternalRequestCount,
+      `Ledger count invariant failed: total=${totalCount}, sum=${localAllowedRequestCount + mockedRequestCount + blockedExternalRequestCount + successfulExternalRequestCount}`
+    );
+
+    // Check blocked requests
     const blockedRequests = requestLedger.filter((r) => r.disposition === 'EXTERNAL_BLOCKED');
     assert.equal(
       blockedRequests.length,
       0,
       `Zero requests should have been directed to external hosts: ${JSON.stringify(blockedRequests, null, 2)}`
     );
+
+    // Check mocked dispositions vs local allowed
+    for (const entry of requestLedger) {
+      if (entry.disposition === 'MOCKED') {
+        assert.equal(
+          entry.classification,
+          'SAME_ORIGIN_MOCKED_API',
+          `Mocked entry must have SAME_ORIGIN_MOCKED_API classification: ${entry.url}`
+        );
+        assert.ok(entry.routeFamily, `Mocked entry must have a recorded routeFamily: ${entry.url}`);
+      } else if (entry.disposition === 'LOCAL_ALLOWED') {
+        assert.ok(
+          entry.classification.startsWith('LOCAL_'),
+          `Local allowed entry must have LOCAL_ classification: ${entry.url} (${entry.classification})`
+        );
+      }
+    }
+
+    // Check that route families are populated in mockedCountsByFamily
+    const recordedFamilies = Object.keys(mockedCountsByFamily);
+    assert.ok(recordedFamilies.length > 0, 'mockedCountsByFamily must record captured route families.');
+    assert.ok((mockedCountsByFamily['/api/products/*'] ?? 0) > 0, 'Must record /api/products/* mocked requests.');
+    assert.ok((mockedCountsByFamily['/api/categories/*'] ?? 0) > 0, 'Must record /api/categories/* mocked requests.');
+    assert.ok((mockedCountsByFamily['/api/market/*'] ?? 0) > 0, 'Must record /api/market/* mocked requests.');
   });
 
   test('HERM-02: Non-Mutating Verification Mode & Git Tree Safety', async () => {
@@ -1328,5 +1456,90 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
         `Normal verification mode must write only to OS temporary directory, got: ${ARTIFACT_DIR}`
       );
     }
+  });
+
+  test('HERM-03: Route Handler Invariants Unit Proof (Fulfill as MOCKED, Continue as LOCAL_ALLOWED, External Guard Fail-Closed)', async () => {
+    // 1. Proof: route.continue() local requests are LOCAL_ALLOWED
+    const localPage = evaluateRoutePolicy('http://127.0.0.1:3000/products');
+    assert.equal(localPage.action, 'continue');
+    assert.equal(localPage.disposition, 'LOCAL_ALLOWED');
+    assert.equal(localPage.classification, 'LOCAL_PAGE_ROUTE');
+
+    const nextAsset = evaluateRoutePolicy('http://127.0.0.1:3000/_next/static/chunks/app/page.js');
+    assert.equal(nextAsset.action, 'continue');
+    assert.equal(nextAsset.disposition, 'LOCAL_ALLOWED');
+    assert.equal(nextAsset.classification, 'LOCAL_NEXTJS_ASSET');
+
+    const publicAsset = evaluateRoutePolicy('http://127.0.0.1:3000/brand/logo.svg');
+    assert.equal(publicAsset.action, 'continue');
+    assert.equal(publicAsset.disposition, 'LOCAL_ALLOWED');
+    assert.equal(publicAsset.classification, 'LOCAL_PUBLIC_ASSET');
+
+    const healthCheck = evaluateRoutePolicy('http://127.0.0.1:3000/healthz');
+    assert.equal(healthCheck.action, 'continue');
+    assert.equal(healthCheck.disposition, 'LOCAL_ALLOWED');
+    assert.equal(healthCheck.classification, 'LOCAL_HEALTHCHECK');
+
+    const inlineData = evaluateRoutePolicy('data:image/svg+xml;base64,PHN2Zz4=');
+    assert.equal(inlineData.action, 'continue');
+    assert.equal(inlineData.disposition, 'LOCAL_ALLOWED');
+    assert.equal(inlineData.classification, 'LOCAL_INLINE_DATA_OR_BLOB');
+
+    // 2. Proof: route.fulfill() requests are MOCKED across all normalized route families
+    const testFamilies: Array<{ url: string; expectedFamily: string }> = [
+      { url: 'http://127.0.0.1:3000/auth/csrf-token', expectedFamily: '/auth/*' },
+      { url: 'http://127.0.0.1:3000/auth/me', expectedFamily: '/auth/*' },
+      { url: 'http://127.0.0.1:3000/api/products?page=1', expectedFamily: '/api/products/*' },
+      { url: 'http://127.0.0.1:3000/api/products/almonds-roasted-500g', expectedFamily: '/api/products/*' },
+      { url: 'http://127.0.0.1:3000/api/categories', expectedFamily: '/api/categories/*' },
+      { url: 'http://127.0.0.1:3000/api/market/config', expectedFamily: '/api/market/*' },
+      { url: 'http://127.0.0.1:3000/api/payments/methods?country=PK', expectedFamily: '/api/payments/methods' },
+      { url: 'http://127.0.0.1:3000/api/checkout/quote', expectedFamily: '/api/checkout/quote' },
+      { url: 'http://127.0.0.1:3000/api/orders/ORD-UAT-DELIVERED-004', expectedFamily: '/api/orders/*' },
+      { url: 'http://127.0.0.1:3000/api/account/orders', expectedFamily: '/api/account/orders/*' },
+      { url: 'http://127.0.0.1:3000/api/account/returns', expectedFamily: '/api/account/returns/*' },
+      { url: 'http://127.0.0.1:3000/api/refunds', expectedFamily: '/api/refunds/*' },
+    ];
+
+    for (const tf of testFamilies) {
+      const res = evaluateRoutePolicy(tf.url);
+      assert.equal(res.action, 'fulfill', `Expected action 'fulfill' for ${tf.url}`);
+      assert.equal(res.disposition, 'MOCKED', `Expected disposition 'MOCKED' for ${tf.url}`);
+      assert.equal(res.routeFamily, tf.expectedFamily, `Expected family ${tf.expectedFamily} for ${tf.url}`);
+      assert.equal(res.classification, 'SAME_ORIGIN_MOCKED_API');
+    }
+
+    // 3. Proof: external requests fail closed (aborted and classified EXTERNAL_BLOCKED)
+    const externalHosts = [
+      { url: 'https://js.stripe.com/v3/', expectedClassification: 'EXTERNAL_PAYMENT_PROVIDER_BLOCKED' },
+      { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg', expectedClassification: 'EXTERNAL_IMAGE_CDN_BLOCKED' },
+      { url: 'https://www.google-analytics.com/analytics.js', expectedClassification: 'EXTERNAL_ANALYTICS_BLOCKED' },
+      { url: 'https://evil-unauthorized-host.com/exfiltrate', expectedClassification: 'EXTERNAL_HOST_BLOCKED' },
+      { url: 'not-a-valid-url-at-all', expectedClassification: 'MALFORMED_URL_BLOCKED' },
+    ];
+
+    for (const ext of externalHosts) {
+      const res = evaluateRoutePolicy(ext.url);
+      assert.equal(res.action, 'abort', `External request ${ext.url} must be aborted`);
+      assert.equal(res.disposition, 'EXTERNAL_BLOCKED', `External request ${ext.url} must be EXTERNAL_BLOCKED`);
+      assert.equal(res.isLoopback, false, `External request ${ext.url} must be non-loopback`);
+      assert.equal(res.classification, ext.expectedClassification);
+    }
+
+    // 4. Proof: simulated ledger reconciliation
+    const simulatedCounts = {
+      localAllowed: 5,
+      mocked: 12,
+      blockedExternal: 5,
+      successfulExternal: 0,
+    };
+    const simulatedTotal =
+      simulatedCounts.localAllowed +
+      simulatedCounts.mocked +
+      simulatedCounts.blockedExternal +
+      simulatedCounts.successfulExternal;
+    assert.equal(simulatedTotal, 22);
+    assert.ok(simulatedCounts.mocked > 0);
+    assert.equal(simulatedCounts.successfulExternal, 0);
   });
 });

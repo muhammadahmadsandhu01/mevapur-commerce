@@ -196,11 +196,27 @@ function main() {
     const axeMatch = JSON.stringify(summary1.axeAuditResults) === JSON.stringify(summary2.axeAuditResults);
     const viewportsMatch = JSON.stringify(summary1.viewports) === JSON.stringify(summary2.viewports);
 
-    const zeroExternalRun1 = summary1.networkLedgerSummary ? summary1.networkLedgerSummary.attemptedExternalRequestCount === 0 : true;
-    const zeroExternalRun2 = summary2.networkLedgerSummary ? summary2.networkLedgerSummary.attemptedExternalRequestCount === 0 : true;
+    const net1 = summary1.networkLedgerSummary || {};
+    const net2 = summary2.networkLedgerSummary || {};
+
+    const zeroExternalRun1 = (net1.attemptedExternalRequestCount ?? 0) === 0 && (net1.successfulExternalRequestCount ?? 0) === 0;
+    const zeroExternalRun2 = (net2.attemptedExternalRequestCount ?? 0) === 0 && (net2.successfulExternalRequestCount ?? 0) === 0;
+    const mockedRun1Valid = (net1.mockedRequestCount ?? 0) > 0;
+    const mockedRun2Valid = (net2.mockedRequestCount ?? 0) > 0;
+    const arithmeticRun1Valid = net1.ledgerArithmeticValid ?? false;
+    const arithmeticRun2Valid = net2.ledgerArithmeticValid ?? false;
 
     let classification;
-    if (byteDifferencesCount === 0 && dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
+    if (
+      !zeroExternalRun1 ||
+      !zeroExternalRun2 ||
+      !mockedRun1Valid ||
+      !mockedRun2Valid ||
+      !arithmeticRun1Valid ||
+      !arithmeticRun2Valid
+    ) {
+      classification = 'DIVERGENT_OUTPUT';
+    } else if (byteDifferencesCount === 0 && dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
       classification = 'BYTE_DETERMINISTIC';
     } else if (dimensionDifferencesCount === 0 && inventoryMatch && overflowMatch && axeMatch) {
       classification = 'REPRODUCIBLE_SEMANTIC_OUTPUT';
@@ -218,18 +234,26 @@ function main() {
         run1: {
           durationMs: run1Result.durationMs,
           artifactCount: files1.length,
-          requestCount: ledger1.length,
-          attemptedExternalRequestCount: summary1.networkLedgerSummary?.attemptedExternalRequestCount ?? 0,
-          blockedExternalRequestCount: summary1.networkLedgerSummary?.blockedExternalRequestCount ?? 0,
-          successfulExternalRequestCount: summary1.networkLedgerSummary?.successfulExternalRequestCount ?? 0,
+          totalRequestCount: net1.totalRequestCount ?? ledger1.length,
+          localAllowedRequestCount: net1.localAllowedRequestCount ?? 0,
+          mockedRequestCount: net1.mockedRequestCount ?? 0,
+          attemptedExternalRequestCount: net1.attemptedExternalRequestCount ?? 0,
+          blockedExternalRequestCount: net1.blockedExternalRequestCount ?? 0,
+          successfulExternalRequestCount: net1.successfulExternalRequestCount ?? 0,
+          mockedCountsByFamily: net1.mockedCountsByFamily ?? {},
+          ledgerArithmeticValid: arithmeticRun1Valid,
         },
         run2: {
           durationMs: run2Result.durationMs,
           artifactCount: files2.length,
-          requestCount: ledger2.length,
-          attemptedExternalRequestCount: summary2.networkLedgerSummary?.attemptedExternalRequestCount ?? 0,
-          blockedExternalRequestCount: summary2.networkLedgerSummary?.blockedExternalRequestCount ?? 0,
-          successfulExternalRequestCount: summary2.networkLedgerSummary?.successfulExternalRequestCount ?? 0,
+          totalRequestCount: net2.totalRequestCount ?? ledger2.length,
+          localAllowedRequestCount: net2.localAllowedRequestCount ?? 0,
+          mockedRequestCount: net2.mockedRequestCount ?? 0,
+          attemptedExternalRequestCount: net2.attemptedExternalRequestCount ?? 0,
+          blockedExternalRequestCount: net2.blockedExternalRequestCount ?? 0,
+          successfulExternalRequestCount: net2.successfulExternalRequestCount ?? 0,
+          mockedCountsByFamily: net2.mockedCountsByFamily ?? {},
+          ledgerArithmeticValid: arithmeticRun2Valid,
         },
       },
       normalizedPropertiesCompared: {
@@ -238,6 +262,8 @@ function main() {
         zeroHorizontalOverflowChecks: overflowMatch ? 'IDENTICAL_ZERO_OVERFLOW' : 'DIFFERENT',
         axeWcagAuditResults: axeMatch ? 'IDENTICAL_ZERO_CRITICAL_SERIOUS_VIOLATIONS' : 'DIFFERENT',
         networkHermeticityStatus: zeroExternalRun1 && zeroExternalRun2 ? 'ZERO_EXTERNAL_CALLS_VERIFIED' : 'EXTERNAL_CALLS_DETECTED',
+        mockedRequestsPresence: mockedRun1Valid && mockedRun2Valid ? 'MOCKED_REQUESTS_RECORDED' : 'ZERO_MOCKED_REQUESTS_DETECTED',
+        requestLedgerReconciliation: arithmeticRun1Valid && arithmeticRun2Valid ? 'RECONCILED_EXACT' : 'ARITHMETIC_MISMATCH',
         screenshotDimensions: dimensionDifferencesCount === 0 ? 'IDENTICAL_ALL_VIEWPORTS' : `${dimensionDifferencesCount}_DIMENSION_DIFFS`,
         screenshotByteDeterminism: byteDifferencesCount === 0 ? 'BYTE_EXACT_MATCH' : `${byteDifferencesCount}_FILES_VARY_SUBPIXEL_RASTER`,
       },
@@ -258,6 +284,10 @@ function main() {
     console.log(` Axe WCAG Audits Match     : ${axeMatch}`);
     console.log(` Zero External Calls Run 1 : ${zeroExternalRun1}`);
     console.log(` Zero External Calls Run 2 : ${zeroExternalRun2}`);
+    console.log(` Mocked Requests Run 1     : ${net1.mockedRequestCount ?? 0}`);
+    console.log(` Mocked Requests Run 2     : ${net2.mockedRequestCount ?? 0}`);
+    console.log(` Arithmetic Valid Run 1    : ${arithmeticRun1Valid}`);
+    console.log(` Arithmetic Valid Run 2    : ${arithmeticRun2Valid}`);
     console.log('====================================================');
 
     if (shouldPopulateTarget) {
