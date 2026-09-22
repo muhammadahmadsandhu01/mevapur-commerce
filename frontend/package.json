@@ -25,6 +25,7 @@
     "test:phase6d4": "node --test tests/phase6d4TaxCheckout.test.mts && vitest run tests/phase6d4TaxCheckout.dom.test.tsx",
     "test:phase6d5b": "node --test tests/phase6d5bCheckoutSessionClient.test.mts tests/phase6d5bPrepaidCheckoutOrchestration.test.mts tests/phase6d5bCheckoutIntegration.test.mts",
     "test:phase8": "node --test tests/phase8CustomerRecovery.test.mts && vitest run tests/phase8CustomerRecovery.dom.test.tsx",
+    "test:phase10:evidence": "node --test tests/phase10StorefrontEvidence.mts",
     "test": "npm run test:vitest && npm run test:unit",
     "test:all": "npm run test && npm run test:postbuild && npm run test:browser"
   },
