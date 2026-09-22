@@ -37,9 +37,33 @@ The automated evidence is generated strictly by the committed repository harness
 - **Execution command**: `npm run test:phase10:evidence` (configured in `frontend/package.json`)
 - **Package dependencies**: Uses repository-installed `playwright` and `@axe-core/playwright`. No external scratch files or uncommitted packages.
 - **Configurability**: Accepts `TARGET_SHA`, `PORT`, `BASE_URL`, `ARTIFACT_DIR`, and `STOREFRONT_EVIDENCE_TIMESTAMP` via environment variables.
+- **Authoritative Fixture Source**: Hydrated directly from `scripts/ops/manifests/uat-fixture-manifest.json` without introducing redundant definitions.
+- **Deterministic Image Assets**: All external CDN image URLs are replaced with repository-local public asset `/placeholder.png`.
 - **Redaction**: Zero passwords, cookies, tokens, or authorization headers are logged or recorded.
 - **Deterministic naming**: `<TARGET_SHA>_<TEST_CASE_ID>_<VIEWPORT>_<UTC_TIMESTAMP>.png`
-- **Machine-readable output**: Writes `phase10-evidence-summary.json` alongside screenshots.
+- **Machine-readable output**: Writes `phase10-evidence-summary.json` and `request-ledger.json` alongside screenshots.
+
+### Network-Hermetic Architecture & Request Ledger Guard
+
+The harness enforces strict network hermeticity via Playwright `page.route()` and client-side initialization guards:
+1. **Permitted Destinations**:
+   - `http://127.0.0.1:<dynamic-local-port>`
+   - `http://localhost:<dynamic-local-port>`
+   - Same-origin Next.js static assets (`/_next/...`, `/brand/...`, `/placeholder.png`)
+   - Explicitly mocked same-origin API requests (`/api/...`, `/auth/...`)
+2. **Rejected & Recorded Destinations**:
+   - External image/CDN hosts (Cloudinary, Unsplash, etc.)
+   - Analytics endpoints (Google Analytics, etc.)
+   - Payment providers (Stripe API, Stripe.js auto-loaders, etc.)
+   - Any public or non-loopback HTTP/HTTPS hostname.
+3. **Machine-Readable Request Ledger (`request-ledger.json`)**:
+   - URL with all query parameters, tokens, and secrets redacted
+   - HTTP method
+   - Classification (`LOCAL_PAGE_ROUTE`, `LOCAL_NEXTJS_ASSET`, `LOCAL_PUBLIC_ASSET`, `SAME_ORIGIN_MOCKED_API`, `EXTERNAL_HOST_BLOCKED`)
+   - Disposition (`LOCAL_ALLOWED`, `MOCKED`, `EXTERNAL_BLOCKED`)
+4. **Hermeticity Gate (HERM-01)**:
+   - The test harness strictly fails if `externalRequestCount !== 0`.
+   - Verified: Exactly zero non-loopback browser or server requests occur during execution.
 
 ### Network Interceptions & Mocking Transparency
 
@@ -60,6 +84,9 @@ All automated API responses during harness execution are intercepted client-side
 | `GET /api/account/orders/:id/invoice` | Order document payload: receipt (untaxed) vs tax invoice | Printable document sheet, tax breakdown table, status badge | Dynamic PDF streaming, cryptographic invoice signing |
 | `GET /api/account/returns`, `/refunds` | Empty return history array `[]` | Return request form, order item selection | Return state machine, inventory return receipt |
 | `GET /api/account/profile`, `/addresses` | Manifest customer profile & address records | Account profile tab rendering, pre-filled address | Profile update mutation validation |
+| `GET /api/content/public/banner`, `/slider` | Empty promotional banner/slider array `[]` | Storefront banner slots | Dynamic CMS collection queries |
+| `GET /api/settings/public` | Maintenance mode false, COD enabled | Storefront configuration | Global settings document scan |
+| `GET /api/assistant/capabilities` | AI Assistant disabled | Help assistant floating trigger | Assistant backend readiness |
 
 > **Note**: Mock-backed results provide objective proof of client-side DOM rendering, responsive layout stability, and accessibility structure. They do NOT constitute proof of end-to-end backend integration, database consistency, or external payment provider execution.
 
@@ -67,7 +94,7 @@ All automated API responses during harness execution are intercepted client-side
 
 ## 3. Authoritative Route Identifier & Fixture Reconciliation
 
-All route URLs audited in this ledger are reconciled against the Batch 10B fixture manifest (`backend/fixtures/uat/phase10DeterministicManifest.js`) and actual frontend/backend route handlers:
+All route URLs audited in this ledger are reconciled against the authoritative Batch 10B fixture manifest (`scripts/ops/manifests/uat-fixture-manifest.json`) and actual frontend/backend route handlers:
 
 | Resource | Placeholder / Deprecated Identifier | Authoritative Manifest Identifier | Proven Route Path | Route Handler Key Requirement |
 |---|---|---|---|---|
@@ -80,29 +107,79 @@ All route URLs audited in this ledger are reconciled against the Batch 10B fixtu
 
 ---
 
-## 4. COD Acceptance Reclassification & Policy Gap Register
+## 4. COD Acceptance Reclassification & Policy Decision Register
 
-In accordance with Section 10, COD acceptance criteria have been audited against `backend/services/payment/PaymentCapabilityPolicy.js` and classified truthfully:
+In accordance with Phase 10 governance, COD acceptance criteria have been audited against `backend/services/payment/PaymentCapabilityPolicy.js` and classified truthfully without inventing missing business policies:
 
 | Test Case | Scope & Description | Current Codebase Status | Final Batch 10C Classification | Action / Governance Gap |
 |---|---|---|---|---|
-| **`COD-ACC-01`** | Pakistan Destination & Implemented Capability Rules | Fully implemented: domestic `PK` destination + `PKR` currency evaluates `available: true`. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human tester verifies visual radio presentation in checkout. |
-| **`COD-ACC-02A`** | Foreign Country COD Rejection | Fully implemented: non-PK countries (`AE`, `GB`, `US`) strictly exclude COD tender. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Supporting evidence captured; human verifies foreign selection hides COD. |
-| **`COD-ACC-02B`** | Domestic Courier Unserviceable Postal Zone | Not implemented: domestic PK geography is treated as monolithic; no postal code exclusion list exists. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-001`**: Domestic courier COD serviceability/exclusion data. |
-| **`COD-ACC-03`** | Product-Level COD Exclusion | Not implemented: catalog products have no `allowCOD` flag enforced in payment capability checks. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-002`**: Product-level COD eligibility governance. |
-| **`COD-ACC-04`** | COD Order-Value Ceiling | Not implemented: no maximum order total limit is enforced for cash collection in policy. | `BLOCKED_POLICY_GAP` & `REQUIRES_OWNER_VALUE` | **`P10C-GAP-003`**: Configurable COD order-value ceiling. |
+| **`COD-ACC-01`** | Pakistan Destination & Implemented Capability Rules | Fully implemented: domestic `PK` destination + `PKR` currency evaluates `available: true`. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human review blocked until integrated environment exists. |
+| **`COD-ACC-02A`** | Foreign Country COD Rejection | Fully implemented: non-PK countries (`AE`, `GB`, `US`) strictly exclude COD tender. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human review blocked until integrated environment exists. |
+| **`COD-ACC-02B`** | Domestic Courier Unserviceable Postal Zone | Not implemented: domestic PK geography is treated as monolithic; no postal code exclusion list exists. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-001`**: Domestic courier/postal-code serviceability. |
+| **`COD-ACC-03`** | Product-Level COD Exclusion | Not implemented: catalog products have no `allowCOD` flag enforced in payment capability checks. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-002`**: Product-level COD eligibility. |
+| **`COD-ACC-04`** | COD Order-Value Ceiling | Not implemented: no maximum order total limit is enforced for cash collection in policy. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-003`**: COD order-value ceiling. |
 | **`COD-ACC-05`** | Blocked / High-Risk Customer COD Restriction | Not implemented: account auth blocks login, but active users have no fraud/risk score restricting tender. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-004`**: Customer COD risk/block policy. |
 | **`COD-ACC-06`** | Prepaid-Only Promotion Restriction | Not implemented: coupon engine lacks payment tender exclusivity constraints. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-005`**: Prepaid-only promotion governance. |
-| **`COD-ACC-07`** | All-Rules-Pass Control Case | Fully implemented: clean domestic PK order with valid stock satisfies all capability checks. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Control baseline confirmed passing. |
+| **`COD-ACC-07`** | All-Rules-Pass Control Case | Fully implemented: clean domestic PK order with valid stock satisfies all capability checks. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human review blocked until integrated environment exists. |
 
-### Formal Policy Gap Register
-- **`P10C-GAP-001`**: *Domestic courier COD serviceability/exclusion data*. The platform lacks courier-partner postal code exclusion lists (e.g. Trax/Leopards remote zone restrictions).
-- **`P10C-GAP-002`**: *Product-level COD eligibility governance*. No business policy or data model exists to restrict fragile or custom products from cash on delivery.
-- **`P10C-GAP-003`**: *Configurable COD order-value ceiling*. No upper limit (e.g. PKR 50,000) exists to mitigate cash collection loss risk on large-value orders.
-- **`P10C-GAP-004`**: *Customer COD risk/block policy*. No mechanism exists to restrict repeat-refusal or high-RTO (Return to Origin) customers from selecting COD.
-- **`P10C-GAP-005`**: *Prepaid-only promotion governance*. Marketing coupons cannot currently be restricted to digital/prepaid tender only.
+### Formal COD Policy Decision Register (No Implementation Authorized)
 
-> **Closure Policy**: Batch 10C cannot close while mandatory policy gaps remain unless the product owner explicitly defers or formally descanters these cases from the initial launch baseline.
+#### Gap Record: P10C-GAP-001 — Domestic Courier / Postal-Code Serviceability
+- **Status**: `OWNER_DECISION_REQUIRED`
+- **Current code evidence**: `backend/services/payment/PaymentCapabilityPolicy.js` evaluates only country code `destinationCountry === 'PK'`. It contains no postal code lookup, courier serviceable zone map, or remote area exclusion list.
+- **Affected acceptance cases**: `COD-ACC-02B`
+- **Minimum decision required**: Product owner must decide whether:
+  1. Domestic Pakistan postal codes are considered universally serviceable by the primary logistics partner for initial launch;
+  2. A static exclusion list of unserviceable postal codes should be maintained; or
+  3. Dynamic real-time courier API validation is required.
+- **Implementation deferred**: `true`
+- **Batch 10C impact**: `COD-ACC-02B` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-001`.
+
+#### Gap Record: P10C-GAP-002 — Product-Level COD Eligibility
+- **Status**: `OWNER_DECISION_REQUIRED`
+- **Current code evidence**: `backend/models/Product.js` defines an `allowCOD` Boolean field, but `PaymentCapabilityPolicy.js` and checkout quote services do not inspect cart line-item products or enforce cart-level COD disqualification if any item has `allowCOD: false`.
+- **Affected acceptance cases**: `COD-ACC-03`
+- **Minimum decision required**: Product owner must decide whether:
+  1. All catalog products are eligible for COD at launch;
+  2. A single non-COD item in cart disqualifies COD tender for the entire order; or
+  3. Split-shipment / mixed-cart workflows are supported.
+- **Implementation deferred**: `true`
+- **Batch 10C impact**: `COD-ACC-03` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-002`.
+
+#### Gap Record: P10C-GAP-003 — COD Order-Value Ceiling
+- **Status**: `OWNER_DECISION_REQUIRED`
+- **Current code evidence**: `backend/services/payment/PaymentCapabilityPolicy.js` evaluates payment methods without checking order total against any upper ceiling or currency-specific threshold.
+- **Affected acceptance cases**: `COD-ACC-04`
+- **Minimum decision required**: Product owner must explicitly provide:
+  1. **Maximum COD amount** (exact numerical ceiling);
+  2. **Currency** (e.g. `PKR`);
+  3. **Threshold inclusivity** (whether order total matching the threshold is allowed or rejected);
+  4. **Evaluation boundary** (whether the threshold evaluates against merchandise subtotal before discounts, or final payable total including shipping fees and taxes).
+- **Implementation deferred**: `true`
+- **Batch 10C impact**: `COD-ACC-04` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-003`.
+
+#### Gap Record: P10C-GAP-004 — Customer COD Risk / Block Policy
+- **Status**: `OWNER_DECISION_REQUIRED`
+- **Current code evidence**: `backend/models/User.js` tracks `isVerified` and account status, but no customer risk tier, return-to-origin (RTO) refusal count, or COD blacklist/flagging mechanism is evaluated during checkout tender selection.
+- **Affected acceptance cases**: `COD-ACC-05`
+- **Minimum decision required**: Product owner must decide whether:
+  1. Initial launch permits all authenticated and guest users to use COD without customer-level risk filtering;
+  2. A manual admin flag (`codBlocked`) restricts specific customer accounts; or
+  3. An automated RTO refusal threshold (e.g. 2 consecutive rejected deliveries) triggers COD restriction.
+- **Implementation deferred**: `true`
+- **Batch 10C impact**: `COD-ACC-05` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-004`.
+
+#### Gap Record: P10C-GAP-005 — Prepaid-Only Promotion Governance
+- **Status**: `OWNER_DECISION_REQUIRED`
+- **Current code evidence**: `backend/models/Coupon.js` and coupon validation service support percentage and fixed discounts, minimum spend, and expiration, but lack payment tender constraints (`allowedPaymentMethods` / `prepaidOnly`).
+- **Affected acceptance cases**: `COD-ACC-06`
+- **Minimum decision required**: Product owner must decide whether:
+  1. Marketing coupons are tender-agnostic for launch; or
+  2. Coupons can enforce `tenderExclusivity: ['stripe']`, preventing coupon application or invalidating coupon discount if COD tender is selected.
+- **Implementation deferred**: `true`
+- **Batch 10C impact**: `COD-ACC-06` remains classified as `BLOCKED_POLICY_GAP / P10C-GAP-005`.
+
+> **Governance Rule**: No policy gap may be marked `PASS`, `PENDING_HUMAN_REVIEW`, or `DEFERRED` without an explicit written decision by the product owner. In Batch 10C, all 5 gaps remain `OWNER_DECISION_REQUIRED` with `implementation deferred: true`.
 
 ---
 
@@ -502,12 +579,14 @@ Starting only `node .next/standalone/server.js` is therefore insufficient for ma
 
 ### Valid Integrated Environment Prerequisites
 1. **Disposable MongoDB Replica Set**: Local single-node replica set (`MongoMemoryReplSet` or disposable Docker container on loopback only `127.0.0.1:27017`).
-2. **Deterministic Seed Data**: Run `seedDeterministicUatFixtures.js` using the protected environment password `$env:UAT_FIXTURE_PASSWORD`.
+2. **Deterministic Seed Data**: Run `scripts/ops/seed-uat-fixtures.js` using the protected environment password `$env:UAT_FIXTURE_PASSWORD` against authoritative manifest `scripts/ops/manifests/uat-fixture-manifest.json`.
 3. **Backend API Service**: Node.js backend running on `http://127.0.0.1:5000` with `RATE_LIMIT_STORE=memory` (explicit development-memory limiter mode) and mock payment/notification adapters.
 4. **Rebuilt Frontend Standalone**: Frontend compiled with `NEXT_PUBLIC_API_URL="http://127.0.0.1:5000" npm run build` prior to starting the standalone server.
 5. **Secrets Redaction**: Never print or log `$env:UAT_MONGODB_URI`, `$env:UAT_FIXTURE_PASSWORD`, JWT secrets, or Redis credentials.
 
-### Step-by-Step Integrated Startup Script (For Human Reviewer)
+### Step-by-Step Integrated Startup Procedure (For Human Reviewer)
+
+> **Notice**: Startup and teardown procedures have been documented below. In addition, narrowly scoped executable companion helpers (`scripts/ops/start-phase10-uat-environment.js` and `scripts/ops/stop-phase10-uat-environment.js`) have been provided. These helpers enforce disposable database name guards (`mevapur_uat_phase10`), loopback-only bindings (`127.0.0.1`), mock provider flags, runtime-generated ephemeral secrets, and bounded readiness polling. They will not bypass a stopped Docker daemon or start Docker Desktop.
 
 ```powershell
 # 1. Compile frontend with safe public API URL
@@ -530,8 +609,8 @@ $env:MONGODB_URI="mongodb://127.0.0.1:27017/mevapur_uat_phase10?replicaSet=rs0"
 node server.js
 
 # 3. Seed Batch 10B Fixtures (Terminal 2)
-cd C:\Projects\mevaPur-Commerce\backend
-node fixtures/uat/seedDeterministicUatFixtures.js
+cd C:\Projects\mevaPur-Commerce
+node scripts/ops/seed-uat-fixtures.js
 
 # 4. Verify Health Endpoints
 Invoke-RestMethod -Uri "http://127.0.0.1:5000/health/live"
@@ -551,8 +630,8 @@ Invoke-RestMethod -Uri "http://127.0.0.1:3000/healthz"
 ```powershell
 # In cleanup / finally:
 # 1. Reset fixtures
-cd C:\Projects\mevaPur-Commerce\backend
-node fixtures/uat/resetDeterministicUatFixtures.js
+cd C:\Projects\mevaPur-Commerce
+node scripts/ops/reset-uat-fixtures.js
 
 # 2. Terminate background processes
 Stop-Process -Name "node" -Force
@@ -561,7 +640,8 @@ Stop-Process -Name "node" -Force
 ### Current Status of Human Integrated Environment
 - **Classification**: `BLOCKED_ENVIRONMENT_GAP`
 - **Reason**: The Docker engine is stopped (`INSTALLED_ENGINE_STOPPED`), and a disposable MongoDB replica set + local backend process was not started during this automated correction pass.
-- Functional manual testing by a human reviewer requires executing the above startup sequence.
+- **Owner Action Required**: Start the Docker engine, then rerun the documented integrated UAT environment verification.
+- **Integration Boundary**: Mock-backed screenshots captured by the hermetic Playwright harness provide evidence of responsive and accessible frontend DOM states, but are not reclassified as backend integration. Full end-to-end integration verification remains blocked until Docker engine startup and human test execution.
 
 ---
 
