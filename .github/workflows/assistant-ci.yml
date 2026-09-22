@@ -257,22 +257,29 @@ jobs:
         run: npm run test:phase9
 
       - name: Generate MongoDB Replica-Set Keyfile
-        # Generates ephemeral key material at runner runtime. The keyfile is:
+        # MongoDB enforces strict keyfile permissions: the file must be mode
+        # 400 or 600 and owned by the mongod user (uid 999). The CI runner
+        # cannot chown to uid 999 without sudo, and chmod 444 is explicitly
+        # rejected ("permissions are too open").
+        #
+        # Solution: run a disposable Alpine container as uid 999 to generate
+        # the keyfile and write it to /tmp on the host via a bind-mount. The
+        # resulting /tmp/mongo-keyfile is owned by uid 999 with mode 400 —
+        # exactly what MongoDB requires when the file is bind-mounted into
+        # the mevapur-mongodb container at /etc/mongodb/keyfile.
+        #
+        # The keyfile is:
         #   - written to /tmp (outside the repository checkout)
         #   - never printed in logs
         #   - never committed or staged in git
         #   - never baked into any image layer
         #   - removed unconditionally by the cleanup step
-        # docker-compose.ci.yml mounts /tmp/mongo-keyfile into the mongodb
-        # container at /etc/mongodb/keyfile:ro (uid 999 = mongod user).
-        #
-        # chmod 444: world-readable so that MongoDB (uid 999 inside the
-        # container) can read the file regardless of which host uid created it.
-        # The CI runner cannot chown to uid 999 without sudo, so we rely on
-        # world-readable permissions for the disposable CI topology only.
         run: |
-          openssl rand -base64 756 > /tmp/mongo-keyfile
-          chmod 444 /tmp/mongo-keyfile
+          docker run --rm \
+            --user 999:999 \
+            -v /tmp:/output \
+            alpine \
+            sh -c "openssl rand -base64 756 > /output/mongo-keyfile && chmod 400 /output/mongo-keyfile"
           test -s /tmp/mongo-keyfile
 
       - name: Start Disposable Docker Infrastructure Topology (CI Override)
