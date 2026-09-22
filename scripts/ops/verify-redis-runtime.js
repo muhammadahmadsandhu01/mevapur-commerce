@@ -14,7 +14,12 @@
 
 const http = require('http');
 const path = require('path');
-const express = require('express');
+let express;
+try {
+  express = require('express');
+} catch {
+  express = require(path.resolve(__dirname, '../../backend/node_modules/express'));
+}
 
 let redis;
 try {
