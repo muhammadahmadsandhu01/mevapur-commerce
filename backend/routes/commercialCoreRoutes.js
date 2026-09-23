@@ -1,5 +1,5 @@
 const express = require('express');
-const { protect, admin } = require('../middleware/auth');
+const { protect, admin, optionalAuth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const controller = require('../controllers/commercialCoreController');
 const checkoutQuoteController = require('../controllers/checkoutQuoteController');
@@ -22,7 +22,7 @@ router.put('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'para
 router.delete('/shipping/zones/:id', protect, admin, validation(zoneIdSchema, 'params'), controller.deleteZone);
 
 // Phase 6A: Global Checkout Eligibility & Atomic Quote Orchestration Routes
-router.post('/checkout/quote', validation(createCheckoutQuoteSchema), checkoutQuoteController.createQuote);
+router.post('/checkout/quote', optionalAuth, validation(createCheckoutQuoteSchema), checkoutQuoteController.createQuote);
 
 // Phase 6D-5A: Two-Phase Checkout Session Routes
 const checkoutSessionController = require('../controllers/checkoutSessionController');

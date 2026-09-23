@@ -26,6 +26,7 @@ async function recordAuditLog({ req, eventName, details = {}, status = 'SUCCESS'
       requestId: req?.headers?.['x-request-id'] || crypto.randomUUID(),
       userId: req?.user?._id || null,
       eventName,
+      action: eventName,
       status,
       ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
       userAgent: req?.headers?.['user-agent'] || 'backend-governance',
@@ -236,6 +237,9 @@ exports.blockCustomerCod = async (req, res, next) => {
     restriction.manualBlockReasonCode = reasonCode;
     restriction.manualBlockedAt = new Date();
     restriction.manualBlockedBy = req.user?._id || null;
+    restriction.overrideMode = 'NONE';
+    restriction.overrideUntil = null;
+    restriction.overrideReasonCode = null;
     restriction.lockVersion = (restriction.lockVersion || 1) + 1;
 
     await restriction.save();
@@ -318,17 +322,17 @@ exports.overrideCustomerCod = async (req, res, next) => {
 
     const {
       merchantScopeId = 'default',
-      overrideMode = 'NONE',
       overrideUntil = null,
       overrideReasonCode = null
     } = req.body;
+    const overrideMode = req.body.overrideMode || req.body.mode || 'NONE';
 
     if (!['NONE', 'UNTIL', 'INDEFINITE'].includes(overrideMode)) {
       throw new AppError('Invalid override mode. Must be NONE, UNTIL, or INDEFINITE', 400, 'INVALID_OVERRIDE_MODE');
     }
 
-    if (overrideMode === 'UNTIL' && (!overrideUntil || new Date(overrideUntil).getTime() <= Date.now())) {
-      throw new AppError('Future overrideUntil date required when overrideMode is UNTIL', 400, 'INVALID_OVERRIDE_DATE');
+    if (overrideMode === 'UNTIL' && !overrideUntil) {
+      throw new AppError('Valid overrideUntil date required when overrideMode is UNTIL', 400, 'INVALID_OVERRIDE_DATE');
     }
 
     let restriction = await CustomerCodRestriction.findOne({

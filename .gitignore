@@ -1,0 +1,4 @@
+# Phase 10 UAT Ephemeral & Host Baseline Protection
+scripts/ops/disposable-env-active.json
+scripts/ops/docker-compose.uat.*.yml
+scripts/ops/manifests/protected-pre-existing-baseline.json

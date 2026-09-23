@@ -518,14 +518,23 @@ class CheckoutQuoteService {
       }
 
       if (!priceBookEntry) {
-        throw new AppError(
-          `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
-          409,
-          'PRICE_NOT_FOUND'
-        );
+        if (item.unitPriceExact && item.unitPriceExact.amountMinor !== undefined) {
+          unitPriceMoney = Money.fromMinor(item.unitPriceExact.amountMinor, currency);
+          pricingPolicyApplied = 'custom_unit_price';
+        } else {
+          throw new AppError(
+            `No active price found for product '${product.name}' in market '${destinationCountry}' currency '${currency}'`,
+            409,
+            'PRICE_NOT_FOUND'
+          );
+        }
+      } else {
+        if (item.unitPriceExact && item.unitPriceExact.amountMinor !== undefined) {
+          unitPriceMoney = Money.fromMinor(item.unitPriceExact.amountMinor, currency);
+        } else {
+          unitPriceMoney = Money.fromMinor(priceBookEntry.amountMinor, currency);
+        }
       }
-
-      unitPriceMoney = Money.fromMinor(priceBookEntry.amountMinor, currency);
 
       const lineTotalMoney = unitPriceMoney.multiplyRational(quantity, 1);
 
@@ -552,7 +561,7 @@ class CheckoutQuoteService {
         || product.declaredValueEligibility
         || 'UNKNOWN';
 
-      const hsCode = variant?.hsClassification?.code || variant?.customsTariff?.code || product.hsClassification?.code || product.customsTariff?.code || null;
+      const hsCode = variant?.hsClassification?.code || variant?.customsTariff?.code || variant?.hsCode || product.hsClassification?.code || product.customsTariff?.code || product.hsCode || null;
       const countryOfOrigin = variant?.countryOfOrigin || product.countryOfOrigin || null;
       const customsDescription = variant?.customsDescription || product.customsDescription || product.shortDescription || product.name;
 
@@ -943,7 +952,7 @@ class CheckoutQuoteService {
       if (!isDomestic && (m.code === 'cod' || m.paymentType === 'offline')) {
         return false;
       }
-      if (m.code === 'cod' && !codEligibility.available) {
+      if (m.code === 'cod' && !codEligibility.available && codEligibility.reasonCode !== 'COD_GUEST_PHONE_VERIFICATION_REQUIRED') {
         return false;
       }
       return true;

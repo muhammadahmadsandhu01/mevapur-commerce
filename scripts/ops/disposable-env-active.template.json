@@ -1,0 +1,22 @@
+{
+  "runId": "<DYNAMIC_RUN_ID>",
+  "projectName": "mevapur_uat_p10c_<DYNAMIC_RUN_ID>",
+  "mongoPort": "<DYNAMIC_LOOPBACK_PORT>",
+  "redisPort": "<DYNAMIC_LOOPBACK_PORT>",
+  "backendPort": "<DYNAMIC_LOOPBACK_PORT>",
+  "storefrontPort": "<DYNAMIC_LOOPBACK_PORT>",
+  "adminPort": "<DYNAMIC_LOOPBACK_PORT>",
+  "redisPassword": "<EPHEMERAL_REDIS_PASSWORD>",
+  "jwtSecret": "<EPHEMERAL_JWT_SECRET>",
+  "jwtRefreshSecret": "<EPHEMERAL_JWT_REFRESH_SECRET>",
+  "csrfSecret": "<EPHEMERAL_CSRF_SECRET>",
+  "dbName": "mevapur_uat_phase10",
+  "endpoints": {
+    "backendUrl": "http://127.0.0.1:<DYNAMIC_LOOPBACK_PORT>",
+    "storefrontUrl": "http://127.0.0.1:<DYNAMIC_LOOPBACK_PORT>",
+    "adminUrl": "http://127.0.0.1:<DYNAMIC_LOOPBACK_PORT>",
+    "mongoUri": "mongodb://127.0.0.1:<DYNAMIC_LOOPBACK_PORT>/mevapur_uat_phase10?replicaSet=rs0&directConnection=true",
+    "redisUrl": "redis://:<EPHEMERAL_REDIS_PASSWORD>@127.0.0.1:<DYNAMIC_LOOPBACK_PORT>"
+  },
+  "composeFile": "<EXTERNAL_EPHEMERAL_COMPOSE_PATH>"
+}

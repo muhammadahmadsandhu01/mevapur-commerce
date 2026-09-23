@@ -41,6 +41,33 @@ beforeAll(async () => {
   });
 });
 
+const defaultServiceableCities = [
+  { city: 'LAHORE', zoneKey: 'LHR-CENTRAL' },
+  { city: 'KARACHI', zoneKey: 'KHI-CENTRAL' },
+  { city: 'ISLAMABAD', zoneKey: 'ISB-CENTRAL' },
+  { city: 'RAWALPINDI', zoneKey: 'RWP-CENTRAL' },
+  { city: 'FAISALABAD', zoneKey: 'FSD-CENTRAL' }
+];
+
+beforeEach(async () => {
+  if (!mongoose.connection.db) return;
+  const CodServiceabilityRule = mongoose.models.CodServiceabilityRule || require('../models/CodServiceabilityRule');
+  const count = await CodServiceabilityRule.countDocuments();
+  if (count === 0) {
+    const rules = defaultServiceableCities.map((c) => ({
+      merchantScopeId: 'default',
+      countryCode: 'PK',
+      normalizedCity: c.city,
+      normalizedPostalCode: '',
+      zoneKey: c.zoneKey,
+      isServiceable: true,
+      status: 'active',
+      effectiveFrom: new Date('2020-01-01')
+    }));
+    await CodServiceabilityRule.insertMany(rules);
+  }
+});
+
 afterEach(async () => {
   if (!mongoose.connection.db) return;
   const collections = await mongoose.connection.db.collections();

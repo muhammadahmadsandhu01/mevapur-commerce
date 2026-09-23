@@ -144,8 +144,11 @@ class ManualTableShippingAdapter {
       );
     }
 
-    // Sort candidates deterministically by priority (lowest number wins) and tie-break by ruleId
+    // Sort candidates deterministically: prioritize exact currency match, then priority (lowest number wins) and tie-break by ruleId
     candidates.sort((a, b) => {
+      const aCurrMatch = (a.currency || '').toUpperCase() === canonicalCurrency ? 0 : 1;
+      const bCurrMatch = (b.currency || '').toUpperCase() === canonicalCurrency ? 0 : 1;
+      if (aCurrMatch !== bCurrMatch) return aCurrMatch - bCurrMatch;
       const pA = a.priority != null ? a.priority : 100;
       const pB = b.priority != null ? b.priority : 100;
       if (pA !== pB) return pA - pB;
@@ -207,8 +210,8 @@ class ManualTableShippingAdapter {
       ? Money.zero(canonicalCurrency)
       : (isRemote && remoteRateMoney ? remoteRateMoney : baseRateMoney);
 
-    // 4. Weight bands evaluation
-    if (Array.isArray(rule.weightBands) && rule.weightBands.length > 0 && totalGrams > 0) {
+    // 4. Weight bands evaluation (only when not free shipping eligible)
+    if (!isFreeEligible && Array.isArray(rule.weightBands) && rule.weightBands.length > 0 && totalGrams > 0) {
       const matchingBand = rule.weightBands.find((b, idx) => {
         const min = b.minWeightGrams != null ? b.minWeightGrams : 0;
         const max = b.maxWeightGrams != null ? b.maxWeightGrams : Infinity;

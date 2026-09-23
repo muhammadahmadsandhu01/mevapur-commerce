@@ -9,6 +9,7 @@
 const CommerceConfigurationVersion = require('../../models/CommerceConfigurationVersion');
 const Coupon = require('../../models/Coupon');
 const Product = require('../../models/Product');
+const CodServiceabilityRule = require('../../models/CodServiceabilityRule');
 const { MoneyMapper } = require('../../modules/commerce');
 
 /**
@@ -175,6 +176,25 @@ async function createGovernedCommerceConfiguration(overrides = {}) {
   if (overrides.persist === false) {
     return doc;
   }
+
+  // Ensure standard domestic COD serviceability rules exist for tests
+  await Promise.all(['LAHORE', 'ISLAMABAD', 'KARACHI'].map((cityName) =>
+    CodServiceabilityRule.updateOne(
+      { merchantScopeId, normalizedCity: cityName, normalizedPostalCode: '' },
+      {
+        $setOnInsert: {
+          merchantScopeId,
+          countryCode: 'PK',
+          normalizedCity: cityName,
+          normalizedPostalCode: '',
+          isServiceable: true,
+          status: 'active',
+          effectiveFrom: new Date(Date.now() - 60000)
+        }
+      },
+      { upsert: true }
+    )
+  ));
 
   return await CommerceConfigurationVersion.create(doc);
 }

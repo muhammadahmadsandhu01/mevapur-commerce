@@ -21,6 +21,11 @@ const auditLogSchema = new mongoose.Schema({
     ref: 'User',
     index: true
   },
+  action: {
+    type: String,
+    index: true,
+    default: null
+  },
   eventName: {
     type: String,
     required: true,

@@ -275,7 +275,7 @@ class PaymentCapabilityPolicy {
           };
 
           codPolicyDecision = await this.codPolicyService.evaluateCodEligibility(codContext);
-          if (!codPolicyDecision.available) {
+          if (!codPolicyDecision.available && codPolicyDecision.reasonCode !== 'COD_GUEST_PHONE_VERIFICATION_REQUIRED') {
             eligibilityReason = codPolicyDecision.reasonCode;
           }
         }

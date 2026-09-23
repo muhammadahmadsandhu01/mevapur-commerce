@@ -10,6 +10,7 @@
     "test:ci": "npm run assistant:knowledge:check && jest --coverage --forceExit --runInBand",
     "test:phase9": "npm run assistant:knowledge:check && jest tests/unit/phase9-static-infrastructure.unit.test.js tests/integration/phase9-runtime-infrastructure.integration.test.js tests/integration/phase9-rate-limit.integration.test.js tests/integration/phase9-backup-restore.integration.test.js --runInBand --watchAll=false",
     "test:phase10": "jest tests/integration/phase10-uat-fixtures.integration.test.js --runInBand --watchAll=false",
+    "test:phase10:disposable": "jest tests/integration/phase10-disposable-backend.integration.test.js --runInBand --watchAll=false",
     "seed:uat": "node ../scripts/ops/seed-uat-fixtures.js",
     "reset:uat": "node ../scripts/ops/reset-uat-fixtures.js",
     "test:phase6d4": "npm run assistant:knowledge:check && jest tests/unit/commerce/phase6d4-tax-governance.unit.test.js tests/unit/commerce/phase6d4b-tax-runtime.unit.test.js tests/unit/commerce/phase6d4c-return-tax-duty.unit.test.js tests/unit/commerce/taxDutyConfiguration.test.js tests/unit/services/return-money-allocation.service.test.js tests/unit/services/return-state-machine.service.test.js tests/integration/return-refund-integrity.integration.test.js tests/unit/phase6d4-tax-migration.unit.test.js tests/unit/tax-governance-reconciliation.unit.test.js --runInBand --watchAll=false",
