@@ -3,7 +3,7 @@ import { buildContentSecurityPolicy } from './src/config/cspConfig';
 
 const isProd = process.env.NODE_ENV === 'production';
 const isVercel = process.env.VERCEL === '1';
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+const rawApiUrl = process.env.API_URL || process.env.BACKEND_PUBLIC_URL || process.env.INTERNAL_API_URL || process.env['NEXT_PUBLIC_API_URL'] || process.env.NEXT_PUBLIC_API_URL || '';
 
 const cspHeader = buildContentSecurityPolicy({
   isProduction: isProd,
@@ -12,6 +12,15 @@ const cspHeader = buildContentSecurityPolicy({
 
 const nextConfig: NextConfig = {
   ...(isVercel ? {} : { output: 'standalone' }),
+  async rewrites() {
+    const rawTarget = process.env.INTERNAL_API_URL || process.env.BACKEND_PUBLIC_URL || process.env.API_URL || process.env['NEXT_PUBLIC_API_URL'] || 'http://backend:5000';
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${rawTarget.replace(/\/$/, '')}/api/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {

@@ -12,6 +12,16 @@ import { publicApiBaseUrl } from '@/config/publicConfig';
 
 type AdminMutationPayload = Record<string, unknown>;
 
+export const resolveRuntimeApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const injected = (window as unknown as { __ENV__?: { NEXT_PUBLIC_API_URL?: string } }).__ENV__?.NEXT_PUBLIC_API_URL;
+    if (injected) {
+      return `${injected.replace(/\/$/, '')}/api`;
+    }
+  }
+  return publicApiBaseUrl;
+};
+
 const api = axios.create({
   baseURL: publicApiBaseUrl,
   withCredentials: true,
@@ -25,6 +35,7 @@ interface RetryRequestConfig extends InternalAxiosRequestConfig {
 }
 
 api.interceptors.request.use((config) => {
+  config.baseURL = resolveRuntimeApiBaseUrl();
   const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;

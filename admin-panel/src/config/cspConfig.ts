@@ -10,10 +10,11 @@ export function buildContentSecurityPolicy({
   nonce
 }: CspOptions): string {
   const cleanApiUrl = apiUrl.trim();
+  const isLoopback = !cleanApiUrl || cleanApiUrl.includes('127.0.0.1') || cleanApiUrl.includes('localhost');
 
-  // In production, connect-src allows only 'self' and the explicit production API URL
-  // In development, connect-src includes loopback hosts for local dev and HMR
-  const connectSources = isProduction
+  // In production outside loopback, connect-src allows only 'self' and the explicit production API URL
+  // On loopback or development, connect-src includes loopback hosts for local dev and HMR
+  const connectSources = (isProduction && !isLoopback)
     ? ["'self'", cleanApiUrl].filter(Boolean).join(' ')
     : ["'self'", 'http://localhost:*', 'https://localhost:*', 'http://127.0.0.1:*', 'https://127.0.0.1:*', cleanApiUrl].filter(Boolean).join(' ');
 
@@ -34,6 +35,6 @@ export function buildContentSecurityPolicy({
     "form-action 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    ...(isProduction ? ['upgrade-insecure-requests'] : [])
+    ...((isProduction && !isLoopback) ? ['upgrade-insecure-requests'] : [])
   ].join('; ');
 }

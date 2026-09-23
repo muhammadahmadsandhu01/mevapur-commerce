@@ -39,14 +39,15 @@ function resolvePublicApiContract(value, {
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('NEXT_PUBLIC_API_URL must use HTTP or HTTPS');
   }
-  if (production) {
+  const isLoopback = LOOPBACK_HOSTS.has(parsed.hostname) || parsed.hostname.endsWith('.localhost');
+  if (production && !isLoopback) {
     if (parsed.protocol !== 'https:') {
       throw new Error('NEXT_PUBLIC_API_URL must use HTTPS for production builds');
     }
-    if (LOOPBACK_HOSTS.has(parsed.hostname) || isStalePlaceholderHost(parsed.hostname)) {
+    if (isStalePlaceholderHost(parsed.hostname)) {
       throw new Error('NEXT_PUBLIC_API_URL must name the deployed production backend');
     }
-  } else if (parsed.protocol === 'http:' && !LOOPBACK_HOSTS.has(parsed.hostname)) {
+  } else if (parsed.protocol === 'http:' && !isLoopback) {
     throw new Error('NEXT_PUBLIC_API_URL may use HTTP only on loopback');
   }
 

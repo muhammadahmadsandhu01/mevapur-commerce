@@ -381,10 +381,18 @@ const createRuntimeConfig = (environment = process.env) => {
 
   const isAllowedOrigin = (origin) => {
     try {
-      return allowed.has(normalizeOrigin(origin, {
+      const normalized = normalizeOrigin(origin, {
         allowLoopbackHttp,
         variableName: 'request Origin'
-      }));
+      });
+      if (allowed.has(normalized)) return true;
+      if (allowLoopbackHttp) {
+        const parsed = new URL(normalized);
+        if (LOOPBACK_HOSTS.has(parsed.hostname) || parsed.hostname.endsWith('.localhost')) {
+          return true;
+        }
+      }
+      return false;
     } catch {
       return false;
     }

@@ -13,12 +13,27 @@ interface CsrfContext {
   hasRefreshSession: boolean;
 }
 
+export const resolveAuthApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const injected = (window as unknown as { __ENV__?: { NEXT_PUBLIC_API_URL?: string } }).__ENV__?.NEXT_PUBLIC_API_URL;
+    if (injected) {
+      return `${injected.replace(/\/$/, '')}/api`;
+    }
+  }
+  return publicApiBaseUrl;
+};
+
 export const authHttp = axios.create({
   baseURL: publicApiBaseUrl,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+authHttp.interceptors.request.use((config) => {
+  config.baseURL = resolveAuthApiBaseUrl();
+  return config;
 });
 
 let accessToken: string | null = null;

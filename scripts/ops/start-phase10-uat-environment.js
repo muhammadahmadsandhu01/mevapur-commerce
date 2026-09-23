@@ -177,6 +177,7 @@ services:
       - FRONTEND_URL=http://127.0.0.1:${storefrontPort}
       - ADMIN_URL=http://127.0.0.1:${adminPort}
       - BACKEND_PUBLIC_URL=http://127.0.0.1:${backendPort}
+      - TRUSTED_ORIGINS=http://localhost:${storefrontPort},http://localhost:${adminPort},http://127.0.0.1:${storefrontPort},http://127.0.0.1:${adminPort}
       - MOCK_PAYMENT_GATEWAY=true
       - MOCK_EMAIL_SERVICE=true
       - MOCK_SMS_SERVICE=true
@@ -225,7 +226,7 @@ services:
         condition: service_started
 
   admin:
-    image: node:24.20.0-alpine3.24
+    image: mevapur-commerce-admin:latest
     working_dir: /app
     command: ["node", "server.js"]
     ports:
@@ -236,12 +237,13 @@ services:
       - PORT=3001
       - HOSTNAME=0.0.0.0
       - NODE_ENV=production
+      - APP_ENV=uat
+      - API_URL=http://127.0.0.1:${backendPort}
+      - BACKEND_PUBLIC_URL=http://127.0.0.1:${backendPort}
       - INTERNAL_API_URL=http://backend:5000
       - NEXT_PUBLIC_API_URL=http://127.0.0.1:${backendPort}
       - NEXT_PUBLIC_SITE_NAME=HARZAAR
       - NEXT_PUBLIC_ADMIN_URL=http://127.0.0.1:${adminPort}
-    volumes:
-      - ${repoRoot.replace(/\\/g, '/')}/admin-panel/.next/standalone:/app:ro
     labels:
       com.docker.compose.project: "${projectName}"
     depends_on:

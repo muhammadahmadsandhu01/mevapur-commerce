@@ -6,7 +6,7 @@ export function middleware(request: NextRequest) {
   // Generate unpredictable base64 cryptographic nonce per request
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const isProd = process.env.NODE_ENV === 'production';
-  const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+  const rawApiUrl = process.env.API_URL || process.env.BACKEND_PUBLIC_URL || process.env.INTERNAL_API_URL || process.env['NEXT_PUBLIC_API_URL'] || process.env.NEXT_PUBLIC_API_URL || '';
 
   const cspHeader = buildContentSecurityPolicy({
     isProduction: isProd,

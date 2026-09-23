@@ -30,11 +30,12 @@ const readOrigin = (
   if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
     throw new Error(`${variableName} must not contain a path, query, or fragment`);
   }
-  if (isProductionBuild && parsed.protocol !== 'https:') {
+  const isLoopback = LOOPBACK_HOSTS.has(parsed.hostname);
+  if (isProductionBuild && !isLoopback && parsed.protocol !== 'https:') {
     throw new Error(`${variableName} must use HTTPS for production builds`);
   }
   if (
-    !isProductionBuild
+    (!isProductionBuild || isLoopback)
     && parsed.protocol === 'http:'
     && !LOOPBACK_HOSTS.has(parsed.hostname)
   ) {
