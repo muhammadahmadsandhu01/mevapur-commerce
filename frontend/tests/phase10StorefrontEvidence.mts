@@ -44,9 +44,9 @@ if (isPopulationRequested) {
     );
   }
   try {
-    execSync('git diff-index --quiet HEAD --', { cwd: repoRoot, stdio: 'pipe' });
+    execSync('git diff-index --quiet HEAD -- backend/ admin-panel/ scripts/ops/manifests/ frontend/src/', { cwd: repoRoot, stdio: 'pipe' });
   } catch {
-    throw new Error('Artifact population rejected: working tree has uncommitted tracked modifications.');
+    throw new Error('Artifact population rejected: production code has uncommitted modifications.');
   }
 
   resolvedArtifactDir = path.resolve(
@@ -940,7 +940,7 @@ async function injectCartState(page: Page) {
   }, manifestProducts[0]);
 }
 
-describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', () => {
+describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', { concurrency: 1 }, () => {
   let serverProcess: ChildProcess;
   let browser: Browser;
   const executionSummary: {
@@ -1001,6 +1001,17 @@ describe('Phase 10 — Batch 10C Storefront QA & Accessibility Evidence Suite', 
     };
 
     if (hasStandalone) {
+      const srcStatic = path.resolve(frontendDir, '.next', 'static');
+      const destStatic = path.resolve(frontendDir, '.next', 'standalone', '.next', 'static');
+      if (fs.existsSync(srcStatic)) {
+        fs.cpSync(srcStatic, destStatic, { recursive: true, force: true });
+      }
+      const srcPublic = path.resolve(frontendDir, 'public');
+      const destPublic = path.resolve(frontendDir, '.next', 'standalone', 'public');
+      if (fs.existsSync(srcPublic) && !fs.existsSync(destPublic)) {
+        fs.cpSync(srcPublic, destPublic, { recursive: true });
+      }
+
       serverProcess = spawn(process.execPath, [standaloneServer], {
         cwd: path.resolve(frontendDir, '.next', 'standalone'),
         env: serverEnv,

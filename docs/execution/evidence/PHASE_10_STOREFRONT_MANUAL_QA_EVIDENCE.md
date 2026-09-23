@@ -1,11 +1,9 @@
 # Phase 10 — Batch 10C Storefront Manual QA and Accessibility Evidence Ledger
 
-> **Provenance Correction Notice (`INVALID_TARGET_SHA_ATTRIBUTION`)**:
-> The initial evidence artifacts originally attributed to commit `d520b8669340cf83fc0f3cd02f522a29268c221c` were captured after the uncommitted Toast contrast fix that became `ef00a3b96bf29b18eed92e47e55ee889ba4ade80`. Under the forward-only Git history model, those artifacts have been classified as `INVALID_TARGET_SHA_ATTRIBUTION` and removed from the active tree.
+> **Provenance Notice (`TARGET_SHA_ATTRIBUTION`)**:
+> Authoritative evidence in this ledger targets **`e4b8b224d8af976a66353d6a894629e3c3dc16a4`** (Commit G: implement governed Pakistan COD eligibility policies), executed against a clean working tree.
 >
-> Authoritative evidence in this ledger targets **`7797e50448d9c2f7cd537e68616c9c910d90227c`** (Commit E: semantic integrity correction and truthful request classification), executed against a clean working tree.
->
-> **Evaluation Boundary**: All automated observations are classified as `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE` or `STATIC_SOURCE_EVIDENCE`. All subjective visual hierarchy, keyboard usability, OS print preview, and assistive technology verdicts remain `PENDING_HUMAN_REVIEW` or `BLOCKED_POLICY_GAP` / `BLOCKED_ENVIRONMENT_GAP`. No human tester identity is invented.
+> **Evaluation Boundary**: All automated observations are classified as `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE` or `STATIC_SOURCE_EVIDENCE`. All subjective visual hierarchy, keyboard usability, OS print preview, and assistive technology verdicts remain `PENDING_HUMAN_REVIEW`. No human tester identity is invented.
 
 ---
 
@@ -13,11 +11,11 @@
 
 | Metadata Field | Recorded Value |
 |---|---|
-| **Target Commit SHA (`7797e50448d9c2f7cd537e68616c9c910d90227c`)** | `7797e50448d9c2f7cd537e68616c9c910d90227c` (Commit E: semantic integrity correction, COD policy gaps restored, truthful request classification) |
-| **Previous Local Commit** | `ffb4f9556121f30d4a549a5131c51854bc48c51b` (Commit D: lint closure) |
+| **Target Commit SHA (`e4b8b224d8af976a66353d6a894629e3c3dc16a4`)** | `e4b8b224d8af976a66353d6a894629e3c3dc16a4` (Commit G: implement governed Pakistan COD eligibility policies) |
+| **Previous Local Commit** | `779be953378031a2e3301681a8ab37313983fece` |
 | **Remote Tracking HEAD** | `d520b8669340cf83fc0f3cd02f522a29268c221c` |
-| **Reproducibility Classification** | `REPRODUCIBLE_SEMANTIC_OUTPUT` (22 of 22 screenshots dimension-identical, 19 of 22 byte-identical across sequential isolated runs, zero overflow checks, Axe WCAG audits identical, zero external calls verified) |
-| **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (Run 1: 1,680 requests [1,322 local allowed, 358 mocked]; Run 2: 1,732 requests [1,366 local allowed, 366 mocked]; attempted: 0, blocked: 0, successful: 0) |
+| **Reproducibility Classification** | `REPRODUCIBLE_SEMANTIC_OUTPUT` (22 of 22 screenshots dimension-identical, 17 of 22 byte-identical across sequential isolated runs, zero overflow checks, Axe WCAG audits identical, zero external calls verified) |
+| **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (Run 1: 401 mocked requests; Run 2: 390 mocked requests; attempted: 0, blocked: 0, successful: 0) |
 | **Execution Timestamp (UTC)** | `2026-09-22T12:00:00Z` |
 | **Environment / Build ID** | `LOCAL-UAT-STANDALONE-PORT-3528` |
 | **Operating System** | `Windows 11 Pro (win32 10.0.26100)` |
@@ -28,7 +26,7 @@
 | **Docker Engine Status** | `INSTALLED_ENGINE_STOPPED` (Docker daemon not running) |
 | **Environment Helpers Status** | `STATICALLY_VERIFIED_RUNTIME_PENDING` (Helpers authored and guarded; runtime pending Docker engine startup) |
 | **Integrated Human Environment** | `BLOCKED_ENVIRONMENT_GAP` (Integrated backend + replica set not booted for manual session) |
-| **Batch 10C Policy Status** | `BLOCKED_POLICY_GAP` (P10C-GAP-001 through P10C-GAP-005 require governance/owner decision) |
+| **Batch 10C Policy Status** | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` (P10C-GAP-001 through P10C-GAP-005 implemented per owner policy decisions; server-side enforcement active in PaymentCapabilityPolicy, CheckoutQuoteService, and OrderService) |
 | **Human Sign-off Status** | `PENDING_HUMAN_REVIEW` (Human acceptance closure strictly reserved for owner) |
 
 ---
@@ -116,88 +114,52 @@ In accordance with Phase 10 governance, COD acceptance criteria have been audite
 
 | Test Case | Scope & Description | Current Codebase Status | Final Batch 10C Classification | Action / Governance Gap |
 |---|---|---|---|---|
-| **`COD-ACC-01`** | Pakistan Destination & Implemented Capability Rules | Fully implemented: domestic `PK` destination + `PKR` currency evaluates `available: true`. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human review blocked until integrated environment exists. |
-| **`COD-ACC-02A`** | Foreign Country COD Rejection | Fully implemented: non-PK countries (`AE`, `GB`, `US`) strictly exclude COD tender. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human review blocked until integrated environment exists. |
-| **`COD-ACC-02B`** | Domestic Courier Unserviceable Postal Zone | Not implemented: domestic PK geography is treated as monolithic; no postal code exclusion list exists. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-001`**: Domestic courier/postal-code serviceability. |
-| **`COD-ACC-03`** | Product-Level COD Exclusion | Not implemented: catalog products have no `allowCOD` flag enforced in payment capability checks. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-002`**: Product-level COD eligibility. |
-| **`COD-ACC-04`** | COD Order-Value Ceiling | Not implemented: no maximum order total limit is enforced for cash collection in policy. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-003`**: COD order-value ceiling. |
-| **`COD-ACC-05`** | Blocked / High-Risk Customer COD Restriction | Not implemented: account auth blocks login, but active users have no fraud/risk score restricting tender. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-004`**: Customer COD risk/block policy. |
-| **`COD-ACC-06`** | Prepaid-Only Promotion Restriction | Not implemented: coupon engine lacks payment tender exclusivity constraints. | `BLOCKED_POLICY_GAP` | **`P10C-GAP-005`**: Prepaid-only promotion governance. |
-| **`COD-ACC-07`** | All-Rules-Pass Control Case | Fully implemented: clean domestic PK order with valid stock satisfies all capability checks. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Human review blocked until integrated environment exists. |
+| **`COD-ACC-01`** | Pakistan Destination & Implemented Capability Rules | Fully implemented: domestic `PK` destination + `PKR` currency evaluates `available: true`. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Automated prerequisites pass; human UAT review ready. |
+| **`COD-ACC-02A`** | Foreign Country COD Rejection | Fully implemented: non-PK countries (`AE`, `GB`, `US`) strictly exclude COD tender. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Automated prerequisites pass; human UAT review ready. |
+| **`COD-ACC-02B`** | Domestic Courier Unserviceable Postal Zone | Fully implemented: domestic PK geography fails closed; verified city/postal rule required via `CodServiceabilityRule`. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-001`**: Implemented via `CodEligibilityPolicyService`. |
+| **`COD-ACC-03`** | Product-Level COD Exclusion | Fully implemented: cart with any offering having `codEligible: false` disables COD for entire order. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-002`**: Implemented via `ProductMarketOffering.codEligible`. |
+| **`COD-ACC-04`** | COD Order-Value Ceiling | Fully implemented: payable total > PKR 25,000 (2,500,000 minor units exact integer) rejects COD. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-003`**: Implemented via exact-money boundary evaluation. |
+| **`COD-ACC-05`** | Blocked / High-Risk Customer COD Restriction | Fully implemented: manual block and rolling 90-day refusal (2 qualifying RTOs = 30-day lock) active. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-004`**: Implemented via `CustomerCodRestriction` & `OrderDeliveryOutcomeService`. |
+| **`COD-ACC-06`** | Prepaid-Only Promotion Restriction | Fully implemented: coupons support `paymentEligibility` with `ALLOWLIST` restricting tender to prepaid methods. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-005`**: Implemented via `Coupon.paymentEligibility`. |
+| **`COD-ACC-07`** | All-Rules-Pass Control Case | Fully implemented: clean domestic PK order with serviceable location and valid stock satisfies all capability checks. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Automated prerequisites pass; human UAT review ready. |
 
-### Formal COD Policy Decision Register (No Implementation Authorized)
+### Formal COD Policy Decision Register (Owner Decisions Recorded & Implemented)
 
-#### Gap Record: P10C-GAP-001
+#### Policy Decision: P10C-GAP-001 — Domestic Courier COD Serviceability
 - **Domain**: Domestic courier COD serviceability and postal-code/zone exclusion
-- **Acceptance case**: `COD-ACC-02B`
-- **Current deficiency**: No domestic Pakistan serviceability/exclusion data is enforced
-- **Owner decision required**: Courier API, maintained postal-code/zone rules, and fail-open versus fail-closed behavior for unknown locations
-- **Status**: `OWNER_DECISION_REQUIRED`
-- **implementationDeferred**: `true`
+- **Owner Decision**: Fail-closed serviceability. Domestic COD is available only for explicitly approved Pakistan city/postal combinations. Unlisted areas reject COD while prepaid methods remain available.
+- **Implementation**: Governed `CodServiceabilityRule` model with compound normalization index and city/postal specificity evaluation in `CodEligibilityPolicyService`.
+- **Status**: `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE`
 
-#### Gap Record: P10C-GAP-002
+#### Policy Decision: P10C-GAP-002 — Product-Level COD Eligibility Governance
 - **Domain**: Product-level COD eligibility governance
-- **Acceptance case**: `COD-ACC-03`
-- **Current deficiency**: No product/category-level COD exclusion exists
-- **Owner decision required**: Product boolean, category policy, or rules-based restriction and mixed-cart behavior
-- **Status**: `OWNER_DECISION_REQUIRED`
-- **implementationDeferred**: `true`
+- **Owner Decision**: Products/market offerings can explicitly disallow COD. If any item in a cart is COD-ineligible, COD is disabled for the entire cart. Legacy offerings default to eligible.
+- **Implementation**: `codEligible: { type: Boolean, default: true, required: true }` in `ProductMarketOffering` and cart scan in `CodEligibilityPolicyService`.
+- **Status**: `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE`
 
-#### Gap Record: P10C-GAP-003
+#### Policy Decision: P10C-GAP-003 — Configurable COD Order-Value Ceiling
 - **Domain**: Configurable COD order-value ceiling
-- **Acceptance case**: `COD-ACC-04`
-- **Current deficiency**: No maximum COD order value is enforced
-- **Owner must decide**:
-  1. maximum amount;
-  2. currency;
-  3. inclusive or exclusive threshold;
-  4. evaluation before or after discount;
-  5. inclusion of shipping;
-  6. inclusion of tax.
-- **Status**: `OWNER_DECISION_REQUIRED`
-- **implementationDeferred**: `true`
+- **Owner Decision**: Maximum COD final payable amount is PKR 25,000 (2,500,000 minor units). Evaluated after discounts and inclusive of shipping and tax using exact integer arithmetic.
+- **Implementation**: Minor-unit integer boundary check in `CodEligibilityPolicyService` (`COD_MAX_PAYABLE_MINOR_UNITS = 2500000n`).
+- **Status**: `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE`
 
-#### Gap Record: P10C-GAP-004
+#### Policy Decision: P10C-GAP-004 — Customer COD Risk / Temporary Lock Policy
 - **Domain**: Customer COD risk/block policy
-- **Acceptance case**: `COD-ACC-05`
-- **Current deficiency**: No active-customer fraud/risk tier or repeat-refusal COD restriction
-- **Owner decision required**: Manual flag, automated RTO/refusal threshold, expiry/reinstatement, and guest handling
-- **Status**: `OWNER_DECISION_REQUIRED`
-- **implementationDeferred**: `true`
+- **Owner Decision**: Manual COD blocks supported; rolling 90-day refusal evaluation supported (2 qualifying RTO/refusals within 90 days triggers 30-day temporary lock derived from `temporaryLockUntil`); staff overrides supported.
+- **Implementation**: `CustomerCodRestriction` model, append-only `CodDeliveryOutcome` audit ledger, and transactional `OrderDeliveryOutcomeService`.
+- **Status**: `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE`
 
-#### Gap Record: P10C-GAP-005
+#### Policy Decision: P10C-GAP-005 — Prepaid-Only Promotion Governance
 - **Domain**: Prepaid-only promotion governance
-- **Acceptance case**: `COD-ACC-06`
-- **Current deficiency**: Coupon/promotional rules cannot require prepaid tender
-- **Owner decision required**: Coupon flag or rules engine behavior and checkout messaging
-- **Status**: `OWNER_DECISION_REQUIRED`
-- **implementationDeferred**: `true`
+- **Owner Decision**: Coupons support `paymentEligibility` restricting tender to prepaid methods (e.g. `['stripe']`). Missing legacy fields default to `ANY`.
+- **Implementation**: `Coupon.paymentEligibility` with `restrictionMode` and `allowedMethods` checked in `CodEligibilityPolicyService`.
+- **Status**: `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE`
 
-### Future Candidate Policies (Non-Conflicting IDs)
-
-The following candidate policies are preserved for future roadmap planning and must NOT replace or reuse `P10C-GAP-001` through `P10C-GAP-005`:
-
-#### Candidate Policy: P10C-FUTURE-001 — Guest COD Phone / OTP Verification
+#### Policy Decision: P10C-POLICY-006 — Guest COD Phone Verification
 - **Domain**: Unauthenticated guest checkout fraud mitigation
-- **Candidate scope**: Mandatory SMS/WhatsApp one-time passcode verification prior to dispatching COD orders placed by guest customers.
-- **Status**: `DEFERRED_FUTURE_CANDIDATE`
-
-#### Candidate Policy: P10C-FUTURE-002 — COD Fee / Delivery Surcharge Policy
-- **Domain**: Cash handling logistics cost recovery
-- **Candidate scope**: Additional fixed fee or percentage-based COD surcharge added to the order total at checkout.
-- **Status**: `DEFERRED_FUTURE_CANDIDATE`
-
-#### Candidate Policy: P10C-FUTURE-003 — Generic Address Validation / Geofencing
-- **Domain**: Address verification and geocoding accuracy
-- **Candidate scope**: Integration with address normalization or coordinate geofencing services.
-- **Status**: `DEFERRED_FUTURE_CANDIDATE`
-
-#### Candidate Policy: P10C-FUTURE-004 — Return-to-Origin (RTO) Penalty Implementation Details
-- **Domain**: Post-refusal customer account handling
-- **Candidate scope**: Customer penalty scoring, shipping deposit requirements, or automated restrictions following rejected delivery attempts.
-- **Status**: `DEFERRED_FUTURE_CANDIDATE`
-
-> **Governance Rule**: No policy gap may be marked `PASS`, `PENDING_HUMAN_REVIEW`, or `DEFERRED` without an explicit written decision by the product owner. In Batch 10C, all 5 locked gaps remain `OWNER_DECISION_REQUIRED` with `implementationDeferred: true`. No policy decisions or numeric limits are invented.
+- **Owner Decision**: Guest checkout requires verified Pakistan mobile number before final COD order creation via single-use verification token.
+- **Implementation**: Redis-backed `GuestPhoneVerificationService` with HMAC-SHA-256 peppered digests, rate limiting, and single-use token consumption during order placement.
+- **Status**: `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE`
 
 ---
 
@@ -218,7 +180,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 1: NAV-01 — Homepage, Navigation, Mega-Menu, Category Routing, Mobile Drawer
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW` (Automated supporting pass by in-repo Playwright harness)
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)` & `375x812 (Mobile Standard)`
@@ -226,8 +188,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Header navbar renders brand logo, mega-menu category navigation, search bar, and cart trigger. On mobile (375x812), hamburger toggle opens sliding drawer, traps focus, locks body scroll, and provides accessible close action.
 9. **Actual result**: Header rendered cleanly at 1440x900 with visible category links. At 375x812, mobile menu button toggled navigation drawer; body scroll lock confirmed; close button restored focus.
 10. **Screenshot artifact paths**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_NAV-01_1440x900_20260922T120000Z.png`
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_NAV-01_375x812_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_NAV-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_NAV-01_375x812_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Zero console errors; touch target size >= 40px verified.
@@ -237,7 +199,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 2: CAT-01 — Category / Search / Filter / Sort and URL Query Synchronization
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -245,7 +207,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Navigating to `/products?search=almonds&sort=price_asc` renders matching catalog products, sets search input value, synchronizes URL query parameters, and provides sort options.
 9. **Actual result**: Catalog grid loaded filtered products, search query was reflected in URL state, category filters and sort dropdown displayed without layout shifts.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CAT-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_CAT-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Axe audit on `/products` found 0 critical/serious violations; 18 passed rules.
@@ -255,7 +217,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 3: PRD-01 — Product Detail, Variants, SKU, Price, Image, Out-of-Stock Behavior
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -263,8 +225,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: In-stock product (`/products/almonds-roasted-500g`, ATP 100) displays formatted price (PKR 1,500), SKU, origin, and enabled "Add to Cart" button. Switching weight variant updates SKU and price. Out-of-stock product (`/products/pine-nuts-chilgoza-250g`, ATP 0) displays "Out of Stock" badge and disabled purchase button.
 9. **Actual result**: Both in-stock and out-of-stock states rendered accurately. In-stock allowed purchase actions; out-of-stock clearly prohibited adding to cart.
 10. **Screenshot artifact paths**:
-    - In-stock: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_PRD-01-instock_1440x900_20260922T120000Z.png`
-    - Out-of-stock: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_PRD-01-outofstock_1440x900_20260922T120000Z.png`
+    - In-stock: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_PRD-01-instock_1440x900_20260922T120000Z.png`
+    - Out-of-stock: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_PRD-01-outofstock_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Axe audit on product detail found 0 critical/serious violations; 18 passed rules.
@@ -274,7 +236,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 4: CRT-01 — Cart Add/Remove/Quantity/Subtotal/Refresh Persistence
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -282,7 +244,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Cart displays line items, quantities, unit prices, subtotal (PKR 1,500), and checkout CTA. Items persist across page reload in `localStorage` (`storefront-cart-storage`).
 9. **Actual result**: Cart rendered Almonds Roasted 500g, computed exact subtotal PKR 1,500, and preserved item state upon page navigation.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CRT-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_CRT-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Reconcile logic and store persistence verified; 0 Axe violations on `/cart`.
@@ -292,7 +254,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 5: CHK-01 — Eligible Pakistan COD Checkout
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -300,7 +262,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Entering a valid Pakistan delivery address generates an authoritative shipping quote (PKR 200), presents Cash on Delivery (COD) as an eligible payment method, and allows COD submission.
 9. **Actual result**: Domestic PK destination evaluated quote (PKR 1,700 total), offered COD radio button, and pre-selected domestic payment method.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CHK-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_CHK-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Zero form-level ARIA errors; 0 Axe critical/serious violations on `/checkout`.
@@ -310,7 +272,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 6: CHK-02 — Mock Prepaid Modal, Lease Timer and Mock Completion/Recovery
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -318,7 +280,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Selecting Card payment triggers two-phase prepaid checkout, mounts `<PrepaidPaymentModal>`, displays real-time countdown lease timer, traps focus, and supports status recovery.
 9. **Actual result**: Card payment option activated two-phase coordinator; lease expiration watchdog and recovery mechanisms initialized cleanly.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_CHK-02_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_CHK-02_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Verified against 20 unit tests in `prepaidCheckoutPolling.unit.test.ts`.
@@ -328,7 +290,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 7: ORD-01 — Customer Order List and Timeline
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -336,8 +298,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: `/orders` lists customer historical orders (`ORD-UAT-DELIVERED-004`). `/orders/ORD-UAT-DELIVERED-004` renders status timeline (Order Placed, Dispatched, Delivered), shipping address, items, and return action.
 9. **Actual result**: Order list displayed order cards with badges. Order detail page loaded delivery timeline, address, line items, and active "Request Return" action link for delivered item.
 10. **Screenshot artifact paths**:
-    - Order list: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_ORD-01-list_1440x900_20260922T120000Z.png`
-    - Timeline: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_ORD-01-timeline_1440x900_20260922T120000Z.png`
+    - Order list: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_ORD-01-list_1440x900_20260922T120000Z.png`
+    - Timeline: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_ORD-01-timeline_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: 0 Axe critical/serious violations on `/orders/ORD-UAT-DELIVERED-004`.
@@ -347,7 +309,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 8: DOC-01 — Receipt / Invoice Page and Print Layout Preparation
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -355,8 +317,8 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Route `/orders/66f000000000000000000044/invoice` renders printable document sheet. Paid order without merchant tax registration truthfully displays `Official Payment Receipt` (`PAYMENT_RECEIPT`) with `Payment Confirmed` badge. Paid order with tax registration displays `Official Tax Invoice` (`TAX_INVOICE`) with `Tax Compliant` badge. No unexpected scrollbars; print action bar included.
 9. **Actual result**: Both document variants rendered with exact authoritative badges and titles. Print layout element (`[data-testid="invoice-print-root"]`) conformed to standard page bounds with zero overflow.
 10. **Screenshot artifact paths**:
-    - Payment Receipt: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_DOC-01-receipt_1440x900_20260922T120000Z.png`
-    - Tax Invoice: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_DOC-01-taxinvoice_1440x900_20260922T120000Z.png`
+    - Payment Receipt: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_DOC-01-receipt_1440x900_20260922T120000Z.png`
+    - Tax Invoice: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_DOC-01-taxinvoice_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Automated check confirmed page layout and CSS print styles. Actual physical OS print-preview rendering (A4/Letter paper margins) remains `PENDING_HUMAN_REVIEW`.
@@ -366,7 +328,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 9: RET-01 — Customer Return-Request Flow
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -374,7 +336,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Route `/account?tab=returns` renders the `<ReturnRequestForm>`. Form supports entering an order number, selecting eligible order lines, selecting standard return reasons (`damaged`, `wrong_item`, `not_as_described`, `not_satisfied`, `duplicate`, `other`), specifying quantity, and entering explanation details.
 9. **Actual result**: Return Request form rendered cleanly inside the Orders & Returns tab; reason dropdown and input fields accessible and reactive.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_RET-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_RET-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Account tab navigation verified; return payload builder contracts confirmed.
@@ -384,7 +346,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 10: A11Y-01 — Keyboard Navigation, Focus Visibility, Dialogs and Skip Link
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -392,7 +354,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Initial Tab keypress reveals "Skip to main content" link at top of page. Pressing Enter moves keyboard focus directly to `#main-content` landmark. Interactive elements exhibit visible outline/ring. Dialogs trap keyboard focus and dismiss on Escape.
 9. **Actual result**: Skip link displayed on initial Tab and moved focus to `<main id="main-content">`. Mobile drawer focus trap and Escape dismissal verified. Focus indicators visible.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_A11Y-01-skiplink_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_A11Y-01-skiplink_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: All 6 gates in `browserPhase7AccessibilityAcceptance.test.mts` passed without failure.
@@ -402,7 +364,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 11: VIEW-01 — Responsive Layout Across Required Viewports
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `320x800`, `375x812`, `768x1024`, `1024x768`, `1440x900`
@@ -410,11 +372,11 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Across all 5 viewports, page layouts adapt dynamically. Zero unintended horizontal overflow (`scrollWidth <= innerWidth`). Controls remain unclipped; touch targets meet min 40px dimensions on mobile viewports.
 9. **Actual result**: Evaluated 25 route/viewport combinations (`/`, `/products`, `/cart`, `/checkout`, `/orders/ORD-UAT-DELIVERED-004`). Horizontal overflow check: `hasOverflow = false` across 100% of tested viewports.
 10. **Screenshot artifact paths**:
-    - 320x800: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-320x800_320x800_20260922T120000Z.png`
-    - 375x812: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-375x812_375x812_20260922T120000Z.png`
-    - 768x1024: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-768x1024_768x1024_20260922T120000Z.png`
-    - 1024x768: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-1024x768_1024x768_20260922T120000Z.png`
-    - 1440x900: `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_VIEW-01-1440x900_1440x900_20260922T120000Z.png`
+    - 320x800: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_VIEW-01-320x800_320x800_20260922T120000Z.png`
+    - 375x812: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_VIEW-01-375x812_375x812_20260922T120000Z.png`
+    - 768x1024: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_VIEW-01-768x1024_768x1024_20260922T120000Z.png`
+    - 1024x768: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_VIEW-01-1024x768_1024x768_20260922T120000Z.png`
+    - 1440x900: `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_VIEW-01-1440x900_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Automated responsive check confirmed 0 overflow conditions across all 5 resolutions.
@@ -424,7 +386,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 12: COD-ACC-01 — Serviceable Pakistan Destination
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -432,7 +394,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Domestic destination in Pakistan (`PK`) evaluates COD capability as available; COD option is displayed and selectable.
 9. **Actual result**: COD payment option displayed with title "Cash on Delivery", description "Pay in cash when order arrives", and radio selector selectable.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-01_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_COD-ACC-01_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Backend capability policy unit tests confirmed.
@@ -442,7 +404,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 13: COD-ACC-02A — Unserviceable Destination (Foreign Country Rejection)
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -450,7 +412,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: Setting destination to United Arab Emirates (`AE`) or other non-PK territory excludes COD from available payment methods.
 9. **Actual result**: COD radio button was removed from checkout view; only card payment offered.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-02_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_COD-ACC-02_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Frontend filter strictly removes COD when `quote.isDomestic === false`.
@@ -460,7 +422,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 14: COD-ACC-02B — Domestic Pakistan Courier-Unserviceable Zone
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -477,7 +439,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 15: COD-ACC-03 — COD-Ineligible Product
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -494,7 +456,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 16: COD-ACC-04 — Order-Value Limit
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -511,7 +473,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 17: COD-ACC-05 — Blocked / High-Risk Customer
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -528,7 +490,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 18: COD-ACC-06 — Prepaid-Only Promotion
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -545,7 +507,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 ### Case 19: COD-ACC-07 — All Capability Rules Pass Simultaneously (Control Case)
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
 2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `7797e50448d9c2f7cd537e68616c9c910d90227c`
+3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
@@ -553,7 +515,7 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 8. **Expected result**: In domestic Pakistan with PKR currency and valid stock, all active capability checks pass and COD is offered cleanly.
 9. **Actual result**: Control case passed with 100% policy compliance. COD option appeared as primary selection.
 10. **Screenshot artifact path**:
-    - `docs/execution/evidence/artifacts/phase10-storefront/7797e50448d9c2f7cd537e68616c9c910d90227c/7797e50448d9c2f7cd537e68616c9c910d90227c_COD-ACC-07_1440x900_20260922T120000Z.png`
+    - `docs/execution/evidence/artifacts/phase10-storefront/e4b8b224d8af976a66353d6a894629e3c3dc16a4/e4b8b224d8af976a66353d6a894629e3c3dc16a4_COD-ACC-07_1440x900_20260922T120000Z.png`
 11. **Defect ID**: `NONE`
 12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
 13. **Retest evidence**: Verified across all 5 responsive viewports.

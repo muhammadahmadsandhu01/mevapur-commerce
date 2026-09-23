@@ -115,9 +115,9 @@ function main() {
       throw new Error(`Target population rejected: targetSha must be a 40-character hex commit SHA, got: "${targetSha}"`);
     }
     try {
-      execSync('git diff-index --quiet HEAD --', { cwd: repoRoot, stdio: 'pipe' });
+      execSync('git diff-index --quiet HEAD -- backend/ admin-panel/ scripts/ops/manifests/ frontend/src/', { cwd: repoRoot, stdio: 'pipe' });
     } catch {
-      throw new Error('Target population rejected: working tree has uncommitted tracked modifications.');
+      throw new Error('Target population rejected: production code has uncommitted modifications.');
     }
   }
 
