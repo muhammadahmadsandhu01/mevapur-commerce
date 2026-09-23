@@ -1,9 +1,9 @@
 # Phase 10 — Batch 10C Storefront Manual QA and Accessibility Evidence Ledger
 
 > **Provenance Notice (`TARGET_SHA_ATTRIBUTION`)**:
-> Authoritative evidence in this ledger targets **`e4b8b224d8af976a66353d6a894629e3c3dc16a4`** (Commit G: implement governed Pakistan COD eligibility policies), executed against a clean working tree.
+> Authoritative evidence in this ledger targets **`188bc20b51b8e10805eb7fc3560fb388234101ad`** (`fix(phase10): make disposable COD integration reproducible and secret-safe`), executed against a clean code baseline.
 >
-> **Evaluation Boundary**: All automated observations are classified as `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE` or `STATIC_SOURCE_EVIDENCE`. All subjective visual hierarchy, keyboard usability, OS print preview, and assistive technology verdicts remain `PENDING_HUMAN_REVIEW`. No human tester identity is invented.
+> **Evaluation Boundary**: All automated observations are classified as `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE` or `STATIC_SOURCE_EVIDENCE`. Real loopback TCP integration is evidenced by `docs/execution/evidence/artifacts/phase10-disposable/disposable-backend-integration-summary.json` and classified strictly as `DISPOSABLE_BACKEND_INTEGRATION`. All subjective visual hierarchy, keyboard usability, OS print preview, and assistive technology verdicts remain strictly `PENDING_HUMAN_REVIEW`. No human tester identity is invented.
 
 ---
 
@@ -11,23 +11,24 @@
 
 | Metadata Field | Recorded Value |
 |---|---|
-| **Target Commit SHA (`e4b8b224d8af976a66353d6a894629e3c3dc16a4`)** | `e4b8b224d8af976a66353d6a894629e3c3dc16a4` (Commit G: implement governed Pakistan COD eligibility policies) |
-| **Previous Local Commit** | `779be953378031a2e3301681a8ab37313983fece` |
+| **Target Commit SHA** | `41132dbdd7a9f7d2427a13915bc3283626e91122` (`fix(phase10): resolve dynamic port injection and CORS for disposable admin UI`) |
+| **Previous Local Commit** | `188bc20b51b8e10805eb7fc3560fb388234101ad` (`fix(phase10): make disposable COD integration reproducible and secret-safe`) |
 | **Remote Tracking HEAD** | `d520b8669340cf83fc0f3cd02f522a29268c221c` |
 | **Reproducibility Classification** | `REPRODUCIBLE_SEMANTIC_OUTPUT` (22 of 22 screenshots dimension-identical, 17 of 22 byte-identical across sequential isolated runs, zero overflow checks, Axe WCAG audits identical, zero external calls verified) |
 | **Network Hermeticity** | `HERMETIC_ZERO_EXTERNAL_REQUESTS` (Run 1: 401 mocked requests; Run 2: 390 mocked requests; attempted: 0, blocked: 0, successful: 0) |
-| **Execution Timestamp (UTC)** | `2026-09-22T12:00:00Z` |
-| **Environment / Build ID** | `LOCAL-UAT-STANDALONE-PORT-3528` |
+| **Execution Timestamp (UTC)** | `2026-09-24T04:45:00Z` |
+| **Environment / Build ID** | `LOCAL-UAT-STANDALONE-PORT-3528` & `DISPOSABLE-TOPOLOGY-mevapur_uat_p10c_qbgki6rj` |
 | **Operating System** | `Windows 11 Pro (win32 10.0.26100)` |
 | **Browser Engine & Version** | `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50` |
-| **Storefront Base URL** | `http://127.0.0.1:3528` (Next.js standalone build) |
-| **Backend API Route State** | `Deterministic in-memory route intercepts (MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE)` |
-| **Evidence Harness** | `frontend/tests/phase10StorefrontEvidence.mts` (`npm run test:phase10:evidence`) |
-| **Docker Engine Status** | `INSTALLED_ENGINE_STOPPED` (Docker daemon not running) |
-| **Environment Helpers Status** | `STATICALLY_VERIFIED_RUNTIME_PENDING` (Helpers authored and guarded; runtime pending Docker engine startup) |
-| **Integrated Human Environment** | `BLOCKED_ENVIRONMENT_GAP` (Integrated backend + replica set not booted for manual session) |
+| **Storefront Base URL** | `http://127.0.0.1:52782` (Live Disposable Next.js Container) & `http://127.0.0.1:3528` (Standalone Harness) |
+| **Backend API Base URL** | `http://127.0.0.1:52781` (Live Disposable Backend Container) |
+| **Admin Panel Base URL** | `http://127.0.0.1:52783` (Live Disposable Admin Container) |
+| **Docker Engine Status** | `RUNNING_HEALTHY` (Docker Desktop 4.80.0, Docker Engine 29.6.1, WSL2 Engine Active) |
+| **Environment Helpers Status** | `VERIFIED_RUNTIME_ACTIVE` (Disposable topology `mevapur_uat_p10c_qbgki6rj` running and healthy; Admin dynamic port injection and CORS remediated) |
+| **Disposable Backend Integration Suite** | `DISPOSABLE_BACKEND_INTEGRATION_PASS` (32 of 32 tests passed on loopback TCP without Playwright or route mocking) |
+| **Integrated Human Environment** | `DISPOSABLE_TOPOLOGY_RUNNING_HUMAN_UAT_READY` (Isolated disposable stack running on verified-free loopback ports for owner review) |
 | **Batch 10C Policy Status** | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` (P10C-GAP-001 through P10C-GAP-005 implemented per owner policy decisions; server-side enforcement active in PaymentCapabilityPolicy, CheckoutQuoteService, and OrderService) |
-| **Human Sign-off Status** | `PENDING_HUMAN_REVIEW` (Human acceptance closure strictly reserved for owner) |
+| **Human Sign-off Status** | `PENDING_HUMAN_REVIEW` (Human acceptance closure strictly reserved for owner; all 18 human scenarios remain PENDING_HUMAN_REVIEW) |
 
 ---
 
@@ -618,10 +619,26 @@ Stop-Process -Name "node" -Force
 ```
 
 ### Current Status of Human Integrated Environment
-- **Classification**: `BLOCKED_ENVIRONMENT_GAP`
-- **Reason**: The Docker engine is stopped (`INSTALLED_ENGINE_STOPPED`), and a disposable MongoDB replica set + local backend process was not started during this automated correction pass.
-- **Owner Action Required**: Start the Docker engine, then rerun the documented integrated UAT environment verification.
-- **Integration Boundary**: Mock-backed screenshots captured by the hermetic Playwright harness provide evidence of responsive and accessible frontend DOM states, but are not reclassified as backend integration. Full end-to-end integration verification remains blocked until Docker engine startup and human test execution.
+- **Classification**: `DISPOSABLE_TOPOLOGY_RUNNING_HUMAN_UAT_READY`
+- **Real Loopback Integration Status**: `DISPOSABLE_BACKEND_INTEGRATION_PASS` (32 of 32 integration tests passed against live disposable containers via `npm run test:phase10:disposable`).
+- **Live Disposable Topology Endpoints (Run 3 Active for Review)**:
+  - MongoDB replica set (`rs0`): `mongodb://127.0.0.1:52779/mevapur_uat_phase10?replicaSet=rs0&directConnection=true`
+  - Redis store: `127.0.0.1:52780`
+  - Backend API: `http://127.0.0.1:52781` (`/health/ready` -> 200 ready)
+  - Storefront Next.js: `http://127.0.0.1:52782` (`/healthz` -> 200 ok)
+  - Admin Panel Next.js: `http://127.0.0.1:52783` (`/healthz` -> 200 ok, dynamic injection + CORS verified 200)
+- **Admin Panel Infrastructure Remediation & Verification Audit**:
+  - *Dynamic Port & Env Injection*: Next.js standalone container dynamically serves root layout with server-injected `<script id="__ENV_INJECTION__">` containing `window.__ENV__.NEXT_PUBLIC_API_URL = "http://127.0.0.1:52781"`. Axios client interceptors automatically resolve API requests to this ephemeral loopback backend.
+  - *CSP Loopback Whitelist*: Content-Security-Policy header permits `http://127.0.0.1:*` and `http://localhost:*` under `connect-src`, strictly omitting `upgrade-insecure-requests` during loopback/UAT execution to prevent browser HTTPS upgrade failures.
+  - *Backend CORS Policy*: Backend dynamically validates and accepts requests from `http://127.0.0.1:52783` with `Access-Control-Allow-Origin: http://127.0.0.1:52783` and `Access-Control-Allow-Credentials: true`. Preflight OPTIONS returns 204 No Content with all governed headers and methods.
+  - *In-Container Network Reachability*: Internal HTTP request from `mevapur_uat_p10c_qbgki6rj-admin-1` to `http://backend:5000/api/auth/csrf-token` with origin `http://127.0.0.1:52783` succeeded with 200 OK and valid CSRF token.
+  - *Static Chunk Serving*: All Next.js static script bundles (`/_next/static/chunks/...`) serve with HTTP 200 OK and `application/javascript; charset=UTF-8` (zero 404s).
+- **Protected Baseline Containers**: Strictly protected host containers (`mevapur_api`, `mevapur_webserver`, `mevapur_db`, `mevapur_redis`, `mevapur_meilisearch`, `mevapur_mailpit`) remain 100% untouched and unpruned (all 19 containers verified against protected baseline).
+- **Teardown Command (Preserved for Owner Review)**:
+  ```powershell
+  docker compose -p mevapur_uat_p10c_qbgki6rj -f "C:\Users\MUHAMM~1\AppData\Local\Temp\mevapur-uat\docker-compose.uat.qbgki6rj.yml" down -v
+  ```
+- **Integration Boundary**: Mock-backed screenshots captured by the hermetic Playwright harness provide evidence of responsive and accessible frontend DOM states classified strictly as `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`. Real loopback TCP backend integration is evidenced by `docs/execution/evidence/artifacts/phase10-disposable/disposable-backend-integration-summary.json` and classified strictly as `DISPOSABLE_BACKEND_INTEGRATION`. All 18 human UAT scenarios remain `PENDING_HUMAN_REVIEW` reserved for the human owner.
 
 ---
 
