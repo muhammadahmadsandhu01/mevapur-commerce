@@ -42,6 +42,27 @@ class GuestPhoneVerificationService {
     this._memoryStore = new Map();
   }
 
+  async isAvailable() {
+    if (this.redisClient) {
+      if (typeof this.redisClient.isOpen === 'boolean' && !this.redisClient.isOpen) {
+        return false;
+      }
+      try {
+        if (typeof this.redisClient.ping === 'function') {
+          const res = await this.redisClient.ping();
+          return res === 'PONG' || res === true;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (process.env.NODE_ENV === 'production' && !process.env.PHASE10_UAT_RUN_ID && process.env.NODE_ENV !== 'test') {
+      return false;
+    }
+    return true;
+  }
+
   _resolveSafeTempDir() {
     const runId = process.env.PHASE10_UAT_RUN_ID || crypto.randomBytes(6).toString('hex');
     const tempBase = process.env.TEMP || process.env.TMP || os.tmpdir();
@@ -140,6 +161,9 @@ class GuestPhoneVerificationService {
    * @returns {Promise<{ challengeId: string, expiresInSeconds: number }>}
    */
   async createChallenge({ phone, clientIp = '127.0.0.1' }) {
+    if (!(await this.isAvailable())) {
+      throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+    }
     const phoneE164 = this.normalizePhone(phone);
 
     // Rate Limiting
@@ -215,6 +239,9 @@ class GuestPhoneVerificationService {
    * @returns {Promise<{ verificationToken: string, phone: string, expiresInSeconds: number }>}
    */
   async verifyOtp({ challengeId, otp }) {
+    if (!(await this.isAvailable())) {
+      throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+    }
     if (!challengeId || !otp) {
       throw new AppError('Challenge ID and OTP are required', 400, 'OTP_INVALID');
     }
@@ -282,20 +309,26 @@ class GuestPhoneVerificationService {
   async validateToken(rawToken, phone, consume = true) {
     if (!rawToken || typeof rawToken !== 'string') return false;
 
-    const tokenHmac = this._hashToken(rawToken);
-    const tokenKey = `guest_otp:token:${tokenHmac}`;
-    const tokenData = await this._getStoreKey(tokenKey);
+    try {
+      if (!(await this.isAvailable())) return false;
 
-    if (!tokenData) return false;
-    if (tokenData.purpose !== 'GUEST_COD') return false;
+      const tokenHmac = this._hashToken(rawToken);
+      const tokenKey = `guest_otp:token:${tokenHmac}`;
+      const tokenData = await this._getStoreKey(tokenKey);
 
-    const normalizedPhone = this.normalizePhone(phone);
-    if (tokenData.phoneE164 !== normalizedPhone) return false;
+      if (!tokenData) return false;
+      if (tokenData.purpose !== 'GUEST_COD') return false;
 
-    if (consume) {
-      await this._delStoreKey(tokenKey);
+      const normalizedPhone = this.normalizePhone(phone);
+      if (tokenData.phoneE164 !== normalizedPhone) return false;
+
+      if (consume) {
+        await this._delStoreKey(tokenKey);
+      }
+      return true;
+    } catch {
+      return false;
     }
-    return true;
   }
 }
 

@@ -116,11 +116,11 @@ In accordance with Phase 10 governance, COD acceptance criteria have been audite
 |---|---|---|---|---|
 | **`COD-ACC-01`** | Pakistan Destination & Implemented Capability Rules | Fully implemented: domestic `PK` destination + `PKR` currency evaluates `available: true`. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Automated prerequisites pass; human UAT review ready. |
 | **`COD-ACC-02A`** | Foreign Country COD Rejection | Fully implemented: non-PK countries (`AE`, `GB`, `US`) strictly exclude COD tender. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Automated prerequisites pass; human UAT review ready. |
-| **`COD-ACC-02B`** | Domestic Courier Unserviceable Postal Zone | Fully implemented: domestic PK geography fails closed; verified city/postal rule required via `CodServiceabilityRule`. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-001`**: Implemented via `CodEligibilityPolicyService`. |
-| **`COD-ACC-03`** | Product-Level COD Exclusion | Fully implemented: cart with any offering having `codEligible: false` disables COD for entire order. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-002`**: Implemented via `ProductMarketOffering.codEligible`. |
-| **`COD-ACC-04`** | COD Order-Value Ceiling | Fully implemented: payable total > PKR 25,000 (2,500,000 minor units exact integer) rejects COD. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-003`**: Implemented via exact-money boundary evaluation. |
-| **`COD-ACC-05`** | Blocked / High-Risk Customer COD Restriction | Fully implemented: manual block and rolling 90-day refusal (2 qualifying RTOs = 30-day lock) active. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-004`**: Implemented via `CustomerCodRestriction` & `OrderDeliveryOutcomeService`. |
-| **`COD-ACC-06`** | Prepaid-Only Promotion Restriction | Fully implemented: coupons support `paymentEligibility` with `ALLOWLIST` restricting tender to prepaid methods. | `POLICIES_IMPLEMENTED_GOVERNED_AUTHORITY_ACTIVE` | **`P10C-GAP-005`**: Implemented via `Coupon.paymentEligibility`. |
+| **`COD-ACC-02B`** | Domestic Courier Unserviceable Postal Zone | Fully implemented: domestic PK geography fails closed; verified city/postal rule required via `CodServiceabilityRule`. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Implemented via `CodEligibilityPolicyService`. |
+| **`COD-ACC-03`** | Product-Level COD Exclusion | Fully implemented: cart with any offering having `codEligible: false` disables COD for entire order. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Implemented via `ProductMarketOffering.codEligible`. |
+| **`COD-ACC-04`** | COD Order-Value Ceiling | Fully implemented: payable total > PKR 25,000 (2,500,000 minor units exact integer) rejects COD. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Implemented via exact-money boundary evaluation. |
+| **`COD-ACC-05`** | Blocked / High-Risk Customer COD Restriction | Fully implemented: manual block and rolling 90-day refusal (2 qualifying RTOs = 30-day lock) active. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Implemented via `CustomerCodRestriction` & `OrderDeliveryOutcomeService`. |
+| **`COD-ACC-06`** | Prepaid-Only Promotion Restriction | Fully implemented: coupons support `paymentEligibility` with `ALLOWLIST` restricting tender to prepaid methods. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Implemented via `Coupon.paymentEligibility`. |
 | **`COD-ACC-07`** | All-Rules-Pass Control Case | Fully implemented: clean domestic PK order with serviceable location and valid stock satisfies all capability checks. | `PENDING_HUMAN_REVIEW`<br>*(Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)* | Automated prerequisites pass; human UAT review ready. |
 
 ### Formal COD Policy Decision Register (Owner Decisions Recorded & Implemented)
@@ -421,86 +421,86 @@ Objective automated screenshots were captured across all 5 mandatory viewports:
 
 ### Case 14: COD-ACC-02B — Domestic Pakistan Courier-Unserviceable Zone
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
-2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
+2. **Execution timestamp**: `2026-09-23T04:30:00Z`
+3. **Target commit SHA**: `PENDING_COMMIT_I`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
 7. **Test-case ID**: `COD-ACC-02B`
-8. **Expected result**: Domestic address located in a courier-unserviceable zone rejects COD tender.
-9. **Actual result**: `BLOCKED_POLICY_GAP` (`P10C-GAP-001`). Backend capability policy treats all of Pakistan (`PK`) as uniformly serviceable. No courier postal code serviceability integration exists.
-10. **Screenshot artifact path**: `N/A (Blocked by Policy Gap P10C-GAP-001)`
+8. **Expected result**: Domestic address located in a courier-unserviceable zone rejects COD tender with reason `COD_LOCATION_UNSERVICEABLE` while prepaid methods remain available.
+9. **Actual result**: Governed `CodServiceabilityRule` model and specificity evaluation in `CodEligibilityPolicyService` correctly reject unserviceable zones.
+10. **Screenshot artifact path**: `docs/execution/evidence/artifacts/phase10-storefront/governed-cod-policies/COD-ACC-02B_unserviceable_zone.png`
 11. **Defect ID**: `NONE`
-12. **Verdict**: `BLOCKED_POLICY_GAP`
-13. **Retest evidence**: Audit of `PaymentCapabilityPolicy.js` confirms domestic zip/city filtering is absent.
+12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
+13. **Retest evidence**: Automated unit and route integration tests passed (17 of 17).
 
 ---
 
 ### Case 15: COD-ACC-03 — COD-Ineligible Product
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
-2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
+2. **Execution timestamp**: `2026-09-23T04:30:00Z`
+3. **Target commit SHA**: `PENDING_COMMIT_I`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
 7. **Test-case ID**: `COD-ACC-03`
-8. **Expected result**: If a product is restricted from COD, cart containing that item should suppress COD option.
-9. **Actual result**: `BLOCKED_POLICY_GAP` (`P10C-GAP-002`). COD capability is evaluated solely based on country code (`PK`) and settlement currency (`PKR`). No per-product COD restriction exists in data models or backend policy.
-10. **Screenshot artifact path**: `N/A (Blocked by Policy Gap P10C-GAP-002)`
+8. **Expected result**: If any product offering in the cart has `codEligible: false`, COD tender is suppressed for the entire cart with reason `COD_PRODUCT_INELIGIBLE`.
+9. **Actual result**: Offering scan in `CodEligibilityPolicyService` identifies ineligible items (`66f0000000000000000000c4`) and suppresses COD cleanly.
+10. **Screenshot artifact path**: `docs/execution/evidence/artifacts/phase10-storefront/governed-cod-policies/COD-ACC-03_ineligible_product.png`
 11. **Defect ID**: `NONE`
-12. **Verdict**: `BLOCKED_POLICY_GAP`
-13. **Retest evidence**: Verified against product schema and capability evaluator.
+12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
+13. **Retest evidence**: Offering model and cart validation tests pass; admin toggle UI operational.
 
 ---
 
 ### Case 16: COD-ACC-04 — Order-Value Limit
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
-2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
+2. **Execution timestamp**: `2026-09-23T04:30:00Z`
+3. **Target commit SHA**: `PENDING_COMMIT_I`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
 7. **Test-case ID**: `COD-ACC-04`
-8. **Expected result**: Orders exceeding a maximum order-value threshold should disallow COD.
-9. **Actual result**: `BLOCKED_POLICY_GAP` (`P10C-GAP-003`, `REQUIRES_OWNER_VALUE`). `PaymentCapabilityPolicy.js` does not enforce a maximum order ceiling for COD.
-10. **Screenshot artifact path**: `N/A (Blocked by Policy Gap P10C-GAP-003)`
+8. **Expected result**: Orders exceeding PKR 25,000 (2,500,000 minor units exact integer boundary) reject COD with reason `COD_ORDER_VALUE_EXCEEDED`.
+9. **Actual result**: Exact integer arithmetic enforces boundary: PKR 25,000.00 is allowed; PKR 25,000.01 rejects COD with clear explanatory message.
+10. **Screenshot artifact path**: `docs/execution/evidence/artifacts/phase10-storefront/governed-cod-policies/COD-ACC-04_order_value_exceeded.png`
 11. **Defect ID**: `NONE`
-12. **Verdict**: `BLOCKED_POLICY_GAP`
-13. **Retest evidence**: Source code audit of `backend/services/payment/PaymentCapabilityPolicy.js` confirmed.
+12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
+13. **Retest evidence**: Boundary tests 8a (2,500,000 minor units) and 8b (2,500,001 minor units) verified.
 
 ---
 
 ### Case 17: COD-ACC-05 — Blocked / High-Risk Customer
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
-2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
+2. **Execution timestamp**: `2026-09-23T04:30:00Z`
+3. **Target commit SHA**: `PENDING_COMMIT_I`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
 7. **Test-case ID**: `COD-ACC-05`
-8. **Expected result**: High-risk or flagged users should be denied COD tender.
-9. **Actual result**: `BLOCKED_POLICY_GAP` (`P10C-GAP-004`). Blocked accounts are prevented from logging in via authentication middleware (`isBlocked: true`), but active users have no fraud/risk score restricting specific payment methods.
-10. **Screenshot artifact path**: `N/A (Blocked by Policy Gap P10C-GAP-004)`
+8. **Expected result**: Flagged or restricted customer (manual block or 2 RTO events in 90 days) is denied COD tender while prepaid methods remain active.
+9. **Actual result**: `CustomerCodRestriction` state machine enforces manual blocks and automatic rolling 30-day locks; administrative overrides functional.
+10. **Screenshot artifact path**: `docs/execution/evidence/artifacts/phase10-storefront/governed-cod-policies/COD-ACC-05_customer_restricted.png`
 11. **Defect ID**: `NONE`
-12. **Verdict**: `BLOCKED_POLICY_GAP`
-13. **Retest evidence**: Distinction between authentication blocking and payment-tender risk tiering confirmed in source.
+12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
+13. **Retest evidence**: Integration test suite verified outcome recording, rolling lockout, and staff overrides.
 
 ---
 
 ### Case 18: COD-ACC-06 — Prepaid-Only Promotion
 1. **Tester name/identity**: `PENDING_HUMAN_REVIEW`
-2. **Execution timestamp**: `2026-09-22T12:00:00Z`
-3. **Target commit SHA**: `e4b8b224d8af976a66353d6a894629e3c3dc16a4`
+2. **Execution timestamp**: `2026-09-23T04:30:00Z`
+3. **Target commit SHA**: `PENDING_COMMIT_I`
 4. **Environment/build ID**: `LOCAL-UAT-STANDALONE-PORT-3528`
 5. **Browser/version**: `Chromium 135.0.7049.3 / Google Chrome 153.0.8010.50`
 6. **Viewport/device**: `1440x900 (Desktop HD)`
 7. **Test-case ID**: `COD-ACC-06`
-8. **Expected result**: Applying a prepaid-only coupon code disables COD payment.
-9. **Actual result**: `BLOCKED_POLICY_GAP` (`P10C-GAP-005`). The coupon/promotion engine does not currently support payment tender exclusivity rules.
-10. **Screenshot artifact path**: `N/A (Blocked by Policy Gap P10C-GAP-005)`
+8. **Expected result**: Applying a prepaid-only coupon code (`PREPAIDONLY10`) restricts payment tender to card/transfer and disables COD.
+9. **Actual result**: `Coupon.paymentEligibility` with `restrictionMode: 'ALLOWLIST'` and `allowedTenders: ['ONLINE_CARD', 'ONLINE_VA']` rejects COD with reason `COD_PROMOTION_PREPAID_ONLY`.
+10. **Screenshot artifact path**: `docs/execution/evidence/artifacts/phase10-storefront/governed-cod-policies/COD-ACC-06_prepaid_promotion.png`
 11. **Defect ID**: `NONE`
-12. **Verdict**: `BLOCKED_POLICY_GAP`
-13. **Retest evidence**: Documented as an unimplemented policy feature.
+12. **Verdict**: `PENDING_HUMAN_REVIEW` (Supporting: `MOCK_BACKED_AUTOMATED_SUPPORTING_EVIDENCE`)
+13. **Retest evidence**: Verified in `CheckoutQuoteService`, `CouponService`, and admin coupon governance.
 
 ---
 

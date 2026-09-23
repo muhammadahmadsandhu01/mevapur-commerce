@@ -192,4 +192,24 @@ describe('GuestPhoneVerificationService Unit Tests', () => {
       expect(mismatch).toBe(false);
     });
   });
+
+  describe('Service Availability & Storage Degradation', () => {
+    test('11. isAvailable() returns true when tempDir is available in mock mode', async () => {
+      const avail = await service.isAvailable();
+      expect(avail).toBe(true);
+    });
+
+    test('12. isAvailable() returns false and fails closed with COD_GUEST_VERIFICATION_UNAVAILABLE when unavailable', async () => {
+      const degradedService = new GuestPhoneVerificationService({
+        isUatMock: false,
+        redisClient: { isOpen: false, isReady: false }
+      });
+      const avail = await degradedService.isAvailable();
+      expect(avail).toBe(false);
+      await expect(
+        degradedService.createChallenge({ phone: '03001234567', clientIp: '127.0.0.1' })
+      ).rejects.toMatchObject({ code: 'COD_GUEST_VERIFICATION_UNAVAILABLE' });
+    });
+  });
 });
+

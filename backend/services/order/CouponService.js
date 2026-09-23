@@ -418,8 +418,11 @@ class CouponService {
         code: coupon.code,
         type: coupon.type,
         value: coupon.value,
-        discountAmount
+        discountAmount,
+        paymentEligibility: coupon.paymentEligibility || null
       },
+      coupon,
+      paymentEligibility: coupon.paymentEligibility || null,
       discountAmount,
       freeShipping,
       checkoutKey: reservationKey

@@ -52,9 +52,44 @@ interface CustomerCodStatus {
   overrideUntil?: string | null;
 }
 
+interface OfferingItem {
+  _id: string;
+  sku: string;
+  marketCountry: string;
+  codEligible: boolean;
+  lockVersion: number;
+  productId?: {
+    _id: string;
+    name: string;
+    sku: string;
+    price: number;
+  };
+}
+
+interface AuditLogItem {
+  _id: string;
+  eventId: string;
+  eventName: string;
+  status: string;
+  createdAt: string;
+  ipAddress?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export default function ShippingPage() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+  // Navigation tab
+  const [activeTab, setActiveTab] = useState<'rules' | 'offerings' | 'audit'>('rules');
+
+  // Offerings state
+  const [offerings, setOfferings] = useState<OfferingItem[]>([]);
+  const [offeringsLoading, setOfferingsLoading] = useState(false);
+
+  // Audit history state
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   // Rules state
   const [rules, setRules] = useState<CodServiceabilityRule[]>([]);
@@ -106,6 +141,52 @@ export default function ShippingPage() {
       setLoading(false);
     }
   }, [searchCity, filterStatus]);
+
+  const fetchOfferings = useCallback(async () => {
+    setOfferingsLoading(true);
+    try {
+      const res = await api.get('/admin/cod/offerings');
+      if (res.data?.success) {
+        setOfferings(res.data.data.offerings || []);
+        setError(null);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch offerings');
+    } finally {
+      setOfferingsLoading(false);
+    }
+  }, []);
+
+  const fetchAuditLogs = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const res = await api.get('/admin/cod/audit-history');
+      if (res.data?.success) {
+        setAuditLogs(res.data.data.logs || []);
+        setError(null);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch governance audit history');
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
+  const handleToggleOfferingCod = async (offering: OfferingItem) => {
+    if (!isAdmin) return;
+    try {
+      const res = await api.put(`/admin/cod/offerings/${offering._id}/eligibility`, {
+        codEligible: !offering.codEligible
+      });
+      if (res.data?.success) {
+        setOfferings((prev) =>
+          prev.map((o) => (o._id === offering._id ? { ...o, codEligible: !o.codEligible } : o))
+        );
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update offering COD eligibility');
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -263,7 +344,39 @@ export default function ShippingPage() {
         </div>
       </div>
 
+      {/* Tab Switcher */}
+      <div className="flex gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab('rules')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition ${activeTab === 'rules' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          Serviceability Rules
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('offerings');
+            void fetchOfferings();
+          }}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition ${activeTab === 'offerings' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          Product Offering COD Eligibility
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('audit');
+            void fetchAuditLogs();
+          }}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition ${activeTab === 'audit' ? 'bg-[#0b132b] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          Governance Audit History
+        </button>
+      </div>
+
       {/* Rules Governance Section */}
+      {activeTab === 'rules' && (
       <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
@@ -374,6 +487,153 @@ export default function ShippingPage() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Product Market Offerings COD Eligibility Section */}
+      {activeTab === 'offerings' && (
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm">Product Market Offering COD Governance</h3>
+            <p className="text-xs text-slate-500">Enable or disable Cash on Delivery eligibility per product market offering.</p>
+          </div>
+          <button
+            onClick={() => void fetchOfferings()}
+            className="p-2 hover:bg-slate-100 rounded-lg transition"
+            title="Refresh Offerings"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+
+        {offeringsLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
+            <Loader2 size={24} className="animate-spin text-[#ff8a00]" />
+            <span className="text-xs">Loading offerings...</span>
+          </div>
+        ) : offerings.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-xs">
+            No product market offerings found for Pakistan market.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500 font-semibold">
+                  <th className="pb-3 pr-4">Product Name</th>
+                  <th className="pb-3 pr-4">SKU</th>
+                  <th className="pb-3 pr-4">Market</th>
+                  <th className="pb-3 pr-4">COD Status</th>
+                  <th className="pb-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {offerings.map((offering) => (
+                  <tr key={offering._id} className="hover:bg-slate-50/60 transition">
+                    <td className="py-3 pr-4 font-bold text-slate-900">
+                      {offering.productId?.name || 'Product Offering'}
+                    </td>
+                    <td className="py-3 pr-4 font-mono text-slate-600">{offering.sku}</td>
+                    <td className="py-3 pr-4 font-bold text-slate-500">{offering.marketCountry}</td>
+                    <td className="py-3 pr-4">
+                      {offering.codEligible ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                          <CheckCircle size={12} className="text-emerald-600" /> COD Eligible
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 px-2.5 py-0.5 rounded-full">
+                          <XCircle size={12} className="text-rose-600" /> COD Ineligible
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 text-right">
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleOfferingCod(offering)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                            offering.codEligible
+                              ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {offering.codEligible ? 'Disable COD' : 'Enable COD'}
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">Read-only (Support)</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* Governance Audit History Section */}
+      {activeTab === 'audit' && (
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm">COD Governance Audit Trail</h3>
+            <p className="text-xs text-slate-500">Immutable ledger of administrative policy actions and delivery outcomes.</p>
+          </div>
+          <button
+            onClick={() => void fetchAuditLogs()}
+            className="p-2 hover:bg-slate-100 rounded-lg transition"
+            title="Refresh Audit Trail"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+
+        {auditLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
+            <Loader2 size={24} className="animate-spin text-[#ff8a00]" />
+            <span className="text-xs">Loading audit trail...</span>
+          </div>
+        ) : auditLogs.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-xs">
+            No audit records found.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500 font-semibold">
+                  <th className="pb-3 pr-4">Event</th>
+                  <th className="pb-3 pr-4">Status</th>
+                  <th className="pb-3 pr-4">IP Address</th>
+                  <th className="pb-3 pr-4">Date / Time</th>
+                  <th className="pb-3">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {auditLogs.map((log) => (
+                  <tr key={log._id} className="hover:bg-slate-50/60 transition">
+                    <td className="py-3 pr-4 font-mono font-bold text-slate-900">{log.eventName}</td>
+                    <td className="py-3 pr-4">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-bold">
+                        {log.status}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 font-mono text-slate-500">{log.ipAddress || '—'}</td>
+                    <td className="py-3 pr-4 text-slate-500">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </td>
+                    <td className="py-3 text-slate-600 font-mono text-[11px] max-w-xs truncate">
+                      {log.metadata ? JSON.stringify(log.metadata) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      )}
 
       {/* Commerce Governance Notice & Migration Link */}
       <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl shadow-xs space-y-4 text-xs">

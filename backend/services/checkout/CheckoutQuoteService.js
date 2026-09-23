@@ -750,7 +750,8 @@ class CheckoutQuoteService {
           code: couponCode.trim().toUpperCase(),
           discountAmount: Number(discountMoney.toDecimalString()),
           discountAmountExact: MoneyMapper.toPersistence(discountMoney),
-          freeShipping: freeShippingCoupon
+          freeShipping: freeShippingCoupon,
+          paymentEligibility: couponResult.paymentEligibility || couponResult.snapshot?.paymentEligibility || null
         };
       }
     }

@@ -207,6 +207,10 @@ exports.createCoupon = async (req, res) => {
       endDate: end,
       applicableProducts,
       applicableCategories,
+      paymentEligibility: req.body.paymentEligibility || {
+        restrictionMode: 'ANY',
+        allowedMethods: []
+      },
       description: String(description).slice(0, 500).trim()
     });
 
@@ -325,6 +329,7 @@ exports.updateCoupon = async (req, res) => {
     if (endDate) coupon.endDate = new Date(endDate);
     if (applicableProducts !== undefined) coupon.applicableProducts = applicableProducts;
     if (applicableCategories !== undefined) coupon.applicableCategories = applicableCategories;
+    if (req.body.paymentEligibility !== undefined) coupon.paymentEligibility = req.body.paymentEligibility;
     if (description !== undefined) coupon.description = String(description).slice(0, 500).trim();
 
     await coupon.save();

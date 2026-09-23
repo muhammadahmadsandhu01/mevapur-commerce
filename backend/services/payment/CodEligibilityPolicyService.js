@@ -35,6 +35,7 @@ const REASON_CODES = Object.freeze({
   CUSTOMER_BLOCKED: 'COD_CUSTOMER_BLOCKED',
   CUSTOMER_TEMPORARILY_LOCKED: 'COD_CUSTOMER_TEMPORARILY_LOCKED',
   GUEST_PHONE_REQUIRED: 'COD_GUEST_PHONE_VERIFICATION_REQUIRED',
+  GUEST_VERIFICATION_UNAVAILABLE: 'COD_GUEST_VERIFICATION_UNAVAILABLE',
   PRODUCT_INELIGIBLE: 'COD_PRODUCT_INELIGIBLE',
   PROMOTION_PREPAID_ONLY: 'COD_PROMOTION_PREPAID_ONLY',
   ORDER_VALUE_EXCEEDED: 'COD_ORDER_VALUE_EXCEEDED'
@@ -48,6 +49,7 @@ const CUSTOMER_MESSAGES = Object.freeze({
   [REASON_CODES.CUSTOMER_BLOCKED]: 'Cash on delivery is unavailable for your account. Please select a prepaid payment method.',
   [REASON_CODES.CUSTOMER_TEMPORARILY_LOCKED]: 'Cash on delivery is temporarily unavailable for your account due to multiple refused deliveries. Please use a prepaid payment method.',
   [REASON_CODES.GUEST_PHONE_REQUIRED]: 'Guest checkout with Cash on Delivery requires verified phone confirmation.',
+  [REASON_CODES.GUEST_VERIFICATION_UNAVAILABLE]: 'Guest phone verification is temporarily unavailable. Please select a prepaid payment method.',
   [REASON_CODES.PRODUCT_INELIGIBLE]: 'One or more items in your cart are not eligible for Cash on Delivery. Please select a prepaid payment method.',
   [REASON_CODES.PROMOTION_PREPAID_ONLY]: 'The applied promotional coupon requires a prepaid payment method.',
   [REASON_CODES.ORDER_VALUE_EXCEEDED]: 'Cash on delivery is available for orders up to PKR 25,000. Please select a prepaid payment method.'
@@ -210,14 +212,31 @@ class CodEligibilityPolicyService {
       }
     } else {
       // 4. Guest Phone Verification
+      let serviceAvailable = true;
+      try {
+        if (typeof this.verificationService.isAvailable === 'function') {
+          serviceAvailable = await this.verificationService.isAvailable();
+        }
+      } catch {
+        serviceAvailable = false;
+      }
+
+      if (!serviceAvailable) {
+        return this._buildDecision(false, REASON_CODES.GUEST_VERIFICATION_UNAVAILABLE);
+      }
+
       const guestPhone = address?.phone || address?.phoneE164 || '';
       let isVerified = false;
       if (guestVerificationToken && guestPhone) {
-        isVerified = await this.verificationService.validateToken(
-          guestVerificationToken,
-          guestPhone,
-          false // preview only; consumption occurs on final order creation
-        );
+        try {
+          isVerified = await this.verificationService.validateToken(
+            guestVerificationToken,
+            guestPhone,
+            false // preview only; consumption occurs on final order creation
+          );
+        } catch {
+          return this._buildDecision(false, REASON_CODES.GUEST_VERIFICATION_UNAVAILABLE);
+        }
       }
 
       if (!isVerified) {

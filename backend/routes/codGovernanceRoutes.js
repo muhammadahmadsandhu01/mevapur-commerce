@@ -29,4 +29,11 @@ router.post('/customers/:id/override', protect, admin, controller.overrideCustom
 // 3. Courier Delivery Outcome Recording
 router.post('/orders/:id/delivery-outcome', protect, admin, controller.recordDeliveryOutcome);
 
+// 4. Product Market Offering COD Eligibility Governance
+router.get('/offerings', protect, allowStaffRead, controller.listOfferings);
+router.put('/offerings/:id/eligibility', protect, admin, controller.updateOfferingEligibility);
+
+// 5. Governance Audit History
+router.get('/audit-history', protect, allowStaffRead, controller.listAuditHistory);
+
 module.exports = router;

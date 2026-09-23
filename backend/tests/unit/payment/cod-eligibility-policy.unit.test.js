@@ -61,6 +61,7 @@ describe('CodEligibilityPolicyService Unit Tests', () => {
     mockCouponModel = {};
 
     mockVerificationService = {
+      isAvailable: jest.fn().mockReturnValue(true),
       validateToken: jest.fn().mockResolvedValue(true)
     };
 
@@ -166,7 +167,24 @@ describe('CodEligibilityPolicyService Unit Tests', () => {
       expect(result.metadata.temporaryLockUntil).toBe('2026-10-15T00:00:00.000Z');
     });
 
-    test('5. Fails with COD_GUEST_PHONE_VERIFICATION_REQUIRED when guest lacks valid token', async () => {
+    test('5a. Fails with COD_GUEST_VERIFICATION_UNAVAILABLE when verification service is unavailable', async () => {
+      mockVerificationService.isAvailable = jest.fn().mockReturnValue(false);
+
+      const result = await service.evaluateCodEligibility({
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        address: validAddress,
+        userId: null,
+        guestVerificationToken: null
+      });
+
+      expect(result.available).toBe(false);
+      expect(result.reasonCode).toBe(REASON_CODES.GUEST_VERIFICATION_UNAVAILABLE);
+      expect(result.customerMessage).toBe(CUSTOMER_MESSAGES[REASON_CODES.GUEST_VERIFICATION_UNAVAILABLE]);
+    });
+
+    test('5b. Fails with COD_GUEST_PHONE_VERIFICATION_REQUIRED when guest lacks valid token', async () => {
+      mockVerificationService.isAvailable = jest.fn().mockReturnValue(true);
       mockVerificationService.validateToken = jest.fn().mockResolvedValue(false);
 
       const result = await service.evaluateCodEligibility({
@@ -208,9 +226,29 @@ describe('CodEligibilityPolicyService Unit Tests', () => {
       ]);
     });
 
-    test('7. Fails with COD_PROMOTION_PREPAID_ONLY when coupon restricts to prepaid methods', async () => {
+    test('7a. Fails with COD_PROMOTION_PREPAID_ONLY when coupon restricts to prepaid methods via isCodAllowed', async () => {
       const mockCoupon = {
         isCodAllowed: jest.fn().mockReturnValue(false)
+      };
+
+      const result = await service.evaluateCodEligibility({
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        address: validAddress,
+        userId: 'user-valid',
+        coupon: mockCoupon
+      });
+
+      expect(result.available).toBe(false);
+      expect(result.reasonCode).toBe(REASON_CODES.PROMOTION_PREPAID_ONLY);
+    });
+
+    test('7b. Fails with COD_PROMOTION_PREPAID_ONLY when coupon has paymentEligibility with restrictionMode ALLOWLIST excluding COD', async () => {
+      const mockCoupon = {
+        paymentEligibility: {
+          restrictionMode: 'ALLOWLIST',
+          allowedTenders: ['ONLINE_CARD', 'ONLINE_VA']
+        }
       };
 
       const result = await service.evaluateCodEligibility({

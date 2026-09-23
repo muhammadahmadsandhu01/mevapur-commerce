@@ -29,6 +29,10 @@ interface Coupon {
   applicableCategories?: string[];
   applicableProducts?: string[];
   description?: string;
+  paymentEligibility?: {
+    restrictionMode?: 'ANY' | 'ALLOWLIST';
+    allowedTenders?: string[];
+  };
   createdAt: string;
   __v?: number;
 }
@@ -81,6 +85,10 @@ function CouponsPageContent() {
     endDate: '',
     status: 'active' as 'draft' | 'active' | 'disabled' | 'archived',
     description: '',
+    paymentEligibility: {
+      restrictionMode: 'ANY' as 'ANY' | 'ALLOWLIST',
+      allowedTenders: ['COD', 'ONLINE_CARD', 'ONLINE_VA'] as string[]
+    },
     __v: undefined as number | undefined
   });
 
@@ -232,6 +240,15 @@ function CouponsPageContent() {
         endDate: coupon.endDate ? new Date(coupon.endDate).toISOString().split('T')[0] : '',
         status: coupon.status || 'active',
         description: coupon.description || '',
+        paymentEligibility: coupon.paymentEligibility ? {
+          restrictionMode: coupon.paymentEligibility.restrictionMode || 'ANY',
+          allowedTenders: Array.isArray(coupon.paymentEligibility.allowedTenders) && coupon.paymentEligibility.allowedTenders.length > 0
+            ? coupon.paymentEligibility.allowedTenders
+            : ['COD', 'ONLINE_CARD', 'ONLINE_VA']
+        } : {
+          restrictionMode: 'ANY',
+          allowedTenders: ['COD', 'ONLINE_CARD', 'ONLINE_VA']
+        },
         __v: coupon.__v
       });
     } else {
@@ -248,6 +265,10 @@ function CouponsPageContent() {
         endDate: '',
         status: 'active',
         description: '',
+        paymentEligibility: {
+          restrictionMode: 'ANY',
+          allowedTenders: ['COD', 'ONLINE_CARD', 'ONLINE_VA']
+        },
         __v: undefined
       });
     }
@@ -554,6 +575,29 @@ function CouponsPageContent() {
                     <strong style={{ color: 'var(--text-primary)' }}>
                       {new Date(coupon.startDate).toLocaleDateString()} - {new Date(coupon.endDate).toLocaleDateString()}
                     </strong>
+                  </div>
+                  <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Tenders: </span>
+                    {coupon.paymentEligibility?.restrictionMode === 'ALLOWLIST' ? (
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        backgroundColor: !(coupon.paymentEligibility.allowedTenders || []).includes('COD')
+                          ? 'rgba(59, 130, 246, 0.12)'
+                          : 'rgba(107, 114, 128, 0.12)',
+                        color: !(coupon.paymentEligibility.allowedTenders || []).includes('COD')
+                          ? 'var(--info-text)'
+                          : 'var(--text-secondary)'
+                      }}>
+                        {!(coupon.paymentEligibility.allowedTenders || []).includes('COD')
+                          ? 'Prepaid Only (No COD)'
+                          : (coupon.paymentEligibility.allowedTenders || []).join(', ')}
+                      </span>
+                    ) : (
+                      <strong style={{ color: 'var(--text-primary)' }}>All (COD & Online)</strong>
+                    )}
                   </div>
                 </div>
 
@@ -943,6 +987,92 @@ function CouponsPageContent() {
                     }}
                   />
                 </div>
+              </div>
+
+              <div style={{
+                padding: '16px',
+                borderRadius: '8px',
+                backgroundColor: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Payment Tender Restrictions
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                    Control whether this coupon can be redeemed with Cash on Delivery or restricted to prepaid methods.
+                  </p>
+                  <select
+                    value={formData.paymentEligibility.restrictionMode}
+                    onChange={e => {
+                      const mode = e.target.value as 'ANY' | 'ALLOWLIST';
+                      setFormData(prev => ({
+                        ...prev,
+                        paymentEligibility: {
+                          restrictionMode: mode,
+                          allowedTenders: mode === 'ALLOWLIST'
+                            ? (prev.paymentEligibility.allowedTenders.length > 0 ? prev.paymentEligibility.allowedTenders : ['ONLINE_CARD', 'ONLINE_VA'])
+                            : ['COD', 'ONLINE_CARD', 'ONLINE_VA']
+                        }
+                      }));
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--input-bg)',
+                      color: 'var(--text-primary)',
+                      fontWeight: '600',
+                      fontSize: '13px'
+                    }}
+                  >
+                    <option value="ANY">Any Payment Method (COD + Online)</option>
+                    <option value="ALLOWLIST">Restrict Allowed Tenders (e.g., Prepaid Only)</option>
+                  </select>
+                </div>
+
+                {formData.paymentEligibility.restrictionMode === 'ALLOWLIST' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                      Allowed Tenders:
+                    </span>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                      {[
+                        { id: 'COD', label: 'Cash on Delivery (COD)' },
+                        { id: 'ONLINE_CARD', label: 'Online Card' },
+                        { id: 'ONLINE_VA', label: 'Virtual Account / Transfer' }
+                      ].map(tender => {
+                        const isChecked = formData.paymentEligibility.allowedTenders.includes(tender.id);
+                        return (
+                          <label key={tender.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={e => {
+                                const current = formData.paymentEligibility.allowedTenders;
+                                const updated = e.target.checked
+                                  ? [...current, tender.id]
+                                  : current.filter(t => t !== tender.id);
+                                setFormData(prev => ({
+                                  ...prev,
+                                  paymentEligibility: {
+                                    ...prev.paymentEligibility,
+                                    allowedTenders: updated
+                                  }
+                                }));
+                              }}
+                            />
+                            {tender.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>

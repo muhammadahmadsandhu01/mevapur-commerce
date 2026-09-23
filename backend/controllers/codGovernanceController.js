@@ -13,8 +13,28 @@ const CustomerCodRestriction = require('../models/CustomerCodRestriction');
 const defaultCodPolicyService = require('../services/payment/CodEligibilityPolicyService');
 const defaultGuestVerificationService = require('../services/auth/GuestPhoneVerificationService');
 const defaultOrderDeliveryOutcomeService = require('../services/order/OrderDeliveryOutcomeService');
+const ProductMarketOffering = require('../models/ProductMarketOffering');
+const AuditLog = require('../models/AuditLog');
+const crypto = require('crypto');
 const { AppError } = require('../common/errors/AppError');
 const logger = require('../utils/logger');
+
+async function recordAuditLog({ req, eventName, details = {}, status = 'SUCCESS' }) {
+  try {
+    await AuditLog.create({
+      eventId: crypto.randomUUID(),
+      requestId: req?.headers?.['x-request-id'] || crypto.randomUUID(),
+      userId: req?.user?._id || null,
+      eventName,
+      status,
+      ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
+      userAgent: req?.headers?.['user-agent'] || 'backend-governance',
+      metadata: details
+    });
+  } catch (err) {
+    logger.warn('Failed to record COD governance audit log', { error: err.message });
+  }
+}
 
 // --- Serviceability Rules Governance ---
 
@@ -227,6 +247,15 @@ exports.blockCustomerCod = async (req, res, next) => {
       notes
     });
 
+    await recordAuditLog({
+      req,
+      eventName: 'COD.CUSTOMER.BLOCKED',
+      details: {
+        customerId,
+        reasonCode: restriction.manualBlockReasonCode
+      }
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Customer COD blocked successfully',
@@ -261,6 +290,14 @@ exports.unblockCustomerCod = async (req, res, next) => {
     }
 
     logger.info('Customer COD unblocked', { customerId, merchantScopeId, actor: req.user?._id });
+
+    await recordAuditLog({
+      req,
+      eventName: 'COD.CUSTOMER.UNBLOCKED',
+      details: {
+        customerId
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -324,6 +361,16 @@ exports.overrideCustomerCod = async (req, res, next) => {
       actor: req.user?._id
     });
 
+    await recordAuditLog({
+      req,
+      eventName: 'COD.CUSTOMER.OVERRIDDEN',
+      details: {
+        customerId,
+        overrideMode: restriction.overrideMode,
+        overrideUntil: restriction.overrideUntil
+      }
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Customer COD override saved successfully',
@@ -357,10 +404,116 @@ exports.recordDeliveryOutcome = async (req, res, next) => {
       metadata
     });
 
+    await recordAuditLog({
+      req,
+      eventName: 'COD.DELIVERY_OUTCOME.RECORDED',
+      details: {
+        orderId,
+        outcomeCode,
+        eventId: result.event?.eventId || eventId
+      }
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Delivery outcome recorded successfully',
       data: result
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Offering COD Eligibility Governance ---
+
+exports.listOfferings = async (req, res, next) => {
+  try {
+    const { merchantScopeId = 'default', limit = 100, skip = 0, codEligible } = req.query;
+    const query = { merchantScopeId, marketCountry: 'PK' };
+    if (codEligible !== undefined) {
+      query.codEligible = codEligible === 'true';
+    }
+
+    const [offerings, total] = await Promise.all([
+      ProductMarketOffering.find(query)
+        .populate('productId', 'name sku price images')
+        .sort({ updatedAt: -1 })
+        .skip(Number(skip))
+        .limit(Number(limit)),
+      ProductMarketOffering.countDocuments(query)
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: { offerings, total }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.updateOfferingEligibility = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { codEligible, merchantScopeId } = req.body;
+
+    if (typeof codEligible !== 'boolean') {
+      throw new AppError('codEligible boolean is required', 400, 'INVALID_COD_ELIGIBLE');
+    }
+
+    const query = { _id: id };
+    if (merchantScopeId) {
+      query.merchantScopeId = merchantScopeId;
+    }
+
+    const offering = await ProductMarketOffering.findOne(query);
+    if (!offering) {
+      throw new AppError('Product market offering not found', 404, 'OFFERING_NOT_FOUND');
+    }
+
+    offering.codEligible = codEligible;
+    offering.lockVersion = (offering.lockVersion || 1) + 1;
+    await offering.save();
+
+    await recordAuditLog({
+      req,
+      eventName: 'COD.OFFERING_ELIGIBILITY.UPDATED',
+      details: {
+        offeringId: id,
+        sku: offering.sku,
+        codEligible
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Offering COD eligibility updated to ${codEligible}`,
+      data: { offering }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- Governance Audit History ---
+
+exports.listAuditHistory = async (req, res, next) => {
+  try {
+    const { limit = 50, skip = 0 } = req.query;
+    const query = { eventName: { $regex: '^COD\\.' } };
+
+    const [logs, total] = await Promise.all([
+      AuditLog.find(query)
+        .sort({ createdAt: -1 })
+        .skip(Number(skip))
+        .limit(Number(limit))
+        .lean(),
+      AuditLog.countDocuments(query)
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: { auditLogs: logs, logs, total }
     });
   } catch (error) {
     return next(error);

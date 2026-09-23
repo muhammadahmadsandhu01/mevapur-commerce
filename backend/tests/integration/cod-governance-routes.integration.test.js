@@ -17,6 +17,8 @@ const Order = require('../../models/Order');
 const Session = require('../../models/Session');
 const CodServiceabilityRule = require('../../models/CodServiceabilityRule');
 const CustomerCodRestriction = require('../../models/CustomerCodRestriction');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const AuditLog = require('../../models/AuditLog');
 const tokenService = require('../../services/TokenService');
 
 const authenticateUser = async (user) => {
@@ -330,6 +332,62 @@ describe('COD Governance & Phone Endpoints Integration', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('OTP_MISMATCH');
+    });
+  });
+
+  describe('5. ProductMarketOffering COD Eligibility & Governance Audit History', () => {
+    let offering;
+
+    beforeEach(async () => {
+      offering = await ProductMarketOffering.create({
+        merchantScopeId: 'global',
+        productId: new mongoose.Types.ObjectId(),
+        scopeType: 'global',
+        scopeKey: 'default',
+        marketCountry: 'PK',
+        sku: `SKU-TEST-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        status: 'active',
+        codEligible: true
+      });
+    });
+
+    test('Support can list offerings via GET /api/admin/cod/offerings', async () => {
+      const res = await request(app)
+        .get('/api/admin/cod/offerings')
+        .set('Authorization', `Bearer ${supportToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.offerings)).toBe(true);
+    });
+
+    test('Support cannot update offering COD eligibility (403)', async () => {
+      const res = await request(app)
+        .put(`/api/admin/cod/offerings/${offering._id}/eligibility`)
+        .set('Authorization', `Bearer ${supportToken}`)
+        .send({ codEligible: false, reason: 'High return rate' });
+
+      expect(res.status).toBe(403);
+    });
+
+    test('Admin can update offering COD eligibility to false and records audit log', async () => {
+      const res = await request(app)
+        .put(`/api/admin/cod/offerings/${offering._id}/eligibility`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ codEligible: false, reason: 'High return rate' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.offering.codEligible).toBe(false);
+
+      // Verify audit history endpoint
+      const auditRes = await request(app)
+        .get('/api/admin/cod/audit-history')
+        .set('Authorization', `Bearer ${supportToken}`);
+
+      expect(auditRes.status).toBe(200);
+      expect(auditRes.body.success).toBe(true);
+      expect(auditRes.body.data.auditLogs.some(l => l.eventName === 'COD.OFFERING_ELIGIBILITY.UPDATED')).toBe(true);
     });
   });
 });
