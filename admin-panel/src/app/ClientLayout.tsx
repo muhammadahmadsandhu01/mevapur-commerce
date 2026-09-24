@@ -225,11 +225,14 @@ export default function ClientLayout({
           />
 
           <main
-            className="main-content"
+            className="main-content min-w-0"
             style={{
               marginLeft: isSidebarOpen ? '280px' : '80px',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              minHeight: '100vh'
+              minHeight: '100vh',
+              minWidth: 0,
+              maxWidth: isSidebarOpen ? 'calc(100vw - 280px)' : 'calc(100vw - 80px)',
+              overflowX: 'hidden'
             }}
           >
             <TopBar
@@ -244,7 +247,7 @@ export default function ClientLayout({
               mobileOpen={mobileDrawerOpen}
             />
 
-            <div style={{ padding: '32px' }}>
+            <div style={{ padding: '32px', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
               {children}
             </div>
           </main>

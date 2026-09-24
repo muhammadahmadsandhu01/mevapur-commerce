@@ -172,7 +172,7 @@ export default function CategoriesPage() {
           onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
           onMouseLeave={e => e.currentTarget.style.backgroundColor = level > 0 ? 'var(--bg-primary)' : 'transparent'}
         >
-          <td style={{ padding: '16px 20px', minWidth: '240px' }}>
+          <td style={{ padding: '16px 20px', minWidth: '220px' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -220,14 +220,15 @@ export default function CategoriesPage() {
             padding: '16px 20px',
             fontSize: '13px',
             color: 'var(--text-secondary)',
-            minWidth: '280px',
-            lineHeight: '1.5',
+            minWidth: '240px',
+            maxWidth: '380px',
+            lineHeight: '1.4',
             wordBreak: 'break-word',
             whiteSpace: 'normal'
           }}>
             {category.description || '-'}
           </td>
-          <td style={{ padding: '16px 20px', minWidth: '120px', whiteSpace: 'nowrap' }}>
+          <td style={{ padding: '16px 20px', minWidth: '100px', whiteSpace: 'nowrap' }}>
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -243,19 +244,19 @@ export default function CategoriesPage() {
               {category.isActive ? 'Active' : 'Inactive'}
             </div>
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '110px', whiteSpace: 'nowrap' }}>
+          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '90px', whiteSpace: 'nowrap' }}>
             {category._count?.products || 0} products
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '130px', whiteSpace: 'nowrap' }}>
+          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '110px', whiteSpace: 'nowrap' }}>
             {category._count?.subcategories || 0} subcategories
           </td>
-          <td style={{ padding: '16px 20px', textAlign: 'right', minWidth: '160px', whiteSpace: 'nowrap' }}>
+          <td style={{ padding: '16px 20px', textAlign: 'right', minWidth: '140px', whiteSpace: 'nowrap' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
                 type="button"
                 onClick={() => openModal(category)}
                 style={{
-                  padding: '8px 12px',
+                  padding: '6px 10px',
                   backgroundColor: 'var(--info-light)',
                   color: 'var(--info-text)',
                   border: 'none',
@@ -274,7 +275,7 @@ export default function CategoriesPage() {
                 type="button"
                 onClick={() => handleDelete(category._id, category.name)}
                 style={{
-                  padding: '8px 12px',
+                  padding: '6px 10px',
                   backgroundColor: 'rgba(220, 38, 38, 0.1)',
                   color: 'var(--danger-text)',
                   border: 'none',
@@ -298,7 +299,7 @@ export default function CategoriesPage() {
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="w-full max-w-[1400px] mx-auto min-w-0" style={{ width: '100%', maxWidth: '1400px', margin: '0 auto', minWidth: 0 }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
@@ -413,22 +414,43 @@ export default function CategoriesPage() {
           ))}
         </div>
       ) : (
-        <div style={{
-          backgroundColor: 'var(--card-bg)',
-          borderRadius: '12px',
-          border: '1px solid var(--border-color)',
-          overflow: 'hidden'
-        }}>
-          <div style={{ overflowX: 'auto', width: '100%' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '950px' }}>
+        <div
+          className="w-full overflow-hidden bg-card rounded-xl border border-border"
+          style={{
+            backgroundColor: 'var(--card-bg)',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            overflow: 'hidden',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0
+          }}
+        >
+          <div
+            className="w-full overflow-x-auto"
+            style={{
+              width: '100%',
+              maxWidth: '100%',
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch'
+            }}
+          >
+            <table
+              className="w-full min-w-[900px]"
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                minWidth: '900px'
+              }}
+            >
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '25%', minWidth: '240px' }}>Category</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '30%', minWidth: '280px' }}>Description</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '12%', minWidth: '120px' }}>Status</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '110px' }}>Products</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '130px' }}>Subcategories</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '160px' }}>Actions</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '25%', minWidth: '220px' }}>Category</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '31%', minWidth: '240px' }}>Description</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '12%', minWidth: '100px' }}>Status</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '10%', minWidth: '90px' }}>Products</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '110px' }}>Subcategories</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '140px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
