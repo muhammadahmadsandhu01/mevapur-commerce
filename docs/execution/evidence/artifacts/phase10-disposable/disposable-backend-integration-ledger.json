@@ -1,6 +1,6 @@
 [
   {
-    "timestamp": "2026-09-23T23:42:04.329Z",
+    "timestamp": "2026-09-24T19:01:16.377Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/api/auth/csrf-token",
     "status": 200,
@@ -8,7 +8,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:06.354Z",
+    "timestamp": "2026-09-24T19:01:16.932Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/auth/login [admin]",
     "status": 200,
@@ -16,7 +16,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:07.414Z",
+    "timestamp": "2026-09-24T19:01:17.524Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/auth/login [support]",
     "status": 200,
@@ -24,7 +24,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.022Z",
+    "timestamp": "2026-09-24T19:01:18.148Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/auth/login [customer]",
     "status": 200,
@@ -32,7 +32,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.171Z",
+    "timestamp": "2026-09-24T19:01:18.318Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/health/live",
     "status": 200,
@@ -40,7 +40,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.253Z",
+    "timestamp": "2026-09-24T19:01:18.380Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/health/ready",
     "status": 200,
@@ -48,7 +48,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.346Z",
+    "timestamp": "2026-09-24T19:01:18.467Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/healthz",
     "status": 200,
@@ -56,7 +56,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.413Z",
+    "timestamp": "2026-09-24T19:01:18.544Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/healthz",
     "status": 200,
@@ -64,7 +64,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.575Z",
+    "timestamp": "2026-09-24T19:01:18.771Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/api/payments/methods?country=PK&currency=PKR",
     "status": 200,
@@ -72,7 +72,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:08.761Z",
+    "timestamp": "2026-09-24T19:01:19.010Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/api/payments/methods?country=AE&currency=AED",
     "status": 200,
@@ -80,7 +80,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:09.059Z",
+    "timestamp": "2026-09-24T19:01:19.308Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [Lahore serviceable]",
     "status": 200,
@@ -88,7 +88,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:09.204Z",
+    "timestamp": "2026-09-24T19:01:19.489Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [Skardu unserviceable]",
     "status": 200,
@@ -96,7 +96,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:09.363Z",
+    "timestamp": "2026-09-24T19:01:19.688Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [Murree explicit blocked rule]",
     "status": 200,
@@ -104,7 +104,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:09.542Z",
+    "timestamp": "2026-09-24T19:01:19.851Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [Foreign country AE]",
     "status": 200,
@@ -112,7 +112,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:09.724Z",
+    "timestamp": "2026-09-24T19:01:19.985Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [USD currency]",
     "status": 200,
@@ -120,7 +120,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:10.298Z",
+    "timestamp": "2026-09-24T19:01:20.157Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [Offering codEligible: false]",
     "status": 200,
@@ -128,7 +128,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:10.985Z",
+    "timestamp": "2026-09-24T19:01:21.008Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/commerce/checkout/quote [Prepaid-only coupon]",
     "status": 200,
@@ -136,7 +136,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:11.062Z",
+    "timestamp": "2026-09-24T19:01:21.115Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/admin/cod/customers/:id/block",
     "status": 200,
@@ -144,7 +144,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:11.238Z",
+    "timestamp": "2026-09-24T19:01:21.498Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/admin/cod/customers/:id/unblock",
     "status": 200,
@@ -152,7 +152,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:12.338Z",
+    "timestamp": "2026-09-24T19:01:23.552Z",
     "method": "POST",
     "url": "http://127.0.0.1:[PORT]/api/auth/phone/challenge",
     "status": 200,
@@ -160,7 +160,7 @@
     "disposition": "LOCAL_LOOPBACK_REAL_EXECUTION"
   },
   {
-    "timestamp": "2026-09-23T23:42:12.528Z",
+    "timestamp": "2026-09-24T19:01:23.782Z",
     "method": "GET",
     "url": "http://127.0.0.1:[PORT]/api/admin/cod/rules [customer forbidden]",
     "status": 403,
