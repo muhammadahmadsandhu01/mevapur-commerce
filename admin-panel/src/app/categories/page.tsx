@@ -173,8 +173,9 @@ export default function CategoriesPage() {
           onMouseLeave={e => e.currentTarget.style.backgroundColor = level > 0 ? 'var(--bg-primary)' : 'transparent'}
         >
           <td
-            className="text-left p-4"
+            className="text-left w-[18%]"
             style={{
+              width: '18%',
               padding: '16px 20px',
               textAlign: 'left',
               verticalAlign: 'middle'
@@ -208,7 +209,7 @@ export default function CategoriesPage() {
                   />
                 </button>
               )}
-              {!hasChildren && <div style={{ width: '24px' }} />}
+              {!hasChildren && level > 0 && <div style={{ width: '24px' }} />}
 
               {category.icon && (
                 <span style={{ fontSize: '20px' }}>{category.icon}</span>
@@ -224,80 +225,81 @@ export default function CategoriesPage() {
             </div>
           </td>
           <td
-            className="text-left p-4"
+            className="text-left w-[32%]"
             style={{
+              width: '32%',
               padding: '16px 20px',
               textAlign: 'left',
               verticalAlign: 'middle',
               fontSize: '13px',
               color: 'var(--text-secondary)',
-              lineHeight: '1.4',
-              wordBreak: 'break-word',
-              whiteSpace: 'normal'
+              lineHeight: '1.4'
             }}
           >
             {category.description || '-'}
           </td>
           <td
-            className="text-left p-4"
+            className="text-center w-[12%]"
             style={{
+              width: '12%',
               padding: '16px 20px',
-              textAlign: 'left',
-              verticalAlign: 'middle',
-              whiteSpace: 'nowrap'
+              textAlign: 'center',
+              verticalAlign: 'middle'
             }}
           >
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              backgroundColor: category.isActive ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
-              color: category.isActive ? 'var(--success-text)' : 'var(--danger-text)',
-              borderRadius: '20px',
-              fontSize: '12px',
-              fontWeight: '700'
-            }}>
-              {category.isActive ? <CheckCircle size={14} /> : <X size={14} />}
-              {category.isActive ? 'Active' : 'Inactive'}
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                backgroundColor: category.isActive ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+                color: category.isActive ? 'var(--success-text)' : 'var(--danger-text)',
+                borderRadius: '20px',
+                fontSize: '12px',
+                fontWeight: '700'
+              }}>
+                {category.isActive ? <CheckCircle size={14} /> : <X size={14} />}
+                {category.isActive ? 'Active' : 'Inactive'}
+              </div>
             </div>
           </td>
           <td
-            className="text-left p-4"
+            className="text-center w-[12%]"
             style={{
+              width: '12%',
               padding: '16px 20px',
-              textAlign: 'left',
+              textAlign: 'center',
               verticalAlign: 'middle',
               fontSize: '13px',
-              color: 'var(--text-secondary)',
-              whiteSpace: 'nowrap'
+              color: 'var(--text-secondary)'
             }}
           >
             {category._count?.products || 0} products
           </td>
           <td
-            className="text-left p-4"
+            className="text-center w-[12%]"
             style={{
+              width: '12%',
               padding: '16px 20px',
-              textAlign: 'left',
+              textAlign: 'center',
               verticalAlign: 'middle',
               fontSize: '13px',
-              color: 'var(--text-secondary)',
-              whiteSpace: 'nowrap'
+              color: 'var(--text-secondary)'
             }}
           >
             {category._count?.subcategories || 0} subcategories
           </td>
           <td
-            className="text-right p-4"
+            className="text-center w-[14%]"
             style={{
+              width: '14%',
               padding: '16px 20px',
-              textAlign: 'right',
-              verticalAlign: 'middle',
-              whiteSpace: 'nowrap'
+              textAlign: 'center',
+              verticalAlign: 'middle'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
                 onClick={() => openModal(category)}
@@ -492,12 +494,12 @@ export default function CategoriesPage() {
             >
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  <th scope="col" className="text-left w-[24%]" style={{ width: '24%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Category</th>
-                  <th scope="col" className="text-left w-[26%]" style={{ width: '26%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</th>
-                  <th scope="col" className="text-left w-[12%]" style={{ width: '12%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</th>
-                  <th scope="col" className="text-left w-[11%]" style={{ width: '11%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Products</th>
-                  <th scope="col" className="text-left w-[12%]" style={{ width: '12%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Subcategories</th>
-                  <th scope="col" className="text-right w-[15%]" style={{ width: '15%', padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Actions</th>
+                  <th scope="col" className="text-left w-[18%]" style={{ width: '18%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Category</th>
+                  <th scope="col" className="text-left w-[32%]" style={{ width: '32%', padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</th>
+                  <th scope="col" className="text-center w-[12%]" style={{ width: '12%', padding: '16px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</th>
+                  <th scope="col" className="text-center w-[12%]" style={{ width: '12%', padding: '16px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Products</th>
+                  <th scope="col" className="text-center w-[12%]" style={{ width: '12%', padding: '16px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Subcategories</th>
+                  <th scope="col" className="text-center w-[14%]" style={{ width: '14%', padding: '16px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
