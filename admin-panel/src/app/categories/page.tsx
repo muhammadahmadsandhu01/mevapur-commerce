@@ -172,7 +172,16 @@ export default function CategoriesPage() {
           onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
           onMouseLeave={e => e.currentTarget.style.backgroundColor = level > 0 ? 'var(--bg-primary)' : 'transparent'}
         >
-          <td style={{ padding: '16px 20px', minWidth: '220px' }}>
+          <td
+            className="text-left w-[24%] min-w-[200px]"
+            style={{
+              padding: '16px 20px',
+              textAlign: 'left',
+              width: '24%',
+              minWidth: '200px',
+              verticalAlign: 'middle'
+            }}
+          >
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -216,19 +225,34 @@ export default function CategoriesPage() {
               </div>
             </div>
           </td>
-          <td style={{
-            padding: '16px 20px',
-            fontSize: '13px',
-            color: 'var(--text-secondary)',
-            minWidth: '240px',
-            maxWidth: '380px',
-            lineHeight: '1.4',
-            wordBreak: 'break-word',
-            whiteSpace: 'normal'
-          }}>
+          <td
+            className="text-left w-[26%] min-w-[220px]"
+            style={{
+              padding: '16px 20px',
+              textAlign: 'left',
+              width: '26%',
+              minWidth: '220px',
+              verticalAlign: 'middle',
+              fontSize: '13px',
+              color: 'var(--text-secondary)',
+              lineHeight: '1.4',
+              wordBreak: 'break-word',
+              whiteSpace: 'normal'
+            }}
+          >
             {category.description || '-'}
           </td>
-          <td style={{ padding: '16px 20px', minWidth: '100px', whiteSpace: 'nowrap' }}>
+          <td
+            className="text-left w-[12%] min-w-[100px]"
+            style={{
+              padding: '16px 20px',
+              textAlign: 'left',
+              width: '12%',
+              minWidth: '100px',
+              verticalAlign: 'middle',
+              whiteSpace: 'nowrap'
+            }}
+          >
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -244,13 +268,47 @@ export default function CategoriesPage() {
               {category.isActive ? 'Active' : 'Inactive'}
             </div>
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '90px', whiteSpace: 'nowrap' }}>
+          <td
+            className="text-left w-[10%] min-w-[90px]"
+            style={{
+              padding: '16px 20px',
+              textAlign: 'left',
+              width: '10%',
+              minWidth: '90px',
+              verticalAlign: 'middle',
+              fontSize: '13px',
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap'
+            }}
+          >
             {category._count?.products || 0} products
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '110px', whiteSpace: 'nowrap' }}>
+          <td
+            className="text-left w-[12%] min-w-[110px]"
+            style={{
+              padding: '16px 20px',
+              textAlign: 'left',
+              width: '12%',
+              minWidth: '110px',
+              verticalAlign: 'middle',
+              fontSize: '13px',
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap'
+            }}
+          >
             {category._count?.subcategories || 0} subcategories
           </td>
-          <td style={{ padding: '16px 20px', textAlign: 'right', minWidth: '140px', whiteSpace: 'nowrap' }}>
+          <td
+            className="text-right w-[16%] min-w-[140px]"
+            style={{
+              padding: '16px 20px',
+              textAlign: 'right',
+              width: '16%',
+              minWidth: '140px',
+              verticalAlign: 'middle',
+              whiteSpace: 'nowrap'
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
                 type="button"
@@ -436,21 +494,30 @@ export default function CategoriesPage() {
             }}
           >
             <table
-              className="w-full min-w-[900px]"
+              className="w-full table-fixed min-w-[900px]"
               style={{
                 width: '100%',
+                tableLayout: 'fixed',
                 borderCollapse: 'collapse',
                 minWidth: '900px'
               }}
             >
+              <colgroup>
+                <col className="w-[24%] min-w-[200px]" style={{ width: '24%', minWidth: '200px' }} />
+                <col className="w-[26%] min-w-[220px]" style={{ width: '26%', minWidth: '220px' }} />
+                <col className="w-[12%] min-w-[100px]" style={{ width: '12%', minWidth: '100px' }} />
+                <col className="w-[10%] min-w-[90px]" style={{ width: '10%', minWidth: '90px' }} />
+                <col className="w-[12%] min-w-[110px]" style={{ width: '12%', minWidth: '110px' }} />
+                <col className="w-[16%] min-w-[140px]" style={{ width: '16%', minWidth: '140px' }} />
+              </colgroup>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '25%', minWidth: '220px' }}>Category</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '31%', minWidth: '240px' }}>Description</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '12%', minWidth: '100px' }}>Status</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '10%', minWidth: '90px' }}>Products</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '110px' }}>Subcategories</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '140px' }}>Actions</th>
+                  <th scope="col" className="text-left w-[24%] min-w-[200px]" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '24%', minWidth: '200px' }}>Category</th>
+                  <th scope="col" className="text-left w-[26%] min-w-[220px]" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '26%', minWidth: '220px' }}>Description</th>
+                  <th scope="col" className="text-left w-[12%] min-w-[100px]" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '12%', minWidth: '100px' }}>Status</th>
+                  <th scope="col" className="text-left w-[10%] min-w-[90px]" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '10%', minWidth: '90px' }}>Products</th>
+                  <th scope="col" className="text-left w-[12%] min-w-[110px]" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '12%', minWidth: '110px' }}>Subcategories</th>
+                  <th scope="col" className="text-right w-[16%] min-w-[140px]" style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '16%', minWidth: '140px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
