@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FolderTree, Plus, Edit, Trash2, Search, ChevronRight,
   CheckCircle, Star, Save, X
@@ -155,14 +155,15 @@ export default function CategoriesPage() {
     withProducts: categories.filter(c => (c._count?.products || 0) > 0).length
   };
 
-  const renderCategoryRow = (category: Category, level = 0) => {
+  const renderCategoryRow = (category: Category, level = 0): React.ReactNode => {
     const subcategories = categories.filter(c => c.parentId === category._id);
     const isExpanded = expandedCategories.includes(category._id);
     const hasChildren = subcategories.length > 0;
 
     return (
-      <div key={category._id}>
+      <React.Fragment key={category._id}>
         <tr
+          key={`row-${category._id}`}
           style={{
             backgroundColor: level > 0 ? 'var(--bg-primary)' : 'transparent',
             borderBottom: '1px solid var(--border-color)',
@@ -171,7 +172,7 @@ export default function CategoriesPage() {
           onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'}
           onMouseLeave={e => e.currentTarget.style.backgroundColor = level > 0 ? 'var(--bg-primary)' : 'transparent'}
         >
-          <td style={{ padding: '16px 20px' }}>
+          <td style={{ padding: '16px 20px', minWidth: '240px' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -180,6 +181,7 @@ export default function CategoriesPage() {
             }}>
               {hasChildren && (
                 <button
+                  type="button"
                   onClick={() => toggleExpand(category._id)}
                   style={{
                     padding: '4px',
@@ -191,6 +193,7 @@ export default function CategoriesPage() {
                     alignItems: 'center',
                     justifyContent: 'center'
                   }}
+                  aria-label={isExpanded ? 'Collapse subcategories' : 'Expand subcategories'}
                 >
                   <ChevronRight
                     size={16}
@@ -213,11 +216,18 @@ export default function CategoriesPage() {
               </div>
             </div>
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-            {category.description?.substring(0, 60) || '-'}
-            {category.description && category.description.length > 60 && '...'}
+          <td style={{
+            padding: '16px 20px',
+            fontSize: '13px',
+            color: 'var(--text-secondary)',
+            minWidth: '280px',
+            lineHeight: '1.5',
+            wordBreak: 'break-word',
+            whiteSpace: 'normal'
+          }}>
+            {category.description || '-'}
           </td>
-          <td style={{ padding: '16px 20px' }}>
+          <td style={{ padding: '16px 20px', minWidth: '120px', whiteSpace: 'nowrap' }}>
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -233,15 +243,16 @@ export default function CategoriesPage() {
               {category.isActive ? 'Active' : 'Inactive'}
             </div>
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '110px', whiteSpace: 'nowrap' }}>
             {category._count?.products || 0} products
           </td>
-          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+          <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', minWidth: '130px', whiteSpace: 'nowrap' }}>
             {category._count?.subcategories || 0} subcategories
           </td>
-          <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+          <td style={{ padding: '16px 20px', textAlign: 'right', minWidth: '160px', whiteSpace: 'nowrap' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
+                type="button"
                 onClick={() => openModal(category)}
                 style={{
                   padding: '8px 12px',
@@ -260,6 +271,7 @@ export default function CategoriesPage() {
                 <Edit size={14} /> Edit
               </button>
               <button
+                type="button"
                 onClick={() => handleDelete(category._id, category.name)}
                 style={{
                   padding: '8px 12px',
@@ -281,7 +293,7 @@ export default function CategoriesPage() {
           </td>
         </tr>
         {isExpanded && subcategories.map(sub => renderCategoryRow(sub, level + 1))}
-      </div>
+      </React.Fragment>
     );
   };
 
@@ -407,20 +419,34 @@ export default function CategoriesPage() {
           border: '1px solid var(--border-color)',
           overflow: 'hidden'
         }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ overflowX: 'auto', width: '100%' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '950px' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Category</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Description</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Status</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Products</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Subcategories</th>
-                  <th style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Actions</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '25%', minWidth: '240px' }}>Category</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '30%', minWidth: '280px' }}>Description</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '12%', minWidth: '120px' }}>Status</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '110px' }}>Products</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'left', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '130px' }}>Subcategories</th>
+                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '11%', minWidth: '160px' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {mainCategories.map(cat => renderCategoryRow(cat))}
+              <tbody style={{ borderTop: '1px solid var(--border-color)' }}>
+                {mainCategories.length > 0 ? (
+                  mainCategories.map(cat => renderCategoryRow(cat))
+                ) : (
+                  <tr>
+                    <td colSpan={6} style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                      <FolderTree size={40} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
+                      <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                        No categories found
+                      </div>
+                      <div style={{ fontSize: '13px' }}>
+                        {searchQuery ? 'No categories match your search criteria.' : 'Get started by creating your first category.'}
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
