@@ -19,6 +19,32 @@ const crypto = require('crypto');
 const { AppError } = require('../common/errors/AppError');
 const logger = require('../utils/logger');
 
+function sanitizeAuditDetails(details = {}) {
+  if (!details || typeof details !== 'object') return {};
+  const sanitized = {};
+  for (const [key, value] of Object.entries(details)) {
+    const lower = key.toLowerCase();
+    // Strip secrets, credentials, tokens, OTPs, passwords, pepper
+    if (['password', 'secret', 'otp', 'token', 'jwt', 'pepper', 'authorization', 'bearer'].some((k) => lower.includes(k))) {
+      continue;
+    }
+    // Mask phone numbers to avoid raw PII storage
+    if (lower.includes('phone') && typeof value === 'string') {
+      sanitized[key] = value.length > 6 ? `${value.slice(0, 4)}****${value.slice(-2)}` : '****';
+    } else if (lower.includes('email') && typeof value === 'string') {
+      const parts = value.split('@');
+      sanitized[key] = parts.length === 2 && parts[0].length > 2
+        ? `${parts[0].slice(0, 2)}****@${parts[1]}`
+        : '****@****';
+    } else if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+      sanitized[key] = sanitizeAuditDetails(value);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
 async function recordAuditLog({ req, eventName, details = {}, status = 'SUCCESS' }) {
   try {
     await AuditLog.create({
@@ -30,7 +56,7 @@ async function recordAuditLog({ req, eventName, details = {}, status = 'SUCCESS'
       status,
       ipAddress: req?.ip || req?.connection?.remoteAddress || '127.0.0.1',
       userAgent: req?.headers?.['user-agent'] || 'backend-governance',
-      metadata: details
+      metadata: sanitizeAuditDetails(details)
     });
   } catch (err) {
     logger.warn('Failed to record COD governance audit log', { error: err.message });
@@ -138,9 +164,51 @@ exports.upsertServiceabilityRule = async (req, res, next) => {
       isServiceable: rule.isServiceable
     });
 
+    await recordAuditLog({
+      req,
+      eventName: 'COD.SERVICEABILITY_RULE.UPSERTED',
+      details: {
+        ruleId: String(rule._id),
+        city: normalizedCity,
+        postalCode: normalizedPostalCode,
+        isServiceable: rule.isServiceable
+      }
+    });
+
     return res.status(200).json({
       success: true,
       data: rule
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.deleteServiceabilityRule = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new AppError('Invalid rule ID format', 400, 'INVALID_RULE_ID');
+    }
+
+    const rule = await CodServiceabilityRule.findByIdAndDelete(id);
+    if (!rule) {
+      throw new AppError('Serviceability rule not found', 404, 'RULE_NOT_FOUND');
+    }
+
+    await recordAuditLog({
+      req,
+      eventName: 'COD.SERVICEABILITY_RULE.DELETED',
+      details: {
+        ruleId: id,
+        city: rule.normalizedCity,
+        postalCode: rule.normalizedPostalCode
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Serviceability rule deleted successfully'
     });
   } catch (error) {
     return next(error);

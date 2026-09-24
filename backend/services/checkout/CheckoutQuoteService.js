@@ -931,8 +931,13 @@ class CheckoutQuoteService {
       atDate: now
     };
 
-    let codEligibility = { available: false, reasonCode: 'COD_COUNTRY_UNSUPPORTED', customerMessage: null, metadata: {} };
-    if (this.codPolicyService && isDomestic) {
+    let codEligibility = {
+      available: false,
+      reasonCode: 'COD_COUNTRY_UNSUPPORTED',
+      customerMessage: 'Cash on delivery is currently available for domestic delivery in Pakistan only.',
+      metadata: {}
+    };
+    if (this.codPolicyService) {
       codEligibility = await this.codPolicyService.evaluateCodEligibility(codContext);
     }
 

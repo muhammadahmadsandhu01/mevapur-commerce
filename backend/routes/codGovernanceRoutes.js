@@ -19,6 +19,7 @@ const allowStaffRead = checkRoles('admin', 'super_admin', 'support');
 // 1. COD Serviceability Rules
 router.get('/rules', protect, allowStaffRead, controller.listServiceabilityRules);
 router.post('/rules', protect, admin, controller.upsertServiceabilityRule);
+router.delete('/rules/:id', protect, admin, controller.deleteServiceabilityRule);
 
 // 2. Customer Risk & Policy Restriction Status
 router.get('/customers/:id/status', protect, allowStaffRead, controller.getCustomerCodStatus);

@@ -299,17 +299,26 @@ class CodEligibilityPolicyService {
 
     // 7. PKR 25,000 Order Value Ceiling
     if (payableTotalMoney) {
-      const evaluatedMinor = typeof payableTotalMoney.amountMinor === 'number'
-        ? payableTotalMoney.amountMinor
-        : (payableTotalMoney.amountMinor != null ? Number(payableTotalMoney.amountMinor) : 0);
+      let evaluatedMinorBigInt;
+      if (typeof payableTotalMoney.amountMinor === 'bigint') {
+        evaluatedMinorBigInt = payableTotalMoney.amountMinor;
+      } else if (payableTotalMoney.amountMinor !== undefined && payableTotalMoney.amountMinor !== null) {
+        evaluatedMinorBigInt = BigInt(Math.trunc(Number(payableTotalMoney.amountMinor)));
+      } else if (typeof payableTotalMoney.amount === 'number') {
+        evaluatedMinorBigInt = BigInt(Math.round(payableTotalMoney.amount * 100));
+      } else {
+        evaluatedMinorBigInt = 0n;
+      }
+
+      const limitBigInt = BigInt(COD_MAX_PAYABLE_MINOR_UNITS);
 
       const evaluatedTotalExact = {
-        amountMinor: evaluatedMinor,
+        amountMinor: Number(evaluatedMinorBigInt),
         currency: 'PKR',
         exponent: 2
       };
 
-      if (evaluatedMinor > COD_MAX_PAYABLE_MINOR_UNITS) {
+      if (evaluatedMinorBigInt > limitBigInt) {
         return this._buildDecision(false, REASON_CODES.ORDER_VALUE_EXCEEDED, {
           thresholdExact: COD_MAX_PAYABLE_THRESHOLD_EXACT,
           evaluatedTotalExact

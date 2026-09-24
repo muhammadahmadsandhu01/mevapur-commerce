@@ -64,9 +64,27 @@ class GuestPhoneVerificationService {
   }
 
   async isAvailable() {
-    const client = await this._getRedis();
-    if (client) {
-      if (typeof client.isOpen === 'boolean' && !client.isOpen) {
+    if (this.redisClient) {
+      if (this.redisClient.isOpen === false || this.redisClient.isReady === false) {
+        return false;
+      }
+      try {
+        if (typeof this.redisClient.ping === 'function') {
+          const res = await this.redisClient.ping();
+          return res === 'PONG' || res === true;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    if (process.env.REDIS_URL) {
+      const client = await this._getRedis();
+      if (!client) {
+        return false;
+      }
+      if (client.isOpen === false || client.isReady === false) {
         return false;
       }
       try {
@@ -79,6 +97,7 @@ class GuestPhoneVerificationService {
         return false;
       }
     }
+
     if (!this.isUatMock) {
       return false;
     }
@@ -136,9 +155,20 @@ class GuestPhoneVerificationService {
 
   async _getStoreKey(key) {
     const client = await this._getRedis();
-    if (client && (client.isOpen || typeof client.get === 'function')) {
-      const val = await client.get(key);
-      return val ? JSON.parse(val) : null;
+    if (client) {
+      if (client.isOpen === false || client.isReady === false) {
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+      try {
+        const val = await client.get(key);
+        return val ? JSON.parse(val) : null;
+      } catch (err) {
+        logger.warn('Redis get operation failed', { error: err.message, key });
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+    }
+    if (process.env.REDIS_URL) {
+      throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
     }
     const mem = this._memoryStore.get(key);
     if (!mem) return null;
@@ -151,9 +181,20 @@ class GuestPhoneVerificationService {
 
   async _setStoreKey(key, data, ttlSeconds) {
     const client = await this._getRedis();
-    if (client && (client.isOpen || typeof client.set === 'function')) {
-      await client.set(key, JSON.stringify(data), { EX: ttlSeconds });
-      return;
+    if (client) {
+      if (client.isOpen === false || client.isReady === false) {
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+      try {
+        await client.set(key, JSON.stringify(data), { EX: ttlSeconds });
+        return;
+      } catch (err) {
+        logger.warn('Redis set operation failed', { error: err.message, key });
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+    }
+    if (process.env.REDIS_URL) {
+      throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
     }
     this._memoryStore.set(key, {
       data,
@@ -163,21 +204,43 @@ class GuestPhoneVerificationService {
 
   async _delStoreKey(key) {
     const client = await this._getRedis();
-    if (client && (client.isOpen || typeof client.del === 'function')) {
-      await client.del(key);
-      return;
+    if (client) {
+      if (client.isOpen === false || client.isReady === false) {
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+      try {
+        await client.del(key);
+        return;
+      } catch (err) {
+        logger.warn('Redis del operation failed', { error: err.message, key });
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+    }
+    if (process.env.REDIS_URL) {
+      throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
     }
     this._memoryStore.delete(key);
   }
 
   async _incrementCounter(key, ttlSeconds) {
     const client = await this._getRedis();
-    if (client && (client.isOpen || typeof client.incr === 'function')) {
-      const count = await client.incr(key);
-      if (count === 1) {
-        await client.expire(key, ttlSeconds);
+    if (client) {
+      if (client.isOpen === false || client.isReady === false) {
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
       }
-      return count;
+      try {
+        const count = await client.incr(key);
+        if (count === 1) {
+          await client.expire(key, ttlSeconds);
+        }
+        return count;
+      } catch (err) {
+        logger.warn('Redis incr operation failed', { error: err.message, key });
+        throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
+      }
+    }
+    if (process.env.REDIS_URL) {
+      throw new AppError('Guest phone verification service is temporarily unavailable', 503, 'COD_GUEST_VERIFICATION_UNAVAILABLE');
     }
     const current = (await this._getStoreKey(key)) || 0;
     const next = current + 1;
@@ -342,9 +405,15 @@ class GuestPhoneVerificationService {
   async validateToken(rawToken, phone, consume = true) {
     if (!rawToken || typeof rawToken !== 'string') return false;
 
-    try {
-      if (!(await this.isAvailable())) return false;
+    if (!(await this.isAvailable())) {
+      throw new AppError(
+        'Guest phone verification service is temporarily unavailable',
+        503,
+        'COD_GUEST_VERIFICATION_UNAVAILABLE'
+      );
+    }
 
+    try {
       const tokenHmac = this._hashToken(rawToken);
       const tokenKey = `guest_otp:token:${tokenHmac}`;
       const tokenData = await this._getStoreKey(tokenKey);
@@ -359,7 +428,10 @@ class GuestPhoneVerificationService {
         await this._delStoreKey(tokenKey);
       }
       return true;
-    } catch {
+    } catch (err) {
+      if (err && err.code === 'COD_GUEST_VERIFICATION_UNAVAILABLE') {
+        throw err;
+      }
       return false;
     }
   }

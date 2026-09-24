@@ -936,9 +936,10 @@ class OrderService {
             });
 
             if (!codDecision.available) {
+              const statusCode = codDecision.reasonCode === 'COD_GUEST_VERIFICATION_UNAVAILABLE' ? 503 : 400;
               throw new AppError(
                 codDecision.customerMessage || 'Cash on Delivery is unavailable for this order',
-                400,
+                statusCode,
                 codDecision.reasonCode
               );
             }
@@ -946,11 +947,41 @@ class OrderService {
             // If guest checkout, atomically consume guest verification token
             if (!userId) {
               const guestPhone = shippingAddress.phone || shippingAddress.phoneE164;
-              const tokenValid = await defaultGuestVerificationService.validateToken(
-                orderData.guestVerificationToken,
-                guestPhone,
-                true // atomically consume token
-              );
+              let isAvailable = true;
+              try {
+                if (typeof defaultGuestVerificationService.isAvailable === 'function') {
+                  isAvailable = await defaultGuestVerificationService.isAvailable();
+                }
+              } catch {
+                isAvailable = false;
+              }
+
+              if (!isAvailable) {
+                throw new AppError(
+                  'Guest phone verification is temporarily unavailable. Please select a prepaid payment method.',
+                  503,
+                  'COD_GUEST_VERIFICATION_UNAVAILABLE'
+                );
+              }
+
+              let tokenValid = false;
+              try {
+                tokenValid = await defaultGuestVerificationService.validateToken(
+                  orderData.guestVerificationToken,
+                  guestPhone,
+                  true // atomically consume token
+                );
+              } catch (err) {
+                if (err && err.code === 'COD_GUEST_VERIFICATION_UNAVAILABLE') {
+                  throw err;
+                }
+                throw new AppError(
+                  'Guest phone verification is temporarily unavailable. Please select a prepaid payment method.',
+                  503,
+                  'COD_GUEST_VERIFICATION_UNAVAILABLE'
+                );
+              }
+
               if (!tokenValid) {
                 throw new AppError(
                   'Guest phone verification token is invalid or has expired',
