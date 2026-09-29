@@ -1671,6 +1671,14 @@ class OrderService {
         );
       }
 
+      if (
+        (orderStatus === ORDER_STATUSES.SHIPPED || orderStatus === ORDER_STATUSES.DELIVERED)
+        && String(order.paymentMethod).toLowerCase() !== 'cod'
+        && order.paymentStatus !== 'Paid'
+      ) {
+        throw new AppError('Cannot fulfill or ship unpaid order', 400, 'UNPAID_ORDER_FULFILLMENT_BLOCKED');
+      }
+
       order.orderStatus = orderStatus;
       order.statusTimeline.push({
         status: orderStatus,
@@ -1840,6 +1848,14 @@ class OrderService {
           'Only COD orders can have payment status updated manually',
           409,
           ERROR_CODES.ORDER_MANUAL_PAYMENT_FORBIDDEN
+        );
+      }
+
+      if (order.orderStatus === ORDER_STATUSES.CANCELLED) {
+        throw new AppError(
+          'Cannot mark cancelled order as paid',
+          400,
+          ERROR_CODES.INVALID_STATE
         );
       }
 

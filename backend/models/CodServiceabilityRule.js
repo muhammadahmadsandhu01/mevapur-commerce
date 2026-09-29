@@ -117,7 +117,11 @@ codServiceabilityRuleSchema.pre('validate', function normalizeFields(next) {
     this.countryCode = String(this.countryCode).trim().toUpperCase();
   }
   if (this.normalizedCity) {
-    this.normalizedCity = String(this.normalizedCity).trim().toUpperCase();
+    this.normalizedCity = String(this.normalizedCity)
+      .trim()
+      .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '')
+      .replace(/\s+/g, ' ')
+      .toUpperCase();
   }
   if (this.normalizedPostalCode != null) {
     this.normalizedPostalCode = String(this.normalizedPostalCode).trim();

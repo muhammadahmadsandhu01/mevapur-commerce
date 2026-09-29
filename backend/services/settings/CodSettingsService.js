@@ -11,6 +11,11 @@ const logger = require('../../common/utils/logger');
 
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
+const normalizeCityCanonical = (city) => {
+  if (!city || typeof city !== 'string') return '';
+  return city.trim().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '').replace(/\s+/g, ' ').toUpperCase();
+};
+
 class CodSettingsService {
   constructor() {
     this._cache = null;
@@ -18,7 +23,7 @@ class CodSettingsService {
   }
 
   /**
-   * Normalize and deduplicate city list case-insensitively.
+   * Normalize and deduplicate city list case-insensitively using canonical normalizer.
    * @param {Array<string>} cities
    * @returns {Array<string>}
    */
@@ -33,9 +38,9 @@ class CodSettingsService {
       const trimmed = item.trim();
       if (!trimmed) continue;
 
-      const lower = trimmed.toLowerCase();
-      if (!seen.has(lower)) {
-        seen.add(lower);
+      const canonical = normalizeCityCanonical(trimmed);
+      if (canonical && !seen.has(canonical)) {
+        seen.add(canonical);
         result.push(trimmed);
       }
     }
@@ -168,17 +173,17 @@ class CodSettingsService {
 
   /**
    * Check if a city is disallowed for COD.
-   * Case-insensitive, trimmed comparison.
+   * Canonical normalized comparison (punctuation stripped, multi-whitespace collapsed, uppercase).
    * @param {string} city
    * @returns {Promise<boolean>}
    */
   async isCityDisallowed(city) {
     if (!city || typeof city !== 'string') return false;
-    const normalizedCity = city.trim().toLowerCase();
+    const normalizedCity = normalizeCityCanonical(city);
     if (!normalizedCity) return false;
 
     const disallowedCities = await this.getDisallowedCities();
-    return disallowedCities.some((c) => c.trim().toLowerCase() === normalizedCity);
+    return disallowedCities.some((c) => normalizeCityCanonical(c) === normalizedCity);
   }
 }
 
@@ -186,3 +191,4 @@ const defaultCodSettingsService = new CodSettingsService();
 
 module.exports = defaultCodSettingsService;
 module.exports.CodSettingsService = CodSettingsService;
+module.exports.normalizeCityCanonical = normalizeCityCanonical;

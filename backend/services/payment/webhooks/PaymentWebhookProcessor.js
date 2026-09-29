@@ -27,6 +27,7 @@ const {
   PAYMENT_STATUSES,
   WEBHOOK_PROCESSING_STATUSES
 } = require('../../../constants/paymentConstants');
+const { ORDER_STATUSES } = require('../../../constants/orderConstants');
 const { AppError } = require('../../../common/errors/AppError');
 const AuditService = require('../../AuditService');
 const logger = require('../../../utils/logger');
@@ -589,6 +590,42 @@ class PaymentWebhookProcessor {
         payment.paidAmount = payment.amount;
         payment.providerPaymentId = providerPaymentId;
         await payment.save(session ? { session } : {});
+
+        if (order.orderStatus === ORDER_STATUSES.CANCELLED) {
+          logger.warn('Payment captured via webhook for already CANCELLED order - recorded cancelled captured liability', {
+            orderId: order.orderId,
+            orderDbId: order._id,
+            paymentId: payment._id,
+            providerPaymentId,
+            amount: payment.amount,
+            currency: authoritativeOrderCurrency
+          });
+
+          order.statusTimeline.push({
+            status: order.orderStatus,
+            actor: order.user,
+            actorRole: 'system',
+            note: 'Payment captured via verified webhook after order cancellation; recorded liability for refund',
+            timestamp: now
+          });
+          await order.save(session ? { session } : {});
+
+          await AuditService.log({
+            eventName: 'cancelled_captured_liability',
+            status: 'ALERT',
+            metadata: {
+              orderId: order.orderId,
+              orderDbId: order._id?.toString(),
+              paymentId: payment._id?.toString(),
+              providerPaymentId,
+              provider: payment.provider,
+              amount: payment.amount,
+              currency: authoritativeOrderCurrency
+            }
+          });
+
+          return 'cancelled_captured_liability';
+        }
 
         order.paymentStatus = 'Paid';
         order.payment = {

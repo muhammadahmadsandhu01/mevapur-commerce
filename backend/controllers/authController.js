@@ -383,8 +383,8 @@ exports.verifyMfa = async (req, res, next) => {
       ...getClientInfo(req),
       deviceInfo: getDeviceInfo(req)
     });
-    const csrfToken = issueCsrfToken(res);
-    setRefreshCookie(res, result.refreshToken);
+    const csrfToken = issueCsrfToken(req, res);
+    setAuthCookies(req, res, result.refreshToken, result.accessToken);
 
     return success(req, res, 200, 'MFA verification successful', {
       user: result.user,
@@ -463,8 +463,8 @@ exports.acceptInvitation = async (req, res, next) => {
       ...getClientInfo(req),
       deviceInfo: getDeviceInfo(req)
     });
-    const csrfToken = issueCsrfToken(res);
-    setRefreshCookie(res, result.refreshToken);
+    const csrfToken = issueCsrfToken(req, res);
+    setAuthCookies(req, res, result.refreshToken, result.accessToken);
 
     return success(req, res, 201, 'Invitation accepted successfully', {
       user: result.user,

@@ -20,6 +20,7 @@ const Coupon = require('../../models/Coupon');
 const guestVerificationService = require('../auth/GuestPhoneVerificationService');
 const { Money, MoneyMapper } = require('../../modules/commerce');
 const defaultCodSettingsService = require('../settings/CodSettingsService');
+const { normalizeCityCanonical } = require('../settings/CodSettingsService');
 
 const COD_MAX_PAYABLE_MINOR_UNITS = 2500000; // PKR 25,000.00 (exponent 2)
 const COD_MAX_PAYABLE_THRESHOLD_EXACT = Object.freeze({
@@ -91,7 +92,7 @@ class CodEligibilityPolicyService {
     }
 
     const trimmedCity = city.trim();
-    const normalizedCity = trimmedCity.toUpperCase();
+    const normalizedCity = normalizeCityCanonical(trimmedCity);
     const normalizedPostalCode = postalCode ? String(postalCode).trim() : '';
 
     // 1. Dynamic Disallowed Cities Exclusion Check
@@ -385,6 +386,7 @@ const defaultCodPolicyService = new CodEligibilityPolicyService();
 
 module.exports = defaultCodPolicyService;
 module.exports.CodEligibilityPolicyService = CodEligibilityPolicyService;
+module.exports.normalizeCityCanonical = normalizeCityCanonical;
 module.exports.REASON_CODES = REASON_CODES;
 module.exports.CUSTOMER_MESSAGES = CUSTOMER_MESSAGES;
 module.exports.COD_MAX_PAYABLE_MINOR_UNITS = COD_MAX_PAYABLE_MINOR_UNITS;

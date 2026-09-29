@@ -45,6 +45,7 @@ class MockStorageProvider extends StorageProvider {
     }
 
     const uploadsDir = path.resolve(this.uploadsDir || path.resolve(__dirname, '../../uploads'));
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal -- Invariant verified: targetPath bounded by uploadsDir + path.sep
     const targetPath = path.resolve(uploadsDir, key);
     if (!targetPath.startsWith(path.resolve(uploadsDir) + path.sep)) {
       throw new AppError('Path traversal detected', 403, 'SECURITY_ERROR');
@@ -77,6 +78,7 @@ class MockStorageProvider extends StorageProvider {
     }
 
     const uploadsDir = path.resolve(this.uploadsDir || path.resolve(__dirname, '../../uploads'));
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal -- Invariant verified: targetPath bounded by uploadsDir + path.sep
     const targetPath = path.resolve(uploadsDir, key);
     if (!targetPath.startsWith(path.resolve(uploadsDir) + path.sep)) {
       throw new AppError('Path traversal detected', 403, 'SECURITY_ERROR');

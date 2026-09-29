@@ -86,6 +86,7 @@ const hasOwnPath = (source, path) => {
     ) {
       return false;
     }
+    // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop -- Invariant verified: FORBIDDEN_KEYS guards against __proto__, constructor, and prototype
     current = current[segment];
   }
 
@@ -101,6 +102,7 @@ const getPath = (source, path) => {
     if (FORBIDDEN_KEYS.has(segment)) {
       throw new AppError(`Forbidden property access: ${segment}`, 400, 'SECURITY_ERROR');
     }
+    // nosemgrep: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop -- Invariant verified: FORBIDDEN_KEYS guards against __proto__, constructor, and prototype
     current = current?.[segment];
   }
 
