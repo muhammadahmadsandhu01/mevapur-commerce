@@ -479,6 +479,160 @@ class FinancialMetricsService {
   }
 
   /**
+   * Server-side MongoDB aggregation pipeline to calculate Cost of Goods Sold (COGS).
+   * Replaces in-memory JavaScript loop to eliminate V8 heap exhaustion (OOM).
+   *
+   * Business & Financial Rules:
+   * 1. Scope: Only non-cancelled paid/partially-refunded orders within the requested date range.
+   * 2. Exclude 100% refunded items from COGS so returned goods do not penalize Net Profit.
+   * 3. For partially refunded orders, adjust COGS proportionally based on retained order value:
+   *    retainedRatio = (orderTotal - verifiedRefundedAmount) / orderTotal.
+   * 4. Remove arbitrary heuristic fallback (no price * 0.6).
+   *    - Uses snapshot items.costPrice if present and > 0.
+   *    - Falls back to referenced productDoc.costPrice if present and > 0.
+   *    - If absent or 0, treats unit COGS as 0 and flags item in uncostedItemsCount.
+   *
+   * @param {Object|null} dateRange - Optional { start, end } half-open interval
+   * @returns {Promise<{ cogs: number, uncostedItemsCount: number }>}
+   */
+  static async aggregateCogs(dateRange = null) {
+    const matchFilter = {
+      orderStatus: { $ne: ORDER_STATUSES.CANCELLED },
+      paymentStatus: { $in: ['Paid', 'PartiallyRefunded'] }
+    };
+
+    if (dateRange && dateRange.start && dateRange.end) {
+      matchFilter.createdAt = { $gte: dateRange.start, $lt: dateRange.end };
+    } else if (dateRange && dateRange.start) {
+      matchFilter.createdAt = { $gte: dateRange.start };
+    }
+
+    const pipeline = [
+      { $match: matchFilter },
+      {
+        $lookup: {
+          from: 'refunds',
+          let: { orderId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$order', '$$orderId'] },
+                    { $eq: ['$status', REFUND_STATUSES.COMPLETED] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'refundDocs'
+        }
+      },
+      {
+        $addFields: {
+          orderTotal: { $ifNull: ['$totalAmount', 0] },
+          verifiedRefundedAmount: { $sum: '$refundDocs.amount' }
+        }
+      },
+      {
+        $addFields: {
+          retainedRatio: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ['$paymentStatus', 'Refunded'] },
+                  { $lte: ['$orderTotal', 0] },
+                  { $gte: ['$verifiedRefundedAmount', '$orderTotal'] }
+                ]
+              },
+              0,
+              {
+                $divide: [
+                  { $subtract: ['$orderTotal', '$verifiedRefundedAmount'] },
+                  '$orderTotal'
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        $match: {
+          retainedRatio: { $gt: 0 }
+        }
+      },
+      { $unwind: '$items' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'productDoc'
+        }
+      },
+      {
+        $unwind: {
+          path: '$productDoc',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          effectiveCostPrice: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ['$items.costPrice', null] },
+                  { $gt: ['$items.costPrice', 0] }
+                ]
+              },
+              '$items.costPrice',
+              {
+                $cond: [
+                  {
+                    $and: [
+                      { $ne: ['$productDoc.costPrice', null] },
+                      { $gt: ['$productDoc.costPrice', 0] }
+                    ]
+                  },
+                  '$productDoc.costPrice',
+                  0
+                ]
+              }
+            ]
+          },
+          itemQty: { $ifNull: ['$items.quantity', 1] }
+        }
+      },
+      {
+        $addFields: {
+          isUncosted: { $eq: ['$effectiveCostPrice', 0] },
+          itemProportionalCogs: {
+            $multiply: ['$effectiveCostPrice', '$itemQty', '$retainedRatio']
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalCogs: { $sum: '$itemProportionalCogs' },
+          uncostedItemsCount: {
+            $sum: { $cond: ['$isUncosted', 1, 0] }
+          }
+        }
+      }
+    ];
+
+    const result = await Order.aggregate(pipeline);
+    const summary = result[0] || { totalCogs: 0, uncostedItemsCount: 0 };
+
+    return {
+      cogs: FinancialMetricsService.roundMoney(summary.totalCogs || 0),
+      uncostedItemsCount: summary.uncostedItemsCount || 0
+    };
+  }
+
+  /**
    * Get comprehensive Dashboard Statistics for GET /api/admin/stats.
    */
   static async getDashboardStats() {
@@ -509,8 +663,8 @@ class FinancialMetricsService {
       outOfStockProducts,
       salesReport,
       productStats,
-      paidOrders,
-      pendingCodOrders
+      cogsStats,
+      uncollectedCodAgg
     ] = await Promise.all([
       FinancialMetricsService.aggregateRealizedRevenue(null),
       FinancialMetricsService.aggregateRealizedRevenue(todayInterval),
@@ -537,38 +691,36 @@ class FinancialMetricsService {
       Product.countDocuments({ stock: { $lte: 0 } }),
       FinancialMetricsService.getSalesReport({ period: 'daily' }),
       FinancialMetricsService.getProductStats({}),
-      Order.find({
-        orderStatus: { $ne: ORDER_STATUSES.CANCELLED },
-        paymentStatus: { $in: ['Paid', 'PartiallyRefunded', 'Refunded'] }
-      }).populate('items.product', 'costPrice price').lean(),
-      Order.find({
-        orderStatus: { $in: [ORDER_STATUSES.PENDING, ORDER_STATUSES.PROCESSING, ORDER_STATUSES.SHIPPED] },
-        $or: [
-          { paymentMethod: { $regex: /^cod$/i } },
-          { 'paymentInfo.method': { $regex: /^cod$/i } }
-        ],
-        paymentStatus: { $in: ['Pending', 'pending', 'unpaid', 'Unpaid'] }
-      }).lean()
+      FinancialMetricsService.aggregateCogs(null),
+      Order.aggregate([
+        {
+          $match: {
+            orderStatus: { $in: [ORDER_STATUSES.PENDING, ORDER_STATUSES.PROCESSING, ORDER_STATUSES.SHIPPED] },
+            $or: [
+              { paymentMethod: { $regex: /^cod$/i } },
+              { 'paymentInfo.method': { $regex: /^cod$/i } }
+            ],
+            paymentStatus: { $in: ['Pending', 'pending', 'unpaid', 'Unpaid'] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalUncollectedCod: { $sum: { $ifNull: ['$totalAmount', 0] } }
+          }
+        }
+      ])
     ]);
 
-    let totalCogs = 0;
-    for (const order of paidOrders) {
-      for (const item of (order.items || [])) {
-        const unitCost = item.product?.costPrice ?? item.costPrice ?? (item.price * 0.6);
-        totalCogs += unitCost * (item.quantity || 1);
-      }
-    }
-    const cogs = FinancialMetricsService.roundMoney(totalCogs);
+    const cogs = cogsStats.cogs;
+    const uncostedItemsCount = cogsStats.uncostedItemsCount;
     const totalGrossSales = allTimeRevenue.realizedRevenue;
     const netProfit = FinancialMetricsService.roundMoney(Math.max(0, totalGrossSales - cogs));
     const profitMargin = totalGrossSales > 0 ? Number(((netProfit / totalGrossSales) * 100).toFixed(1)) : 0;
     const cancellationRate = totalOrders > 0 ? Number(((cancelledOrders / totalOrders) * 100).toFixed(1)) : 0;
-
-    let uncollectedCod = 0;
-    for (const order of pendingCodOrders) {
-      uncollectedCod += (order.totalAmount || 0);
-    }
-    uncollectedCod = FinancialMetricsService.roundMoney(uncollectedCod);
+    const uncollectedCod = FinancialMetricsService.roundMoney(
+      uncollectedCodAgg[0]?.totalUncollectedCod || 0
+    );
 
     const revenueGrowth = FinancialMetricsService.computeGrowthRate(
       thisMonthRevenueStats.realizedRevenue,
@@ -622,6 +774,7 @@ class FinancialMetricsService {
       categoryStats: productStats.categoryStats || [],
       categoryStatsByCurrency: productStats.categoryStatsByCurrency || {},
       cogs,
+      uncostedItemsCount,
       netProfit,
       profitMargin,
       cancellationRate,
@@ -1114,9 +1267,16 @@ class FinancialMetricsService {
     const thisMonthInterval = FinancialMetricsService.getThisMonthInterval();
     const lastMonthInterval = FinancialMetricsService.getLastMonthInterval();
 
-    const [thisMonthStats, lastMonthStats] = await Promise.all([
+    const [
+      thisMonthStats,
+      lastMonthStats,
+      thisMonthCogs,
+      lastMonthCogs
+    ] = await Promise.all([
       FinancialMetricsService.aggregateRealizedRevenue(thisMonthInterval),
-      FinancialMetricsService.aggregateRealizedRevenue(lastMonthInterval)
+      FinancialMetricsService.aggregateRealizedRevenue(lastMonthInterval),
+      FinancialMetricsService.aggregateCogs(thisMonthInterval),
+      FinancialMetricsService.aggregateCogs(lastMonthInterval)
     ]);
 
     const revenueGrowth = FinancialMetricsService.computeGrowthRate(
@@ -1132,11 +1292,15 @@ class FinancialMetricsService {
     return {
       thisMonth: {
         revenue: thisMonthStats.realizedRevenue,
-        orders: thisMonthStats.orderCount
+        orders: thisMonthStats.orderCount,
+        cogs: thisMonthCogs.cogs,
+        uncostedItemsCount: thisMonthCogs.uncostedItemsCount
       },
       lastMonth: {
         revenue: lastMonthStats.realizedRevenue,
-        orders: lastMonthStats.orderCount
+        orders: lastMonthStats.orderCount,
+        cogs: lastMonthCogs.cogs,
+        uncostedItemsCount: lastMonthCogs.uncostedItemsCount
       },
       growth: {
         revenue: revenueGrowth,

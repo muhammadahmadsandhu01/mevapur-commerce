@@ -44,6 +44,8 @@ const orderItemSchema = new mongoose.Schema({
   variant: { type: String, default: '', trim: true, maxlength: 200 },
   price: { type: Number, required: true, min: 0 },
   unitPriceExact: { type: MoneySchema, default: null },
+  costPrice: { type: Number, min: 0, default: null },
+  costPriceExact: { type: MoneySchema, default: null },
   quantity: {
     type: Number,
     required: true,

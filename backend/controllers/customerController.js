@@ -115,7 +115,6 @@ exports.getCustomers = async (req, res, next) => {
         isVerified: Boolean(c.isVerified),
         isBlocked: Boolean(c.isBlocked),
         isActive: !c.isBlocked,
-        loginAttempts: c.loginAttempts || 0,
         lockUntil: c.lockUntil || null,
         totalOrders,
         realizedOrders,
@@ -288,7 +287,7 @@ exports.getCustomer = async (req, res, next) => {
       _id: req.params.id,
       role: 'customer',
       isDeleted: { $ne: true }
-    }).select('_id fullName email phone avatar addresses isVerified isBlocked loginAttempts lockUntil createdAt updatedAt');
+    }).select('_id fullName email phone avatar addresses isVerified isBlocked lockUntil createdAt updatedAt');
 
     if (!customer) {
       throw new AppError('Customer not found', 404, ERROR_CODES.USER_NOT_FOUND);
@@ -330,7 +329,6 @@ exports.getCustomer = async (req, res, next) => {
         isVerified: Boolean(customer.isVerified),
         isBlocked: Boolean(customer.isBlocked),
         isActive: !customer.isBlocked,
-        loginAttempts: customer.loginAttempts || 0,
         lockUntil: customer.lockUntil || null,
         totalOrders,
         realizedOrders,

@@ -544,3 +544,20 @@ Inspection of [`backend/services/order/FinancialMetricsService.js`](file:///c:/P
 3. **Financial Reporting & COGS**:
    - Convert `getDashboardStats()` COGS calculation into a server-side MongoDB aggregation pipeline.
    - Exclude 100% refunded items from COGS calculation, or adjust COGS dynamically based on the verified refund ratio.
+
+---
+
+### 6. Production Remediation: Batch 2 (Financial Reporting & Memory OOM Fix)
+
+#### 6.1 Elimination of In-Memory Heap Exhaustion (OOM Scalability Fix)
+- **Vulnerability**: Historical orders were retrieved into Node.js V8 memory using `Order.find(...).populate('items.product').lean()`, causing heap exhaustion on high-volume production datasets.
+- **Remediation**: Implemented [`FinancialMetricsService.aggregateCogs(dateRange)`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/FinancialMetricsService.js#L500) using a native MongoDB server-side aggregation pipeline with `$lookup`, `$unwind`, and `$group`. Also refactored uncollected COD calculation from in-memory loop to MongoDB aggregation pipeline.
+
+#### 6.2 Elimination of Refunded Orders COGS Distortion
+- **Defect**: 100% refunded orders had their net revenue zeroed while full inventory cost remained in COGS, unfairly penalizing net profit.
+- **Remediation**: Computed `retainedRatio = (orderTotal - verifiedRefundedAmount) / orderTotal`. Orders with 100% refunds (`retainedRatio <= 0` or `paymentStatus: 'Refunded'`) are completely excluded from COGS. Partially refunded orders adjust COGS proportionally by `itemCost * quantity * retainedRatio`.
+
+#### 6.3 Removal of Arbitrary Heuristic Fallback (`price * 0.6`)
+- **Defect**: Uncosted catalog items applied a synthetic 40% margin assumption (`price * 0.6`), falsifying financial statements.
+- **Remediation**: Replaced fallback with exact snapshot `items.costPrice` or `productDoc.costPrice`. If absent or 0, COGS is treated strictly as 0 and flagged via `uncostedItemsCount` in the analytics response for administrative catalog auditing.
+

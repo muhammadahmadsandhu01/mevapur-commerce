@@ -59,6 +59,7 @@ interface DashboardStats {
   chartData?: ChartDataItem[];
   categoryStats?: CategoryStatItem[];
   cogs?: number;
+  uncostedItemsCount?: number;
   netProfit?: number;
   profitMargin?: number;
   cancellationRate?: number;
