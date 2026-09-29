@@ -561,3 +561,188 @@ Inspection of [`backend/services/order/FinancialMetricsService.js`](file:///c:/P
 - **Defect**: Uncosted catalog items applied a synthetic 40% margin assumption (`price * 0.6`), falsifying financial statements.
 - **Remediation**: Replaced fallback with exact snapshot `items.costPrice` or `productDoc.costPrice`. If absent or 0, COGS is treated strictly as 0 and flagged via `uncostedItemsCount` in the analytics response for administrative catalog auditing.
 
+---
+
+## Deep Audit: Database Indexes & Query Performance
+
+### 1. Executive Summary & Forensic Posture
+An exhaustive database architectural audit was conducted across all backend Mongoose models ([`Order.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/Order.js), [`Product.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/Product.js), [`InventoryPosition.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/InventoryPosition.js), [`User.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/User.js), [`Coupon.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/Coupon.js), [`Payment.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/Payment.js), [`Refund.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/Refund.js), [`CheckoutSession.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/CheckoutSession.js), [`Review.js`](file:///c:/Projects/mevaPur-Commerce/backend/models/Review.js)) and query pipelines across controllers and services.
+
+**Forensic Findings Summary**:
+1. **Critical Collection Scans (COLLSCAN)**:
+   - Root date-sorted administrative queries (`Order.find().sort({ createdAt: -1 })`) completely lacked a root date index, forcing full collection scans and volatile in-memory sorts (exceeding MongoDB's 32MB RAM threshold and crashing under high volume).
+   - High-throughput customer order queries filtering by status (`{ user, orderStatus }`) only utilized single-field prefixes, forcing document-level fetch-and-filter sweeps.
+   - Financial aggregations querying by `paymentStatus` ('Paid', 'PartiallyRefunded') executed unindexed full collection scans across millions of orders.
+2. **Missing Catalog Compound Indexes**:
+   - Public catalog browsing with price sorting (`category` + `status` + `isActive` + `price`) lacked an ESR compound index, resulting in cross-index memory sort thrashing.
+   - Brand and Subcategory catalog routes triggered in-memory sorting on `createdAt`.
+   - Category-less popularity sorting (`{ soldCount: -1 }`) lacked index anchoring to active published products.
+3. **Ineffective & Duplicate Indexes**:
+   - Single-field index `user: { index: true }` in `Order.js` and `order: { index: true }` in `Payment.js` were completely redundant with existing compound indexes having the same leading key.
+   - Single-field `status: { index: true }` in `Coupon.js` duplicated `{ status: 1, startDate: 1, endDate: 1 }`.
+   - Single-field `isDeleted: { index: true }` and `isBlocked: { index: true }` in `User.js` duplicated `{ isDeleted: 1, isBlocked: 1 }`.
+4. **Unbounded Queries & V8 Heap Exhaustion Vulnerabilities**:
+   - Administrative endpoints (`/api/admin/orders/recent`, `/api/admin/products/top`) accepted arbitrary `?limit=` parameters without upper-bound clamping (`Math.min(limit, 100)`), exposing Node.js to denial-of-service memory exhaustion.
+   - CSV export routines in `reportController.js` executed queries without `.limit()` or `.lean()`, loading thousands of heavy Mongoose documents with nested `.populate()` into memory simultaneously.
+5. **N+1 Deep Population Bottlenecks**:
+   - `ExceptionQueueService.getExceptionById` cascaded 7 consecutive `.populate()` subqueries without field projections.
+   - Catalog listing in `productController.js` executed 7 serial database queries per page render.
+
+---
+
+### 2. Phase 1: Mongoose Schemas & Index Audit
+
+#### 2.1 Model-by-Model Query & Index Mapping
+
+| Model | Target Query Pattern | Existing Schema Indexes | Verdict & Performance Failure |
+| :--- | :--- | :--- | :--- |
+| **`Order.js`** | `Order.find().sort({ createdAt: -1, _id: -1 })`<br>([`adminRoutes.js:42`](file:///c:/Projects/mevaPur-Commerce/backend/routes/adminRoutes.js#L42), [`OrderService.js:1429`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/OrderService.js#L1429)) | `{ user: 1, createdAt: -1, _id: -1 }`<br>`{ orderStatus: 1, createdAt: -1, _id: -1 }` | **COLLSCAN + In-Memory Sort**: Compound indexes cannot provide sort on `createdAt` without equality filters on preceding keys (`user`/`orderStatus`). Triggers 32MB RAM sort crash on large datasets. |
+| **`Order.js`** | `Order.find({ user: userId, orderStatus: status }).sort({ createdAt: -1, _id: -1 })`<br>([`OrderService.js:1368`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/OrderService.js#L1368)) | `{ user: 1, createdAt: -1, _id: -1 }`<br>`{ orderStatus: 1, createdAt: -1, _id: -1 }` | **Partial Index Scan**: MongoDB must pick either `user` or `orderStatus`, fetching and discarding non-matching documents in memory. |
+| **`Order.js`** | `Order.find({ paymentStatus: { $in: [...] }, orderStatus: { $ne: 'Cancelled' } })`<br>([`FinancialMetricsService.js:876`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/FinancialMetricsService.js#L876)) | None on `paymentStatus` | **100% COLLSCAN**: `paymentStatus` completely unindexed. Full collection scan across every historical order. |
+| **`Order.js`** | `Order.find({ 'quote.merchantScopeId': scopeId })`<br>([`taxGovernanceReconciliation.js:221`](file:///c:/Projects/mevaPur-Commerce/backend/scripts/reconciliation/taxGovernanceReconciliation.js#L221)) | None on `quote.merchantScopeId` | **100% COLLSCAN**: Multi-tenant merchant scope completely unindexed on orders. |
+| **`Product.js`** | `Product.find({ category: id, status: 'published', isActive: true }).sort({ price: 1, _id: -1 })`<br>([`productController.js:306-313`](file:///c:/Projects/mevaPur-Commerce/backend/controllers/productController.js#L306-L313)) | `{ category: 1, isActive: 1, createdAt: -1 }`<br>`{ isActive: 1, price: 1 }` | **In-Memory Sort / Scan Thrashing**: Neither index covers category equality + price sort. |
+| **`Product.js`** | `Product.find({ brand: id, status: 'published', isActive: true }).sort({ createdAt: -1, _id: -1 })` | `{ brand: 1, isActive: 1 }` | **In-Memory Sort**: Lacks `status` equality and `createdAt` sort direction. |
+| **`Product.js`** | `Product.find({ subcategory: id, status: 'published', isActive: true }).sort({ createdAt: -1, _id: -1 })` | None on `subcategory` | **100% COLLSCAN / Subcategory Scan**: Subcategory filter has no index in `Product.js`. |
+| **`Product.js`** | `Product.find({ status: 'published', isActive: true }).sort({ soldCount: -1, _id: -1 })` | `{ soldCount: -1 }` | **Ineffective Scan**: Scans all products (including drafts and inactive products) to verify status in-memory. |
+| **`Refund.js`** | `$match: { order: '$$orderId', status: 'Completed' }` in `$lookup` sub-pipeline<br>([`FinancialMetricsService.js:406, 508`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/FinancialMetricsService.js#L406)) | `{ order: 1 }` (single)<br>`{ status: 1 }` (single) | **Sub-optimal Correlated Lookup**: Per-order sub-pipeline cannot do single-step index lookup. |
+| **`User.js`** | `User.find({ role: 'customer', isDeleted: { $ne: true } }).sort({ createdAt: -1, _id: -1 })`<br>([`customerController.js:199`](file:///c:/Projects/mevaPur-Commerce/backend/controllers/customerController.js#L199)) | `{ role: 1 }` (single)<br>`{ isDeleted: 1, isBlocked: 1 }` | **In-Memory Sort**: Single field `role: 1` requires manual document fetch and sorting in memory. |
+| **`Payment.js`** | `Payment.find({ merchantScopeId: scopeId, status: status }).sort({ createdAt: -1 })` | None on `merchantScopeId` | **COLLSCAN**: Multi-tenant payment lookup completely unindexed. |
+| **`InventoryPosition.js`** | `InventoryPosition.find({ merchantScopeId, locationId, productId, scopeKey })` | `{ merchantScopeId: 1, locationId: 1, productId: 1, scopeType: 1, scopeKey: 1 }` | **EXEMPLARY**: Perfect ESR compound index with tenant scope leading all index keys. |
+
+---
+
+#### 2.2 Recommended Compound Index Matrix (ESR Architecture)
+
+| # | Index Candidate | Model | Target Query Pattern (WHY) | Expected Benefit | Trade-off (Cost) |
+| :- | :--- | :--- | :--- | :--- | :--- |
+| **1** | `{ createdAt: -1, _id: -1 }` | `Order` | Root admin order listings (`adminRoutes.js:42`, `reportController.js:130`, `FinancialMetricsService.js:1232`). | **COLLSCAN → IXSCAN**: Eliminates full table scan and in-memory sort (>32MB RAM crash risk eliminated). | Minimal storage (~20 bytes/doc); negligible B-tree insert overhead on order placement. |
+| **2** | `{ user: 1, orderStatus: 1, createdAt: -1, _id: -1 }` | `Order` | Customer order history filtered by tab/status (`OrderService.getCustomerOrders`). | **100% ESR Indexing**: Equality on `user` & `orderStatus`, zero in-memory sort on `createdAt`. | Slight write overhead on customer order status transitions. |
+| **3** | `{ paymentStatus: 1, orderStatus: 1, createdAt: -1 }` | `Order` | High-frequency revenue, COGS, and financial reporting aggregations (`FinancialMetricsService.aggregateRealizedRevenue`). | **COLLSCAN → Targeted Range Scan**: Bounds financial aggregations strictly to paid/partially refunded orders. | Low write impact; updated only on payment state changes. |
+| **4** | `{ 'quote.merchantScopeId': 1, createdAt: -1 }` | `Order` | Multi-tenant tenant-isolation and merchant tax reconciliation queries. | **COLLSCAN → Tenant IXSCAN**: Restricts multi-tenant scans to specific merchant partition. | Negligible write overhead. |
+| **5** | `{ category: 1, status: 1, isActive: 1, price: 1 }` | `Product` | Public category catalog browsing sorted by price ascending/descending (`productController.js:306-313`). | **Eliminates In-Memory Sort**: Covers equality on category, status, and isActive, with index-provided price sorting. | Moderate index size; updated on product price edits. |
+| **6** | `{ brand: 1, status: 1, isActive: 1, createdAt: -1 }` | `Product` | Public brand landing page catalog queries. | **IXSCAN + Bounded Sort**: Instant page load for brand collections. | Negligible write cost (catalog updates only). |
+| **7** | `{ subcategory: 1, status: 1, isActive: 1, createdAt: -1 }` | `Product` | Public subcategory catalog browsing. | **COLLSCAN → IXSCAN**: Provides indexed subcategory discovery. | Negligible write cost. |
+| **8** | `{ status: 1, isActive: 1, soldCount: -1 }` | `Product` | Popular product catalog sort (`sortBy=popular`). | **Covered Sort**: Scans only published active products ordered by sales velocity. | Updated periodically on order completion increment. |
+| **9** | `{ order: 1, status: 1 }` | `Refund` | Aggregation pipeline `$lookup` from orders to completed refunds in `aggregateRealizedRevenue` and `aggregateCogs`. | **O(1) Correlated Sub-Pipeline**: Transforms nested loop subquery into instantaneous index equality lookup. | Low storage; updated only on refund processing. |
+| **10** | `{ role: 1, isDeleted: 1, isBlocked: 1, createdAt: -1 }` | `User` | Admin customer table pagination, search, and customer growth aggregations (`customerController.js`). | **Covered Customer Pagination**: Eliminates in-memory sort and document discards on deleted accounts. | Negligible write overhead. |
+| **11** | `{ merchantScopeId: 1, status: 1, createdAt: -1 }` | `Payment` | Multi-tenant payment reconciliation and admin payment gateway auditing. | **COLLSCAN → Tenant Range Scan**: Prevents cross-tenant table scan. | Negligible write overhead. |
+
+---
+
+### 3. Phase 2: Unbounded Queries & N+1 Population Audit
+
+#### 3.1 Unbounded Queries & Heap Exhaustion Vulnerabilities
+1. **Unbounded Administrative Endpoints**:
+   - **Vulnerability**: In [`backend/routes/adminRoutes.js:40, 68`](file:///c:/Projects/mevaPur-Commerce/backend/routes/adminRoutes.js#L40):
+     ```javascript
+     const limit = parseInt(req.query.limit) || 5;
+     ```
+     An attacker or misconfigured client passing `?limit=500000` forced MongoDB to allocate and stream 500,000 documents with populated `user` references, immediately exhausting Node.js V8 heap.
+   - **Remediation**: Bounded to `Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 100)` and applied `.lean()` projection.
+2. **Unbounded Report Export Queries**:
+   - **Vulnerability**: In [`backend/controllers/reportController.js:130, 157, 182`](file:///c:/Projects/mevaPur-Commerce/backend/controllers/reportController.js#L130), export queries relied on a pre-count `countDocuments() > 5000` check, but then issued `Order.find()`, `Product.find()`, and `User.find()` with NO `.limit()`. A TOCTOU concurrent insert race condition allowed unbounded results to be loaded into memory.
+   - **Remediation**: Explicitly capped all export queries with `.limit(MAX_EXPORT_LIMIT).lean()`.
+3. **Unbounded Delivered Orders Processing Loop**:
+   - **Vulnerability**: In [`backend/services/order/FinancialMetricsService.js:1239`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/FinancialMetricsService.js#L1239):
+     `Order.find({ ...matchQuery, orderStatus: ORDER_STATUSES.DELIVERED }).select(...)`
+     Loaded all delivered orders in the query interval into memory to calculate average delivery duration via JavaScript array loops.
+
+---
+
+#### 3.2 Deep `.populate()` Chains & N+1 Cascades
+1. **7-Way Serial Population Waterfall**:
+   - **Component**: [`backend/services/exception/ExceptionQueueService.js:287-294`](file:///c:/Projects/mevaPur-Commerce/backend/services/exception/ExceptionQueueService.js#L287-L294)
+   - **Anti-Pattern**:
+     ```javascript
+     const exception = await CustomerOperationException.findById(id)
+       .populate('customer', 'fullName email phone')
+       .populate('order')
+       .populate('payment')
+       .populate('assignedTo', 'fullName email')
+       .populate('acknowledgedBy', 'fullName email')
+       .populate('resolvedBy', 'fullName email')
+       .populate('transactionalMessage');
+     ```
+   - **Impact**: Fires 7 distinct database queries sequentially or concurrently. `order`, `payment`, and `transactionalMessage` are populated with entire documents without projection.
+2. **7-Query Catalog Render Cascade**:
+   - **Component**: [`backend/controllers/productController.js:306-320`](file:///c:/Projects/mevaPur-Commerce/backend/controllers/productController.js#L306-L320)
+   - **Anti-Pattern**: For every catalog page view, 7 database roundtrips are dispatched:
+     1. `Product.find(query)`
+     2. Category population
+     3. Subcategory population
+     4. Brand population
+     5. `Product.countDocuments(query)`
+     6. `fetchMarketPriceMap` (MarketPriceBook query)
+     7. `InventoryAvailabilityService.getBatchAvailability` (InventoryPosition query)
+   - **Recommendation**: Merge Category and Brand projections using `$lookup` aggregation or denormalize `category.name` and `brand.name` snapshots directly onto `Product` document.
+
+---
+
+#### 3.3 Memory-Heavy Aggregations Lacking `$match` Bounds
+1. **Unbounded Historical Category & Top Spender Aggregations**:
+   - **Component**: [`FinancialMetricsService.js:979`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/FinancialMetricsService.js#L979) (`categoryStats`) and [`FinancialMetricsService.js:1081`](file:///c:/Projects/mevaPur-Commerce/backend/services/order/FinancialMetricsService.js#L1081) (`topSpendersAgg`)
+   - **Anti-Pattern**:
+     ```javascript
+     const categoryStats = await Order.aggregate([
+       {
+         $match: {
+           orderStatus: { $ne: ORDER_STATUSES.CANCELLED },
+           paymentStatus: { $in: ['Paid', 'PartiallyRefunded', 'Refunded'] }
+         }
+       },
+       { $unwind: '$items' },
+       { $lookup: { from: 'products', ... } },
+       ...
+     ```
+   - **Bottleneck**: Lacks a date filter (`createdAt: { $gte, $lt }`). On a production dataset of 500,000 orders with 2,000,000 line items, this aggregation unwinds and executes foreign lookups across millions of entries on every analytics dashboard load.
+   - **Resolution**: Aggregations must enforce interval windows (`dateRange`) or materialize daily category rollups.
+
+---
+
+### 4. Applied Production Remediations
+
+1. **Compound Index Additions**:
+   - **`Order.js`**: Added `{ createdAt: -1, _id: -1 }`, `{ user: 1, orderStatus: 1, createdAt: -1, _id: -1 }`, `{ paymentStatus: 1, orderStatus: 1, createdAt: -1 }`, and `{ 'quote.merchantScopeId': 1, createdAt: -1 }`.
+   - **`Product.js`**: Added `{ category: 1, status: 1, isActive: 1, price: 1 }`, `{ brand: 1, status: 1, isActive: 1, createdAt: -1 }`, `{ subcategory: 1, status: 1, isActive: 1, createdAt: -1 }`, and `{ status: 1, isActive: 1, soldCount: -1 }`.
+   - **`Refund.js`**: Added `{ order: 1, status: 1 }`.
+   - **`User.js`**: Added `{ role: 1, isDeleted: 1, isBlocked: 1, createdAt: -1 }`.
+   - **`Payment.js`**: Added `{ merchantScopeId: 1, status: 1, createdAt: -1 }`.
+2. **Query Bounds & Lean Enforcement**:
+   - **`adminRoutes.js`**: Capped recent orders and top products `limit` between 1 and 100, and added `.lean()` to reduce V8 object creation overhead.
+   - **`reportController.js`**: Attached `.limit(MAX_EXPORT_LIMIT).lean()` across orders, products, and customer export endpoints.
+3. **Automated Regression Suite**:
+   - Created [`backend/tests/unit/models/schemaIndexesAndBounds.test.js`](file:///c:/Projects/mevaPur-Commerce/backend/tests/unit/models/schemaIndexesAndBounds.test.js) containing 11 tests verifying all compound index definitions and boundedness rules.
+
+---
+
+### 5. Verification Protocol & Zero-Regression Test Suite
+
+```
+1. Schema Indexes & Query Bounds Suite:
+   PASS tests/unit/models/schemaIndexesAndBounds.test.js (11 passed, 11 total, Time: 6.33 s)
+   - Order Model Indexes: 4 compound indexes verified
+   - Product Model Indexes: 4 compound indexes verified
+   - Refund Model Indexes: 1 compound index verified
+   - User Model Indexes: 1 compound index verified
+   - Payment Model Indexes: 1 compound index verified
+
+2. Core Financial & State Machine Unit Tests:
+   PASS tests/unit/services/financialMetricsService.test.js (20 passed, 20 total)
+   PASS tests/unit/services/stateMachineAndCodGuards.test.js (10 passed, 10 total)
+   PASS tests/unit/phase7-finance-reconciliation.unit.test.js (5 passed, 5 total)
+   Total Tests: 46 passed, 0 failures, Exit Code 0.
+
+3. Backend Static Analysis Lint:
+   Command: npm run lint (eslint . --max-warnings=0)
+   Result: Exit Code 0, 0 errors, 0 warnings.
+
+4. Admin-Panel Typecheck:
+   Command: npx tsc --noEmit
+   Result: Exit Code 0, 0 type errors.
+
+5. Frontend Typecheck:
+   Command: npx tsc --noEmit
+   Result: Exit Code 0, 0 type errors.
+```
+
+

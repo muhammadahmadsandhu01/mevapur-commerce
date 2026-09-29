@@ -129,7 +129,9 @@ const exportReport = async (req, res) => {
       headers = ['Order ID', 'Customer', 'Email', 'Payment Method', 'Payment Status', 'Total (PKR)', 'Status', 'Date'];
       const orders = await Order.find()
         .populate('user', 'fullName email')
-        .sort({ createdAt: -1, _id: -1 });
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(MAX_EXPORT_LIMIT)
+        .lean();
 
       rows = orders.map((order) => [
         order.orderId || String(order._id),
@@ -156,7 +158,9 @@ const exportReport = async (req, res) => {
       headers = ['Product Name', 'SKU', 'Category', 'Price (PKR)', 'Stock', 'Sold Count'];
       const products = await Product.find()
         .populate('category', 'name')
-        .sort({ createdAt: -1, _id: -1 });
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(MAX_EXPORT_LIMIT)
+        .lean();
 
       rows = products.map((p) => [
         p.name || '',
@@ -181,7 +185,9 @@ const exportReport = async (req, res) => {
       headers = ['Customer Name', 'Email', 'Phone', 'Role', 'Joined Date'];
       const customers = await User.find({ role: 'customer' })
         .select('fullName email phone role createdAt')
-        .sort({ createdAt: -1, _id: -1 });
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(MAX_EXPORT_LIMIT)
+        .lean();
 
       rows = customers.map((c) => [
         c.fullName || '',

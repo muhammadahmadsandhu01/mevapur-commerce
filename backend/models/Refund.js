@@ -256,6 +256,7 @@ refundSchema.index(
   }
 );
 refundSchema.index({ status: 1, createdAt: -1 });
+refundSchema.index({ order: 1, status: 1 });
 refundSchema.index(
   { returnId: 1 },
   { unique: true, sparse: true, name: 'unique_refund_return' }

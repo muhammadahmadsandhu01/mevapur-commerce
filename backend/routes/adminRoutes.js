@@ -37,12 +37,13 @@ router.get('/stats', protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.get('/orders/recent', protect, admin, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 100);
 
     const orders = await Order.find()
       .populate('user', 'fullName email')
-      .sort({ createdAt: -1 })
-      .limit(limit);
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit)
+      .lean();
 
     res.json({
       success: true,
@@ -65,11 +66,12 @@ router.get('/orders/recent', protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.get('/products/top', protect, admin, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 100);
 
     const products = await Product.find()
-      .sort({ soldCount: -1 })
-      .limit(limit);
+      .sort({ soldCount: -1, _id: -1 })
+      .limit(limit)
+      .lean();
 
     res.json({
       success: true,

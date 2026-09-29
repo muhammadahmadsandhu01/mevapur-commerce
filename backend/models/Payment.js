@@ -379,6 +379,7 @@ paymentSchema.index(
   }
 );
 paymentSchema.index({ order: 1, createdAt: -1 });
+paymentSchema.index({ merchantScopeId: 1, status: 1, createdAt: -1 });
 paymentSchema.index(
   { customerReferenceHash: 1 },
   {

@@ -590,11 +590,15 @@ if (mongoose.models.Product) {
     }
   );
   productSchema.index({ category: 1, isActive: 1, createdAt: -1 });
+  productSchema.index({ category: 1, status: 1, isActive: 1, price: 1 });
   productSchema.index({ brand: 1, isActive: 1 });
+  productSchema.index({ brand: 1, status: 1, isActive: 1, createdAt: -1 });
+  productSchema.index({ subcategory: 1, status: 1, isActive: 1, createdAt: -1 });
   productSchema.index({ isActive: 1, status: 1, createdAt: -1 });
   productSchema.index({ isActive: 1, price: 1 });
   productSchema.index({ isActive: 1, rating: -1 });
   productSchema.index({ soldCount: -1 });
+  productSchema.index({ status: 1, isActive: 1, soldCount: -1 });
   productSchema.index({ name: 'text', description: 'text', shortDescription: 'text' });
 
   module.exports = mongoose.model('Product', productSchema);

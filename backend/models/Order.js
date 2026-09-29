@@ -461,6 +461,10 @@ orderSchema.index(
 );
 orderSchema.index({ user: 1, createdAt: -1, _id: -1 });
 orderSchema.index({ orderStatus: 1, createdAt: -1, _id: -1 });
+orderSchema.index({ createdAt: -1, _id: -1 });
+orderSchema.index({ user: 1, orderStatus: 1, createdAt: -1, _id: -1 });
+orderSchema.index({ paymentStatus: 1, orderStatus: 1, createdAt: -1 });
+orderSchema.index({ 'quote.merchantScopeId': 1, createdAt: -1 });
 
 orderSchema.pre('validate', async function ensureOrderId() {
   if (!this.orderId) {

@@ -219,6 +219,7 @@ const userSchema = new mongoose.Schema(
 */
 // Compound index for finding active users quickly
 userSchema.index({ isDeleted: 1, isBlocked: 1 });
+userSchema.index({ role: 1, isDeleted: 1, isBlocked: 1, createdAt: -1 });
 
 /*
 |--------------------------------------------------------------------------
