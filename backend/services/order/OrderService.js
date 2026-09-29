@@ -1176,31 +1176,16 @@ class OrderService {
             });
           }
 
-          // Atomically decrement Product stock for each ordered item
+          // Update soldCount on Product (Inventory stock mutation delegated to InventoryReservationService)
           for (const item of persistedItems) {
             const productId = item.product || item.productId;
             const qty = Number(item.quantity) || 1;
             if (productId) {
-              if (item.variantId) {
-                const variantUpdate = await Product.updateOne(
-                  { _id: productId, 'variants._id': item.variantId, 'variants.stock': { $gte: qty } },
-                  { $inc: { 'variants.$.stock': -qty, stock: -qty, soldCount: qty } },
-                  { session }
-                );
-                if (variantUpdate.matchedCount === 0) {
-                  await Product.updateOne(
-                    { _id: productId, stock: { $gte: qty } },
-                    { $inc: { stock: -qty, soldCount: qty } },
-                    { session }
-                  );
-                }
-              } else {
-                await Product.updateOne(
-                  { _id: productId, stock: { $gte: qty } },
-                  { $inc: { stock: -qty, soldCount: qty } },
-                  { session }
-                );
-              }
+              await Product.updateOne(
+                { _id: productId },
+                { $inc: { soldCount: qty } },
+                { session }
+              );
             }
           }
 
@@ -1540,32 +1525,17 @@ class OrderService {
       });
       order.inventoryRestoredAt = new Date();
 
-      // Atomically restore Product stock for cancelled order items
+      // Reverse soldCount on Product (Inventory stock restoration delegated to InventoryReservationService)
       if (Array.isArray(order.items)) {
         for (const item of order.items) {
           const productId = item.product || item.productId;
           const qty = Number(item.quantity) || 1;
           if (productId) {
-            if (item.variantId) {
-              const variantRestore = await Product.updateOne(
-                { _id: productId, 'variants._id': item.variantId },
-                { $inc: { 'variants.$.stock': qty, stock: qty, soldCount: -qty } },
-                { session }
-              );
-              if (variantRestore.matchedCount === 0) {
-                await Product.updateOne(
-                  { _id: productId },
-                  { $inc: { stock: qty, soldCount: -qty } },
-                  { session }
-                );
-              }
-            } else {
-              await Product.updateOne(
-                { _id: productId },
-                { $inc: { stock: qty, soldCount: -qty } },
-                { session }
-              );
-            }
+            await Product.updateOne(
+              { _id: productId },
+              { $inc: { soldCount: -qty } },
+              { session }
+            );
           }
         }
       }

@@ -18,6 +18,17 @@ export function middleware(request: NextRequest) {
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', cspHeader);
 
+  const { pathname } = request.nextUrl;
+  const isLoginPage = pathname === '/login' || pathname.startsWith('/login');
+  
+  if (!isLoginPage) {
+    const hasAdminToken = request.cookies.has('mevapur_admin_token') || request.cookies.has('mevapur_admin_access_token');
+    const hasGenericToken = request.cookies.has('refreshToken') || request.cookies.has('accessToken');
+    if (!hasAdminToken && !hasGenericToken) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+  }
+
   const response = NextResponse.next({
     request: {
       headers: requestHeaders

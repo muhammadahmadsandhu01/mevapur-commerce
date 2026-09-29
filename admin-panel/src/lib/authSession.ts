@@ -52,11 +52,11 @@ export const setInvalidationHandler = (handler: () => void) => {
 export const acceptAuthentication = <TUser>(
   payload: AuthPayload<TUser>
 ) => {
-  if (!payload.accessToken || !payload.csrfToken) {
+  if (!payload.csrfToken) {
     throw new Error('Authentication response is incomplete');
   }
 
-  accessToken = payload.accessToken;
+  accessToken = payload.accessToken || null;
   csrfToken = payload.csrfToken;
   return payload;
 };

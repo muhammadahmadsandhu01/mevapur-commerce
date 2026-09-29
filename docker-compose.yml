@@ -64,7 +64,7 @@ services:
       - COMMERCE_MONEY_MODE=legacy
       - COMMERCE_TWO_PHASE_CHECKOUT_ENABLED=true
       - LOG_FILE_ENABLED=false
-      - JWT_SECRET=test_jwt_secret_must_be_at_least_32_characters_long_for_security
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be explicitly set}
     networks:
       - frontend_net
       - backend_net

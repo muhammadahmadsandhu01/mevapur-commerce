@@ -55,22 +55,46 @@ const getRefreshCookieName = (req) => {
   return config.cookie.refresh.name;
 };
 
-const setRefreshCookie = (reqOrRes, maybeResOrToken, maybeToken) => {
-  const res = maybeToken !== undefined ? maybeResOrToken : (maybeResOrToken && maybeResOrToken.cookie ? maybeResOrToken : reqOrRes);
-  const req = maybeToken !== undefined ? reqOrRes : (maybeResOrToken && maybeResOrToken.cookie ? reqOrRes : null);
-  const refreshToken = maybeToken !== undefined ? maybeToken : maybeResOrToken;
+const getAccessCookieName = (req) => {
+  const scope = getAuthScope(req);
+  if (scope === 'storefront') return 'mevapur_storefront_access_token';
+  if (scope === 'admin') return 'mevapur_admin_access_token';
+  return 'accessToken';
+};
 
-  const cookieName = getRefreshCookieName(req);
+const setAuthCookies = (reqOrRes, maybeRes, refreshToken, accessToken) => {
+  const res = maybeRes || reqOrRes;
+  const req = maybeRes ? reqOrRes : null;
+  const refreshCookieName = getRefreshCookieName(req);
+  const accessCookieName = getAccessCookieName(req);
+  
   res.cookie(
-    cookieName,
+    refreshCookieName,
     refreshToken,
     config.cookie.refresh
   );
-  if (cookieName !== config.cookie.refresh.name) {
+  if (refreshCookieName !== config.cookie.refresh.name) {
     res.cookie(
       config.cookie.refresh.name,
       refreshToken,
       config.cookie.refresh
+    );
+  }
+
+  const accessCookieOptions = {
+    ...config.cookie.refresh,
+    maxAge: 15 * 60 * 1000 // 15 mins for access token
+  };
+  res.cookie(
+    accessCookieName,
+    accessToken,
+    accessCookieOptions
+  );
+  if (accessCookieName !== 'accessToken') {
+    res.cookie(
+      'accessToken',
+      accessToken,
+      accessCookieOptions
     );
   }
 };
@@ -79,11 +103,19 @@ const clearAuthCookies = (reqOrRes, maybeRes) => {
   const res = maybeRes || reqOrRes;
   const req = maybeRes ? reqOrRes : null;
   const { maxAge: refreshMaxAge, ...refreshOptions } = config.cookie.refresh;
-  const cookieName = getRefreshCookieName(req);
-  res.clearCookie(cookieName, refreshOptions);
+  
+  const refreshCookieName = getRefreshCookieName(req);
+  res.clearCookie(refreshCookieName, refreshOptions);
   res.clearCookie('mevapur_storefront_token', refreshOptions);
   res.clearCookie('mevapur_admin_token', refreshOptions);
   res.clearCookie(config.cookie.refresh.name, refreshOptions);
+  
+  const accessCookieName = getAccessCookieName(req);
+  res.clearCookie(accessCookieName, refreshOptions);
+  res.clearCookie('mevapur_storefront_access_token', refreshOptions);
+  res.clearCookie('mevapur_admin_access_token', refreshOptions);
+  res.clearCookie('accessToken', refreshOptions);
+  
   clearCsrfToken(req, res);
 };
 
@@ -128,7 +160,7 @@ exports.register = async (req, res, next) => {
     }
 
     const csrfToken = issueCsrfToken(req, res);
-    setRefreshCookie(req, res, result.refreshToken);
+    setAuthCookies(req, res, result.refreshToken, result.accessToken);
 
     return success(req, res, 201, 'Registration successful', {
       user: result.user,
@@ -190,7 +222,7 @@ exports.login = async (req, res, next) => {
     }
 
     const csrfToken = issueCsrfToken(req, res);
-    setRefreshCookie(req, res, result.refreshToken);
+    setAuthCookies(req, res, result.refreshToken, result.accessToken);
 
     return success(req, res, 200, 'Login successful', {
       user: result.user,
@@ -222,7 +254,7 @@ exports.refresh = async (req, res, next) => {
       ...getClientInfo(req)
     });
     const csrfToken = issueCsrfToken(req, res);
-    setRefreshCookie(req, res, result.refreshToken);
+    setAuthCookies(req, res, result.refreshToken, result.accessToken);
 
     return success(req, res, 200, 'Authentication refreshed', {
       user: result.user,

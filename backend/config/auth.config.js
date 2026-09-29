@@ -10,10 +10,14 @@ if (!jwtSecret) {
   throw new Error('JWT_SECRET is required for authentication');
 }
 
-if (runtimeConfig.isDeployed && jwtSecret.length < 32) {
-  throw new Error(
-    'JWT_SECRET must contain at least 32 characters in staging and production'
-  );
+if (runtimeConfig.isDeployed) {
+  if (jwtSecret.length < 32) {
+    throw new Error('JWT_SECRET must contain at least 32 characters in staging and production');
+  }
+  if (jwtSecret === 'test_jwt_secret_must_be_at_least_32_characters_long_for_security') {
+    console.error('FATAL: Hardcoded default JWT_SECRET detected in production!');
+    process.exit(1);
+  }
 }
 
 const parseDurationMs = (value, fallbackMs) => {

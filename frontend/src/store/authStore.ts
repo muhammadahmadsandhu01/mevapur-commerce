@@ -96,12 +96,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (stored) {
           acceptAuthentication({
             user: stored.user,
-            accessToken: stored.token,
+            accessToken: '', // Passed via HttpOnly cookie
             csrfToken: stored.csrfToken || '',
           });
           set({
             user: stored.user,
-            token: stored.token,
+            token: '',
             isAuthenticated: true,
           });
 
@@ -110,13 +110,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
           // Verify token validity by attempting to fetch current profile
           try {
-            const profileRes = await authHttp.get('/account/profile', {
-              headers: { Authorization: `Bearer ${stored.token}` },
-            });
+            const profileRes = await authHttp.get('/account/profile');
             if (profileRes.data?.data?.profile) {
               const freshUser = { ...stored.user, ...profileRes.data.data.profile };
               saveStoredStorefrontAuth({
-                token: stored.token,
                 user: freshUser,
                 csrfToken: stored.csrfToken,
               });
@@ -338,13 +335,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (currentUser) {
       const updated = { ...currentUser, ...data };
       set({ user: updated });
-      const currentToken = get().token;
-      if (currentToken) {
-        saveStoredStorefrontAuth({
-          token: currentToken,
-          user: updated,
-        });
-      }
+      saveStoredStorefrontAuth({
+        user: updated,
+      });
     }
   },
 }));

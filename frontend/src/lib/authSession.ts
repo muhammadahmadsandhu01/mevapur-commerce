@@ -16,7 +16,6 @@ interface CsrfContext {
 export const STOREFRONT_AUTH_KEY = 'mevapur_storefront_auth';
 
 export interface StoredStorefrontAuth<TUser = unknown> {
-  token: string;
   user: TUser;
   csrfToken?: string;
   timestamp?: number;
@@ -28,7 +27,7 @@ export const loadStoredStorefrontAuth = <TUser>(): StoredStorefrontAuth<TUser> |
     const raw = window.localStorage.getItem(STOREFRONT_AUTH_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredStorefrontAuth<TUser>;
-    if (parsed && typeof parsed.token === 'string' && parsed.user) {
+    if (parsed && parsed.user) {
       return parsed;
     }
   } catch {
@@ -95,12 +94,11 @@ export const acceptAuthentication = <TUser>(
     throw new Error('Authentication response is incomplete');
   }
 
-  accessToken = payload.accessToken;
+  accessToken = payload.accessToken || null;
   csrfToken = payload.csrfToken;
   bumpSessionGeneration();
   if (payload.user) {
     saveStoredStorefrontAuth({
-      token: payload.accessToken,
       user: payload.user,
       csrfToken: payload.csrfToken,
     });

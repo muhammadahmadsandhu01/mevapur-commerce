@@ -24,16 +24,16 @@
 - **Verification method**: Review of `TokenService.js`.
 
 ## Phase 2.2: Authorization & RBAC
-- **Severity**: Low
+- **Severity**: Medium
 - **Category**: Authorization
-- **File**: `backend/middleware/auth.js`
-- **Function**: `admin`, `superAdmin`
-- **Exact behavior**: Checks `req.user.role`.
-- **Evidence**: `auth.js` validates role against fixed arrays.
-- **Failure or attack scenario**: Privilege escalation if user role is mutated.
-- **Business impact**: Administrative takeover.
-- **Recommended fix**: Ensure role mutation is strictly protected in `userController`.
-- **Verification method**: Code inspection.
+- **File**: `admin-panel/src/components/admin/AdminGuard.tsx` & `backend/middleware/auth.js`
+- **Function**: `AdminGuard`, `admin`
+- **Exact behavior**: `AdminGuard.tsx` implements UI-only role checking (`router.replace('/')` if not admin). The actual backend mutations correctly enforce `req.user.role === 'admin'` via `auth.js`. 
+- **Evidence**: `AdminGuard.tsx` line 29 checks `isAdmin`. `auth.js` strictly verifies JWT claims.
+- **Failure or attack scenario**: A user bypassing the Next.js UI guard can see admin pages, but API calls will still return 403 Forbidden.
+- **Business impact**: Minimal risk to data, but UI leaks admin layout.
+- **Recommended fix**: Implement Next.js Middleware (`middleware.ts`) for server-side route protection instead of relying on `useEffect` client-side guards.
+- **Verification method**: Code inspection of `AdminGuard.tsx` and `backend/middleware/auth.js`.
 
 ## Phase 3.1: Price Manipulation & Precision
 - **Severity**: Low
@@ -134,14 +134,14 @@
 ## Phase 10: Cart & Checkout Integrity
 - **Severity**: Low
 - **Category**: Financial Integrity
-- **File**: `backend/services/order/OrderService.js`
-- **Function**: `createOrder`
-- **Exact behavior**: Requires deterministic Quote Token for prepaid/international orders.
-- **Evidence**: Line 570 enforces Quote Token presence.
-- **Failure or attack scenario**: Client-side price modification during checkout.
-- **Business impact**: Purchasing items for 0.01.
-- **Recommended fix**: Mitigated by strict Quote verification.
-- **Verification method**: Reviewed `OrderService.js`.
+- **File**: `frontend/src/store/cartStore.ts` & `backend/services/order/OrderService.js`
+- **Function**: `useCartStore`, `createOrder`
+- **Exact behavior**: `cartStore.ts` persists to `localStorage` and calculates `totalPrice` on the client. However, this is strictly a UI convenience; `OrderService.js` discards client totals and explicitly relies on a cryptographically signed Quote Token for financial boundaries.
+- **Evidence**: `cartStore.ts` (lines 63-331) calculates prices. `OrderService.js` (line 570) requires Quote Token.
+- **Failure or attack scenario**: Malicious user modifies `localStorage` cart prices.
+- **Business impact**: None. Backend completely overrides client-side prices.
+- **Recommended fix**: Mitigated by strict backend Quote verification.
+- **Verification method**: Code inspection of `cartStore.ts` and `OrderService.js`.
 
 ## Phase 11: Shipping & Fulfillment Logic
 - **Severity**: Low
@@ -177,33 +177,50 @@
 - **Recommended fix**: Encrypt PII at rest.
 
 ## Phase 14: Rate Limiting & DoS
-- **Severity**: Medium
-- **Category**: Availability
-- **File**: Global Middleware
-- **Exact behavior**: Unknown rate limiting at application layer.
-- **Failure or attack scenario**: Brute-force order creation to exhaust inventory.
-- **Business impact**: Denial of service to legitimate customers.
-- **Recommended fix**: Implement strict IP/User rate limiting on checkout endpoints.
-
-## Phase 15: Cross-Site Scripting (XSS)
 - **Severity**: Low
+- **Category**: Availability
+- **File**: `backend/middleware/rateLimiter.js` & `backend/middleware/redisRateLimitStore.js`
+- **Function**: `createConfiguredLimiter`
+- **Exact behavior**: Implements highly granular, Redis-backed rate limiting (`express-rate-limit`). Specific limits exist for `/login` (10/15m), `/register` (10/15m), `/forgot-password` (5/15m), and `/verify-email`.
+- **Evidence**: Lines 61-220 in `rateLimiter.js` explicitly declare limits for all sensitive auth/checkout routes.
+- **Failure or attack scenario**: Distributed brute force or credential stuffing.
+- **Business impact**: Mitigated. The Redis store correctly fails closed if attacked.
+- **Recommended fix**: Maintain current Redis rate limiter.
+- **Verification method**: Code inspection of `rateLimiter.js`.
+
+## Phase 15: Cross-Site Scripting (XSS) & Token Storage
+- **Severity**: High
 - **Category**: Security
-- **Exact behavior**: User input (e.g., `customerNote`) is stored.
-- **Failure or attack scenario**: Admin views order with malicious note, executing JS.
-- **Recommended fix**: Ensure frontend sanitizes all rendered notes.
+- **File**: `frontend/src/store/authStore.ts` & `frontend/src/lib/authSession.ts`
+- **Function**: `loadStoredStorefrontAuth`
+- **Exact behavior**: Stores sensitive JWT authentication tokens (`STOREFRONT_AUTH_KEY`) directly in `window.localStorage` (line 95 in `authStore.ts`).
+- **Evidence**: `authSession.ts` (lines 28, 43) explicitly calls `localStorage.setItem`.
+- **Failure or attack scenario**: Any malicious third-party script (XSS) can extract the JWT from localStorage and completely hijack the user session.
+- **Business impact**: Account takeover.
+- **Recommended fix**: Migrate JWT storage to strict `HttpOnly`, `Secure`, `SameSite=Lax` cookies.
 
 ## Phase 16: Cross-Site Request Forgery (CSRF)
 - **Severity**: Low
 - **Category**: Security
-- **Exact behavior**: JWTs are sent via headers, typically mitigating CSRF if not stored in cookies.
-- **Recommended fix**: Validate token storage mechanism.
+- **File**: `frontend/src/lib/authSession.ts`
+- **Function**: `fetchCsrfContext`
+- **Exact behavior**: Backend correctly provides CSRF tokens via `fetchCsrfContext` which are attached to `authHttp` headers.
+- **Evidence**: `authStore.ts` (line 109) automatically fetches CSRF context on bootstrap.
+- **Failure or attack scenario**: Malicious site forging requests.
+- **Business impact**: Mitigated by CSRF tokens and custom headers.
+- **Recommended fix**: None.
 
-## Phase 17: Logging & Audit Trails
+## Phase 17: Financial Reporting & Aggregations
 - **Severity**: Low
-- **Category**: Compliance
-- **File**: `backend/services/order/OrderService.js`
-- **Exact behavior**: Status timelines are appended to the Order document.
-- **Recommended fix**: Ensure immutable audit logs (WORM storage) for financial actions.
+- **Category**: Financial Integrity
+- **File**: `backend/services/order/FinancialMetricsService.js`
+- **Function**: `aggregateRealizedRevenue`
+- **Exact behavior**: Implements a robust MongoDB `$lookup` and `$group` pipeline (Lines 98-405). It explicitly deducts verified refunds (`$sum: '$refundDocs.amount'`) from the order total, and calculates COGS and Net Profit accurately.
+- **Evidence**: Line 260 mathematically subtracts `verifiedRefundedAmount` to produce `netRevenue`. Line 557 calculates `cogs`.
+- **Failure or attack scenario**: Cancelled or refunded orders being counted as revenue.
+- **Business impact**: Mitigated. The pipeline meticulously excludes `ORDER_STATUSES.CANCELLED` and deducts `REFUND_STATUSES.COMPLETED`.
+- **Recommended fix**: Maintain current strict financial semantics.
+- **Verification method**: Code inspection of `FinancialMetricsService.js`.
 
 ## Phase 18: Dependency Vulnerabilities
 - **Severity**: Medium
@@ -211,11 +228,16 @@
 - **Exact behavior**: Relies on third-party NPM packages.
 - **Recommended fix**: Run `npm audit` in CI/CD pipeline.
 
-## Phase 19: Environment Variable Exposure
-- **Severity**: Low
-- **Category**: Security
-- **Exact behavior**: `CheckoutQuoteService` relies on `CHECKOUT_QUOTE_SECRET`.
-- **Recommended fix**: Rotate secrets regularly and store in a secure vault.
+## Phase 19: Docker & Deployment Security
+- **Severity**: High
+- **Category**: Infrastructure Security
+- **File**: `docker-compose.yml`
+- **Exact behavior**: Containers are correctly sandboxed (`no-new-privileges:true`) and databases are isolated to `backend_net`. However, a critical JWT secret is hardcoded in plaintext.
+- **Evidence**: `docker-compose.yml` (Line 67): `JWT_SECRET=test_jwt_secret_must_be_at_least_32_characters_long_for_security`.
+- **Failure or attack scenario**: Attacker reads repository source code and forges arbitrary JWTs (including admin tokens).
+- **Business impact**: Total system compromise.
+- **Recommended fix**: Remove hardcoded `JWT_SECRET` from `docker-compose.yml` and inject it strictly via `.env` or Docker secrets at runtime.
+- **Verification method**: Inspected `docker-compose.yml` and `.env.example`.
 
 ## Phase 20: Error Handling & Information Leakage
 - **Severity**: Low
