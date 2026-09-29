@@ -89,18 +89,40 @@ export default function MarketsCurrenciesEditor({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-8">
+    <div
+      className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-6 space-y-8 mt-4"
+      style={{
+        backgroundColor: '#ffffff',
+        border: '1px solid rgba(226, 232, 240, 0.8)',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        marginTop: '16px'
+      }}
+    >
       {/* Sales Markets Section */}
       <div className="space-y-4">
-        <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-          <Globe className="text-[#ff8a00]" size={20} />
+        <div
+          className="flex items-center gap-3 pb-3 border-b border-slate-100"
+          style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}
+        >
+          <div
+            className="p-2 rounded-xl bg-orange-50 text-[#ff8a00]"
+            style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#fff7ed', color: '#ff8a00', display: 'inline-flex' }}
+          >
+            <Globe size={20} />
+          </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">Enabled Sales Markets (Destinations)</h3>
-            <p className="text-xs text-slate-500">Only enabled ISO 3166-1 destination countries are eligible for checkout quoting.</p>
+            <h3 className="text-base font-bold text-slate-900" style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+              Enabled Sales Markets (Destinations)
+            </h3>
+            <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', margin: 0 }}>
+              Only enabled ISO 3166-1 destination countries are eligible for checkout quoting.
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2.5" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
           {COMMON_COUNTRIES.map((c) => {
             const isEnabled = enabledCountries.includes(c.code);
             return (
@@ -109,14 +131,28 @@ export default function MarketsCurrenciesEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => handleToggleCountry(c.code)}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
                   isEnabled
-                    ? 'bg-orange-50 border-[#ff8a00] text-[#0b132b]'
-                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                 }`}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: isEnabled ? '1px solid #a7f3d0' : '1px solid #e2e8f0',
+                  backgroundColor: isEnabled ? '#ecfdf5' : '#f1f5f9',
+                  color: isEnabled ? '#047857' : '#334155',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 <span>{c.name} ({c.code})</span>
-                {isEnabled && <span className="text-[#ff8a00] font-black">✓</span>}
+                {isEnabled && <span className="text-emerald-600 font-black">✓</span>}
               </button>
             );
           })}
@@ -130,28 +166,67 @@ export default function MarketsCurrenciesEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => handleToggleCountry(c)}
-                className="px-3 py-1.5 rounded-xl border bg-orange-50 border-[#ff8a00] text-[#0b132b] text-xs font-bold transition flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded-xl border bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: '1px solid #a7f3d0',
+                  backgroundColor: '#ecfdf5',
+                  color: '#047857',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 <span>{c}</span>
-                <span className="text-[#ff8a00] font-black">✓</span>
+                <span className="text-emerald-600 font-black">✓</span>
               </button>
             ))}
         </div>
 
         {!disabled && (
-          <form onSubmit={handleAddCustomCountry} className="flex gap-2 max-w-xs pt-2">
+          <form onSubmit={handleAddCustomCountry} className="flex gap-2 max-w-sm pt-2" style={{ display: 'flex', gap: '8px', maxWidth: '360px', paddingTop: '8px' }}>
             <input
               type="text"
               maxLength={2}
               value={customCountry}
               onChange={(e) => setCustomCountry(e.target.value.toUpperCase().slice(0, 2))}
               placeholder="Add ISO code (e.g. FR, IT, CA)"
-              className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs uppercase font-bold outline-none"
+              className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs uppercase font-bold text-slate-900 outline-none focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] shadow-xs"
+              style={{
+                flex: 1,
+                padding: '8px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                outline: 'none',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+              }}
             />
             <button
               type="submit"
               disabled={!customCountry.trim() || customCountry.length !== 2}
-              className="px-3 py-1.5 bg-[#0b132b] text-white text-xs font-bold rounded-lg transition disabled:opacity-50"
+              className="px-4 py-2 bg-[#ff8a00] hover:bg-[#ea580c] text-white text-xs font-semibold rounded-xl shadow-xs transition disabled:opacity-50 cursor-pointer"
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#ff8a00',
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '12px',
+                border: 'none',
+                cursor: !customCountry.trim() || customCountry.length !== 2 ? 'not-allowed' : 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                transition: 'all 0.15s ease'
+              }}
             >
               Add
             </button>
@@ -161,15 +236,27 @@ export default function MarketsCurrenciesEditor({
 
       {/* Enabled Currencies Section */}
       <div className="space-y-4">
-        <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-          <DollarSign className="text-emerald-600" size={20} />
+        <div
+          className="flex items-center gap-3 pb-3 border-b border-slate-100"
+          style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}
+        >
+          <div
+            className="p-2 rounded-xl bg-emerald-50 text-emerald-600"
+            style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#ecfdf5', color: '#059669', display: 'inline-flex' }}
+          >
+            <DollarSign size={20} />
+          </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">Supported Presentment Currencies</h3>
-            <p className="text-xs text-slate-500">Currencies accepted during customer checkout quoting (ISO 4217).</p>
+            <h3 className="text-base font-bold text-slate-900" style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+              Supported Presentment Currencies
+            </h3>
+            <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', margin: 0 }}>
+              Currencies accepted during customer checkout quoting (ISO 4217).
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2.5" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
           {COMMON_CURRENCIES.map((curr) => {
             const isEnabled = enabledCurrencies.includes(curr);
             return (
@@ -178,14 +265,28 @@ export default function MarketsCurrenciesEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => handleToggleCurrency(curr)}
-                className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer ${
                   isEnabled
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
-                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                 }`}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: isEnabled ? '1px solid #a7f3d0' : '1px solid #e2e8f0',
+                  backgroundColor: isEnabled ? '#ecfdf5' : '#f1f5f9',
+                  color: isEnabled ? '#047857' : '#334155',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 <span>{curr}</span>
-                {isEnabled && <span className="text-emerald-700 font-black">✓</span>}
+                {isEnabled && <span className="text-emerald-600 font-black">✓</span>}
               </button>
             );
           })}
@@ -198,28 +299,67 @@ export default function MarketsCurrenciesEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => handleToggleCurrency(c)}
-                className="px-3.5 py-1.5 rounded-xl border bg-emerald-50 border-emerald-500 text-emerald-900 text-xs font-bold transition flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-xl border bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold transition inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: '1px solid #a7f3d0',
+                  backgroundColor: '#ecfdf5',
+                  color: '#047857',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 <span>{c}</span>
-                <span className="text-emerald-700 font-black">✓</span>
+                <span className="text-emerald-600 font-black">✓</span>
               </button>
             ))}
         </div>
 
         {!disabled && (
-          <form onSubmit={handleAddCustomCurrency} className="flex gap-2 max-w-xs pt-2">
+          <form onSubmit={handleAddCustomCurrency} className="flex gap-2 max-w-sm pt-2" style={{ display: 'flex', gap: '8px', maxWidth: '360px', paddingTop: '8px' }}>
             <input
               type="text"
               maxLength={3}
               value={customCurrency}
               onChange={(e) => setCustomCurrency(e.target.value.toUpperCase().slice(0, 3))}
               placeholder="Add ISO currency (e.g. AUD, CHF)"
-              className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-xs uppercase font-bold outline-none"
+              className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs uppercase font-bold text-slate-900 outline-none focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] shadow-xs"
+              style={{
+                flex: 1,
+                padding: '8px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                outline: 'none',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+              }}
             />
             <button
               type="submit"
               disabled={!customCurrency.trim() || customCurrency.length !== 3}
-              className="px-3 py-1.5 bg-[#0b132b] text-white text-xs font-bold rounded-lg transition disabled:opacity-50"
+              className="px-4 py-2 bg-[#ff8a00] hover:bg-[#ea580c] text-white text-xs font-semibold rounded-xl shadow-xs transition disabled:opacity-50 cursor-pointer"
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#ff8a00',
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '12px',
+                border: 'none',
+                cursor: !customCurrency.trim() || customCurrency.length !== 3 ? 'not-allowed' : 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                transition: 'all 0.15s ease'
+              }}
             >
               Add
             </button>

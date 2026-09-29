@@ -485,7 +485,7 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
       const order = result.order || result;
 
       expect(order).toBeDefined();
-      expect(order.orderId).toMatch(/^ORD-/);
+      expect(order.orderId).toMatch(/^(?:ORD|HZ)-/);
       expect(order.shippingCost).toBe(35);
       expect(order.shippingCostExact.amountMinor.toString()).toBe('3500');
       expect(order.shippingQuote.ruleId).toBe('SHIP-AE-STD-01');
@@ -952,7 +952,7 @@ describe('Phase 6D-3: Shipping & Fulfillment Routing Integration Tests', () => {
 
       const order = result.order || result;
       expect(order).toBeDefined();
-      expect(order.orderId).toMatch(/^ORD-/);
+      expect(order.orderId).toMatch(/^(?:ORD|HZ)-/);
       expect(order.shippingQuote).toBeDefined();
       expect(order.quote.quoteId).toBe(quote.quoteId);
       expect(order.items).toHaveLength(2);

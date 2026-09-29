@@ -30,7 +30,7 @@ exports.getStaffUsers = async (req, res, next) => {
     }
 
     const users = await User.find(query)
-      .select('-password')
+      .select('-password +loginAttempts +lockUntil')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -67,7 +67,7 @@ exports.getCustomers = async (req, res, next) => {
 
     const [customers, total] = await Promise.all([
       User.find(query)
-        .select('-password')
+        .select('-password +loginAttempts +lockUntil')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
@@ -373,4 +373,43 @@ exports.getRolesMatrix = (req, res) => {
     success: true,
     data: matrix
   });
+};
+
+// @desc    Unlock user account (reset brute force lock and failed login attempts)
+// @route   POST /api/admin/users/:id/unlock, PUT /api/v1/users/:id/unlock, POST /api/users/:id/unlock
+// @access  Private/Admin
+exports.unlockUser = async (req, res, next) => {
+  try {
+    const userId = req.params.id;
+    const user = await User.findById(userId).select('+loginAttempts +lockUntil');
+    if (!user || user.isDeleted) {
+      throw new AppError('User not found', 404, ERROR_CODES.USER_NOT_FOUND);
+    }
+
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+    await user.save({ validateBeforeSave: false });
+
+    await logActivity(req, 'USER_UNLOCK',
+      `Unlocked user account: ${user.fullName} (${user.email})`,
+      { userId: user._id, email: user.email }
+    );
+
+    res.json({
+      success: true,
+      message: 'User account unlocked successfully',
+      data: {
+        id: user._id,
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        loginAttempts: user.loginAttempts,
+        lockUntil: user.lockUntil,
+        isBlocked: user.isBlocked,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 };

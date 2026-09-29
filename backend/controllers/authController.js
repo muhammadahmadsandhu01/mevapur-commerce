@@ -1,5 +1,7 @@
 const AuthService = require('../services/AuthService');
 const config = require('../config/auth.config');
+const { AppError } = require('../common/errors/AppError');
+const ERROR_CODES = require('../constants/errorCodes');
 const {
   issueCsrfToken,
   clearCsrfToken
@@ -34,34 +36,81 @@ const success = (req, res, statusCode, message, data) => {
   return res.status(statusCode).json(body);
 };
 
-const setRefreshCookie = (res, refreshToken) => {
+const getAuthScope = (req) => {
+  const explicitScope = (req?.get?.('X-Auth-Scope') || req?.get?.('X-Client-App') || '').toLowerCase().trim();
+  if (explicitScope === 'storefront') return 'storefront';
+  if (explicitScope === 'admin') return 'admin';
+
+  const origin = req?.get?.('Origin') || req?.get?.('Referer') || '';
+  if (origin.includes(':55070') || origin.includes(':3000')) return 'storefront';
+  if (origin.includes(':55071') || origin.includes(':3001')) return 'admin';
+
+  return 'generic';
+};
+
+const getRefreshCookieName = (req) => {
+  const scope = getAuthScope(req);
+  if (scope === 'storefront') return 'mevapur_storefront_token';
+  if (scope === 'admin') return 'mevapur_admin_token';
+  return config.cookie.refresh.name;
+};
+
+const setRefreshCookie = (reqOrRes, maybeResOrToken, maybeToken) => {
+  const res = maybeToken !== undefined ? maybeResOrToken : (maybeResOrToken && maybeResOrToken.cookie ? maybeResOrToken : reqOrRes);
+  const req = maybeToken !== undefined ? reqOrRes : (maybeResOrToken && maybeResOrToken.cookie ? reqOrRes : null);
+  const refreshToken = maybeToken !== undefined ? maybeToken : maybeResOrToken;
+
+  const cookieName = getRefreshCookieName(req);
   res.cookie(
-    config.cookie.refresh.name,
+    cookieName,
     refreshToken,
     config.cookie.refresh
   );
+  if (cookieName !== config.cookie.refresh.name) {
+    res.cookie(
+      config.cookie.refresh.name,
+      refreshToken,
+      config.cookie.refresh
+    );
+  }
 };
 
-const clearAuthCookies = (res) => {
+const clearAuthCookies = (reqOrRes, maybeRes) => {
+  const res = maybeRes || reqOrRes;
+  const req = maybeRes ? reqOrRes : null;
   const { maxAge: refreshMaxAge, ...refreshOptions } = config.cookie.refresh;
+  const cookieName = getRefreshCookieName(req);
+  res.clearCookie(cookieName, refreshOptions);
+  res.clearCookie('mevapur_storefront_token', refreshOptions);
+  res.clearCookie('mevapur_admin_token', refreshOptions);
   res.clearCookie(config.cookie.refresh.name, refreshOptions);
-  clearCsrfToken(res);
+  clearCsrfToken(req, res);
 };
 
 exports.getCsrfToken = (req, res) => {
-  const csrfToken = issueCsrfToken(res);
+  const csrfToken = issueCsrfToken(req, res);
+  const cookieName = getRefreshCookieName(req);
+  const scope = getAuthScope(req);
+  const hasRefreshSession = Boolean(
+    req.cookies?.[cookieName] || (scope === 'generic' && req.cookies?.[config.cookie.refresh.name])
+  );
   return success(req, res, 200, 'CSRF token issued', {
     csrfToken,
-    hasRefreshSession: Boolean(
-      req.cookies?.[config.cookie.refresh.name]
-    )
+    hasRefreshSession
   });
 };
 
 exports.register = async (req, res, next) => {
   try {
+    const { phone, residenceCountry, ...rest } = req.body;
+    const effectiveResidenceCountry = (residenceCountry && typeof residenceCountry === 'string' && residenceCountry.trim())
+      ? residenceCountry.trim().toUpperCase()
+      : 'PK';
+
     const result = await AuthService.register({
-      ...req.body,
+      ...rest,
+      phone: (phone || '').trim(),
+      residenceCountry: effectiveResidenceCountry,
       ...getClientInfo(req),
       deviceInfo: getDeviceInfo(req)
     });
@@ -78,8 +127,8 @@ exports.register = async (req, res, next) => {
       });
     }
 
-    const csrfToken = issueCsrfToken(res);
-    setRefreshCookie(res, result.refreshToken);
+    const csrfToken = issueCsrfToken(req, res);
+    setRefreshCookie(req, res, result.refreshToken);
 
     return success(req, res, 201, 'Registration successful', {
       user: result.user,
@@ -140,8 +189,8 @@ exports.login = async (req, res, next) => {
       });
     }
 
-    const csrfToken = issueCsrfToken(res);
-    setRefreshCookie(res, result.refreshToken);
+    const csrfToken = issueCsrfToken(req, res);
+    setRefreshCookie(req, res, result.refreshToken);
 
     return success(req, res, 200, 'Login successful', {
       user: result.user,
@@ -156,13 +205,24 @@ exports.login = async (req, res, next) => {
 
 exports.refresh = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies?.[config.cookie.refresh.name];
+    const cookieName = getRefreshCookieName(req);
+    const scope = getAuthScope(req);
+    let refreshToken = req.cookies?.[cookieName];
+    if (!refreshToken && scope === 'generic') {
+      refreshToken = req.cookies?.[config.cookie.refresh.name];
+    }
+
+    if (!refreshToken) {
+      clearAuthCookies(req, res);
+      return next(new AppError('Refresh token is required', 401, ERROR_CODES.AUTH_TOKEN_REQUIRED));
+    }
+
     const result = await AuthService.refreshTokens({
       refreshToken,
       ...getClientInfo(req)
     });
-    const csrfToken = issueCsrfToken(res);
-    setRefreshCookie(res, result.refreshToken);
+    const csrfToken = issueCsrfToken(req, res);
+    setRefreshCookie(req, res, result.refreshToken);
 
     return success(req, res, 200, 'Authentication refreshed', {
       user: result.user,
@@ -171,7 +231,7 @@ exports.refresh = async (req, res, next) => {
       csrfToken
     });
   } catch (error) {
-    clearAuthCookies(res);
+    clearAuthCookies(req, res);
     return next(error);
   }
 };
@@ -191,7 +251,7 @@ exports.logout = async (req, res, next) => {
       sessionId: req.auth.sessionId,
       ...getClientInfo(req)
     });
-    clearAuthCookies(res);
+    clearAuthCookies(req, res);
     return success(req, res, 200, 'Logout successful');
   } catch (error) {
     return next(error);

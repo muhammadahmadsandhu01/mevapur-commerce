@@ -6,7 +6,6 @@ import {
   CheckCircle,
   Download,
   Eye,
-  Flame,
   Loader2,
   RefreshCw,
   Search,
@@ -43,6 +42,18 @@ interface Metrics {
   escalatedCount: number;
   totalOpen: number;
 }
+
+const formatDate = (val?: string | Date | null) => {
+  if (!val) return '—';
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+};
+
+const formatTime = (val?: string | Date | null) => {
+  if (!val) return '—';
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+};
 
 export default function ExceptionsPage() {
   const [exceptions, setExceptions] = useState<ExceptionItem[]>([]);
@@ -208,50 +219,146 @@ export default function ExceptionsPage() {
         </div>
       </div>
 
-      {/* Metrics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Open</span>
-          <p className="text-2xl font-black text-slate-900 mt-1">{metrics.totalOpen}</p>
+      {/* 5-Column Responsive Metric KPI Cards Grid */}
+      <div
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 my-6"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '16px',
+          margin: '24px 0'
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs border-l-4 border-l-slate-800"
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0',
+            borderLeft: '4px solid #1e293b',
+            padding: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block" style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Open</span>
+          <p className="text-2xl font-bold text-slate-900 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '8px 0 4px' }}>{metrics.totalOpen}</p>
+          <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Active anomaly queue</p>
         </div>
-        <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-xs">
-          <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">Open</span>
-          <p className="text-2xl font-black text-amber-950 mt-1">{metrics.openCount}</p>
+
+        <div
+          className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs border-l-4 border-l-blue-500"
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0',
+            borderLeft: '4px solid #3b82f6',
+            padding: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider block" style={{ fontSize: '11px', fontWeight: '600', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Open</span>
+          <p className="text-2xl font-bold text-blue-950 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#172554', margin: '8px 0 4px' }}>{metrics.openCount}</p>
+          <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Requires triage</p>
         </div>
-        <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-xs">
-          <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">Acknowledged</span>
-          <p className="text-2xl font-black text-blue-950 mt-1">{metrics.acknowledgedCount}</p>
+
+        <div
+          className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs border-l-4 border-l-purple-500"
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0',
+            borderLeft: '4px solid #a855f7',
+            padding: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          <span className="text-xs font-semibold text-purple-700 uppercase tracking-wider block" style={{ fontSize: '11px', fontWeight: '600', color: '#7e22ce', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Acknowledged</span>
+          <p className="text-2xl font-bold text-purple-950 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#3b0764', margin: '8px 0 4px' }}>{metrics.acknowledgedCount}</p>
+          <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Owner assigned</p>
         </div>
-        <div className="bg-purple-50 p-4 rounded-2xl border border-purple-200 shadow-xs">
-          <span className="text-xs font-bold text-purple-800 uppercase tracking-wider">In Progress</span>
-          <p className="text-2xl font-black text-purple-950 mt-1">{metrics.inProgressCount}</p>
+
+        <div
+          className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs border-l-4 border-l-amber-500"
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0',
+            borderLeft: '4px solid #f59e0b',
+            padding: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider block" style={{ fontSize: '11px', fontWeight: '600', color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em' }}>In Progress</span>
+          <p className="text-2xl font-bold text-amber-950 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#451a03', margin: '8px 0 4px' }}>{metrics.inProgressCount}</p>
+          <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Remediation underway</p>
         </div>
-        <div className="bg-rose-50 p-4 rounded-2xl border border-rose-200 shadow-xs col-span-2 sm:col-span-1">
-          <span className="text-xs font-bold text-rose-800 uppercase tracking-wider flex items-center gap-1">
-            <Flame size={12} /> Critical / Escalated
+
+        <div
+          className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs border-l-4 border-l-red-500 col-span-2 sm:col-span-1"
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0',
+            borderLeft: '4px solid #ef4444',
+            padding: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider flex items-center gap-1" style={{ fontSize: '11px', fontWeight: '600', color: '#be123c', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <AlertTriangle size={13} className="text-red-500" /> Critical / Escalated
           </span>
-          <p className="text-2xl font-black text-rose-950 mt-1">{metrics.criticalCount + metrics.escalatedCount}</p>
+          <p className="text-2xl font-bold text-rose-700 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#be123c', margin: '8px 0 4px' }}>{metrics.criticalCount + metrics.escalatedCount}</p>
+          <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Breached or near SLA</p>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-1 min-w-[240px] items-center gap-2 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50">
-          <Search size={16} className="text-slate-400" />
+      <div
+        className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4"
+        style={{
+          backgroundColor: '#ffffff',
+          padding: '16px',
+          borderRadius: '16px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px'
+        }}
+      >
+        <div
+          className="flex flex-1 min-w-[240px] items-center gap-2 border border-slate-300 rounded-xl px-3 py-2 bg-white"
+          style={{
+            display: 'flex',
+            flex: '1',
+            minWidth: '240px',
+            alignItems: 'center',
+            gap: '8px',
+            border: '1px solid #cbd5e1',
+            borderRadius: '12px',
+            padding: '8px 12px',
+            backgroundColor: '#ffffff'
+          }}
+        >
+          <Search size={15} className="text-slate-400" />
           <input
             type="text"
             placeholder="Search by exception #, summary, or error code..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-transparent text-xs font-medium focus:outline-hidden text-slate-800"
+            className="w-full bg-transparent text-xs font-medium focus:outline-hidden text-slate-800 placeholder-slate-400"
+            style={{ width: '100%', background: 'transparent', fontSize: '12px', border: 'none', outline: 'none', color: '#1e293b' }}
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700"
+            className="text-xs font-semibold border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-700 outline-none"
+            style={{ fontSize: '12px', fontWeight: '600', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '8px 12px', backgroundColor: '#ffffff', color: '#334155', outline: 'none' }}
           >
             <option value="">All Statuses</option>
             <option value="OPEN">Open</option>
@@ -264,7 +371,8 @@ export default function ExceptionsPage() {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700"
+            className="text-xs font-semibold border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-700 outline-none"
+            style={{ fontSize: '12px', fontWeight: '600', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '8px 12px', backgroundColor: '#ffffff', color: '#334155', outline: 'none' }}
           >
             <option value="">All Types</option>
             <option value="PAYMENT_FAILED">Payment Failed</option>
@@ -277,7 +385,8 @@ export default function ExceptionsPage() {
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700"
+            className="text-xs font-semibold border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-700 outline-none"
+            style={{ fontSize: '12px', fontWeight: '600', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '8px 12px', backgroundColor: '#ffffff', color: '#334155', outline: 'none' }}
           >
             <option value="">All Severities</option>
             <option value="CRITICAL">Critical</option>
@@ -289,77 +398,162 @@ export default function ExceptionsPage() {
       </div>
 
       {/* Main Content Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div
+        className="rounded-2xl border border-slate-200/80 overflow-hidden bg-white shadow-xs mt-4"
+        style={{
+          borderRadius: '16px',
+          border: '1px solid rgba(226, 232, 240, 0.8)',
+          overflow: 'hidden',
+          backgroundColor: '#ffffff',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+          marginTop: '16px'
+        }}
+      >
         {loading ? (
-          <div className="p-12 text-center text-slate-500 flex flex-col items-center">
+          <div className="p-12 text-center text-slate-500 flex flex-col items-center" style={{ padding: '48px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Loader2 className="animate-spin mb-2 text-[#0f172a]" />
             <p className="text-xs font-semibold">Loading exceptions...</p>
           </div>
         ) : error ? (
-          <div className="p-8 text-center text-rose-600">
+          <div className="p-8 text-center text-rose-600" style={{ padding: '32px', textAlign: 'center', color: '#e11d48' }}>
             <AlertTriangle className="mx-auto mb-2" size={24} />
             <p className="text-xs font-bold">{error}</p>
           </div>
         ) : exceptions.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
+          <div className="p-12 text-center text-slate-400" style={{ padding: '48px', textAlign: 'center' }}>
             <CheckCircle className="mx-auto mb-2 text-emerald-500" size={28} />
             <p className="text-sm font-bold text-slate-700">No active exceptions matching criteria.</p>
             <p className="text-xs text-slate-400 mt-1">All queues operating within normal boundaries.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-bold tracking-wider">
+            <table className="w-full text-left text-xs" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+              <thead
+                className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs font-semibold uppercase tracking-wider py-3.5 px-4"
+                style={{
+                  backgroundColor: '#f8fafc',
+                  borderBottom: '1px solid #e2e8f0',
+                  color: '#475569',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}
+              >
                 <tr>
-                  <th className="p-3.5">Exception #</th>
-                  <th className="p-3.5">Type & Domain</th>
-                  <th className="p-3.5">Severity</th>
-                  <th className="p-3.5">Status</th>
-                  <th className="p-3.5">Summary</th>
-                  <th className="p-3.5">Created / SLA</th>
-                  <th className="p-3.5 text-right">Actions</th>
+                  <th className="py-3.5 px-4" style={{ padding: '14px 16px' }}>Exception #</th>
+                  <th className="py-3.5 px-4" style={{ padding: '14px 16px' }}>Type & Domain</th>
+                  <th className="py-3.5 px-4" style={{ padding: '14px 16px' }}>Severity</th>
+                  <th className="py-3.5 px-4" style={{ padding: '14px 16px' }}>Status</th>
+                  <th className="py-3.5 px-4" style={{ padding: '14px 16px' }}>Summary</th>
+                  <th className="py-3.5 px-4" style={{ padding: '14px 16px' }}>Created / SLA</th>
+                  <th className="py-3.5 px-4 text-right" style={{ padding: '14px 16px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {exceptions.map((ex) => (
-                  <tr key={ex._id} className="hover:bg-slate-50/80 transition">
-                    <td className="p-3.5 font-mono font-bold text-slate-900">{ex.exceptionNumber}</td>
-                    <td className="p-3.5">
-                      <div className="font-bold text-slate-800">{ex.type}</div>
-                      <div className="text-[11px] text-slate-500 uppercase">{ex.domainType} #{ex.domainId}</div>
+                  <tr key={ex._id} className="hover:bg-slate-50/80 transition" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td className="py-3.5 px-4 font-mono font-bold text-slate-900" style={{ padding: '14px 16px', fontFamily: 'monospace', fontWeight: '700', color: '#0f172a' }}>{ex.exceptionNumber}</td>
+                    <td className="py-3.5 px-4" style={{ padding: '14px 16px' }}>
+                      <div className="font-bold text-slate-800" style={{ fontWeight: '700', color: '#1e293b' }}>{ex.type}</div>
+                      <div className="text-[11px] text-slate-500 uppercase" style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>{ex.domainType} #{ex.domainId}</div>
                     </td>
-                    <td className="p-3.5">
-                      <span className={`px-2.5 py-0.5 rounded-full font-extrabold text-[10px] ${
-                        ex.severity === 'CRITICAL' ? 'bg-rose-100 text-rose-900' :
-                        ex.severity === 'HIGH' ? 'bg-amber-100 text-amber-900' :
-                        'bg-slate-100 text-slate-800'
-                      }`}>
+                    <td className="py-3.5 px-4" style={{ padding: '14px 16px' }}>
+                      <span
+                        className={`font-semibold px-2.5 py-0.5 rounded-full text-[11px] ${
+                          ex.severity === 'CRITICAL' || ex.severity === 'HIGH'
+                            ? 'bg-red-50 text-red-700 border border-red-200'
+                            : ex.severity === 'MEDIUM'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-blue-50 text-blue-700 border border-blue-200'
+                        }`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '2px 10px',
+                          borderRadius: '9999px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          backgroundColor:
+                            ex.severity === 'CRITICAL' || ex.severity === 'HIGH'
+                              ? '#fef2f2'
+                              : ex.severity === 'MEDIUM'
+                              ? '#fffbeb'
+                              : '#eff6ff',
+                          color:
+                            ex.severity === 'CRITICAL' || ex.severity === 'HIGH'
+                              ? '#b91c1c'
+                              : ex.severity === 'MEDIUM'
+                              ? '#b45309'
+                              : '#1d4ed8',
+                          border: `1px solid ${
+                            ex.severity === 'CRITICAL' || ex.severity === 'HIGH'
+                              ? '#fecaca'
+                              : ex.severity === 'MEDIUM'
+                              ? '#fde68a'
+                              : '#bfdbfe'
+                          }`
+                        }}
+                      >
                         {ex.severity}
                       </span>
                     </td>
-                    <td className="p-3.5">
-                      <span className={`px-2.5 py-0.5 rounded-full font-extrabold text-[10px] ${
-                        ex.status === 'OPEN' ? 'bg-amber-100 text-amber-900' :
-                        ex.status === 'ACKNOWLEDGED' ? 'bg-blue-100 text-blue-900' :
-                        ex.status === 'ESCALATED' ? 'bg-rose-100 text-rose-900' :
-                        ex.status === 'RESOLVED' ? 'bg-emerald-100 text-emerald-900' :
-                        'bg-slate-100 text-slate-700'
-                      }`}>
+                    <td className="py-3.5 px-4" style={{ padding: '14px 16px' }}>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold text-[11px] border ${
+                          ex.status === 'OPEN'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : ex.status === 'ACKNOWLEDGED'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : ex.status === 'IN_PROGRESS'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : ex.status === 'ESCALATED'
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : ex.status === 'RESOLVED'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'
+                        }`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '2px 10px',
+                          borderRadius: '9999px',
+                          fontSize: '11px',
+                          fontWeight: '600'
+                        }}
+                      >
                         {ex.status}
                       </span>
                     </td>
-                    <td className="p-3.5 max-w-xs truncate text-slate-700 font-medium" title={ex.sanitizedSummary}>
+                    <td className="py-3.5 px-4 max-w-xs truncate text-slate-700 font-medium" title={ex.sanitizedSummary} style={{ padding: '14px 16px', color: '#334155' }}>
                       {ex.sanitizedSummary}
                     </td>
-                    <td className="p-3.5 text-[11px] text-slate-500">
-                      <div>{new Date(ex.createdAt).toLocaleDateString()}</div>
-                      {ex.slaDueAt && <div className="text-slate-400">Due: {new Date(ex.slaDueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>}
+                    <td className="py-3.5 px-4 text-xs text-slate-500" style={{ padding: '14px 16px', color: '#64748b' }}>
+                      <div className="font-medium text-slate-700" style={{ fontWeight: '500', color: '#334155' }}>{formatDate(ex.createdAt)}</div>
+                      {ex.slaDueAt && (
+                        <div className="text-[11px] text-slate-400 mt-0.5" style={{ fontSize: '11px', color: '#94a3b8' }}>
+                          Due: {formatTime(ex.slaDueAt)}
+                        </div>
+                      )}
                     </td>
-                    <td className="p-3.5 text-right">
+                    <td className="py-3.5 px-4 text-right" style={{ padding: '14px 16px', textAlign: 'right' }}>
                       <button
                         type="button"
                         onClick={() => setSelectedException(ex)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition"
+                        className="px-3 py-1 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          backgroundColor: '#ffffff',
+                          color: '#334155',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
                       >
                         <Eye size={13} /> View
                       </button>

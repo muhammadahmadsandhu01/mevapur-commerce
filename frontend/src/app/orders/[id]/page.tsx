@@ -34,9 +34,12 @@ interface OrderItem {
   product?: string | {
     _id: string;
     name?: string;
+    slug?: string;
     primaryImage?: string;
     images?: string[];
   };
+  productId?: string;
+  slug?: string;
   variantId?: string | null;
   name: string;
   price: number | string;
@@ -277,20 +280,23 @@ export default function OrderDetailsPage() {
 
   // Helper to check 30-day return eligibility
   const isReturnEligible = (ord: Order): boolean => {
-    if (ord.orderStatus !== 'Delivered' || !ord.deliveredAt) return false;
+    const status = (ord.orderStatus || '').toLowerCase();
+    if (status !== 'delivered') return false;
+    if (!ord.deliveredAt) return true;
     const deliveryDate = new Date(ord.deliveredAt).getTime();
-    if (Number.isNaN(deliveryDate)) return false;
+    if (Number.isNaN(deliveryDate)) return true;
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
     return currentTime - deliveryDate <= thirtyDaysMs;
   };
 
   // Helper to build return URL
   const buildReturnUrl = (ord: Order, item: OrderItem): string => {
-    const pId = typeof item.product === 'object' ? item.product._id : item.product || '';
+    const pId = typeof item.product === 'object' ? item.product._id : (item.product || item.productId || '');
     const queryParams = new URLSearchParams({
-      tab: 'returns',
-      order: ord.orderId || ord._id,
-      product: String(pId),
+      tab: 'orders',
+      orderId: ord.orderId || ord._id,
+      item: String(pId),
+      productId: String(pId),
     });
     if (item.variantId) {
       queryParams.set('variant', String(item.variantId));
@@ -298,8 +304,9 @@ export default function OrderDetailsPage() {
     return `/account?${queryParams.toString()}#returns`;
   };
 
-  const isCancellable =
-    order && (order.orderStatus === 'Pending' || order.orderStatus === 'Confirmed');
+  const statusLower = (order?.orderStatus || '').toLowerCase();
+  const isCancellable = Boolean(order && ['pending', 'confirmed', 'processing'].includes(statusLower));
+  const isShippedOrFinalized = Boolean(order && ['shipped', 'out_for_delivery', 'delivered'].includes(statusLower));
 
   const isManualPayment =
     order &&
@@ -346,7 +353,7 @@ export default function OrderDetailsPage() {
               <ArrowLeft size={14} /> Back to My Orders
             </Link>
             <h1 className="text-2xl sm:text-3xl font-black text-[#0b132b]">
-              Order #{order.orderId || order._id}
+              {order.orderId ? `Order ID: ${order.orderId}` : `Order #${order._id}`}
             </h1>
             <p className="text-xs text-slate-600 mt-1">
               Placed on {new Date(order.createdAt).toLocaleDateString('en-PK', {
@@ -388,6 +395,25 @@ export default function OrderDetailsPage() {
                 <XCircle size={14} /> Cancel Order
               </button>
             )}
+
+            {isShippedOrFinalized && (
+              <div
+                className="relative group inline-block"
+                title="Shipped orders cannot be cancelled. You may request a return once delivered."
+              >
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 cursor-not-allowed shadow-2xs"
+                >
+                  <XCircle size={14} /> Cancel Order
+                </button>
+                <div className="absolute right-0 top-full mt-1.5 hidden group-hover:block z-20 w-64 p-2 bg-slate-900 text-white text-[11px] rounded-lg shadow-lg pointer-events-none transition-opacity">
+                  This order has shipped and cannot be cancelled. You can request a return after delivery.
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -405,7 +431,7 @@ export default function OrderDetailsPage() {
             <span
               className={`px-3 py-1 font-bold text-xs rounded-full border ${
                 order.paymentStatus === 'Paid'
-                  ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                   : order.paymentStatus === 'Refunded' || order.paymentStatus === 'PartiallyRefunded'
                   ? 'bg-cyan-100 text-cyan-900 border-cyan-200'
                   : 'bg-amber-100 text-amber-900 border-amber-200'
@@ -508,11 +534,21 @@ export default function OrderDetailsPage() {
                   : null) ||
                 '/placeholder.png';
 
+              const productTarget =
+                (typeof item.product === 'object' && (item.product?.slug || item.product?._id)) ||
+                item.slug ||
+                item.productId ||
+                (typeof item.product === 'string' ? item.product : '') ||
+                '';
+              const productHref = productTarget ? `/products/${encodeURIComponent(productTarget)}` : '/products';
               const eligibleForReturn = isReturnEligible(order);
 
               return (
                 <div key={index} className="py-4 flex items-center gap-4">
-                  <div className="relative w-16 h-16 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                  <Link
+                    href={productHref}
+                    className="relative w-16 h-16 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200 block hover:opacity-85 transition"
+                  >
                     <Image
                       src={getSafeMediaUrl(rawImg)}
                       alt={productName || 'Product'}
@@ -520,9 +556,14 @@ export default function OrderDetailsPage() {
                       sizes="64px"
                       className="object-cover"
                     />
-                  </div>
+                  </Link>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-900 truncate">{productName}</p>
+                    <Link
+                      href={productHref}
+                      className="text-sm font-bold text-slate-900 truncate block hover:text-[#ff8a00] hover:underline transition"
+                    >
+                      {productName}
+                    </Link>
                     {item.variant && (
                       <p className="text-xs text-slate-600 truncate mt-0.5">{item.variant}</p>
                     )}
@@ -531,7 +572,8 @@ export default function OrderDetailsPage() {
                     {eligibleForReturn && (
                       <Link
                         href={buildReturnUrl(order, item)}
-                        className="inline-flex items-center gap-1 text-xs font-bold text-[#0b132b] hover:text-[#9a3412] mt-1.5 transition"
+                        data-testid="request-return-btn"
+                        className="inline-flex items-center gap-1 text-xs font-bold text-[#0b132b] hover:text-[#9a3412] mt-1.5 transition cursor-pointer"
                       >
                         <RotateCcw size={12} /> Request Return
                       </Link>
@@ -767,7 +809,7 @@ export default function OrderDetailsPage() {
         >
           <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-xl animate-in fade-in zoom-in-95 duration-150">
             <h2 id="cancel-dialog-title" className="text-lg font-black text-slate-900 mb-2">
-              Cancel Order #{order.orderId || order._id}
+              {order.orderId ? `Cancel Order ${order.orderId}` : `Cancel Order #${order._id}`}
             </h2>
             <p className="text-xs text-slate-600 mb-4 leading-relaxed">
               Are you sure you want to cancel this order? Once cancelled, reserved items and coupons are restored, and fulfillment will stop.

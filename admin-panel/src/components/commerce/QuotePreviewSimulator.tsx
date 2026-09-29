@@ -151,25 +151,93 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-6">
-      <div>
-        <div className="flex items-center gap-2">
-          <Play size={18} className="text-[#ff8a00]" />
-          <h3 className="text-base font-bold text-slate-900">Read-Only Quote Simulation (Preview)</h3>
-          <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-blue-50 text-blue-800 border border-blue-200">
-            Landed Cost & Customs Simulator
-          </span>
+    <div
+      className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs mt-4 space-y-6"
+      style={{
+        backgroundColor: '#ffffff',
+        borderRadius: '16px',
+        border: '1px solid rgba(226, 232, 240, 0.8)',
+        padding: '24px',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        marginTop: '16px'
+      }}
+    >
+      <div
+        className="flex items-center justify-between gap-3 pb-4 border-b border-slate-100 flex-wrap"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          paddingBottom: '16px',
+          borderBottom: '1px solid #f1f5f9',
+          flexWrap: 'wrap'
+        }}
+      >
+        <div className="flex items-center gap-2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div
+            className="p-2 rounded-xl bg-orange-50 text-[#ff8a00]"
+            style={{
+              padding: '8px',
+              borderRadius: '12px',
+              backgroundColor: '#fff7ed',
+              color: '#ff8a00',
+              display: 'inline-flex'
+            }}
+          >
+            <Play size={18} />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900" style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+              Read-Only Quote Simulation (Preview)
+            </h3>
+            <span
+              className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
+              style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+            >
+              Landed Cost & Customs Simulator
+            </span>
+          </div>
         </div>
-        <p className="text-xs text-slate-500 mt-1">
-          Simulate complete landed-cost, rational tax arithmetic, and customs duty quotes against configuration version ({version.status} v{version.version}).
+      </div>
+
+      {/* Styled Alert Box Disclaimer */}
+      <div
+        className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 mb-5 leading-relaxed flex items-start gap-2.5"
+        style={{
+          backgroundColor: 'rgba(239, 246, 255, 0.6)',
+          border: '1px solid #bfdbfe',
+          borderRadius: '12px',
+          padding: '16px',
+          fontSize: '12px',
+          color: '#1e40af',
+          marginBottom: '20px',
+          lineHeight: '1.6',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px'
+        }}
+      >
+        <Info size={16} className="text-blue-600 shrink-0 mt-0.5" style={{ color: '#2563eb', flexShrink: 0, marginTop: '2px' }} />
+        <p style={{ margin: 0 }}>
+          Simulate complete landed-cost, rational tax arithmetic, and customs duty quotes against configuration version (<strong>{version.status} v{version.version}</strong>).
           This playground is purely computational and creates zero orders, payments, holds, or audit side-effects.
         </p>
       </div>
 
       <form onSubmit={handleSimulate} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '16px',
+            fontSize: '12px'
+          }}
+        >
+          {/* Destination Country */}
           <div>
-            <label htmlFor="sim-destCountry" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-destCountry" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Destination Country (ISO-2) <span className="text-rose-600">*</span>
             </label>
             <input
@@ -179,13 +247,25 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={destinationCountry}
               onChange={(e) => setDestinationCountry(e.target.value.toUpperCase().slice(0, 2))}
               placeholder="e.g. AE, US, GB"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-bold uppercase"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-bold uppercase"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: '700',
+                textTransform: 'uppercase',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
               required
             />
           </div>
 
+          {/* Province / State / Emirate */}
           <div>
-            <label htmlFor="sim-province" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-province" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Province / State / Emirate
             </label>
             <input
@@ -194,12 +274,22 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={province}
               onChange={(e) => setProvince(e.target.value)}
               placeholder="e.g. Dubai, Abu Dhabi, Sindh"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
             />
           </div>
 
+          {/* City */}
           <div>
-            <label htmlFor="sim-city" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-city" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               City
             </label>
             <input
@@ -208,12 +298,22 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={city}
               onChange={(e) => setCity(e.target.value)}
               placeholder="e.g. Dubai, London, Karachi"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
             />
           </div>
 
+          {/* Postal Code */}
           <div>
-            <label htmlFor="sim-postalCode" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-postalCode" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Postal Code (Optional)
             </label>
             <input
@@ -222,12 +322,23 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={postalCode}
               onChange={(e) => setPostalCode(e.target.value)}
               placeholder="e.g. 00000, 75500"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-mono"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-mono"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
             />
           </div>
 
+          {/* Presentment Currency */}
           <div>
-            <label htmlFor="sim-currency" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-currency" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Presentment Currency (ISO-3) <span className="text-rose-600">*</span>
             </label>
             <input
@@ -237,33 +348,64 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={currency}
               onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
               placeholder="e.g. AED, USD, EUR"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-bold uppercase font-mono"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-bold uppercase font-mono"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: '700',
+                textTransform: 'uppercase',
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
               required
             />
           </div>
 
+          {/* Service Code */}
           <div>
-            <label htmlFor="sim-serviceCode" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-serviceCode" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Service Code (Governed Identifier)
             </label>
-            <div className="flex gap-1.5">
-              <input
-                id="sim-serviceCode"
-                type="text"
-                value={shippingServiceLevel}
-                onChange={(e) => setShippingServiceLevel(e.target.value)}
-                placeholder="e.g. standard, express, priority_cargo"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-semibold"
-              />
-            </div>
+            <input
+              id="sim-serviceCode"
+              type="text"
+              value={shippingServiceLevel}
+              onChange={(e) => setShippingServiceLevel(e.target.value)}
+              placeholder="e.g. standard, express, priority_cargo"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-semibold"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: '600',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
             {configuredServiceCodes.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
+              <div className="flex flex-wrap gap-1.5 mt-2" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
                 {configuredServiceCodes.map((code) => (
                   <button
                     key={code}
                     type="button"
                     onClick={() => setShippingServiceLevel(code)}
-                    className="text-[10px] px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-mono"
+                    className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-mono font-semibold transition cursor-pointer"
+                    style={{
+                      fontSize: '10px',
+                      padding: '2px 8px',
+                      backgroundColor: '#f1f5f9',
+                      color: '#334155',
+                      borderRadius: '6px',
+                      fontFamily: 'monospace',
+                      border: '1px solid #e2e8f0',
+                      cursor: 'pointer'
+                    }}
                   >
                     {code}
                   </button>
@@ -272,8 +414,9 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
             )}
           </div>
 
+          {/* Item Price Minor Units */}
           <div>
-            <label htmlFor="sim-price-minor" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-price-minor" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Item Price Minor Units ({currency || '—'}) <span className="text-rose-600">*</span>
             </label>
             <input
@@ -282,22 +425,34 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={syntheticPriceMinor}
               onChange={(e) => setSyntheticPriceMinor(e.target.value.replace(/[^\d]/g, ''))}
               placeholder="e.g. 20000"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-mono font-bold"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-mono font-bold"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: '700',
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
               required
             />
             {syntheticPriceMinor && currency && currentExponent !== null ? (
-              <p className="mt-1 text-[11px] font-bold text-emerald-700">
+              <p className="mt-1 text-[11px] font-bold text-emerald-700" style={{ marginTop: '4px', fontSize: '11px', fontWeight: '700', color: '#047857' }}>
                 Exact: {formatExactMoney({ amountMinor: syntheticPriceMinor, currency, exponent: currentExponent })}
               </p>
             ) : syntheticPriceMinor && currency ? (
-              <p className="mt-1 text-[11px] font-bold text-amber-700">
+              <p className="mt-1 text-[11px] font-bold text-amber-700" style={{ marginTop: '4px', fontSize: '11px', fontWeight: '700', color: '#b45309' }}>
                 Unknown currency exponent: Configuration required
               </p>
             ) : null}
           </div>
 
+          {/* Item Quantity */}
           <div>
-            <label htmlFor="sim-qty" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-qty" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Item Quantity
             </label>
             <input
@@ -306,13 +461,24 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               min={1}
               value={syntheticQty}
               onChange={(e) => setSyntheticQty(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-mono"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-mono"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
               required
             />
           </div>
 
+          {/* Item Weight */}
           <div>
-            <label htmlFor="sim-weight" className="block font-bold text-slate-700 mb-1">
+            <label htmlFor="sim-weight" className="block font-semibold text-slate-700 mb-1.5" style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
               Item Weight (Grams)
             </label>
             <input
@@ -322,18 +488,44 @@ export default function QuotePreviewSimulator({ version }: QuotePreviewSimulator
               value={syntheticWeightGrams}
               onChange={(e) => setSyntheticWeightGrams(e.target.value)}
               placeholder="e.g. 500"
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-mono"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:ring-1 focus:ring-[#ff8a00] focus:border-[#ff8a00] outline-none shadow-xs font-mono"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '12px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
               required
             />
           </div>
         </div>
 
-        <div className="flex justify-end pt-2">
+        <div className="flex justify-end pt-2" style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px' }}>
           <button
             type="submit"
             onClick={handleSimulate}
             disabled={loading}
-            className="px-5 py-2.5 bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-2 disabled:opacity-50"
+            className="inline-flex items-center gap-2 bg-[#0b132b] hover:bg-[#1c2a4f] text-white px-5 py-2.5 rounded-xl text-xs font-semibold shadow-xs transition mt-4 cursor-pointer disabled:opacity-50"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              backgroundColor: '#0b132b',
+              color: '#ffffff',
+              padding: '10px 20px',
+              borderRadius: '12px',
+              fontSize: '12px',
+              fontWeight: '600',
+              border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+              marginTop: '16px',
+              transition: 'all 0.2s'
+            }}
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
             Run Read-Only Simulation

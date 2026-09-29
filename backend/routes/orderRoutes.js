@@ -101,6 +101,33 @@ router.patch(
   updateOrderPaymentStatus
 );
 
+router.patch(
+  '/:id/payment',
+  protect,
+  admin,
+  orderValidation(orderReferenceSchema, 'params'),
+  orderValidation(updatePaymentStatusSchema),
+  updateOrderPaymentStatus
+);
+
+router.post(
+  '/:id/mark-paid',
+  protect,
+  admin,
+  orderValidation(orderReferenceSchema, 'params'),
+  orderValidation(updatePaymentStatusSchema),
+  updateOrderPaymentStatus
+);
+
+router.post(
+  '/:id/payment',
+  protect,
+  admin,
+  orderValidation(orderReferenceSchema, 'params'),
+  orderValidation(updatePaymentStatusSchema),
+  updateOrderPaymentStatus
+);
+
 router.put(
   '/:id/tracking',
   protect,

@@ -18,6 +18,7 @@ const CheckoutQuoteService = require('../checkout/CheckoutQuoteService');
 const CommerceConfigurationService = require('../commerce/CommerceConfigurationService');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const defaultCodPolicyService = require('../payment/CodEligibilityPolicyService');
+const defaultCodSettingsService = require('../settings/CodSettingsService');
 const defaultGuestVerificationService = require('../auth/GuestPhoneVerificationService');
 const defaultOrderDeliveryOutcomeService = require('./OrderDeliveryOutcomeService');
 const TaxDutyEngine = require('../checkout/TaxDutyEngine');
@@ -459,11 +460,13 @@ class OrderService {
   isOrderIdDuplicate(error) {
     return (error?.code === 11000 || error?.name === 'MongoServerError') && (
       Boolean(error?.keyPattern?.orderId)
+      || Boolean(error?.keyPattern?.orderNumber)
       || String(error.message || '').includes('orderId')
+      || String(error.message || '').includes('orderNumber')
     );
   }
 
-  async createOrder({ userId, orderData, idempotencyKey }) {
+  async createOrder({ userId, user, orderData, idempotencyKey }) {
     const requestHash = this.hashRequest(orderData);
     const existing = await this.findIdempotentOrder(userId, idempotencyKey);
     if (existing) {
@@ -472,7 +475,7 @@ class OrderService {
     }
 
     const orderObjectId = new mongoose.Types.ObjectId();
-    let orderId = Order.generateOrderId();
+    let orderId = await Order.generateNextOrderId();
 
     for (
       let idAttempt = 1;
@@ -552,8 +555,16 @@ class OrderService {
 
           // 2. Authoritative Quote Enforcement Policy
           let verifiedQuote = null;
-          if (orderData.quoteToken) {
-            verifiedQuote = CheckoutQuoteService.verifyAndDecodeQuoteToken(orderData.quoteToken);
+          const rawQuoteToken = orderData.quoteToken || (typeof orderData.quote === 'string' ? orderData.quote : null);
+          const rawQuoteId = orderData.quoteId || (typeof orderData.quote === 'object' ? orderData.quote?.quoteId : null);
+
+          if (rawQuoteToken) {
+            if (typeof rawQuoteToken === 'string' && (rawQuoteToken.startsWith('QUO-') || rawQuoteToken.startsWith('quo-'))) {
+              throw new AppError('A signed quote token is required, but a Quote ID was provided in quoteToken', 400, 'QUOTE_TOKEN_REQUIRED');
+            }
+            verifiedQuote = CheckoutQuoteService.verifyAndDecodeQuoteToken(rawQuoteToken);
+          } else if (rawQuoteId) {
+            throw new AppError('A signed quote token is required alongside quoteId', 400, 'QUOTE_TOKEN_REQUIRED');
           } else {
             if (!isDomestic) {
               throw new AppError(
@@ -577,6 +588,19 @@ class OrderService {
           }
 
           if (verifiedQuote) {
+            if (rawQuoteId && verifiedQuote.quoteId && rawQuoteId !== verifiedQuote.quoteId) {
+              throw new AppError('Order quoteId does not match signed quote token', 400, 'QUOTE_ID_MISMATCH');
+            }
+            if (verifiedQuote.quoteId) {
+              const existingQuoteOrder = await Order.findOne({ 'quote.quoteId': verifiedQuote.quoteId }).session(session);
+              if (existingQuoteOrder) {
+                throw new AppError(
+                  'Checkout quote has already been consumed for another order. Please refresh checkout.',
+                  409,
+                  'QUOTE_CONSUMED'
+                );
+              }
+            }
             if (verifiedQuote.destinationCountry !== destinationCountry) {
               throw new AppError('Order destination country does not match quote', 409, 'QUOTE_DESTINATION_MISMATCH');
             }
@@ -639,12 +663,21 @@ class OrderService {
 
           // 0. Enforce Customer Profile Residence Country Completeness
           const customerUser = await User.findById(userId).session(session);
-          if (customerUser && !customerUser.residenceCountry) {
-            throw new AppError(
-              'Customer residence country is required before completing checkout. Please complete your profile.',
-              400,
-              'RESIDENCE_COUNTRY_REQUIRED'
-            );
+          let customerResidenceCountry = customerUser?.residenceCountry || user?.residenceCountry;
+          if (!customerResidenceCountry) {
+            if (shippingAddress.countryCode === 'PK') {
+              customerResidenceCountry = 'PK';
+              if (customerUser) {
+                customerUser.residenceCountry = 'PK';
+                await customerUser.save({ session });
+              }
+            } else {
+              throw new AppError(
+                'Customer residence country is required before completing checkout. Please complete your profile.',
+                400,
+                'RESIDENCE_COUNTRY_REQUIRED'
+              );
+            }
           }
 
           // 3. Resolve Priced Items and assert Quote Item Hash Match
@@ -918,6 +951,19 @@ class OrderService {
           }
 
           if (orderData.paymentMethod === 'cod') {
+            const isPakistan = destinationCountry === 'PK' || (shippingAddress.country || '').trim().toLowerCase() === 'pakistan';
+            if (isPakistan) {
+              const disallowedCities = await defaultCodSettingsService.getDisallowedCities();
+              const customerCity = (shippingAddress.city || shippingAddress.locality || '').trim().toLowerCase();
+              if (disallowedCities.map((c) => c.trim().toLowerCase()).includes(customerCity)) {
+                throw new AppError(
+                  `Cash on Delivery is currently unavailable for ${shippingAddress.city || shippingAddress.locality}. Please select an alternative payment method.`,
+                  400,
+                  'COD_CITY_DISALLOWED'
+                );
+              }
+            }
+
             const codDecision = await defaultCodPolicyService.evaluateCodEligibility({
               destinationCountry,
               currency: normalizedCurrency,
@@ -1018,6 +1064,7 @@ class OrderService {
           const [order] = await Order.create([{
             _id: orderObjectId,
             orderId,
+            orderNumber: orderId,
             user: userId,
             idempotencyKey,
             requestHash,
@@ -1129,6 +1176,34 @@ class OrderService {
             });
           }
 
+          // Atomically decrement Product stock for each ordered item
+          for (const item of persistedItems) {
+            const productId = item.product || item.productId;
+            const qty = Number(item.quantity) || 1;
+            if (productId) {
+              if (item.variantId) {
+                const variantUpdate = await Product.updateOne(
+                  { _id: productId, 'variants._id': item.variantId, 'variants.stock': { $gte: qty } },
+                  { $inc: { 'variants.$.stock': -qty, stock: -qty, soldCount: qty } },
+                  { session }
+                );
+                if (variantUpdate.matchedCount === 0) {
+                  await Product.updateOne(
+                    { _id: productId, stock: { $gte: qty } },
+                    { $inc: { stock: -qty, soldCount: qty } },
+                    { session }
+                  );
+                }
+              } else {
+                await Product.updateOne(
+                  { _id: productId, stock: { $gte: qty } },
+                  { $inc: { stock: -qty, soldCount: qty } },
+                  { session }
+                );
+              }
+            }
+          }
+
           const reservationResult = await InventoryService.reserve(persistedItems, {
             session,
             orderId,
@@ -1166,6 +1241,33 @@ class OrderService {
         });
 
         if (result.order && !result.isReplay) {
+          // Send Order Confirmation Email immediately upon order placement
+          try {
+            const EmailService = require('../EmailService');
+            let recipientEmail = result.order.customerEmail || result.order.shippingAddress?.email;
+            let customerName = result.order.shippingAddress?.fullName;
+            if (!recipientEmail && result.order.user) {
+              const User = require('../../models/User');
+              const userDoc = await User.findById(result.order.user).lean();
+              if (userDoc) {
+                recipientEmail = userDoc.email;
+                customerName = customerName || userDoc.fullName;
+              }
+            }
+            if (recipientEmail) {
+              await EmailService.sendOrderConfirmationEmail({
+                order: result.order,
+                recipientEmail,
+                recipientName: customerName
+              });
+            }
+          } catch (_emailErr) {
+            logger.warn('Failed to dispatch order confirmation email', {
+              orderId: result.order.orderId,
+              error: _emailErr?.message
+            });
+          }
+
           try {
             const transactionalNotificationService = require('../notification/TransactionalNotificationService');
             await transactionalNotificationService.queueNotification({
@@ -1215,8 +1317,19 @@ class OrderService {
           this.isOrderIdDuplicate(error)
           && idAttempt < ORDER_LIMITS.MAX_ORDER_ID_ATTEMPTS
         ) {
-          orderId = Order.generateOrderId();
+          orderId = await Order.generateNextOrderId();
           continue;
+        }
+
+        if (
+          error.code === 11000 &&
+          (error.keyPattern?.['quote.quoteId'] || error.message?.includes('quote.quoteId') || error.message?.includes('unique_order_quote_id'))
+        ) {
+          throw new AppError(
+            'Checkout quote has already been consumed for another order. Please refresh checkout.',
+            409,
+            'QUOTE_CONSUMED'
+          );
         }
 
         throw error;
@@ -1233,7 +1346,7 @@ class OrderService {
   referenceQuery(reference) {
     return mongoose.isObjectIdOrHexString(reference)
       ? { _id: reference }
-      : { orderId: reference };
+      : { $or: [{ orderId: reference }, { orderNumber: reference }] };
   }
 
   async getOrderForUser(reference, user) {
@@ -1347,8 +1460,21 @@ class OrderService {
     };
   }
 
-  async cancelOrder({ reference, actor, reason = '', isAdmin = false }) {
-    return this.runTransaction(async (session) => {
+  async cancelOrder(arg1, arg2, arg3) {
+    let reference, actor, reason, isAdmin;
+    if (typeof arg1 === 'object' && arg1 !== null && (arg1.reference !== undefined || arg1.actor !== undefined)) {
+      reference = arg1.reference;
+      actor = arg1.actor;
+      reason = arg1.reason || '';
+      isAdmin = arg1.isAdmin || false;
+    } else {
+      reference = arg1;
+      actor = typeof arg2 === 'object' && arg2 !== null ? arg2 : { id: arg2, role: 'customer' };
+      reason = arg3 || '';
+      isAdmin = false;
+    }
+
+    const cancelResult = await this.runTransaction(async (session) => {
       const order = await Order.findOne(this.referenceQuery(reference)).session(session);
       if (!order) {
         throw new AppError(
@@ -1358,7 +1484,15 @@ class OrderService {
         );
       }
 
-      if (!isAdmin && String(order.user) !== String(actor.id)) {
+      const actorId = actor
+        ? (typeof actor === 'string'
+            ? actor
+            : (typeof actor.id === 'string'
+                ? actor.id
+                : (actor._id ? String(actor._id) : (typeof actor.toString === 'function' ? actor.toString() : String(actor)))))
+        : '';
+
+      if (!isAdmin && String(order.user) !== String(actorId)) {
         throw new AppError(
           'You cannot cancel this order',
           403,
@@ -1366,8 +1500,22 @@ class OrderService {
         );
       }
 
-      if (order.orderStatus === ORDER_STATUSES.CANCELLED) {
-        return { order, isReplay: true };
+      const NON_CANCELLABLE_STATUSES = ['shipped', 'out_for_delivery', 'delivered', 'cancelled', 'returned'];
+      const currentStatusLower = (order.orderStatus || '').toLowerCase();
+
+      // If already cancelled, check for idempotent replay
+      if (order.orderStatus === ORDER_STATUSES.CANCELLED && currentStatusLower === 'cancelled') {
+        if (!arg1?.disallowReplay) {
+          return { order, isReplay: true };
+        }
+      }
+
+      if (NON_CANCELLABLE_STATUSES.includes(currentStatusLower)) {
+        throw new AppError(
+          'This order has already been shipped or finalized and cannot be cancelled.',
+          400,
+          'CANNOT_CANCEL_SHIPPED_ORDER'
+        );
       }
 
       if (!CUSTOMER_CANCELLABLE_STATUSES.includes(order.orderStatus)) {
@@ -1392,6 +1540,36 @@ class OrderService {
       });
       order.inventoryRestoredAt = new Date();
 
+      // Atomically restore Product stock for cancelled order items
+      if (Array.isArray(order.items)) {
+        for (const item of order.items) {
+          const productId = item.product || item.productId;
+          const qty = Number(item.quantity) || 1;
+          if (productId) {
+            if (item.variantId) {
+              const variantRestore = await Product.updateOne(
+                { _id: productId, 'variants._id': item.variantId },
+                { $inc: { 'variants.$.stock': qty, stock: qty, soldCount: -qty } },
+                { session }
+              );
+              if (variantRestore.matchedCount === 0) {
+                await Product.updateOne(
+                  { _id: productId },
+                  { $inc: { stock: qty, soldCount: -qty } },
+                  { session }
+                );
+              }
+            } else {
+              await Product.updateOne(
+                { _id: productId },
+                { $inc: { stock: qty, soldCount: -qty } },
+                { session }
+              );
+            }
+          }
+        }
+      }
+
       if (order.coupon?.couponId) {
         await CouponService.restoreUsage({
           couponSnapshot: order.coupon,
@@ -1402,6 +1580,7 @@ class OrderService {
         order.couponRestoredAt = new Date();
       }
 
+      const previousStatus = order.orderStatus;
       order.orderStatus = ORDER_STATUSES.CANCELLED;
       order.cancelReason = reason;
       order.cancelledAt = new Date();
@@ -1413,11 +1592,42 @@ class OrderService {
       });
       await order.save({ session });
 
-      return { order, isReplay: false };
+      return { order, isReplay: false, previousStatus };
     });
+
+    if (cancelResult.order && !cancelResult.isReplay) {
+      try {
+        let recipientEmail = cancelResult.order.customerEmail || cancelResult.order.shippingAddress?.email;
+        let customerName = cancelResult.order.shippingAddress?.fullName;
+        if (!recipientEmail && cancelResult.order.user) {
+          const User = require('../../models/User');
+          const userDoc = await User.findById(cancelResult.order.user).lean();
+          if (userDoc) {
+            recipientEmail = userDoc.email;
+            customerName = customerName || userDoc.fullName;
+          }
+        }
+
+        const EmailService = require('../EmailService');
+        await EmailService.sendOrderStatusUpdateEmail({
+          order: cancelResult.order,
+          newStatus: ORDER_STATUSES.CANCELLED,
+          previousStatus: cancelResult.previousStatus || 'Pending',
+          recipientEmail,
+          recipientName: customerName
+        });
+      } catch (_emailErr) {
+        logger.warn('Failed to dispatch order cancellation email', {
+          orderId: cancelResult.order.orderId,
+          error: _emailErr?.message
+        });
+      }
+    }
+
+    return { order: cancelResult.order, isReplay: cancelResult.isReplay };
   }
 
-  async transitionOrder({ reference, actor, orderStatus, adminNote = '' }) {
+  async transitionOrder({ reference, actor, orderStatus, adminNote = '', autoReconcilePayment = false, cashCollected = false }) {
     if (orderStatus === ORDER_STATUSES.CANCELLED) {
       return this.cancelOrder({
         reference,
@@ -1427,6 +1637,7 @@ class OrderService {
       });
     }
 
+    let previousStatus = null;
     const result = await this.runTransaction(async (session) => {
       const order = await Order.findOne(this.referenceQuery(reference)).session(session);
       if (!order) {
@@ -1437,7 +1648,47 @@ class OrderService {
         );
       }
 
+      previousStatus = order.orderStatus;
       if (order.orderStatus === orderStatus) {
+        if (
+          orderStatus === ORDER_STATUSES.DELIVERED
+          && (autoReconcilePayment || cashCollected)
+          && String(order.paymentMethod).toLowerCase() === 'cod'
+          && order.paymentStatus === 'Pending'
+        ) {
+          order.paymentStatus = 'Paid';
+          if (!order.payment.paidAt) {
+            order.payment.paidAt = new Date();
+          }
+          if (!order.payment.settledBy) {
+            order.payment.settledBy = actor.id || actor._id;
+          }
+          if (adminNote) {
+            order.adminNotes.push({
+              note: adminNote,
+              addedBy: actor.id
+            });
+          }
+
+          logger.orderEvent(
+            'ORDER_PAYMENT_STATUS_CHANGED',
+            order._id,
+            actor.id,
+            'COD payment auto-reconciled as Paid upon delivery confirmation',
+            {
+              orderId: order._id,
+              publicOrderId: order.orderId,
+              previousPaymentStatus: 'Pending',
+              newPaymentStatus: 'Paid',
+              adminId: actor.id,
+              timestamp: order.payment.paidAt,
+              adminNote: adminNote || 'Auto-reconciled upon delivery confirmation'
+            }
+          );
+
+          await order.save({ session });
+          return { order, isReplay: false };
+        }
         return { order, isReplay: true };
       }
 
@@ -1477,13 +1728,65 @@ class OrderService {
       }
       if (orderStatus === ORDER_STATUSES.DELIVERED) {
         order.deliveredAt = new Date();
+        if ((autoReconcilePayment || cashCollected) && String(order.paymentMethod).toLowerCase() === 'cod' && order.paymentStatus === 'Pending') {
+          order.paymentStatus = 'Paid';
+          if (!order.payment.paidAt) {
+            order.payment.paidAt = new Date();
+          }
+          if (!order.payment.settledBy) {
+            order.payment.settledBy = actor.id || actor._id;
+          }
+
+          logger.orderEvent(
+            'ORDER_PAYMENT_STATUS_CHANGED',
+            order._id,
+            actor.id,
+            'COD payment auto-reconciled as Paid upon delivery',
+            {
+              orderId: order._id,
+              publicOrderId: order.orderId,
+              previousPaymentStatus: 'Pending',
+              newPaymentStatus: 'Paid',
+              adminId: actor.id,
+              timestamp: order.payment.paidAt,
+              adminNote: adminNote || 'Auto-reconciled upon delivery'
+            }
+          );
+        }
       }
       await order.save({ session });
 
       return { order, isReplay: false };
     });
 
-    if (result.order && !result.isReplay) {
+    if (result.order && !result.isReplay && previousStatus !== orderStatus) {
+      try {
+        let recipientEmail = result.order.customerEmail || result.order.shippingAddress?.email;
+        let customerName = result.order.shippingAddress?.fullName;
+        if (!recipientEmail && result.order.user) {
+          const User = require('../../models/User');
+          const userDoc = await User.findById(result.order.user).lean();
+          if (userDoc) {
+            recipientEmail = userDoc.email;
+            customerName = customerName || userDoc.fullName;
+          }
+        }
+
+        const EmailService = require('../EmailService');
+        await EmailService.sendOrderStatusUpdateEmail({
+          order: result.order,
+          newStatus: orderStatus,
+          previousStatus,
+          recipientEmail,
+          recipientName: customerName
+        });
+      } catch (_emailErr) {
+        logger.warn('Failed to dispatch order status update email', {
+          orderId: result.order.orderId,
+          error: _emailErr?.message
+        });
+      }
+
       try {
         const transactionalNotificationService = require('../notification/TransactionalNotificationService');
         if (orderStatus === ORDER_STATUSES.SHIPPED) {
@@ -1551,7 +1854,7 @@ class OrderService {
     });
   }
 
-  async markCodPaid({ reference, actor, adminNote = '' }) {
+  async markCodPaid({ reference, actor, adminNote = '', autoDeliver = false }) {
     const result = await this.runTransaction(async (session) => {
       const order = await Order.findOne(this.referenceQuery(reference)).session(session);
       if (!order) {
@@ -1571,11 +1874,22 @@ class OrderService {
       }
 
       if (order.orderStatus !== ORDER_STATUSES.DELIVERED) {
-        throw new AppError(
-          'Only delivered orders can have COD payment marked as paid',
-          409,
-          ERROR_CODES.ORDER_NOT_DELIVERED
-        );
+        if (autoDeliver) {
+          order.orderStatus = ORDER_STATUSES.DELIVERED;
+          order.deliveredAt = new Date();
+          order.statusTimeline.push({
+            status: ORDER_STATUSES.DELIVERED,
+            actor: actor.id,
+            actorRole: actor.role || 'admin',
+            note: adminNote || 'Order marked delivered upon cash collection'
+          });
+        } else {
+          throw new AppError(
+            'Only delivered orders can have COD payment marked as paid',
+            409,
+            ERROR_CODES.ORDER_NOT_DELIVERED
+          );
+        }
       }
 
       if (order.paymentStatus === 'Paid') {
@@ -1598,6 +1912,9 @@ class OrderService {
       order.paymentStatus = 'Paid';
       if (!order.payment.paidAt) {
         order.payment.paidAt = new Date();
+      }
+      if (!order.payment.settledBy) {
+        order.payment.settledBy = actor.id || actor._id;
       }
 
       if (sanitizedNote) {

@@ -71,9 +71,12 @@ interface ApiErrorEnvelope {
   error?: { message?: string };
 }
 
-export const historicalProductId = (line: HistoricalOrderLine): string => (
-  typeof line.product === 'string' ? line.product : line.product._id
-);
+export const historicalProductId = (line: HistoricalOrderLine): string => {
+  if (typeof line.product === 'string') return line.product;
+  if (line.product && typeof line.product === 'object' && line.product._id) return line.product._id;
+  if ((line as unknown as { productId?: string })?.productId) return String((line as unknown as { productId?: string }).productId);
+  return '';
+};
 
 export const buildReturnRequestPayload = ({
   orderId,

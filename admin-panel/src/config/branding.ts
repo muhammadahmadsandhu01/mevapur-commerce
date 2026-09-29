@@ -11,10 +11,10 @@ const BRAND_COLORS = Object.freeze({
 const emptyContact = '';
 
 export const branding: BrandingConfig = Object.freeze({
-  siteName: publicConfig.siteName,
-  legalDisplayName: `${publicConfig.siteName} Admin`,
+  siteName: publicConfig.siteName || 'HARZAAR',
+  legalDisplayName: 'HARZAAR Admin',
   tagline: 'CHOOSE BEYOND.',
-  shortDescription: `Operations console for ${publicConfig.siteName}, a configurable multi-category commerce platform.`,
+  shortDescription: 'Operations console for HARZAAR, a configurable multi-category commerce platform.',
   logoPath: '/brand/harzaar-logo-horizontal.svg',
   logoLightPath: '/brand/harzaar-logo-light.svg',
   logoDarkPath: '/brand/harzaar-logo-dark.svg',
@@ -35,7 +35,7 @@ export const branding: BrandingConfig = Object.freeze({
     instagram: emptyContact,
     x: emptyContact,
   }),
-  copyrightOwner: publicConfig.siteName,
+  copyrightOwner: 'HARZAAR',
   canonicalOrigin: publicConfig.adminOrigin,
   defaultLocale: 'en',
 });
@@ -44,4 +44,4 @@ export const hasPublicContact = (value: string | undefined | null): value is str
   Boolean(value?.trim());
 
 export const copyrightLine = () =>
-  `© ${new Date().getFullYear()} ${branding.copyrightOwner}. All rights reserved.`;
+  `© ${new Date().getFullYear()} HARZAAR. All rights reserved.`;

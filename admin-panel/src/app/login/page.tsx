@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useSyncExternalStore, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Mail, CheckCircle, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
@@ -9,6 +9,8 @@ import { useAuthStore } from '@/store/authStore';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { branding } from '@/config/branding';
 
+const emptySubscribe = () => () => {};
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -16,6 +18,11 @@ function LoginForm() {
   const successMessage = message === 'changed' ? 'Password changed. Sign in again.' : null;
   const { login, verifyMfa } = useAuthStore();
   const [loading, setLoading] = useState(false);
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
   const [error, setError] = useState('');
 
   const [formData, setFormData] = useState({
@@ -33,6 +40,7 @@ function LoginForm() {
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isHydrated || loading) return;
     setLoading(true);
     setError('');
 
@@ -59,6 +67,7 @@ function LoginForm() {
 
   const handleMfaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isHydrated || loading) return;
     setLoading(true);
     setError('');
 
@@ -172,7 +181,7 @@ function LoginForm() {
         )}
 
         {!mfaState.required ? (
-          <form onSubmit={handlePasswordSubmit}>
+          <form onSubmit={(e) => { e.preventDefault(); handlePasswordSubmit(e); }}>
             <div style={{ marginBottom: '20px' }}>
               <label
                 htmlFor="admin-login-email"
@@ -261,7 +270,7 @@ function LoginForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !isHydrated}
               style={{
                 width: '100%',
                 padding: '14px',
@@ -271,16 +280,16 @@ function LoginForm() {
                 borderRadius: '10px',
                 fontSize: '15px',
                 fontWeight: '700',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.8 : 1,
+                cursor: (loading || !isHydrated) ? 'not-allowed' : 'pointer',
+                opacity: (loading || !isHydrated) ? 0.7 : 1,
                 boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)'
               }}
             >
-              {loading ? 'Authenticating...' : 'Sign In to Admin'}
+              {loading ? 'Authenticating...' : !isHydrated ? 'Loading...' : 'Sign In to Admin'}
             </button>
           </form>
         ) : (
-          <form onSubmit={handleMfaSubmit}>
+          <form onSubmit={(e) => { e.preventDefault(); handleMfaSubmit(e); }}>
             {!mfaState.useRecoveryCode ? (
               <div style={{ marginBottom: '24px' }}>
                 <label
@@ -369,7 +378,7 @@ function LoginForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !isHydrated}
               style={{
                 width: '100%',
                 padding: '14px',
@@ -379,13 +388,13 @@ function LoginForm() {
                 borderRadius: '10px',
                 fontSize: '15px',
                 fontWeight: '700',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.8 : 1,
+                cursor: (loading || !isHydrated) ? 'not-allowed' : 'pointer',
+                opacity: (loading || !isHydrated) ? 0.7 : 1,
                 boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)',
                 marginBottom: '16px'
               }}
             >
-              {loading ? 'Verifying...' : 'Verify & Continue'}
+              {loading ? 'Verifying...' : !isHydrated ? 'Loading...' : 'Verify & Continue'}
             </button>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

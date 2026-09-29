@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { getProducts, deleteProduct } from '@/lib/api';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import { resolveImageUrl } from '@/lib/imageUtils';
 
 interface Product {
   _id: string;
@@ -553,7 +554,7 @@ function ProductsPageContent() {
                 {products.map((product) => {
                   const status = getStatusBadge(product);
                   const StatusIcon = status.icon;
-                  const imageUrl = product.primaryImage || product.images?.[0] || PRODUCT_PLACEHOLDER;
+                  const imageUrl = resolveImageUrl(product.primaryImage || product.images?.[0]);
 
                   return (
                     <tr
@@ -737,7 +738,7 @@ function ProductsPageContent() {
           {products.map((product) => {
             const status = getStatusBadge(product);
             const StatusIcon = status.icon;
-            const imageUrl = product.primaryImage || product.images?.[0] || PRODUCT_PLACEHOLDER;
+            const imageUrl = resolveImageUrl(product.primaryImage || product.images?.[0]);
 
             return (
               <div

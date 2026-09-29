@@ -101,6 +101,17 @@ describe('Storefront Catalog Normalization & Integrity Suite', () => {
       'https://res.cloudinary.com/mevapur/image.jpg'
     );
     assert.equal(getSafeMediaUrl('/placeholder.png'), '/placeholder.png');
+
+    // Mock media URL mapping to /uploads reverse proxy
+    assert.equal(
+      getSafeMediaUrl('https://media.mock.mevapur.test/products/2026/09/sample.webp'),
+      '/uploads/products/2026/09/sample.webp'
+    );
+    assert.equal(
+      getSafeMediaUrl('https://media.mock.mevapur.test/uploads/products/sample.webp'),
+      '/uploads/products/sample.webp'
+    );
+    assert.equal(getSafeMediaUrl('https://harzaar.com/something.jpg'), '/placeholder.png');
   });
 
   test('correctly resolves matching variant from selected attribute map', () => {
@@ -307,6 +318,20 @@ describe('ProductCard Navigation & Cloudflare R2 RemotePattern Contracts', () =>
     assert.ok(
       source.includes('event.preventDefault();') && source.includes('event.stopPropagation();'),
       'Wishlist button click handler must stop event propagation'
+    );
+  });
+
+  test('ProductCard calculates dynamic discount percentage and displays badge with fallback', () => {
+    const cardPath = path.resolve(process.cwd(), 'src/components/products/ProductCard.tsx');
+    const source = fs.readFileSync(cardPath, 'utf-8');
+
+    assert.ok(
+      source.includes('discountPercentage'),
+      'ProductCard must compute discountPercentage'
+    );
+    assert.ok(
+      source.includes("{discountPercentage > 0 ? `-${discountPercentage}%` : 'Sale'}"),
+      'ProductCard must render dynamic -{discountPercentage}% badge with fallback to Sale'
     );
   });
 });

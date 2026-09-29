@@ -3,13 +3,16 @@ const Product = require('../../models/Product');
 const User = require('../../models/User');
 const Refund = require('../../models/Refund');
 const Payment = require('../../models/Payment');
+require('../../models/Category');
 const { ORDER_STATUSES } = require('../../constants/orderConstants');
 const { PAYMENT_STATUSES, REFUND_STATUSES } = require('../../constants/paymentConstants');
 
 /**
  * Authoritative financial metrics and commercial aggregation service.
- * Enforces canonical financial semantics, explicit payment/order reconciliation,
- * verified refund authority, strict half-open date intervals, and anomaly tracking.
+ * Enforces canonical financial semantics:
+ * - Gross Sales (Turnover): Total recognized revenue captured from valid delivered/paid orders net of verified refunds.
+ * - Net Profit (Sales - Product Cost): Realized sales minus total inventory acquisition cost / cost of goods sold.
+ * Explicit payment/order reconciliation, verified refund authority, strict half-open date intervals, and anomaly tracking.
  */
 class FinancialMetricsService {
   /**
@@ -503,7 +506,11 @@ class FinancialMetricsService {
       lastMonthCustomersCount,
       totalProducts,
       lowStockProducts,
-      outOfStockProducts
+      outOfStockProducts,
+      salesReport,
+      productStats,
+      paidOrders,
+      pendingCodOrders
     ] = await Promise.all([
       FinancialMetricsService.aggregateRealizedRevenue(null),
       FinancialMetricsService.aggregateRealizedRevenue(todayInterval),
@@ -527,8 +534,41 @@ class FinancialMetricsService {
         $expr: { $lte: ['$stock', { $ifNull: ['$lowStockThreshold', 10] }] },
         stock: { $gt: 0 }
       }),
-      Product.countDocuments({ stock: { $lte: 0 } })
+      Product.countDocuments({ stock: { $lte: 0 } }),
+      FinancialMetricsService.getSalesReport({ period: 'daily' }),
+      FinancialMetricsService.getProductStats({}),
+      Order.find({
+        orderStatus: { $ne: ORDER_STATUSES.CANCELLED },
+        paymentStatus: { $in: ['Paid', 'PartiallyRefunded', 'Refunded'] }
+      }).populate('items.product', 'costPrice price').lean(),
+      Order.find({
+        orderStatus: { $in: [ORDER_STATUSES.PENDING, ORDER_STATUSES.PROCESSING, ORDER_STATUSES.SHIPPED] },
+        $or: [
+          { paymentMethod: { $regex: /^cod$/i } },
+          { 'paymentInfo.method': { $regex: /^cod$/i } }
+        ],
+        paymentStatus: { $in: ['Pending', 'pending', 'unpaid', 'Unpaid'] }
+      }).lean()
     ]);
+
+    let totalCogs = 0;
+    for (const order of paidOrders) {
+      for (const item of (order.items || [])) {
+        const unitCost = item.product?.costPrice ?? item.costPrice ?? (item.price * 0.6);
+        totalCogs += unitCost * (item.quantity || 1);
+      }
+    }
+    const cogs = FinancialMetricsService.roundMoney(totalCogs);
+    const totalGrossSales = allTimeRevenue.realizedRevenue;
+    const netProfit = FinancialMetricsService.roundMoney(Math.max(0, totalGrossSales - cogs));
+    const profitMargin = totalGrossSales > 0 ? Number(((netProfit / totalGrossSales) * 100).toFixed(1)) : 0;
+    const cancellationRate = totalOrders > 0 ? Number(((cancelledOrders / totalOrders) * 100).toFixed(1)) : 0;
+
+    let uncollectedCod = 0;
+    for (const order of pendingCodOrders) {
+      uncollectedCod += (order.totalAmount || 0);
+    }
+    uncollectedCod = FinancialMetricsService.roundMoney(uncollectedCod);
 
     const revenueGrowth = FinancialMetricsService.computeGrowthRate(
       thisMonthRevenueStats.realizedRevenue,
@@ -576,7 +616,16 @@ class FinancialMetricsService {
       outOfStockProducts,
       productsGrowth: null,
       averageOrderValue: allTimeRevenue.averageOrderValue,
-      conversionRate: null
+      conversionRate: null,
+      chartData: salesReport.chartData || [],
+      chartDataByCurrency: salesReport.chartDataByCurrency || {},
+      categoryStats: productStats.categoryStats || [],
+      categoryStatsByCurrency: productStats.categoryStatsByCurrency || {},
+      cogs,
+      netProfit,
+      profitMargin,
+      cancellationRate,
+      uncollectedCod
     };
   }
 

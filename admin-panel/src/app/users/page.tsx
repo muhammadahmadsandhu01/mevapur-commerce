@@ -31,6 +31,8 @@ interface StaffUser {
   phone: string;
   role: StaffRole;
   isBlocked: boolean;
+  loginAttempts?: number;
+  lockUntil?: string | null;
   createdAt: string;
 }
 
@@ -43,6 +45,40 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [unlockingId, setUnlockingId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [now] = useState(() => Date.now());
+
+  const isUserLocked = (u: StaffUser) => {
+    const hasAttempts = (u.loginAttempts ?? 0) >= 5;
+    const isTimeLocked = Boolean(u.lockUntil && new Date(u.lockUntil).getTime() > now);
+    return isTimeLocked || hasAttempts;
+  };
+
+  const handleUnlockUser = async (user: StaffUser) => {
+    try {
+      setUnlockingId(user._id);
+      setActionMessage(null);
+      const response = await api.post(`/admin/users/${user._id}/unlock`);
+      if (response.data.success) {
+        setActionMessage({
+          type: 'success',
+          text: `Account for ${user.fullName} (${user.email}) has been successfully unlocked.`
+        });
+        if (editingUser && editingUser._id === user._id) {
+          setEditingUser({ ...editingUser, loginAttempts: 0, lockUntil: null });
+        }
+        await fetchUsers();
+      }
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
+        ? err.response.data.message
+        : 'Failed to unlock user account';
+      setActionMessage({ type: 'error', text: msg });
+    } finally {
+      setUnlockingId(null);
+    }
+  };
 
   const [formData, setFormData] = useState<{
     fullName: string;
@@ -350,6 +386,33 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {actionMessage && (
+        <div style={{
+          padding: '12px 16px',
+          borderRadius: '10px',
+          marginBottom: '20px',
+          backgroundColor: actionMessage.type === 'success' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.12)',
+          color: actionMessage.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)',
+          border: `1px solid ${actionMessage.type === 'success' ? 'rgba(22, 163, 74, 0.3)' : 'rgba(220, 38, 38, 0.3)'}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '14px',
+          fontWeight: '600'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {actionMessage.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <span>{actionMessage.text}</span>
+          </div>
+          <button
+            onClick={() => setActionMessage(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Users Table */}
       {loading ? (
         <div style={{
@@ -452,16 +515,35 @@ export default function UsersPage() {
                         </span>
                       </td>
                       <td style={{ padding: '16px' }}>
-                        <span style={{
-                          padding: '6px 12px',
-                          backgroundColor: user.isBlocked ? 'rgba(220, 38, 38, 0.1)' : 'rgba(22, 163, 74, 0.12)',
-                          color: user.isBlocked ? 'var(--danger-text)' : 'var(--success-text)',
-                          borderRadius: '20px',
-                          fontSize: '12px',
-                          fontWeight: '600'
-                        }}>
-                          {user.isBlocked ? 'Inactive' : 'Active'}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                          <span style={{
+                            padding: '6px 12px',
+                            backgroundColor: user.isBlocked ? 'rgba(220, 38, 38, 0.1)' : 'rgba(22, 163, 74, 0.12)',
+                            color: user.isBlocked ? 'var(--danger-text)' : 'var(--success-text)',
+                            borderRadius: '20px',
+                            fontSize: '12px',
+                            fontWeight: '600'
+                          }}>
+                            {user.isBlocked ? 'Inactive' : 'Active'}
+                          </span>
+                          {isUserLocked(user) && (
+                            <span style={{
+                              padding: '4px 10px',
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                              color: '#DC2626',
+                              borderRadius: '20px',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              border: '1px solid rgba(239, 68, 68, 0.3)'
+                            }}>
+                              <ShieldAlert size={12} />
+                              Locked ({user.loginAttempts ?? 5} attempts)
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '16px', color: 'var(--text-secondary)', fontSize: '14px' }}>
                         {new Date(user.createdAt).toLocaleDateString('en-PK', {
@@ -471,7 +553,37 @@ export default function UsersPage() {
                         })}
                       </td>
                       <td style={{ padding: '16px' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {isUserLocked(user) && (
+                            <button
+                              onClick={() => handleUnlockUser(user)}
+                              disabled={unlockingId === user._id}
+                              title="Unlock this user account"
+                              aria-label={`Unlock account for ${user.fullName}`}
+                              style={{
+                                padding: '8px 14px',
+                                backgroundColor: '#FF8A00',
+                                color: '#0B132B',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: unlockingId === user._id ? 'not-allowed' : 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontWeight: '700',
+                                fontSize: '13px',
+                                boxShadow: '0 2px 8px rgba(255, 138, 0, 0.3)',
+                                transition: 'all 0.2s ease'
+                              }}
+                            >
+                              {unlockingId === user._id ? (
+                                <Loader size={14} className="animate-spin" />
+                              ) : (
+                                <CheckCircle size={14} />
+                              )}
+                              <span>Unlock Account</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => openEditModal(user)}
                             aria-label={`Edit ${user.fullName}`}
@@ -593,6 +705,47 @@ export default function UsersPage() {
                 <X size={24} aria-hidden="true" />
               </button>
             </div>
+
+            {editingUser && isUserLocked(editingUser) && (
+              <div style={{
+                padding: '14px 18px',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '12px',
+                marginBottom: '20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#DC2626', fontSize: '13px', fontWeight: '600' }}>
+                  <AlertCircle size={18} />
+                  <span>Account is locked due to {editingUser.loginAttempts ?? 5} failed login attempts.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUnlockUser(editingUser)}
+                  disabled={unlockingId === editingUser._id}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#FF8A00',
+                    color: '#0B132B',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: unlockingId === editingUser._id ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {unlockingId === editingUser._id ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  <span>Unlock Account</span>
+                </button>
+              </div>
+            )}
 
             {error && (
               <div style={{

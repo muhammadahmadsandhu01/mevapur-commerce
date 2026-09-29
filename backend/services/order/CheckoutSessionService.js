@@ -228,6 +228,12 @@ class CheckoutSessionService {
     }
 
     const verifiedQuote = CheckoutQuoteService.verifyAndDecodeQuoteToken(sessionData.quoteToken);
+    if (verifiedQuote.quoteId) {
+      const alreadyConsumed = await Order.findOne({ 'quote.quoteId': verifiedQuote.quoteId });
+      if (alreadyConsumed) {
+        throw new AppError('Checkout quote has already been consumed for another order. Please refresh checkout.', 409, 'QUOTE_CONSUMED');
+      }
+    }
     if (verifiedQuote.destinationCountry !== destinationCountry) {
       throw new AppError('Session destination country does not match quote', 409, 'QUOTE_DESTINATION_MISMATCH');
     }
@@ -663,7 +669,7 @@ class CheckoutSessionService {
         const holdResult = await StockHoldLeaseService.convertHold({
           holdId: sessionDoc.inventoryHoldId,
           sessionId: sessionDoc.sessionId,
-          orderId: Order.generateOrderId(),
+          orderId: await Order.generateNextOrderId(),
           orderObjectId: new mongoose.Types.ObjectId(),
           merchantScopeId: sessionDoc.merchantScopeId,
           session: sessionContext,
@@ -697,6 +703,7 @@ class CheckoutSessionService {
         const [order] = await Order.create([{
           _id: newOrderObjectId,
           orderId: newOrderId,
+          orderNumber: newOrderId,
           user: sessionDoc.userId,
           checkoutSessionObjectId: sessionDoc._id,
           checkoutSessionId: sessionDoc.sessionId,

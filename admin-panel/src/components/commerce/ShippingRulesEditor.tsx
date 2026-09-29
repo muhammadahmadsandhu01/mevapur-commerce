@@ -228,13 +228,33 @@ export default function ShippingRulesEditor({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-6">
-      <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-        <div className="flex items-center gap-3">
-          <Truck className="text-[#ff8a00]" size={20} />
+    <div
+      className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-6 space-y-6 mt-4"
+      style={{
+        backgroundColor: '#ffffff',
+        border: '1px solid rgba(226, 232, 240, 0.8)',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        marginTop: '16px'
+      }}
+    >
+      <div
+        className="flex items-center justify-between pb-4 border-b border-slate-100"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '16px', borderBottom: '1px solid #f1f5f9' }}
+      >
+        <div className="flex items-center gap-3" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div
+            className="p-2 rounded-xl bg-orange-50 text-[#ff8a00]"
+            style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#fff7ed', color: '#ff8a00', display: 'inline-flex' }}
+          >
+            <Truck size={20} />
+          </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">Governed Shipping Rules & Timing</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="text-base font-bold text-slate-900" style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+              Governed Shipping Rules & Timing
+            </h3>
+            <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', margin: 0 }}>
               Arbitrary service codes, exact multi-currency rates, weight tiers, remote areas, and cutoff timing governance.
             </p>
           </div>
@@ -243,7 +263,21 @@ export default function ShippingRulesEditor({
           <button
             type="button"
             onClick={handleAddRule}
-            className="px-3 py-1.5 bg-[#0b132b] hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#ff8a00] hover:bg-[#ea580c] text-white text-xs font-semibold rounded-xl shadow-xs transition cursor-pointer"
+            style={{
+              backgroundColor: '#ff8a00',
+              color: '#ffffff',
+              padding: '8px 14px',
+              borderRadius: '12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+            }}
           >
             <Plus size={14} /> Add Shipping Rule
           </button>
@@ -263,48 +297,121 @@ export default function ShippingRulesEditor({
             return (
               <div
                 key={rule.ruleId || idx}
-                className={`p-4 border rounded-xl transition text-xs space-y-3 ${
+                className={`p-4 border rounded-xl transition text-xs space-y-3 bg-white shadow-xs ${
                   rule.enabled
                     ? errors.length > 0
-                      ? 'border-amber-300 bg-amber-50/20'
-                      : 'border-slate-200 bg-white'
+                      ? 'border-amber-300'
+                      : 'border-slate-200/90 hover:border-slate-300'
                     : 'border-slate-200 bg-slate-50 opacity-60'
                 }`}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: errors.length > 0 ? '1px solid #fcd34d' : '1px solid rgba(226, 232, 240, 0.9)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}
               >
                 {/* Rule Header Bar */}
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="font-black text-slate-900">{rule.name}</span>
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-mono text-[10px] rounded uppercase font-bold">
+                <div className="flex items-center justify-between flex-wrap gap-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div className="flex items-center gap-3 flex-wrap" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <span className="font-bold text-slate-900 text-sm" style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>{rule.name}</span>
+                    <span
+                      className="px-2.5 py-1 bg-slate-100 text-slate-700 font-mono text-[11px] rounded-lg uppercase font-semibold border border-slate-200"
+                      style={{
+                        display: 'inline-flex',
+                        padding: '4px 8px',
+                        backgroundColor: '#f1f5f9',
+                        color: '#334155',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        fontWeight: 600
+                      }}
+                    >
                       {rule.originCountry} → {rule.destinationCountry}
                     </span>
-                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-mono text-[10px] rounded uppercase font-bold border border-blue-200">
+                    <span
+                      className="px-2.5 py-1 bg-blue-50 text-blue-700 font-mono text-[11px] rounded-lg uppercase font-semibold border border-blue-200"
+                      style={{
+                        display: 'inline-flex',
+                        padding: '4px 8px',
+                        backgroundColor: '#eff6ff',
+                        color: '#1d4ed8',
+                        borderRadius: '8px',
+                        border: '1px solid #bfdbfe',
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        fontWeight: 600
+                      }}
+                    >
                       Code: {rule.serviceCode}
                     </span>
-                    <span className="font-bold text-emerald-700">
+                    <span className="font-bold text-emerald-700 text-xs" style={{ fontWeight: 700, color: '#047857', fontSize: '12px' }}>
                       {formatExactMoney(rule.baseRateExact)}
                     </span>
-                    <span className="text-slate-500 text-[11px]">
+                    <span className="text-slate-500 text-[11px] font-medium" style={{ color: '#64748b', fontSize: '11px', fontWeight: 500 }}>
                       ({rule.deliveryMinDays}–{rule.deliveryMaxDays} days)
                     </span>
                     {rule.processingCutoffLocal && (
-                      <span className="text-slate-500 text-[11px] flex items-center gap-1">
+                      <span
+                        className="text-slate-600 text-[11px] font-medium inline-flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: '#475569',
+                          fontSize: '11px',
+                          backgroundColor: '#f8fafc',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid #e2e8f0'
+                        }}
+                      >
                         <Clock size={11} className="text-slate-400" /> Cutoff: {rule.processingCutoffLocal}
                       </span>
                     )}
                     {errors.length > 0 && (
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-bold text-[10px] rounded-full flex items-center gap-1">
-                        <AlertCircle size={10} /> {errors.length} issue{errors.length > 1 ? 's' : ''}
+                      <span
+                        className="px-2.5 py-0.5 bg-amber-50 text-amber-800 font-semibold text-[11px] rounded-full border border-amber-200 flex items-center gap-1"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          backgroundColor: '#fffbeb',
+                          color: '#92400e',
+                          borderRadius: '9999px',
+                          border: '1px solid #fde68a',
+                          fontSize: '11px',
+                          fontWeight: 600
+                        }}
+                      >
+                        <AlertCircle size={11} /> {errors.length} issue{errors.length > 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
 
                   {!disabled && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
                         type="button"
                         onClick={() => setEditingIndex(isEditing ? null : idx)}
-                        className="px-2.5 py-1 text-slate-700 hover:bg-slate-100 rounded-lg font-semibold transition flex items-center gap-1"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer bg-white"
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          backgroundColor: '#ffffff',
+                          color: '#334155',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          cursor: 'pointer'
+                        }}
                       >
                         {isEditing ? (
                           <>
@@ -319,7 +426,15 @@ export default function ShippingRulesEditor({
                       <button
                         type="button"
                         onClick={() => handleDeleteRule(idx)}
-                        className="p-1 hover:bg-rose-100 text-rose-600 rounded transition"
+                        className="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 text-rose-600 transition cursor-pointer bg-white"
+                        style={{
+                          padding: '6px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          backgroundColor: '#ffffff',
+                          color: '#e11d48',
+                          cursor: 'pointer'
+                        }}
                         title="Delete rule"
                       >
                         <Trash2 size={14} />

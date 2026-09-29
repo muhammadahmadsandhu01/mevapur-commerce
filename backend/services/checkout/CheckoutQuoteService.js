@@ -17,6 +17,7 @@ const TaxDutyEngine = require('./TaxDutyEngine');
 const shippingAdapterRegistry = require('./shipping/ShippingAdapterRegistry');
 const defaultPaymentPolicy = require('../payment/PaymentCapabilityPolicy');
 const defaultCodPolicyService = require('../payment/CodEligibilityPolicyService');
+const defaultCodSettingsService = require('../settings/CodSettingsService');
 const ProductVisibilityPolicy = require('../product/ProductVisibilityPolicy');
 const InventoryAvailabilityService = require('../inventory/InventoryAvailabilityService');
 const InventoryAllocationService = require('../inventory/InventoryAllocationService');
@@ -622,7 +623,8 @@ class CheckoutQuoteService {
     couponCode = null,
     shippingServiceLevel = 'standard',
     shippingAdapter = null,
-    guestVerificationToken = null
+    guestVerificationToken = null,
+    paymentMethod = null
   }) {
     // 1. Authoritative Seller & Market Context
     const market = await this.marketService.getConfig({ merchantScopeId });
@@ -660,6 +662,21 @@ class CheckoutQuoteService {
 
     const destinationCountry = normalizedAddress.countryCode;
     const isDomestic = destinationCountry === merchantCountry;
+
+    // Enforce COD City Exclusion if COD requested in quote
+    const requestedPaymentMethod = (paymentMethod || '').trim().toLowerCase();
+    const isPakistan = destinationCountry === 'PK' || (shippingAddress.country || '').trim().toLowerCase() === 'pakistan';
+    if (requestedPaymentMethod === 'cod' && isPakistan) {
+      const disallowedCities = await defaultCodSettingsService.getDisallowedCities();
+      const customerCity = (shippingAddress.city || normalizedAddress.locality || '').trim().toLowerCase();
+      if (disallowedCities.map((c) => c.trim().toLowerCase()).includes(customerCity)) {
+        throw new AppError(
+          `Cash on Delivery is currently unavailable for ${shippingAddress.city || normalizedAddress.locality}. Please select an alternative payment method.`,
+          400,
+          'COD_CITY_DISALLOWED'
+        );
+      }
+    }
 
     // Validate phone E.164 if provided
     let parsedPhone = null;
@@ -1156,23 +1173,28 @@ class CheckoutQuoteService {
    * @returns {Object} Decoded verified signable quote payload
    */
   verifyAndDecodeQuoteToken(quoteToken) {
-    if (!quoteToken || typeof quoteToken !== 'string') {
+    if (!quoteToken || typeof quoteToken !== 'string' || !quoteToken.trim() || quoteToken.trim() === 'null' || quoteToken.trim() === 'undefined') {
       throw new AppError('Quote token is required', 400, 'QUOTE_REQUIRED');
     }
 
-    if (quoteToken.length > 32768) {
+    const trimmed = quoteToken.trim();
+    if (trimmed.startsWith('QUO-') || trimmed.startsWith('quo-')) {
+      throw new AppError('A signed quote token is required, but a Quote ID was provided', 400, 'QUOTE_TOKEN_REQUIRED');
+    }
+
+    if (trimmed.length > 32768) {
       throw new AppError('Quote token exceeds maximum allowed size', 400, 'QUOTE_MALFORMED');
     }
 
     let envelope;
     try {
-      const decoded = Buffer.from(quoteToken, 'base64url').toString('utf8');
+      const decoded = Buffer.from(trimmed, 'base64url').toString('utf8');
       envelope = JSON.parse(decoded);
     } catch {
       throw new AppError('Malformed checkout quote token', 400, 'QUOTE_MALFORMED');
     }
 
-    if (!envelope || typeof envelope !== 'object') {
+    if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
       throw new AppError('Malformed checkout quote token', 400, 'QUOTE_MALFORMED');
     }
 

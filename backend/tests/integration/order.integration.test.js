@@ -401,7 +401,7 @@ describe('Order API integration', () => {
       }
     });
     expect(response.body.data.order.orderId)
-      .toMatch(/^ORD-\d{8}-[A-F0-9]{12}$/);
+      .toMatch(/^HZ-\d{8}-\d{6}$/);
     expect(response.body.data.order.items[0]).toMatchObject({
       name: product.name,
       sku: product.sku,

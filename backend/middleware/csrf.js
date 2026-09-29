@@ -40,19 +40,44 @@ const isSignedTokenValid = (token) => {
   return safeEqual(signature, signNonce(nonce));
 };
 
-const issueCsrfToken = (res) => {
+const getCsrfCookieName = (req) => {
+  const scope = (req?.get?.('X-Auth-Scope') || req?.get?.('X-Client-App') || '').toLowerCase().trim();
+  if (scope === 'storefront') return 'mevapur_storefront_csrf';
+  if (scope === 'admin') return 'mevapur_admin_csrf';
+
+  const origin = req?.get?.('Origin') || req?.get?.('Referer') || '';
+  if (origin.includes(':55070') || origin.includes(':3000')) return 'mevapur_storefront_csrf';
+  if (origin.includes(':55071') || origin.includes(':3001')) return 'mevapur_admin_csrf';
+
+  return config.cookie.csrf.name;
+};
+
+const issueCsrfToken = (reqOrRes, maybeRes) => {
+  const res = maybeRes || reqOrRes;
+  const req = maybeRes ? reqOrRes : null;
   const token = createCsrfToken();
-  res.cookie(config.cookie.csrf.name, token, config.cookie.csrf);
+  const cookieName = getCsrfCookieName(req);
+  res.cookie(cookieName, token, config.cookie.csrf);
+  if (cookieName !== config.cookie.csrf.name) {
+    res.cookie(config.cookie.csrf.name, token, config.cookie.csrf);
+  }
   return token;
 };
 
-const clearCsrfToken = (res) => {
+const clearCsrfToken = (reqOrRes, maybeRes) => {
+  const res = maybeRes || reqOrRes;
+  const req = maybeRes ? reqOrRes : null;
   const { maxAge, ...options } = config.cookie.csrf;
+  const cookieName = getCsrfCookieName(req);
+  res.clearCookie(cookieName, options);
   res.clearCookie(config.cookie.csrf.name, options);
+  res.clearCookie('mevapur_storefront_csrf', options);
+  res.clearCookie('mevapur_admin_csrf', options);
 };
 
 const csrfProtection = (req, res, next) => {
-  const cookieToken = req.cookies?.[config.cookie.csrf.name];
+  const cookieName = getCsrfCookieName(req);
+  const cookieToken = req.cookies?.[cookieName] || req.cookies?.[config.cookie.csrf.name];
   const headerToken = req.get('X-CSRF-Token');
   const requestOrigin = req.get('Origin');
 
@@ -82,5 +107,6 @@ module.exports = {
   csrfProtection,
   issueCsrfToken,
   clearCsrfToken,
-  isSignedTokenValid
+  isSignedTokenValid,
+  getCsrfCookieName
 };

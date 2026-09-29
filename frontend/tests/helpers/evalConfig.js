@@ -11,6 +11,8 @@ async function main() {
   const privateRule = headersList.find((h) => h.source && h.source.includes('checkout'));
   const robotsHeader = privateRule ? privateRule.headers.find((h) => h.key === 'X-Robots-Tag') : null;
   const remotePatterns = config.images?.remotePatterns || [];
+  const hasRewrites = typeof config.rewrites === 'function';
+  const rewritesList = hasRewrites ? await config.rewrites() : [];
 
   console.log(JSON.stringify({
     hasOutput,
@@ -18,7 +20,10 @@ async function main() {
     headerKeys,
     hasRobotsHeader: !!robotsHeader,
     robotsHeaderValue: robotsHeader ? robotsHeader.value : null,
-    remotePatternsCount: remotePatterns.length
+    remotePatternsCount: remotePatterns.length,
+    hasRewrites,
+    rewritesCount: rewritesList.length,
+    rewritesSources: rewritesList.map((r) => r.source)
   }));
 }
 

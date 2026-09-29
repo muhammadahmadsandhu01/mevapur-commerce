@@ -514,7 +514,7 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
 
     // Extract text from PDF streams and assert presence of authoritative content
     const pdfText = extractTextFromPdfBuffer(pdfBuffer);
-    assert.match(pdfText, /Order Reference/i);
+    assert.match(pdfText, /Order (ID|Reference)/i);
     assert.match(pdfText, /ORD-20260904-TEST01/i);
     assert.match(pdfText, /Billed \/ Delivered To/i);
     assert.match(pdfText, /Muhammad Ahmad/i);
@@ -583,7 +583,7 @@ describe('Storefront Phase 5: Browser Acceptance & Accessibility Suite', () => {
 
     // Extract text from multi-page PDF and verify items spanning from first to last
     const pdfText = extractTextFromPdfBuffer(pdfBuffer);
-    assert.match(pdfText, /Order Reference/i);
+    assert.match(pdfText, /Order (ID|Reference)/i);
     assert.match(pdfText, /ORD-MULTI-PAGE-TEST/i);
     assert.match(pdfText, /Billed \/ Delivered To/i);
     assert.match(pdfText, /Premium Organic Product Batch #1/i);

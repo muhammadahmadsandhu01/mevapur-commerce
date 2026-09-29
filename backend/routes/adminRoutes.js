@@ -87,6 +87,36 @@ router.get('/products/top', protect, admin, async (req, res) => {
   }
 });
 
+// @desc    Get dashboard analytics (Revenue time-series and category breakdown)
+// @route   GET /api/admin/analytics
+// @access  Private/Admin
+router.get('/analytics', protect, admin, async (req, res) => {
+  try {
+    const [salesReport, productStats] = await Promise.all([
+      FinancialMetricsService.getSalesReport(req.query),
+      FinancialMetricsService.getProductStats(req.query)
+    ]);
+    res.json({
+      success: true,
+      data: {
+        chartData: salesReport.chartData || [],
+        chartDataByCurrency: salesReport.chartDataByCurrency || {},
+        categoryStats: productStats.categoryStats || [],
+        categoryStatsByCurrency: productStats.categoryStatsByCurrency || {}
+      }
+    });
+  } catch (error) {
+    logger.error('Admin analytics query failed', {
+      errorCode: error.code,
+      errorName: error.name
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch analytics'
+    });
+  }
+});
+
 const paymentWebhookController = require('../controllers/paymentWebhookController');
 
 // @desc    Get payment webhook inbox health statistics
@@ -94,5 +124,44 @@ const paymentWebhookController = require('../controllers/paymentWebhookControlle
 // @access  Private/Admin
 router.get('/payments/webhooks/health', protect, admin, paymentWebhookController.getWebhookHealth);
 router.get('/payments/webhook/health', protect, admin, paymentWebhookController.getWebhookHealth);
+
+const codSettingsController = require('../controllers/codSettingsController');
+
+// @desc    Get and update COD settings (disallowed cities & status)
+// @route   GET /api/admin/settings/cod, PUT /api/admin/settings/cod
+// @access  Private/Admin
+router.get('/settings/cod', protect, admin, codSettingsController.getCodSettings);
+router.put('/settings/cod', protect, admin, codSettingsController.updateCodSettings);
+
+const userController = require('../controllers/userController');
+
+// @desc    Unlock user account
+// @route   POST /api/admin/users/:id/unlock, PUT /api/admin/users/:id/unlock
+// @access  Private/Admin
+router.post('/users/:id/unlock', protect, admin, userController.unlockUser);
+router.put('/users/:id/unlock', protect, admin, userController.unlockUser);
+router.post('/customers/:id/unlock', protect, admin, userController.unlockUser);
+router.put('/customers/:id/unlock', protect, admin, userController.unlockUser);
+
+const { updateOrderPaymentStatus } = require('../controllers/orderController');
+const validate = require('../middleware/validate');
+const ERROR_CODES = require('../constants/errorCodes');
+const {
+  orderReferenceSchema,
+  updatePaymentStatusSchema
+} = require('../validators/orderValidator');
+
+const orderValidation = (schema, source = 'body') => validate(schema, {
+  source,
+  code: ERROR_CODES.ORDER_VALIDATION_FAILED
+});
+
+// @desc    Update order payment status (COD payment reconciliation)
+// @route   PATCH /api/admin/orders/:id/payment-status, PATCH /api/admin/orders/:id/payment
+// @access  Private/Admin
+router.patch('/orders/:id/payment-status', protect, admin, orderValidation(orderReferenceSchema, 'params'), orderValidation(updatePaymentStatusSchema), updateOrderPaymentStatus);
+router.patch('/orders/:id/payment', protect, admin, orderValidation(orderReferenceSchema, 'params'), orderValidation(updatePaymentStatusSchema), updateOrderPaymentStatus);
+router.post('/orders/:id/mark-paid', protect, admin, orderValidation(orderReferenceSchema, 'params'), orderValidation(updatePaymentStatusSchema), updateOrderPaymentStatus);
+router.post('/orders/:id/payment', protect, admin, orderValidation(orderReferenceSchema, 'params'), orderValidation(updatePaymentStatusSchema), updateOrderPaymentStatus);
 
 module.exports = router;

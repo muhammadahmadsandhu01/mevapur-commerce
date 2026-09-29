@@ -104,6 +104,7 @@ export interface CheckoutQuoteRequest {
   couponCode?: string;
   shippingServiceLevel?: string;
   shippingAdapter?: string;
+  guestVerificationToken?: string;
 }
 
 export interface QuoteShippingOption {

@@ -11,7 +11,8 @@ const {
   listInvitations,
   resendInvitation,
   revokeInvitation,
-  getRolesMatrix
+  getRolesMatrix,
+  unlockUser
 } = require('../controllers/userController');
 
 // All routes require authentication
@@ -34,5 +35,13 @@ router.get('/roles-matrix', admin, getRolesMatrix);
 
 // Customer Management (Admin)
 router.get('/customers', admin, getCustomers);
+
+// Unlock User Account (Admin)
+router.post('/:id/unlock', admin, unlockUser);
+router.put('/:id/unlock', admin, unlockUser);
+router.post('/staff/:id/unlock', admin, unlockUser);
+router.put('/staff/:id/unlock', admin, unlockUser);
+router.post('/customers/:id/unlock', admin, unlockUser);
+router.put('/customers/:id/unlock', admin, unlockUser);
 
 module.exports = router;

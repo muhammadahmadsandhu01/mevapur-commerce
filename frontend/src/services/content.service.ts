@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { publicApiBaseUrl } from '../config/publicConfig.ts';
+import { resolveRuntimeApiBaseUrl } from '../config/publicConfig.ts';
 import { getSafeMediaUrl } from '../lib/catalogAdapter.ts';
 import type { ContentItem, ContentType, PublicStoreSettings } from '../types/content.ts';
 
@@ -7,18 +7,7 @@ import type { ContentItem, ContentType, PublicStoreSettings } from '../types/con
  * Resolves the authoritative API base URL for server and client execution boundaries
  */
 export function getApiBaseUrl(): string {
-  if (typeof window === 'undefined') {
-    const runtimeUrl = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL;
-    if (runtimeUrl) {
-      try {
-        const parsed = new URL(runtimeUrl);
-        return `${parsed.origin}/api`;
-      } catch {
-        // Fallback to static config
-      }
-    }
-  }
-  return publicApiBaseUrl;
+  return resolveRuntimeApiBaseUrl();
 }
 
 /**

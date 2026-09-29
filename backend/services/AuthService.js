@@ -18,6 +18,13 @@ const { CANONICAL_ROLES, STAFF_ROLES } = require('../constants/roleConstants');
 const { CountryRegistry } = require('../modules/commerce');
 
 class AuthService {
+  getFrontendUrl() {
+    return process.env.FRONTEND_URL
+      || process.env.CLIENT_URL
+      || process.env.NEXT_PUBLIC_SITE_URL
+      || 'http://127.0.0.1:55070';
+  }
+
   publicUser(user) {
     const data = typeof user.toJSON === 'function'
       ? user.toJSON()

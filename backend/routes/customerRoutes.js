@@ -19,4 +19,8 @@ router.get('/:id', checkRoles('support', 'manager', 'admin', 'super_admin'), get
 router.patch('/:id/profile', checkRoles('manager', 'admin', 'super_admin'), updateCustomerProfile);
 router.put('/:id/block', admin, toggleBlockCustomer);
 
+const userController = require('../controllers/userController');
+router.post('/:id/unlock', admin, userController.unlockUser);
+router.put('/:id/unlock', admin, userController.unlockUser);
+
 module.exports = router;

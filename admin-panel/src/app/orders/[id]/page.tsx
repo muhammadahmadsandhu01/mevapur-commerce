@@ -147,6 +147,7 @@ export default function OrderDetailPage() {
   const [showCodModal, setShowCodModal] = useState(false);
   const [codAdminNote, setCodAdminNote] = useState('');
   const [markingCod, setMarkingCod] = useState(false);
+  const [autoReconcileCod, setAutoReconcileCod] = useState(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
@@ -191,7 +192,6 @@ export default function OrderDetailPage() {
   const isCodEligible = (order: Order | null) => Boolean(
     order
     && String(order.paymentMethod).toLowerCase() === 'cod'
-    && order.orderStatus === 'Delivered'
     && order.paymentStatus === 'Pending'
   );
 
@@ -202,7 +202,9 @@ export default function OrderDetailPage() {
     try {
       await api.put(`/orders/${orderId}/status`, {
         orderStatus: newStatus,
-        adminNote: adminNotes
+        adminNote: adminNotes,
+        autoReconcilePayment: newStatus === 'Delivered' ? autoReconcileCod : false,
+        cashCollected: newStatus === 'Delivered' ? autoReconcileCod : false
       });
       await fetchOrder();
       setShowStatusModal(false);
@@ -222,7 +224,9 @@ export default function OrderDetailPage() {
     try {
       const response = await api.patch(`/orders/${order._id}/payment-status`, {
         paymentStatus: 'Paid',
-        adminNote: codAdminNote.trim()
+        adminNote: codAdminNote.trim(),
+        autoDeliver: true,
+        cashCollected: true
       });
       if (response.data.success) {
         const updated = response.data.data.order;
@@ -231,7 +235,7 @@ export default function OrderDetailPage() {
         setCodAdminNote('');
         setToast({
           type: 'success',
-          message: `COD payment marked as Paid for order ${updated.orderId || updated._id}.`
+          message: `COD payment marked as Received for order ${updated.orderId || updated._id}.`
         });
       }
     } catch (err: unknown) {
@@ -411,7 +415,7 @@ export default function OrderDetailPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px', flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-                Order #{order.orderId || order._id.slice(-8).toUpperCase()}
+                {order.orderId ? `Order ${order.orderId}` : `Order #${order._id.slice(-8).toUpperCase()}`}
               </h1>
               <div style={{
                 display: 'inline-flex',
@@ -906,7 +910,7 @@ export default function OrderDetailPage() {
                     transition: 'all 0.2s'
                   }}
                 >
-                  <CheckCircle size={15} /> Mark COD as Paid
+                  <CheckCircle size={15} /> Mark Payment Received
                 </button>
               )}
             </div>
@@ -1274,6 +1278,20 @@ export default function OrderDetailPage() {
                   resize: 'vertical'
                 }}
               />
+              {newStatus === 'Delivered' && String(order?.paymentMethod).toLowerCase() === 'cod' && order?.paymentStatus === 'Pending' && (
+                <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: 'rgba(22, 163, 74, 0.08)', borderRadius: '8px', border: '1px solid rgba(22, 163, 74, 0.2)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="checkbox"
+                    id="autoReconcileCod"
+                    checked={autoReconcileCod}
+                    onChange={e => setAutoReconcileCod(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: '#16A34A', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="autoReconcileCod" style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '600', cursor: 'pointer' }}>
+                    Auto-reconcile COD payment to Paid (Cash collected upon delivery)
+                  </label>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -1444,7 +1462,7 @@ export default function OrderDetailPage() {
                   <CheckCircle size={20} />
                 </div>
                 <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                  Confirm COD Payment
+                  Confirm Cash Collected
                 </h2>
               </div>
               <button
@@ -1458,7 +1476,7 @@ export default function OrderDetailPage() {
             </div>
 
             <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
-              Record received cash collection for delivered order <strong style={{ color: 'var(--text-primary)' }}>{order.orderId || order._id}</strong>. This will transition payment status to <strong>Paid</strong> and recognize <strong>{order.totalAmountExact ? formatExactMoney(order.totalAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.totalAmount?.toLocaleString()}`}</strong> in realized revenue.
+              Confirm that cash of PKR <strong style={{ color: 'var(--text-primary)' }}>{order.totalAmount?.toLocaleString()}</strong> has been collected from customer/courier for order <strong style={{ color: 'var(--text-primary)' }}>{order.orderId || order._id}</strong>. This will transition payment status to <strong>Paid</strong> and recognize <strong>{order.totalAmountExact ? formatExactMoney(order.totalAmountExact) : `${order.currency ? `${order.currency} ` : ''}${order.totalAmount?.toLocaleString()}`}</strong> in realized revenue.
             </p>
 
             <div style={{ marginBottom: '24px' }}>
@@ -1520,7 +1538,7 @@ export default function OrderDetailPage() {
                 }}
               >
                 {markingCod ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={18} />}
-                {markingCod ? 'Recording...' : 'Confirm Paid'}
+                {markingCod ? 'Recording...' : 'Confirm Cash Collected'}
               </button>
             </div>
           </div>

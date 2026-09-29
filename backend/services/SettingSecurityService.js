@@ -16,6 +16,8 @@ const ALLOWED_SETTING_PATHS = Object.freeze([
   'payment.visa_merchant_id',
   'payment.mastercard_enabled',
   'payment.mastercard_merchant_id',
+  'codSettings.enabled',
+  'codSettings.disallowedCities',
   'social.facebook',
   'social.instagram',
   'social.twitter',

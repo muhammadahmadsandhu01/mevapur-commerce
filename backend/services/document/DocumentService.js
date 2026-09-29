@@ -249,7 +249,7 @@ class DocumentService {
   }
 
   async listCustomerDocuments(userId, orderReference) {
-    const references = [{ orderId: orderReference }];
+    const references = [{ orderId: orderReference }, { orderNumber: orderReference }];
     if (/^[a-fA-F0-9]{24}$/.test(orderReference)) references.unshift({ _id: orderReference });
     const order = await Order.findOne({ user: userId, $or: references });
     if (!order) {
@@ -272,7 +272,7 @@ class DocumentService {
   }
 
   async getCustomerDocument(userId, orderReference, documentNumber) {
-    const references = [{ orderId: orderReference }];
+    const references = [{ orderId: orderReference }, { orderNumber: orderReference }];
     if (/^[a-fA-F0-9]{24}$/.test(orderReference)) references.unshift({ _id: orderReference });
     const order = await Order.findOne({ user: userId, $or: references });
     if (!order) {

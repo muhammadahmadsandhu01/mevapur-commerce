@@ -42,7 +42,17 @@ function AccountPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<AccountTab>('profile');
+  const tabFromQuery = searchParams.get('tab');
+  const orderIdFromQuery = searchParams.get('orderId') || searchParams.get('order') || '';
+  const productIdFromQuery = searchParams.get('item') || searchParams.get('productId') || searchParams.get('product') || '';
+  const variantIdFromQuery = searchParams.get('variant') || searchParams.get('variantId') || '';
+
+  const activeTab: AccountTab = (tabFromQuery === 'returns' || tabFromQuery === 'orders' || Boolean(orderIdFromQuery))
+    ? 'orders'
+    : (tabFromQuery && ['profile', 'addresses', 'orders', 'reviews', 'security', 'notifications'].includes(tabFromQuery as AccountTab))
+      ? (tabFromQuery as AccountTab)
+      : 'profile';
+
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -65,17 +75,6 @@ function AccountPageContent() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
-
-  // Sync tab with search params if present
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const tabParam = searchParams.get('tab') as AccountTab;
-      if (tabParam && ['profile', 'addresses', 'orders', 'reviews', 'security', 'notifications'].includes(tabParam)) {
-        setActiveTab(tabParam);
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [searchParams]);
 
   const loadData = useCallback(async () => {
     const gen = getSessionGeneration();
@@ -154,7 +153,6 @@ function AccountPageContent() {
   };
 
   const selectTab = (tab: AccountTab) => {
-    setActiveTab(tab);
     router.replace(`/account?tab=${tab}`);
   };
 
@@ -205,12 +203,14 @@ function AccountPageContent() {
               <p className="text-xs text-slate-500">{profile?.email}</p>
             </div>
           </div>
-          <Link
-            href="/products"
-            className="inline-flex items-center justify-center rounded-xl bg-[#0b132b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1c2a4f] shadow-xs"
-          >
-            Continue Shopping
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/products"
+              className="inline-flex items-center justify-center rounded-xl bg-[#0b132b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1c2a4f] shadow-xs transition"
+            >
+              Continue Shopping
+            </Link>
+          </div>
         </div>
 
         {/* Dashboard Navigation Tabs */}
@@ -431,22 +431,39 @@ function AccountPageContent() {
         {/* Tab 3: Orders & Returns */}
         {activeTab === 'orders' && (
           <div className="space-y-6">
-            <ReturnRequestForm onSubmitted={loadData} />
+            <ReturnRequestForm
+              initialOrderId={orderIdFromQuery}
+              initialProductId={productIdFromQuery}
+              initialVariantId={variantIdFromQuery}
+              onSubmitted={loadData}
+            />
 
             {/* Past Returns List */}
-            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-base font-bold text-[#0b132b] mb-4">Past Return Requests</h3>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-[#ff8a00]">
+                  <RotateCcw className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-[#0b132b]">Past Return Requests</h3>
+                  <p className="text-xs text-slate-500">Track and review previously submitted return claims.</p>
+                </div>
+              </div>
               {returns.length === 0 ? (
-                <p className="text-xs text-slate-500">No return requests filed.</p>
+                <div className="py-8 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-6">
+                  <RotateCcw className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                  <p className="text-sm font-semibold text-slate-700">No return requests filed</p>
+                  <p className="text-xs text-slate-500 mt-1">Eligible delivered orders can be selected above to request a return.</p>
+                </div>
               ) : (
                 <div className="divide-y divide-slate-100">
                   {returns.map((ret) => (
-                    <div key={ret.id} className="py-3 flex items-center justify-between">
+                    <div key={ret.id} className="py-3.5 flex items-center justify-between">
                       <div>
                         <p className="text-xs font-bold text-slate-900">Return #{ret.returnNumber}</p>
-                        <p className="text-[11px] text-slate-500">Status: <span className="capitalize font-semibold">{ret.status}</span></p>
+                        <p className="text-[11px] text-slate-500">Status: <span className="capitalize font-semibold text-slate-700">{ret.status}</span></p>
                       </div>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 capitalize">
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 capitalize border border-slate-200">
                         {ret.status}
                       </span>
                     </div>
@@ -456,19 +473,31 @@ function AccountPageContent() {
             </div>
 
             {/* Refunds List */}
-            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-base font-bold text-[#0b132b] mb-4">Refund History</h3>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-[#0b132b]">Refund History</h3>
+                  <p className="text-xs text-slate-500">Official refunds processed and settled to your original payment method.</p>
+                </div>
+              </div>
               {refunds.length === 0 ? (
-                <p className="text-xs text-slate-500">No refunds recorded.</p>
+                <div className="py-8 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-6">
+                  <ShieldCheck className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                  <p className="text-sm font-semibold text-slate-700">No refunds recorded</p>
+                  <p className="text-xs text-slate-500 mt-1">Approved refunds will automatically appear here once authorized.</p>
+                </div>
               ) : (
                 <div className="divide-y divide-slate-100">
                   {refunds.map((ref) => (
-                    <div key={ref.id} className="py-3 flex items-center justify-between">
+                    <div key={ref.id} className="py-3.5 flex items-center justify-between">
                       <div>
                         <p className="text-xs font-bold text-slate-900">Refund #{ref.refundNumber}</p>
-                        <p className="text-[11px] text-slate-500">Amount: {formatMoney(ref.amount, ref.currency)}</p>
+                        <p className="text-[11px] text-slate-500">Amount: <span className="font-semibold text-emerald-700">{formatMoney(ref.amount, ref.currency)}</span></p>
                       </div>
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 capitalize">
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 capitalize border border-emerald-200">
                         {ref.status}
                       </span>
                     </div>

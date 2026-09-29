@@ -354,6 +354,8 @@ class CustomerCommerceService {
       currency: order.payment?.currency || 'PKR',
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,
+      paidAt: order.payment?.paidAt || null,
+      settledBy: order.payment?.settledBy || null,
       documentNumber: doc?.documentNumber || `DOC-${order.orderId}`,
       documentType: doc?.documentType || 'ORDER_CONFIRMATION',
       title: doc?.title || 'Order Confirmation',

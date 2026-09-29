@@ -17,8 +17,12 @@ export default function ProductCard({ product }: { product: Product }) {
   const [saving, setSaving] = useState(false);
 
   const price = Number(product.price || 0);
-  const originalPrice = Number(product.originalPrice || 0);
+  const compareAt = (product as { compareAtPrice?: number }).compareAtPrice;
+  const originalPrice = Number(compareAt ?? product.originalPrice ?? 0);
   const hasSale = originalPrice > price;
+  const discountPercentage = hasSale && originalPrice > 0
+    ? Math.round(((originalPrice - price) / originalPrice) * 100)
+    : (typeof product.discount === 'number' && product.discount > 0 ? Math.round(product.discount) : 0);
 
   const rawImage = product.primaryImage || product.images?.[0] || product.image || '/placeholder.png';
   const image = getSafeMediaUrl(rawImage);
@@ -76,7 +80,7 @@ export default function ProductCard({ product }: { product: Product }) {
 
           {hasSale && (
             <span className="absolute bottom-2 left-2 bg-[#0b132b] px-2 py-0.5 text-[11px] font-bold text-white rounded">
-              Sale
+              {discountPercentage > 0 ? `-${discountPercentage}%` : 'Sale'}
             </span>
           )}
         </div>

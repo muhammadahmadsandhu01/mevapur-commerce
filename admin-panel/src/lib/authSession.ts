@@ -28,6 +28,7 @@ export const authHttp = axios.create({
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
+    'X-Auth-Scope': 'admin',
   },
 });
 

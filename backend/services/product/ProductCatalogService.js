@@ -12,6 +12,8 @@ const { validateMergedPublishedState } = require('../../validators/productValida
 const { AppError } = require('../../common/errors/AppError');
 const logger = require('../../utils/logger');
 const { MoneyMapper } = require('../../modules/commerce');
+const ProductMarketOffering = require('../../models/ProductMarketOffering');
+const MarketPriceBook = require('../../models/MarketPriceBook');
 
 class ProductCatalogService {
   isTransientMongoError(error) {
@@ -130,6 +132,189 @@ class ProductCatalogService {
       image: urls[0] || '',
       gallery: urls
     };
+  }
+
+  async ensureDefaultMarketOfferingsAndPrices(product, { session = null, actorId = null, merchantScopeId = 'default' } = {}) {
+    if (!product || !product._id) return;
+
+    const homeCountry = 'PK';
+    const currency = 'PKR';
+    const effectiveDate = new Date('2020-01-01');
+    const offeringStatus = (product.status === 'published' && product.isActive) ? 'active' : 'draft';
+
+    // 1. Root Product Offering
+    let offeringQuery = ProductMarketOffering.findOne({
+      merchantScopeId,
+      productId: product._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: homeCountry
+    });
+    if (session) offeringQuery = offeringQuery.session(session);
+    let offering = await offeringQuery;
+
+    if (!offering) {
+      const newOffering = new ProductMarketOffering({
+        merchantScopeId,
+        productId: product._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        sku: product.sku || '',
+        marketCountry: homeCountry,
+        pricingPolicy: 'inherit_product_price',
+        version: 1,
+        status: offeringStatus,
+        visibility: 'visible',
+        fulfillmentMode: 'local',
+        codEligible: product.allowCOD !== false,
+        effectiveFrom: effectiveDate,
+        lockVersion: 1,
+        createdBy: actorId,
+        updatedBy: actorId
+      });
+      await newOffering.save({ session });
+    } else if (offering.status !== offeringStatus || offering.sku !== (product.sku || '')) {
+      offering.status = offeringStatus;
+      offering.sku = product.sku || offering.sku;
+      offering.codEligible = product.allowCOD !== false;
+      offering.updatedBy = actorId;
+      await offering.save({ session });
+    }
+
+    // 2. Root Product Price Book
+    const amountMinor = String(Math.round((product.price || 0) * 100));
+    const compareAtAmountMinor = (product.originalPrice && product.originalPrice > product.price)
+      ? String(Math.round(product.originalPrice * 100))
+      : null;
+
+    let priceQuery = MarketPriceBook.findOne({
+      merchantScopeId,
+      productId: product._id,
+      scopeType: 'product',
+      scopeKey: 'product',
+      marketCountry: homeCountry,
+      currency,
+      status: 'active'
+    });
+    if (session) priceQuery = priceQuery.session(session);
+    let priceBook = await priceQuery;
+
+    if (!priceBook) {
+      const newPriceBook = new MarketPriceBook({
+        merchantScopeId,
+        productId: product._id,
+        scopeType: 'product',
+        scopeKey: 'product',
+        sku: product.sku || '',
+        marketCountry: homeCountry,
+        currency,
+        currencyExponent: 2,
+        amountMinor,
+        compareAtAmountMinor,
+        priceSource: 'manual',
+        status: 'active',
+        version: 1,
+        lockVersion: 1,
+        effectiveFrom: effectiveDate,
+        createdBy: actorId,
+        updatedBy: actorId
+      });
+      await newPriceBook.save({ session });
+    } else if (priceBook.amountMinor !== amountMinor || priceBook.compareAtAmountMinor !== compareAtAmountMinor) {
+      priceBook.amountMinor = amountMinor;
+      priceBook.compareAtAmountMinor = compareAtAmountMinor;
+      priceBook.sku = product.sku || priceBook.sku;
+      priceBook.updatedBy = actorId;
+      await priceBook.save({ session });
+    }
+
+    // 3. Variant Offerings and Prices (if variants exist)
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      for (const variant of product.variants) {
+        const variantIdStr = String(variant._id);
+        const vPrice = variant.price !== undefined ? variant.price : product.price;
+        const vAmountMinor = String(Math.round((vPrice || 0) * 100));
+
+        let vOffQuery = ProductMarketOffering.findOne({
+          merchantScopeId,
+          productId: product._id,
+          scopeType: 'variant',
+          scopeKey: variantIdStr,
+          marketCountry: homeCountry
+        });
+        if (session) vOffQuery = vOffQuery.session(session);
+        let vOffering = await vOffQuery;
+
+        if (!vOffering) {
+          const newVOff = new ProductMarketOffering({
+            merchantScopeId,
+            productId: product._id,
+            scopeType: 'variant',
+            scopeKey: variantIdStr,
+            variantId: variant._id,
+            sku: variant.sku || '',
+            marketCountry: homeCountry,
+            pricingPolicy: 'variant_override_optional',
+            version: 1,
+            status: offeringStatus,
+            visibility: 'visible',
+            fulfillmentMode: 'local',
+            codEligible: product.allowCOD !== false,
+            effectiveFrom: effectiveDate,
+            lockVersion: 1,
+            createdBy: actorId,
+            updatedBy: actorId
+          });
+          await newVOff.save({ session });
+        } else if (vOffering.status !== offeringStatus || vOffering.sku !== (variant.sku || '')) {
+          vOffering.status = offeringStatus;
+          vOffering.sku = variant.sku || vOffering.sku;
+          vOffering.updatedBy = actorId;
+          await vOffering.save({ session });
+        }
+
+        let vPriceQuery = MarketPriceBook.findOne({
+          merchantScopeId,
+          productId: product._id,
+          scopeType: 'variant',
+          scopeKey: variantIdStr,
+          marketCountry: homeCountry,
+          currency,
+          status: 'active'
+        });
+        if (session) vPriceQuery = vPriceQuery.session(session);
+        let vPriceBook = await vPriceQuery;
+
+        if (!vPriceBook) {
+          const newVPrice = new MarketPriceBook({
+            merchantScopeId,
+            productId: product._id,
+            scopeType: 'variant',
+            scopeKey: variantIdStr,
+            variantId: variant._id,
+            sku: variant.sku || '',
+            marketCountry: homeCountry,
+            currency,
+            currencyExponent: 2,
+            amountMinor: vAmountMinor,
+            compareAtAmountMinor: null,
+            priceSource: 'manual',
+            status: 'active',
+            version: 1,
+            lockVersion: 1,
+            effectiveFrom: effectiveDate,
+            createdBy: actorId,
+            updatedBy: actorId
+          });
+          await newVPrice.save({ session });
+        } else if (vPriceBook.amountMinor !== vAmountMinor) {
+          vPriceBook.amountMinor = vAmountMinor;
+          vPriceBook.sku = variant.sku || vPriceBook.sku;
+          vPriceBook.updatedBy = actorId;
+          await vPriceBook.save({ session });
+        }
+      }
+    }
   }
 
   async createProduct({ data, userId, options = {} }) {
@@ -438,6 +623,12 @@ class ProductCatalogService {
         }
       }
 
+      await this.ensureDefaultMarketOfferingsAndPrices(product, {
+        session,
+        actorId: userId,
+        merchantScopeId
+      });
+
       logger.info('Product created successfully', {
         productId: product._id,
         slug: product.slug,
@@ -638,6 +829,11 @@ class ProductCatalogService {
 
       product.increment();
       await product.save({ session });
+
+      await this.ensureDefaultMarketOfferingsAndPrices(product, {
+        session,
+        actorId: userId
+      });
 
       logger.info('Product updated successfully', {
         productId: product._id,

@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -23,7 +23,7 @@ import {
   CheckCircle2,
   Package,
 } from 'lucide-react';
-import { useCartStore } from '@/store/cartStore';
+import { useCartStore, type CartItem } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import {
   validateCouponPreview,
@@ -37,7 +37,7 @@ import {
   type CouponPreviewResult,
   type ShippingAddressInput,
 } from '@/lib/checkoutService';
-import { formatExactMoney } from '@/lib/exactMoney';
+import { formatExactMoney, type MoneyExact } from '@/lib/exactMoney';
 import { getCountryPolicy, getSubdivisionLabel } from '@/lib/countryPolicy';
 import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 import Toast from '@/components/Toast';
@@ -67,6 +67,9 @@ function mapQuoteErrorMessage(err: unknown): string {
   const code = errorResp?.code;
   const rawMsg = errorResp?.message || (err instanceof Error ? err.message : '');
 
+  if (code === 'COD_CITY_DISALLOWED') {
+    return rawMsg || 'Cash on Delivery is currently unavailable for your city. Please select an alternative payment method.';
+  }
   if (code === 'SHIPPING_WEIGHT_REQUIRED') {
     return 'Product weight missing or invalid for shipping calculation. Please contact customer support.';
   }
@@ -110,13 +113,13 @@ export default function CheckoutPage() {
   // Form State
   const [formData, setFormData] = useState<FormState>({
     fullName: user?.fullName || '',
-    phone: '',
+    phone: user?.phone || '',
     address: '',
     addressLine2: '',
     city: '',
     province: '',
     postalCode: '',
-    country: '',
+    country: user?.residenceCountry || 'PK',
     customerNote: '',
   });
 
@@ -163,8 +166,29 @@ export default function CheckoutPage() {
     void bootstrap();
   }, [bootstrap]);
 
-  // Auth Guard: In Batch 10C, guest checkout is supported for Pakistan domestic orders
-  // Authenticated users have profile details prefilled; unauthenticated users proceed as guests
+  // Pre-fill profile details when authenticated user is loaded
+  const appliedUserRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (user && appliedUserRef.current !== (user.id || user.email || 'user')) {
+      appliedUserRef.current = user.id || user.email || 'user';
+      const timer = setTimeout(() => {
+        setFormData((prev) => ({
+          ...prev,
+          fullName: prev.fullName || user.fullName || '',
+          phone: prev.phone || user.phone || '',
+          country: prev.country || user.residenceCountry || 'PK',
+        }));
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [user]);
+
+  // Auth Guard: Mandatory Customer Authentication before Checkout
+  useEffect(() => {
+    if (isInitialized && !isAuthenticated) {
+      router.replace('/login?returnUrl=/checkout');
+    }
+  }, [isInitialized, isAuthenticated, router]);
 
   // Step 1: Load Authoritative Market Configuration
   useEffect(() => {
@@ -178,7 +202,7 @@ export default function CheckoutPage() {
 
         // Initialize country from authoritative market configuration
         setFormData((prev) => {
-          const defaultCountry = config.merchantCountry || config.homeCountry || config.enabledCountries?.[0] || '';
+          const defaultCountry = config.merchantCountry || config.homeCountry || config.enabledCountries?.[0] || 'PK';
           if (!prev.country || (config.enabledCountries && !config.enabledCountries.includes(prev.country))) {
             return { ...prev, country: defaultCountry };
           }
@@ -201,14 +225,22 @@ export default function CheckoutPage() {
     };
   }, []);
 
-  const availableItems = items.filter((i) => !i.isUnavailable);
+  const availableItems = useMemo<CartItem[]>(
+    () => items.filter((i: CartItem) => !i.isUnavailable),
+    [items]
+  );
 
   // Monitor cart items changes to immediately invalidate stale quote token
   const prevItemsFingerprintRef = useRef('');
-  const currentItemsFingerprint = availableItems.map((i) => `${i.productId || i.id}:${i.variantId || ''}:${i.quantity}`).join('|');
+  const lastQuotedIntentRef = useRef<string>('');
+  const currentItemsFingerprint = useMemo(
+    () => availableItems.map((i) => `${i.productId || i.id}:${i.variantId || ''}:${i.quantity}`).join('|'),
+    [availableItems]
+  );
 
   useEffect(() => {
     if (prevItemsFingerprintRef.current && prevItemsFingerprintRef.current !== currentItemsFingerprint) {
+      lastQuotedIntentRef.current = '';
       setQuote(null);
       setQuoteStatus('loading');
       setQuoteError(null);
@@ -237,25 +269,58 @@ export default function CheckoutPage() {
     quote?.expiresAt && new Date(quote.expiresAt).getTime() <= currentTime
   );
 
+  // Stable intent fingerprint for quote requests
+  const quoteIntentFingerprint = useMemo(() => {
+    const addr = formData.address.trim();
+    const city = formData.city.trim();
+    if (availableItems.length === 0 || !addr || !city) {
+      return '';
+    }
+    return [
+      activeCountryCode,
+      addr,
+      formData.addressLine2?.trim() || '',
+      city,
+      formData.province?.trim() || '',
+      formData.postalCode?.trim() || '',
+      currentItemsFingerprint,
+      appliedCoupon?.code || '',
+      shippingServiceLevel || 'standard',
+    ].join('::');
+  }, [
+    availableItems.length,
+    activeCountryCode,
+    formData.address,
+    formData.addressLine2,
+    formData.city,
+    formData.province,
+    formData.postalCode,
+    currentItemsFingerprint,
+    appliedCoupon?.code,
+    shippingServiceLevel,
+  ]);
+
   // Step 2: Authoritative Quote Fetcher with Debounce & Stale Response Race Protection
   const requestAuthoritativeQuote = useCallback(
-    async (overrideServiceLevel?: string, signal?: AbortSignal) => {
-      if (availableItems.length === 0 || !formData.address.trim() || !formData.city.trim()) {
+    async (overrideServiceLevel?: string, signal?: AbortSignal): Promise<AuthoritativeQuote | null> => {
+      const addr = formData.address.trim();
+      const city = formData.city.trim();
+      if (availableItems.length === 0 || !addr || !city) {
+        lastQuotedIntentRef.current = '';
         setQuote(null);
         setQuoteStatus('idle');
         setQuoteError(null);
         setQuoteLoading(false);
-        return;
+        return null;
       }
 
       const currentReqId = ++quoteRequestIdRef.current;
-      setQuote(null);
       setQuoteStatus('loading');
       setQuoteLoading(true);
       setQuoteError(null);
       setLiveAnnouncement('Updating authoritative quote and shipping options...');
 
-      const effectiveServiceLevel = overrideServiceLevel || shippingServiceLevel || undefined;
+      const effectiveServiceLevel = overrideServiceLevel || shippingServiceLevel || 'standard';
 
       try {
         const quoteRequest = {
@@ -267,9 +332,9 @@ export default function CheckoutPage() {
           shippingAddress: {
             fullName: formData.fullName.trim() || undefined,
             phone: formData.phone.trim() || undefined,
-            address: formData.address.trim(),
+            address: addr,
             addressLine2: formData.addressLine2.trim() || undefined,
-            city: formData.city.trim(),
+            city: city,
             province: formData.province.trim() || undefined,
             postalCode: formData.postalCode.trim() || undefined,
             country: countryPolicy.name,
@@ -284,15 +349,32 @@ export default function CheckoutPage() {
 
         if (currentReqId === quoteRequestIdRef.current) {
           const newQuote = res.data.quote;
+          const verifiedToken = newQuote.quoteToken || (newQuote as unknown as Record<string, unknown>).token;
+          const verifiedQuoteId = newQuote.quoteId || (newQuote as unknown as Record<string, unknown>).id;
+          if (verifiedToken && typeof verifiedToken === 'string') {
+            newQuote.quoteToken = verifiedToken;
+          }
+          if (verifiedQuoteId && typeof verifiedQuoteId === 'string') {
+            newQuote.quoteId = verifiedQuoteId;
+          }
 
-          // Fail closed if server returned no available shipping options or missing token
-          if (!newQuote.shipping?.availableOptions || newQuote.shipping.availableOptions.length === 0 || !newQuote.quoteToken) {
+          // Fail closed if server returned no available shipping options, missing token, or quoteId substituted as token
+          if (
+            !newQuote.shipping?.availableOptions ||
+            newQuote.shipping.availableOptions.length === 0 ||
+            !newQuote.quoteToken ||
+            typeof newQuote.quoteToken !== 'string' ||
+            newQuote.quoteToken.trim() === '' ||
+            newQuote.quoteToken.startsWith('QUO-') ||
+            newQuote.quoteToken.startsWith('quo-')
+          ) {
+            lastQuotedIntentRef.current = '';
             setQuote(null);
             setQuoteStatus('error');
             const errMsg = 'No governed shipping service is available for this destination.';
             setQuoteError(errMsg);
             setLiveAnnouncement(errMsg);
-            return;
+            return null;
           }
 
           // Check if material quote terms changed since customer last reviewed
@@ -303,9 +385,24 @@ export default function CheckoutPage() {
             }
           }
 
-          // Sync selected service level preference with server response
-          if (newQuote.shipping.selectedOption?.serviceLevel) {
-            setShippingServiceLevel(newQuote.shipping.selectedOption.serviceLevel);
+          const confirmedServiceLevel = newQuote.shipping.selectedOption?.serviceLevel || effectiveServiceLevel;
+
+          // Durably record the exact intent we just received to break circular trigger loops
+          lastQuotedIntentRef.current = [
+            activeCountryCode,
+            addr,
+            formData.addressLine2?.trim() || '',
+            city,
+            formData.province?.trim() || '',
+            formData.postalCode?.trim() || '',
+            currentItemsFingerprint,
+            appliedCoupon?.code || '',
+            confirmedServiceLevel,
+          ].join('::');
+
+          // Sync selected service level preference with server response if changed
+          if (confirmedServiceLevel && confirmedServiceLevel !== shippingServiceLevel) {
+            setShippingServiceLevel(confirmedServiceLevel);
           }
 
           setQuote(newQuote);
@@ -317,24 +414,30 @@ export default function CheckoutPage() {
           const isHomeCountry = Boolean(marketConfig?.homeCountry && activeCountryCode === marketConfig.homeCountry);
           const isCodEligible = Array.isArray(newQuote.eligiblePaymentMethods) && newQuote.eligiblePaymentMethods.some((m) => m.code === 'cod');
           const isCodPolicyAllowed = newQuote.paymentEligibility?.cod?.available !== false;
-          if ((!newQuote.isDomestic || !isHomeCountry || !isCodEligible || !isCodPolicyAllowed) && paymentMethod === 'cod') {
-            setPaymentMethod('');
+          if (!newQuote.isDomestic || !isHomeCountry || !isCodEligible || !isCodPolicyAllowed) {
+            setPaymentMethod((current) => (current === 'cod' ? '' : current));
           }
+
+          return newQuote;
         }
+        return null;
       } catch (err: unknown) {
         if (currentReqId === quoteRequestIdRef.current) {
-          // Fail closed: clear stale quote and token on failure
+          if (signal?.aborted) return null;
+          lastQuotedIntentRef.current = '';
           setQuote(null);
           setQuoteStatus('error');
           const safeMessage = mapQuoteErrorMessage(err);
           setQuoteError(safeMessage);
           setLiveAnnouncement(`Quote error: ${safeMessage}`);
         }
+        return null;
       } finally {
         if (currentReqId === quoteRequestIdRef.current) {
           setQuoteLoading(false);
         }
       }
+      return null;
     },
     [
       availableItems,
@@ -351,7 +454,7 @@ export default function CheckoutPage() {
       appliedCoupon,
       shippingServiceLevel,
       lastConfirmedQuote,
-      paymentMethod,
+      currentItemsFingerprint,
     ]
   );
 
@@ -366,38 +469,44 @@ export default function CheckoutPage() {
     isInitialized,
     clearCart,
     router,
-    onQuoteRefreshRequired: requestAuthoritativeQuote,
+    onQuoteRefreshRequired: async () => {
+      await requestAuthoritativeQuote();
+    },
     setToast,
   });
 
   // Debounced quote updates when address / items / coupon change
   useEffect(() => {
+    if (!quoteIntentFingerprint) {
+      lastQuotedIntentRef.current = '';
+      return;
+    }
+
+    if (quoteIntentFingerprint === lastQuotedIntentRef.current) {
+      return;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void requestAuthoritativeQuote(shippingServiceLevel, controller.signal);
-    }, 350);
+    }, 300);
 
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
   }, [
-    formData.address,
-    formData.city,
-    formData.province,
-    formData.postalCode,
-    formData.country,
-    availableItems.length,
-    appliedCoupon?.code,
-    shippingServiceLevel,
+    quoteIntentFingerprint,
     requestAuthoritativeQuote,
+    shippingServiceLevel,
   ]);
 
   // Handle shipping service selection with immediate authoritative re-quote
   const handleShippingSelect = (serviceLevel: string) => {
+    if (serviceLevel === shippingServiceLevel) return;
     setShippingServiceLevel(serviceLevel);
-    setQuote(null);
     setQuoteStatus('loading');
+    setQuoteLoading(true);
     setQuoteError(null);
     void requestAuthoritativeQuote(serviceLevel);
   };
@@ -432,16 +541,31 @@ export default function CheckoutPage() {
           const isHomeCountry = activeCountryCode === (marketConfig?.homeCountry || marketConfig?.merchantCountry || 'PK');
           if ((quote && !quote.isDomestic) || !isHomeCountry) {
             filtered = filtered.filter((m) => m.code !== 'cod');
+          } else {
+            // Domestic route: retain COD so if disallowed by city it can be shown disabled with clear UX notice
+            const codMethod = methods.find((m) => m.code === 'cod');
+            if (codMethod && !filtered.some((m) => m.code === 'cod')) {
+              filtered = [...filtered, codMethod];
+            }
           }
 
-          setAvailableMethods(filtered);
+          setAvailableMethods((prev) => {
+            const prevCodes = prev.map((m) => m.code).join(',');
+            const newCodes = filtered.map((m) => m.code).join(',');
+            return prevCodes === newCodes ? prev : filtered;
+          });
 
-          // If current selected payment method is no longer eligible (e.g. COD for international), auto-reset
+          // If current selected payment method is no longer eligible (e.g. COD for disallowed city or international), auto-reset
+          const isCodBlocked = quote?.paymentEligibility?.cod?.available === false;
           setPaymentMethod((current) => {
-            if (current && !filtered.some((m) => m.code === current)) {
-              return filtered[0]?.code || '';
+            if (current === 'cod' && isCodBlocked) {
+              const alternative = filtered.find((m) => m.code !== 'cod');
+              return alternative?.code || '';
             }
-            return current || filtered[0]?.code || '';
+            if (current && filtered.some((m) => m.code === current)) {
+              return current;
+            }
+            return filtered[0]?.code || '';
           });
         }
       } catch {
@@ -474,8 +598,9 @@ export default function CheckoutPage() {
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: '' }));
     }
-    // Immediately invalidate stale quote on any address / destination changes
-    if (['country', 'province', 'city', 'address', 'addressLine2', 'postalCode', 'fullName', 'phone'].includes(name)) {
+    // Invalidate stale quote on any address / destination field change
+    if (['country', 'province', 'city', 'address', 'addressLine2', 'postalCode'].includes(name)) {
+      lastQuotedIntentRef.current = '';
       setQuote(null);
       setQuoteStatus('loading');
       setQuoteError(null);
@@ -675,18 +800,35 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!quote || !quote.quoteToken || quoteStatus !== 'valid') {
-      setToast({ message: 'A valid authoritative checkout quote is required. Please check your address.', type: 'error' });
-      return;
+    const hasValidToken = (q: AuthoritativeQuote | null) =>
+      Boolean(
+        q &&
+        q.quoteToken &&
+        typeof q.quoteToken === 'string' &&
+        q.quoteToken.trim() !== '' &&
+        !q.quoteToken.startsWith('QUO-') &&
+        !q.quoteToken.startsWith('quo-')
+      );
+
+    let activeQuote = quote;
+
+    // JIT Quote Guard: Ensure a valid authoritative quote matching current cart exists
+    if (!activeQuote || !hasValidToken(activeQuote) || quoteStatus !== 'valid' || lastQuotedIntentRef.current !== quoteIntentFingerprint) {
+      setToast({ message: 'Fetching fresh authoritative checkout quote...', type: 'info' });
+      activeQuote = await requestAuthoritativeQuote();
+      if (!activeQuote || !hasValidToken(activeQuote)) {
+        setToast({ message: 'A valid authoritative checkout quote is required. Please check your address.', type: 'error' });
+        return;
+      }
     }
 
     // Check if quote expired
-    if (new Date(quote.expiresAt).getTime() <= Date.now()) {
+    if (new Date(activeQuote.expiresAt).getTime() <= Date.now()) {
       setQuote(null);
       setQuoteStatus('expired');
       setToast({ message: 'Your checkout quote has expired. Refreshing quote...', type: 'info' });
-      await requestAuthoritativeQuote();
-      return;
+      activeQuote = await requestAuthoritativeQuote();
+      if (!activeQuote || !hasValidToken(activeQuote)) return;
     }
 
     // Check material quote change
@@ -718,7 +860,7 @@ export default function CheckoutPage() {
       // Route submission through production router (Preserves Pakistan COD exactly, routes prepaid to coordinator)
       await routeCheckoutSubmission({
         paymentMethod,
-        isDomestic: Boolean(quote?.isDomestic),
+        isDomestic: Boolean(activeQuote?.isDomestic),
         destinationCountry: activeCountryCode,
         homeCountry: marketConfig?.homeCountry || marketConfig?.merchantCountry || 'PK',
         initiatePrepaidCheckout: async () => {
@@ -728,7 +870,7 @@ export default function CheckoutPage() {
             paymentMethod,
             shippingServiceLevel,
             appliedCoupon,
-            quote,
+            quote: activeQuote!,
             customerNote: formData.customerNote,
           });
         },
@@ -751,19 +893,35 @@ export default function CheckoutPage() {
               availableItems,
               resolvedAddressData,
               paymentMethod,
-              quote.quoteToken,
+              activeQuote!.quoteToken,
               shippingServiceLevel,
               appliedCoupon?.code,
               formData.customerNote,
-              quote.currency,
-              guestVerificationToken
+              activeQuote!.currency,
+              guestVerificationToken,
+              activeQuote!.quoteId
             );
 
-            const result = await submitOrder(payload, attempt.idempotencyKey);
+            const result = await submitOrder(payload, attempt.idempotencyKey, {
+              previousQuote: activeQuote,
+              onMaterialChangePrompt: async (reason, freshQuote) => {
+                setQuote(freshQuote);
+                setMaterialChangeNotice(reason);
+                return false;
+              }
+            });
 
             if (result.order) {
               clearCheckoutAttempt();
               clearCart();
+              setQuote(null);
+              setQuoteStatus('idle');
+              setLastConfirmedQuote(null);
+              lastQuotedIntentRef.current = '';
+              prevItemsFingerprintRef.current = '';
+              setMaterialChangeNotice(null);
+              submittingRef.current = false;
+              setLoading(false);
               const destinationOrderId = result.order._id || result.order.orderId;
               router.push(`/order-success?orderId=${encodeURIComponent(destinationOrderId)}`);
             }
@@ -774,8 +932,13 @@ export default function CheckoutPage() {
             const errorResp = (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data;
             const errorCode = errorResp?.code;
 
-            if (errorCode === 'QUOTE_EXPIRED' || errorCode === 'QUOTE_TAMPERED') {
-              setToast({ message: 'Checkout quote expired or invalidated. Refreshing quote...', type: 'info' });
+            if (
+              errorCode === 'QUOTE_EXPIRED' ||
+              errorCode === 'QUOTE_TAMPERED' ||
+              errorCode === 'QUOTE_CONSUMED' ||
+              errorCode === 'QUOTE_MALFORMED'
+            ) {
+              setToast({ message: 'Checkout quote invalidated. Refreshing quote...', type: 'info' });
               await requestAuthoritativeQuote();
             } else {
               const safeErrorMessage = mapQuoteErrorMessage(err);
@@ -789,11 +952,15 @@ export default function CheckoutPage() {
       });
   };
 
-  if (!isInitialized || marketLoading) {
+  if (!isInitialized || !isAuthenticated || marketLoading) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center p-4 bg-slate-50">
         <Loader2 className="w-12 h-12 text-[#ff8a00] animate-spin mb-4" />
-        <p className="text-sm font-semibold text-slate-700">Loading verified commerce configuration...</p>
+        <p className="text-sm font-semibold text-slate-700">
+          {!isInitialized || marketLoading
+            ? 'Loading verified commerce configuration...'
+            : 'Redirecting to login...'}
+        </p>
       </div>
     );
   }
@@ -1170,19 +1337,26 @@ export default function CheckoutPage() {
 
           {/* Step 2: Dynamic Governed Shipping Options */}
           <section className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xs" aria-labelledby="shipping-service-heading">
-            <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
-              <div className="w-8 h-8 rounded-full bg-orange-100 text-[#0b132b] font-black flex items-center justify-center text-sm">
-                2
+            <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-orange-100 text-[#0b132b] font-black flex items-center justify-center text-sm">
+                  2
+                </div>
+                <div>
+                  <h2 id="shipping-service-heading" className="text-lg font-bold text-slate-900">
+                    Shipping Method
+                  </h2>
+                  <p className="text-xs text-slate-600">Governed delivery services for {countryPolicy.name}</p>
+                </div>
               </div>
-              <div>
-                <h2 id="shipping-service-heading" className="text-lg font-bold text-slate-900">
-                  Shipping Method
-                </h2>
-                <p className="text-xs text-slate-600">Governed delivery services for {countryPolicy.name}</p>
-              </div>
+              {quoteLoading && quote && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded">
+                  <Loader2 size={11} className="animate-spin" /> Updating...
+                </span>
+              )}
             </div>
 
-            {quoteLoading ? (
+            {quoteLoading && !quote ? (
               <div className="p-6 text-center bg-slate-50 rounded-xl border border-slate-200">
                 <Loader2 className="w-6 h-6 text-[#ff8a00] animate-spin mx-auto mb-2" />
                 <p className="text-xs text-slate-600 font-semibold">Updating authoritative shipping options...</p>
@@ -1202,6 +1376,20 @@ export default function CheckoutPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {quote.shipping.availableOptions.map((opt) => {
                     const isSelected = (quote.shipping.selectedOption?.serviceLevel || shippingServiceLevel) === opt.serviceLevel;
+                    const optAny = opt as unknown as Record<string, unknown>;
+                    const optAmountMinor = opt.amountExact?.amountMinor ??
+                      optAny.amountMinor ??
+                      (optAny.rate as Record<string, unknown> | undefined)?.amountMinor ??
+                      optAny.priceMinor ??
+                      (opt.amount !== undefined ? Math.round(Number(opt.amount) * 100) : 0);
+                    const optExact: MoneyExact = opt.amountExact
+                      ? { ...opt.amountExact, amountMinor: optAmountMinor }
+                      : {
+                          amountMinor: optAmountMinor,
+                          currency: quote.currency || 'PKR',
+                          exponent: 2,
+                        };
+
                     return (
                       <label
                         key={opt.serviceLevel}
@@ -1228,7 +1416,7 @@ export default function CheckoutPage() {
                               {opt.displayName || `${opt.serviceLevel.toUpperCase()} Delivery`}
                             </span>
                             <span className="text-sm font-black text-[#0b132b]">
-                              {formatExactMoney(opt.amountExact)}
+                              {formatExactMoney(optExact)}
                             </span>
                           </div>
 
@@ -1283,8 +1471,19 @@ export default function CheckoutPage() {
               </div>
             )}
 
-            {/* COD Policy Restriction Notice */}
-            {quote?.paymentEligibility?.cod && !quote.paymentEligibility.cod.available && (
+            {/* COD Policy / City Restriction Notice */}
+            {activeCountryCode === 'PK' && (
+              quote?.paymentEligibility?.cod?.reasonCode === 'COD_CITY_DISALLOWED' ||
+              (quoteError && quoteError.toLowerCase().includes('cash on delivery is currently unavailable'))
+            ) ? (
+              <div id="cod-city-disallowed-notice" className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-semibold flex items-start gap-2.5" role="status">
+                <AlertCircle size={16} className="text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Cash on Delivery unavailable: </span>
+                  <span>Cash on Delivery is unavailable for {formData.city || 'this city'}. Please choose another payment method to complete your purchase.</span>
+                </div>
+              </div>
+            ) : quote?.paymentEligibility?.cod && !quote.paymentEligibility.cod.available ? (
               <div className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-semibold flex items-start gap-2.5" role="status">
                 <AlertCircle size={16} className="text-amber-700 shrink-0 mt-0.5" />
                 <div>
@@ -1292,7 +1491,7 @@ export default function CheckoutPage() {
                   <span>{quote.paymentEligibility.cod.customerMessage || 'Please choose a prepaid payment method.'}</span>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {availableMethods.length === 0 ? (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-semibold flex items-center gap-2">
@@ -1301,42 +1500,63 @@ export default function CheckoutPage() {
               </div>
             ) : (
               <div className="space-y-3" role="radiogroup" aria-label="Payment method">
-                {availableMethods.map((m) => (
-                  <label
-                    key={m.code}
-                    className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition focus-within:ring-2 focus-within:ring-[#ff8a00] ${
-                      paymentMethod === m.code
-                        ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value={m.code}
-                      checked={paymentMethod === m.code}
-                      onChange={() => setPaymentMethod(m.code)}
-                      className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00]"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        {m.code === 'cod' && <Truck size={17} className="text-[#0b132b]" />}
-                        {m.code === 'bank_transfer' && <Building2 size={17} className="text-[#0b132b]" />}
-                        {m.code === 'raast' && <PhoneCall size={17} className="text-[#0b132b]" />}
-                        {m.code === 'stripe' && <CreditCard size={17} className="text-[#0b132b]" />}
-                        <span className="text-sm font-bold text-slate-900">{m.displayName}</span>
-                        {m.code === 'cod' && (
-                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
-                            Domestic Only
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-600 mt-1">
-                        {m.code === 'cod' && 'Pay with physical cash to the courier upon delivery at your doorstep.'}
-                        {m.code === 'bank_transfer' && 'Direct wire or local bank transfer to merchant account.'}
-                        {m.code === 'raast' && 'Instant zero-fee account transfer via State Bank Raast ID.'}
-                        {m.code === 'stripe' && 'Secure international card processing via encrypted checkout.'}
-                      </p>
+                {availableMethods.map((m) => {
+                  const isCityDisallowed = activeCountryCode === 'PK' && m.code === 'cod' && (
+                    quote?.paymentEligibility?.cod?.reasonCode === 'COD_CITY_DISALLOWED' ||
+                    (quoteError && quoteError.toLowerCase().includes('cash on delivery is currently unavailable'))
+                  );
+                  const isCodNotPermitted = m.code === 'cod' && (
+                    isCityDisallowed ||
+                    (quote?.paymentEligibility?.cod && !quote.paymentEligibility.cod.available && quote.paymentEligibility.cod.reasonCode !== 'COD_GUEST_PHONE_VERIFICATION_REQUIRED')
+                  );
+                  const isOptionDisabled = isCodNotPermitted;
+
+                  return (
+                    <label
+                      key={m.code}
+                      className={`flex items-start gap-3.5 p-4 rounded-xl border transition ${
+                        isOptionDisabled
+                          ? 'opacity-60 cursor-not-allowed bg-slate-50 border-slate-200'
+                          : paymentMethod === m.code
+                            ? 'border-[#ff8a00] bg-orange-50/40 ring-2 ring-orange-200 cursor-pointer focus-within:ring-2 focus-within:ring-[#ff8a00]'
+                            : 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer focus-within:ring-2 focus-within:ring-[#ff8a00]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        id={`payment-method-${m.code}`}
+                        name="paymentMethod"
+                        value={m.code}
+                        checked={paymentMethod === m.code}
+                        disabled={isOptionDisabled}
+                        onChange={() => { if (!isOptionDisabled) setPaymentMethod(m.code); }}
+                        className="mt-1 w-4 h-4 text-[#ff8a00] border-slate-300 focus:ring-[#ff8a00] disabled:cursor-not-allowed"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          {m.code === 'cod' && <Truck size={17} className="text-[#0b132b]" />}
+                          {m.code === 'bank_transfer' && <Building2 size={17} className="text-[#0b132b]" />}
+                          {m.code === 'raast' && <PhoneCall size={17} className="text-[#0b132b]" />}
+                          {m.code === 'stripe' && <CreditCard size={17} className="text-[#0b132b]" />}
+                          <span className="text-sm font-bold text-slate-900">{m.displayName}</span>
+                          {m.code === 'cod' && isCityDisallowed && (
+                            <span className="text-[10px] font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded">
+                              Unavailable in {formData.city || 'City'}
+                            </span>
+                          )}
+                          {m.code === 'cod' && !isCityDisallowed && (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                              Domestic Only
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1">
+                          {m.code === 'cod' && isCityDisallowed && `Cash on Delivery is unavailable for ${formData.city || 'this city'}. Please choose another payment method.`}
+                          {m.code === 'cod' && !isCityDisallowed && 'Pay with physical cash to the courier upon delivery at your doorstep.'}
+                          {m.code === 'bank_transfer' && 'Direct wire or local bank transfer to merchant account.'}
+                          {m.code === 'raast' && 'Instant zero-fee account transfer via State Bank Raast ID.'}
+                          {m.code === 'stripe' && 'Secure international card processing via encrypted checkout.'}
+                        </p>
 
                       {/* Guest COD Phone Verification UI */}
                       {m.code === 'cod' && paymentMethod === 'cod' && !user && !guestVerificationToken && (
@@ -1396,8 +1616,9 @@ export default function CheckoutPage() {
                       )}
                     </div>
                   </label>
-                ))}
-              </div>
+                );
+              })}
+            </div>
             )}
           </section>
 
@@ -1494,7 +1715,19 @@ export default function CheckoutPage() {
                     </div>
                     <div className="font-extrabold text-slate-900 shrink-0">
                       {quoteItem?.lineTotalExact
-                        ? formatExactMoney(quoteItem.lineTotalExact)
+                        ? (() => {
+                            const lineTotalAny = quoteItem.lineTotalExact as unknown as Record<string, unknown>;
+                            return formatExactMoney({
+                              ...quoteItem.lineTotalExact,
+                              amountMinor:
+                                quoteItem.lineTotalExact.amountMinor ??
+                                lineTotalAny.priceMinor ??
+                                lineTotalAny.amount ??
+                                0,
+                              currency: quoteItem.lineTotalExact.currency || quote?.currency || 'PKR',
+                              exponent: quoteItem.lineTotalExact.exponent ?? 2,
+                            });
+                          })()
                         : `${quote?.currency || marketConfig?.defaultCurrency || marketConfig?.baseCurrency || ''} ${(item.price * item.quantity).toLocaleString()}`}
                     </div>
                   </div>
@@ -1722,12 +1955,27 @@ export default function CheckoutPage() {
                       <Package size={13} className="text-[#ff8a00]" /> Split Fulfillment ({quote.shipping.shipmentGroups.length} Packages)
                     </h3>
                     <div className="space-y-2">
-                      {quote.shipping.shipmentGroups.map((grp, idx) => (
-                        <div key={grp.groupId || idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
-                          <div className="flex justify-between items-center font-bold text-slate-900">
-                            <span>Package {idx + 1} ({grp.originCountry || grp.locationCode || 'Fulfillment Center'})</span>
-                            <span>{formatExactMoney(grp.shippingAmountExact)}</span>
-                          </div>
+                      {quote.shipping.shipmentGroups.map((grp, idx) => {
+                        const grpAny = grp as unknown as Record<string, unknown>;
+                        const grpAmountMinor =
+                          grp.shippingAmountExact?.amountMinor ??
+                          grpAny.amountMinor ??
+                          (grpAny.rate as Record<string, unknown> | undefined)?.amountMinor ??
+                          grpAny.priceMinor ??
+                          0;
+                        const grpExact = grp.shippingAmountExact
+                          ? { ...grp.shippingAmountExact, amountMinor: grpAmountMinor }
+                          : {
+                              amountMinor: grpAmountMinor,
+                              currency: quote.currency || 'PKR',
+                              exponent: 2,
+                            };
+                        return (
+                          <div key={grp.groupId || idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                            <div className="flex justify-between items-center font-bold text-slate-900">
+                              <span>Package {idx + 1} ({grp.originCountry || grp.locationCode || 'Fulfillment Center'})</span>
+                              <span>{formatExactMoney(grpExact)}</span>
+                            </div>
                           <p className="text-[11px] text-slate-600">
                             Service: <span className="font-semibold text-slate-800">{grp.serviceLevel.toUpperCase()}</span>
                           </p>
@@ -1743,7 +1991,8 @@ export default function CheckoutPage() {
                             </p>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

@@ -22,7 +22,6 @@ import {
   Loader,
   ShoppingBag
 } from 'lucide-react';
-import { branding } from '@/config/branding';
 import api from '@/lib/api';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
 import {
@@ -272,8 +271,8 @@ export default function TopBar({ onMenuClick, hamburgerRef, mobileOpen }: TopBar
           <Menu size={24} />
         </button>
 
-        <span className="topbar-site-name" style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, whiteSpace: 'nowrap' }}>
-          {branding.siteName} Admin
+        <span className="font-bold text-slate-900 text-sm topbar-site-name" style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          Harzaar Admin Panel
         </span>
 
                 <GlobalSearchForm

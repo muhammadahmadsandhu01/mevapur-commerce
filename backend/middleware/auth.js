@@ -12,12 +12,19 @@ const ERROR_CODES = require('../constants/errorCodes');
 
 exports.protect = async (req, res, next) => {
   try {
+    let token = null;
     const authorization = req.get('Authorization');
     const match = typeof authorization === 'string'
       ? authorization.match(/^Bearer\s+(.+)$/i)
       : null;
 
-    if (!match) {
+    if (match) {
+      token = match[1];
+    } else if (req.cookies) {
+      token = req.cookies.token || req.cookies.jwt || req.cookies.accessToken || null;
+    }
+
+    if (!token) {
       throw new AppError(
         'Authentication token is required',
         401,
@@ -25,7 +32,7 @@ exports.protect = async (req, res, next) => {
       );
     }
 
-    const decoded = TokenService.verifyAccessToken(match[1]);
+    const decoded = TokenService.verifyAccessToken(token);
     const [user, session] = await Promise.all([
       UserRepository.findByIdWithTokenVersion(decoded.sub),
       SessionRepository.findById(decoded.sid)
@@ -55,7 +62,7 @@ exports.protect = async (req, res, next) => {
       );
     }
 
-    if (Number(user.tokenVersion) !== decoded.tokenVersion) {
+    if (Number(user.tokenVersion || 0) !== Number(decoded.tokenVersion || 0)) {
       throw new AppError(
         'Authentication token has been invalidated',
         401,
@@ -198,16 +205,23 @@ exports.requireRoles = exports.checkRoles;
 */
 exports.optionalAuth = async (req, res, next) => {
   try {
+    let token = null;
     const authorization = req.get('Authorization');
     const match = typeof authorization === 'string'
       ? authorization.match(/^Bearer\s+(.+)$/i)
       : null;
 
-    if (!match) {
+    if (match) {
+      token = match[1];
+    } else if (req.cookies) {
+      token = req.cookies.token || req.cookies.jwt || req.cookies.accessToken || null;
+    }
+
+    if (!token) {
       return next();
     }
 
-    const decoded = TokenService.verifyAccessToken(match[1]);
+    const decoded = TokenService.verifyAccessToken(token);
     const user = await UserRepository.findByIdWithTokenVersion(decoded.sub);
 
     if (!user || user.isDeleted) {

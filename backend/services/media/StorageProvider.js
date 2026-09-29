@@ -42,6 +42,20 @@ class MockStorageProvider extends StorageProvider {
       size: buffer.length,
       uploadedAt: new Date()
     });
+
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const uploadsDir = path.resolve(__dirname, '../../uploads');
+      const targetPath = path.resolve(uploadsDir, key);
+      if (targetPath.startsWith(uploadsDir)) {
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.writeFileSync(targetPath, buffer);
+      }
+    } catch (diskErr) {
+      logger.warn('MockStorageProvider disk write fallback failed', { error: diskErr.message });
+    }
+
     return {
       key,
       url: this.getUrl(key),
@@ -51,6 +65,19 @@ class MockStorageProvider extends StorageProvider {
 
   async delete({ key }) {
     this.storage.delete(key);
+
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const uploadsDir = path.resolve(__dirname, '../../uploads');
+      const targetPath = path.resolve(uploadsDir, key);
+      if (targetPath.startsWith(uploadsDir) && fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+      }
+    } catch {
+      // Ignore disk delete errors
+    }
+
     return { success: true, key };
   }
 

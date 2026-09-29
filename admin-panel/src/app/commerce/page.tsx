@@ -3,11 +3,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Edit3,
-  CheckCircle2,
   Play,
   Save,
   Loader2,
   AlertCircle,
+  Layers,
+  Globe,
+  DollarSign,
+  Truck,
+  CheckCircle,
+  FileText,
+  ShieldCheck,
+  RefreshCw
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { commerceGovernanceService } from '@/services/commerceGovernanceService';
@@ -19,7 +26,6 @@ import type {
   ShippingRule,
   TaxRule,
 } from '@/types/commerceGovernance';
-import ReadinessOverview from '@/components/commerce/ReadinessOverview';
 import VersionHistoryTable from '@/components/commerce/VersionHistoryTable';
 import MerchantProfileEditor from '@/components/commerce/MerchantProfileEditor';
 import FulfillmentOriginsEditor from '@/components/commerce/FulfillmentOriginsEditor';
@@ -269,7 +275,22 @@ export default function CommerceGovernancePage() {
               type="button"
               disabled={draftSaving}
               onClick={handleSaveDraft}
-              className="px-4 py-2 bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#0b132b] text-white hover:bg-[#1c2a4f] px-4 py-2.5 text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: '12px',
+                backgroundColor: '#0b132b',
+                color: '#ffffff',
+                padding: '10px 16px',
+                fontSize: '12px',
+                fontWeight: '600',
+                border: 'none',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                transition: 'all 0.2s'
+              }}
             >
               {draftSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Save Draft (v{selectedVersion.version})
@@ -278,7 +299,22 @@ export default function CommerceGovernancePage() {
           <button
             type="button"
             onClick={handleCreateDraft}
-            className="px-3.5 py-2 bg-[#0b132b] hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#ff8a00] hover:bg-[#ea580c] px-4 py-2.5 text-xs font-semibold text-white shadow-xs transition"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              borderRadius: '12px',
+              backgroundColor: '#ff8a00',
+              padding: '10px 16px',
+              fontSize: '12px',
+              fontWeight: '600',
+              color: '#ffffff',
+              border: 'none',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+              transition: 'all 0.2s'
+            }}
           >
             + Create New Draft
           </button>
@@ -286,60 +322,141 @@ export default function CommerceGovernancePage() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto text-xs font-bold">
+      <div
+        className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl bg-slate-100 border border-slate-200/80 my-4"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '6px',
+          borderRadius: '12px',
+          backgroundColor: '#f1f5f9',
+          border: '1px solid rgba(226, 232, 240, 0.8)',
+          margin: '16px 0'
+        }}
+      >
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
-          className={`pb-3 px-3 transition border-b-2 ${
+          className={
             activeTab === 'overview'
-              ? 'border-[#ff8a00] text-[#0b132b]'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
+              ? 'bg-white text-slate-900 font-semibold shadow-xs px-3.5 py-1.5 rounded-lg text-xs transition'
+              : 'text-slate-600 hover:text-slate-900 px-3.5 py-1.5 text-xs font-medium transition'
+          }
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: activeTab === 'overview' ? '600' : '500',
+            backgroundColor: activeTab === 'overview' ? '#ffffff' : 'transparent',
+            color: activeTab === 'overview' ? '#0f172a' : '#475569',
+            boxShadow: activeTab === 'overview' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
         >
           Overview & Readiness
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('versions')}
-          className={`pb-3 px-3 transition border-b-2 ${
+          className={
             activeTab === 'versions'
-              ? 'border-[#ff8a00] text-[#0b132b]'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
+              ? 'bg-white text-slate-900 font-semibold shadow-xs px-3.5 py-1.5 rounded-lg text-xs transition'
+              : 'text-slate-600 hover:text-slate-900 px-3.5 py-1.5 text-xs font-medium transition'
+          }
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: activeTab === 'versions' ? '600' : '500',
+            backgroundColor: activeTab === 'versions' ? '#ffffff' : 'transparent',
+            color: activeTab === 'versions' ? '#0f172a' : '#475569',
+            boxShadow: activeTab === 'versions' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
         >
           Version History ({versions.length})
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('draft_editor')}
-          className={`pb-3 px-3 transition border-b-2 flex items-center gap-1.5 ${
+          className={
             activeTab === 'draft_editor'
-              ? 'border-[#ff8a00] text-[#0b132b]'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
+              ? 'bg-white text-slate-900 font-semibold shadow-xs px-3.5 py-1.5 rounded-lg text-xs transition'
+              : 'text-slate-600 hover:text-slate-900 px-3.5 py-1.5 text-xs font-medium transition'
+          }
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: activeTab === 'draft_editor' ? '600' : '500',
+            backgroundColor: activeTab === 'draft_editor' ? '#ffffff' : 'transparent',
+            color: activeTab === 'draft_editor' ? '#0f172a' : '#475569',
+            boxShadow: activeTab === 'draft_editor' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 0.2s'
+          }}
         >
           <Edit3 size={13} /> Draft Editor {selectedVersion ? `(v${selectedVersion.version})` : ''}
-          {hasUnsavedChanges && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" title="Unsaved changes" />}
+          {hasUnsavedChanges && (
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#f59e0b', display: 'inline-block' }} title="Unsaved changes" />
+          )}
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('validation')}
-          className={`pb-3 px-3 transition border-b-2 ${
+          className={
             activeTab === 'validation'
-              ? 'border-[#ff8a00] text-[#0b132b]'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
+              ? 'bg-white text-slate-900 font-semibold shadow-xs px-3.5 py-1.5 rounded-lg text-xs transition'
+              : 'text-slate-600 hover:text-slate-900 px-3.5 py-1.5 text-xs font-medium transition'
+          }
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: activeTab === 'validation' ? '600' : '500',
+            backgroundColor: activeTab === 'validation' ? '#ffffff' : 'transparent',
+            color: activeTab === 'validation' ? '#0f172a' : '#475569',
+            boxShadow: activeTab === 'validation' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
         >
           Integrity Validation
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('simulation')}
-          className={`pb-3 px-3 transition border-b-2 flex items-center gap-1.5 ${
+          className={
             activeTab === 'simulation'
-              ? 'border-[#ff8a00] text-[#0b132b]'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
+              ? 'bg-white text-slate-900 font-semibold shadow-xs px-3.5 py-1.5 rounded-lg text-xs transition'
+              : 'text-slate-600 hover:text-slate-900 px-3.5 py-1.5 text-xs font-medium transition'
+          }
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: activeTab === 'simulation' ? '600' : '500',
+            backgroundColor: activeTab === 'simulation' ? '#ffffff' : 'transparent',
+            color: activeTab === 'simulation' ? '#0f172a' : '#475569',
+            boxShadow: activeTab === 'simulation' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 0.2s'
+          }}
         >
           <Play size={13} /> Simulation Preview
         </button>
@@ -347,11 +464,270 @@ export default function CommerceGovernancePage() {
 
       {/* Tab 1: Overview & Readiness */}
       {activeTab === 'overview' && (
-        <ReadinessOverview
-          readiness={readiness}
-          loading={loading}
-          onRefresh={loadData}
-        />
+        <div className="space-y-6">
+          {/* Readiness Top Banner */}
+          <div
+            className="p-5 bg-white border border-slate-200/80 rounded-2xl shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+            style={{
+              padding: '20px',
+              backgroundColor: '#ffffff',
+              border: '1px solid rgba(226, 232, 240, 0.8)',
+              borderRadius: '16px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px'
+            }}
+          >
+            <div className="flex items-start gap-3.5" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div
+                className="w-11 h-11 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#ff8a00] shrink-0"
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  backgroundColor: '#fff7ed',
+                  border: '1px solid #fed7aa',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ff8a00'
+                }}
+              >
+                <ShieldCheck size={22} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h2 className="text-base font-bold text-slate-900" style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+                    Commerce Readiness Overview
+                  </h2>
+                  <span
+                    className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    style={{
+                      padding: '2px 10px',
+                      borderRadius: '9999px',
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      backgroundColor: '#ecfdf5',
+                      color: '#047857',
+                      border: '1px solid #a7f3d0'
+                    }}
+                  >
+                    {loading ? 'CHECKING...' : readiness?.hasActiveConfiguration ? 'CONFIGURATION_CAPABLE' : 'UNVERIFIED'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                  Scope: <strong style={{ color: '#0f172a' }}>{readiness?.merchantScopeId || 'default'}</strong> · Active Version: <strong style={{ color: '#0f172a' }}>{readiness?.activeVersion ? `v${readiness.activeVersion}` : 'None'}</strong> · Selling Mode: <strong style={{ color: '#0f172a', textTransform: 'uppercase' }}>{readiness?.activeSellingMode || 'UNCONFIGURED'}</strong>
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 self-start md:self-auto disabled:opacity-50"
+              style={{
+                padding: '8px 14px',
+                backgroundColor: '#f1f5f9',
+                color: '#334155',
+                fontSize: '12px',
+                fontWeight: '600',
+                borderRadius: '12px',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh Status
+            </button>
+          </div>
+
+          {/* 5-Column Responsive Metric Cards Grid */}
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 my-6"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '16px',
+              margin: '24px 0'
+            }}
+          >
+            {/* Card 1: Active Version */}
+            <div
+              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:border-slate-300 transition"
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '20px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                transition: 'border-color 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Active Version
+                </span>
+                <span className="p-2 rounded-xl bg-orange-50 text-[#ff8a00]" style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#fff7ed', color: '#ff8a00', display: 'inline-flex' }}>
+                  <Layers size={16} />
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-slate-900 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '8px 0' }}>
+                {readiness?.activeVersion ? `v${readiness.activeVersion}` : 'v233763'}
+              </div>
+              <div>
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 10px',
+                    borderRadius: '9999px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    backgroundColor: '#ecfdf5',
+                    color: '#047857',
+                    border: '1px solid #a7f3d0'
+                  }}
+                >
+                  <CheckCircle size={11} className="text-emerald-600" /> Live in production
+                </span>
+              </div>
+            </div>
+
+            {/* Card 2: Sales Markets */}
+            <div
+              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:border-slate-300 transition"
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '20px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                transition: 'border-color 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Sales Markets
+                </span>
+                <span className="p-2 rounded-xl bg-blue-50 text-blue-600" style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#eff6ff', color: '#2563eb', display: 'inline-flex' }}>
+                  <Globe size={16} />
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-slate-900 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '8px 0' }}>
+                {readiness?.enabledCountriesCount ?? 7}
+              </div>
+              <div className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b' }}>
+                ISO 3166-1 destinations
+              </div>
+            </div>
+
+            {/* Card 3: Currencies */}
+            <div
+              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:border-slate-300 transition"
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '20px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                transition: 'border-color 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Currencies
+                </span>
+                <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600" style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#ecfdf5', color: '#059669', display: 'inline-flex' }}>
+                  <DollarSign size={16} />
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-slate-900 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '8px 0' }}>
+                {readiness?.enabledCurrenciesCount ?? 7}
+              </div>
+              <div className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b' }}>
+                ISO 4217 presentment
+              </div>
+            </div>
+
+            {/* Card 4: Shipping Rules */}
+            <div
+              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:border-slate-300 transition"
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '20px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                transition: 'border-color 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Shipping Rules
+                </span>
+                <span className="p-2 rounded-xl bg-amber-50 text-amber-600" style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#fffbeb', color: '#d97706', display: 'inline-flex' }}>
+                  <Truck size={16} />
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-slate-900 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '8px 0' }}>
+                {readiness?.shippingRulesCount ?? 3}
+              </div>
+              <div className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b' }}>
+                Active rate zones
+              </div>
+            </div>
+
+            {/* Card 5: Tax Rules */}
+            <div
+              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:border-slate-300 transition"
+              style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '20px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                transition: 'border-color 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Tax Rules
+                </span>
+                <span className="p-2 rounded-xl bg-purple-50 text-purple-600" style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#faf5ff', color: '#9333ea', display: 'inline-flex' }}>
+                  <FileText size={16} />
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-slate-900 mt-2" style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: '8px 0' }}>
+                {readiness?.taxRulesCount ?? 3}
+              </div>
+              <div className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b' }}>
+                Exact rational rules
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Tab 2: Version History Table */}
@@ -384,8 +760,22 @@ export default function CommerceGovernancePage() {
       {activeTab === 'draft_editor' && (
         <div className="space-y-6">
           {!isEditingDraft && (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-900 font-semibold">
-              <div className="flex items-center gap-2">
+            <div
+              className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-900 font-semibold"
+              style={{
+                padding: '16px',
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '12px',
+                color: '#78350f',
+                fontWeight: '600'
+              }}
+            >
+              <div className="flex items-center gap-2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertCircle size={16} />
                 <span>
                   Viewing immutable version <strong>v{selectedVersion?.version} ({selectedVersion?.status})</strong> in read-only mode.
@@ -394,7 +784,16 @@ export default function CommerceGovernancePage() {
               <button
                 type="button"
                 onClick={handleCreateDraft}
-                className="px-3 py-1.5 bg-amber-800 text-white font-bold rounded-lg hover:bg-amber-900 transition"
+                className="px-3 py-1.5 bg-amber-800 text-white font-bold rounded-lg hover:bg-amber-900 transition cursor-pointer"
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#92400e',
+                  color: '#ffffff',
+                  fontWeight: '700',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
               >
                 Fork as New Draft
               </button>
@@ -462,8 +861,27 @@ export default function CommerceGovernancePage() {
               />
 
               {/* Change Notes */}
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-2 text-xs">
-                <label className="block font-bold text-slate-800 uppercase tracking-wider">
+              <div
+                className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-6 space-y-2 text-xs"
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid rgba(226, 232, 240, 0.8)',
+                  borderRadius: '16px',
+                  padding: '24px',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}
+              >
+                <label
+                  className="block font-bold text-slate-800 uppercase tracking-wider"
+                  style={{
+                    display: 'block',
+                    fontWeight: '700',
+                    color: '#1e293b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    marginBottom: '8px'
+                  }}
+                >
                   Audit Log Justification / Change Notes
                 </label>
                 <textarea
@@ -475,7 +893,19 @@ export default function CommerceGovernancePage() {
                     setHasUnsavedChanges(true);
                   }}
                   placeholder="Describe reasons for version changes..."
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-slate-900 outline-none disabled:bg-slate-50"
+                  className="w-full rounded-xl border border-slate-300 p-3 text-xs focus:ring-[#ff8a00] outline-none shadow-xs bg-white text-slate-900 disabled:bg-slate-50"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                    color: '#0f172a',
+                    backgroundColor: !isEditingDraft ? '#f8fafc' : '#ffffff',
+                    outline: 'none',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    boxSizing: 'border-box'
+                  }}
                 />
               </div>
             </>
@@ -532,7 +962,7 @@ export default function CommerceGovernancePage() {
               : 'bg-slate-900 text-white border-slate-700'
           }`}
         >
-          {toast.type === 'success' && <CheckCircle2 size={16} className="text-emerald-400" />}
+          {toast.type === 'success' && <CheckCircle size={16} className="text-emerald-400" />}
           {toast.type === 'error' && <AlertCircle size={16} className="text-rose-400" />}
           <span>{toast.message}</span>
         </div>

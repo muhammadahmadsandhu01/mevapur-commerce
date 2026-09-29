@@ -16,9 +16,12 @@ interface OrderItem {
   product?: string | {
     _id: string;
     name?: string;
+    slug?: string;
     primaryImage?: string;
     images?: string[];
   };
+  productId?: string;
+  slug?: string;
   name: string;
   price: number;
   quantity: number;
@@ -163,7 +166,7 @@ export default function OrdersPage() {
   const getPaymentStatusBadgeClass = (status: string) => {
     switch (status?.toLowerCase()) {
       case 'paid':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'partiallyrefunded':
       case 'refunded':
         return 'bg-cyan-100 text-cyan-800 border-cyan-200';
@@ -346,7 +349,7 @@ export default function OrdersPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-500">Order:</span>
+                        <span className="text-xs font-bold text-slate-500">Order ID:</span>
                         <span className="text-sm font-black font-mono text-[#0b132b]">
                           {order.orderId || order._id}
                         </span>
@@ -367,7 +370,9 @@ export default function OrdersPage() {
                           order.paymentStatus
                         )}`}
                       >
-                        Payment: {order.paymentStatus}
+                        Payment: {order.paymentStatus?.toLowerCase() === 'paid' && order.paymentMethod?.toLowerCase() === 'cod'
+                          ? 'Paid (Cash on Delivery)'
+                          : `${order.paymentStatus}${order.paymentMethod ? ` (${order.paymentMethod === 'cod' ? 'Cash on Delivery' : order.paymentMethod})` : ''}`}
                       </span>
                     </div>
                   </div>
@@ -382,9 +387,20 @@ export default function OrdersPage() {
                           : '') ||
                         '/placeholder.png';
 
+                      const productTarget =
+                        (typeof item.product === 'object' && (item.product?.slug || item.product?._id)) ||
+                        item.slug ||
+                        item.productId ||
+                        (typeof item.product === 'string' ? item.product : '') ||
+                        '';
+                      const productHref = productTarget ? `/products/${encodeURIComponent(productTarget)}` : '/products';
+
                       return (
                         <div key={idx} className="py-2.5 flex items-center gap-3">
-                          <div className="relative w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                          <Link
+                            href={productHref}
+                            className="relative w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 border border-slate-200 block hover:opacity-85 transition"
+                          >
                             <Image
                               src={getSafeMediaUrl(itemImage)}
                               alt={item.name}
@@ -392,9 +408,14 @@ export default function OrdersPage() {
                               sizes="48px"
                               className="object-cover"
                             />
-                          </div>
+                          </Link>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-slate-900 truncate">{item.name}</p>
+                            <Link
+                              href={productHref}
+                              className="text-xs font-bold text-slate-900 truncate block hover:text-[#ff8a00] hover:underline transition"
+                            >
+                              {item.name}
+                            </Link>
                             {item.variant && (
                               <p className="text-[11px] text-slate-500 truncate">{item.variant}</p>
                             )}

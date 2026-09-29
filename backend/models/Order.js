@@ -7,10 +7,22 @@ const {
   ORDER_STATUSES
 } = require('../constants/orderConstants');
 
-const generateOrderId = () => {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const entropy = crypto.randomBytes(6).toString('hex').toUpperCase();
-  return `ORD-${date}-${entropy}`;
+const OrderSequence = require('./OrderSequence');
+
+const formatOrderId = (seq, date = new Date()) => {
+  const yyyymmdd = date.toISOString().slice(0, 10).replace(/-/g, '');
+  return `HZ-${yyyymmdd}-${String(seq).padStart(6, '0')}`;
+};
+
+const generateNextOrderId = async ({ session = null, date = new Date() } = {}) => {
+  const seq = await OrderSequence.getNextSequence({ sequenceId: 'orderNumber', session });
+  return formatOrderId(seq, date);
+};
+
+const generateOrderId = (date = new Date()) => {
+  const yyyymmdd = date.toISOString().slice(0, 10).replace(/-/g, '');
+  const randomNumeric = Math.floor(100000 + Math.random() * 900000);
+  return `HZ-${yyyymmdd}-${randomNumeric}`;
 };
 
 const orderItemSchema = new mongoose.Schema({
@@ -135,6 +147,10 @@ const orderSchema = new mongoose.Schema({
     required: true,
     immutable: true
   },
+  orderNumber: {
+    type: String,
+    trim: true
+  },
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -216,6 +232,7 @@ const orderSchema = new mongoose.Schema({
     clientSecret: { type: String, default: '', select: false },
     currency: { type: String, default: null, trim: true, uppercase: true, match: /^[A-Z]{3}$/ },
     paidAt: { type: Date, default: null },
+    settledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     gatewayResponse: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
@@ -390,12 +407,25 @@ const orderSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   toJSON: {
+    virtuals: true,
     transform: (_document, value) => {
       delete value.idempotencyKey;
       delete value.requestHash;
       return value;
     }
+  },
+  toObject: {
+    virtuals: true
   }
+});
+
+orderSchema.virtual('paymentInfo').get(function () {
+  return {
+    status: this.paymentStatus ? this.paymentStatus.toLowerCase() : 'pending',
+    paidAt: this.payment?.paidAt || null,
+    settledBy: this.payment?.settledBy || null,
+    provider: this.payment?.provider || (this.paymentMethod === 'cod' ? 'Cash on Delivery' : this.paymentMethod) || ''
+  };
 });
 
 orderSchema.index(
@@ -418,16 +448,34 @@ orderSchema.index(
     name: 'unique_order_checkout_session_id'
   }
 );
+orderSchema.index({ orderNumber: 1 }, { unique: true, sparse: true });
+orderSchema.index(
+  { 'quote.quoteId': 1 },
+  {
+    unique: true,
+    partialFilterExpression: { 'quote.quoteId': { $type: 'string', $gt: '' } },
+    name: 'unique_order_quote_id'
+  }
+);
 orderSchema.index({ user: 1, createdAt: -1, _id: -1 });
 orderSchema.index({ orderStatus: 1, createdAt: -1, _id: -1 });
 
-orderSchema.pre('validate', function ensureOrderId() {
+orderSchema.pre('validate', async function ensureOrderId() {
   if (!this.orderId) {
-    this.orderId = generateOrderId();
+    try {
+      this.orderId = await generateNextOrderId();
+    } catch (_err) {
+      this.orderId = generateOrderId();
+    }
+  }
+  if (!this.orderNumber) {
+    this.orderNumber = this.orderId;
   }
 });
 
 orderSchema.statics.generateOrderId = generateOrderId;
+orderSchema.statics.generateNextOrderId = generateNextOrderId;
+orderSchema.statics.formatOrderId = formatOrderId;
 orderSchema.statics.paymentMethods = PAYMENT_METHODS;
 
 module.exports = mongoose.models.Order || mongoose.model('Order', orderSchema);

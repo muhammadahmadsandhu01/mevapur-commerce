@@ -81,6 +81,7 @@ const createApp = ({
       'Content-Type',
       'Authorization',
       'X-CSRF-Token',
+      'X-Auth-Scope',
       'X-Request-ID',
       'X-Device-ID',
       'x-auth-token',
@@ -180,13 +181,38 @@ const createApp = ({
   app.use(hppCleaner());
 
   // Static Files
-  if (runtimeConfig.filesystem.uploadsMode === 'read-only') {
-    app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-      dotfiles: 'deny',
-      fallthrough: true,
-      index: false
-    }));
-  }
+  app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    dotfiles: 'deny',
+    fallthrough: true,
+    index: false,
+    setHeaders: (res) => {
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+  }));
+
+  // Dynamic fallback for mock or in-memory storage media
+  app.get('/uploads/*', (req, res, next) => {
+    try {
+      const MediaService = require('./services/media/MediaService');
+      const storageProvider = MediaService.storageProvider;
+      if (storageProvider && typeof storageProvider.get === 'function') {
+        const key = req.params[0] || req.path.replace(/^\/uploads\/?/, '');
+        const cleanKey = key.replace(/^\/+/, '');
+        const item = storageProvider.get(cleanKey);
+        if (item && item.buffer) {
+          res.set('Content-Type', item.mimeType || 'image/webp');
+          res.set('Content-Length', item.buffer.length);
+          res.set('Access-Control-Allow-Origin', '*');
+          res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+          return res.status(200).send(item.buffer);
+        }
+      }
+    } catch {
+      // Fall through to next handler
+    }
+    next();
+  });
 
   // API Routes
   app.use('/api/v1/auth', authRoutes);
@@ -203,6 +229,7 @@ const createApp = ({
   app.use('/api/settings', settingRoutes);
   app.use('/api/activity-logs', activityLogRoutes);
   app.use('/api/users', userRoutes);
+  app.use('/api/v1/users', userRoutes);
   app.use('/api/reports', reportRoutes);
   app.use('/api/roles', roleRoutes);
   app.use('/api/content', contentRoutes);
@@ -213,6 +240,7 @@ const createApp = ({
   app.use('/api/disputes', paymentDisputeRoutes);
   app.use('/api/finance-reconciliation', financeReconciliationRoutes);
   app.use('/api/commerce', commercialCoreRoutes);
+  app.use('/api', commercialCoreRoutes);
   app.use('/api/account', accountRoutes);
   app.use('/api/admin/exceptions', exceptionRoutes);
   app.use('/api/exceptions', exceptionRoutes);

@@ -51,8 +51,8 @@ const SUPPORTED_CURRENCY_EXPONENTS: Record<string, number> = {
  * Rejects non-integers, floats, decimals, exponential notation, and invalid characters.
  */
 export function normalizeMinorString(raw: string | number | bigint | null | undefined): string {
-  if (raw === null || raw === undefined) {
-    throw new Error('Minor amount is required');
+  if (raw === null || raw === undefined || raw === '') {
+    return '0';
   }
 
   let str: string;
@@ -65,8 +65,16 @@ export function normalizeMinorString(raw: string | number | bigint | null | unde
     str = String(raw);
   } else if (typeof raw === 'string') {
     str = raw.trim();
+    if (!str) return '0';
+  } else if (typeof raw === 'object' && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    const candidate = obj.amountMinor ?? obj.$numberDecimal ?? obj.priceMinor ?? obj.rateMinor ?? obj.value ?? obj.amount;
+    if (candidate !== undefined && candidate !== raw) {
+      return normalizeMinorString(candidate as string | number | bigint);
+    }
+    return '0';
   } else {
-    throw new Error('Unsupported minor amount type');
+    return '0';
   }
 
   if (!/^-?\d+$/.test(str)) {
@@ -125,7 +133,15 @@ export function formatExactMoney(
 
   const currency = String(exact.currency || '').trim().toUpperCase();
   const exponent = getCurrencyExponent(currency, exact.exponent);
-  const minorStr = normalizeMinorString(exact.amountMinor);
+
+  const exactAny = exact as unknown as Record<string, unknown>;
+  const rawAmount = exact.amountMinor ??
+    exactAny.amount ??
+    (exactAny.rate as Record<string, unknown> | undefined)?.amountMinor ??
+    exactAny.priceMinor ??
+    0;
+
+  const minorStr = normalizeMinorString(rawAmount as string | number | bigint);
 
   const isNegative = minorStr.startsWith('-');
   const unsignedMinor = isNegative ? minorStr.slice(1) : minorStr;

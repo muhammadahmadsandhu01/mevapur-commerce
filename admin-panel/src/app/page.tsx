@@ -2,10 +2,38 @@
 
 import { useEffect, useState } from 'react';
 import { 
-  DollarSign, ShoppingCart, Users, Package, TrendingUp, 
-  AlertCircle, CheckCircle, Clock, XCircle, ArrowUpRight, Truck 
+  DollarSign, ShoppingCart, ShoppingBag, Package, TrendingUp, 
+  AlertCircle, CheckCircle, Clock, XCircle, ArrowUpRight, Truck, Tag 
 } from 'lucide-react';
 import { getAdminStats, getRecentOrders, getTopProducts } from '@/lib/api';
+
+interface ChartDataItem {
+  date: string;
+  revenue: number;
+  orders: number;
+  currency?: string;
+}
+
+interface CategoryStatItem {
+  _id: string;
+  totalRevenue: number;
+  totalSales: number;
+  productCount?: number;
+  currency?: string;
+}
+
+function formatChartDate(dateStr: string): string {
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
+  }
+}
 
 interface DashboardStats {
   totalRevenue: number;
@@ -28,6 +56,13 @@ interface DashboardStats {
   productsGrowth: number | null;
   averageOrderValue: number;
   conversionRate: number | null;
+  chartData?: ChartDataItem[];
+  categoryStats?: CategoryStatItem[];
+  cogs?: number;
+  netProfit?: number;
+  profitMargin?: number;
+  cancellationRate?: number;
+  uncollectedCod?: number;
 }
 
 interface Order {
@@ -100,7 +135,14 @@ export default function Dashboard() {
             customersGrowth: typeof statsData.customersGrowth === 'number' ? statsData.customersGrowth : null,
             productsGrowth: typeof statsData.productsGrowth === 'number' ? statsData.productsGrowth : null,
             averageOrderValue: statsData.averageOrderValue ?? 0,
-            conversionRate: typeof statsData.conversionRate === 'number' ? statsData.conversionRate : null
+            conversionRate: typeof statsData.conversionRate === 'number' ? statsData.conversionRate : null,
+            chartData: Array.isArray(statsData.chartData) ? statsData.chartData : [],
+            categoryStats: Array.isArray(statsData.categoryStats) ? statsData.categoryStats : [],
+            cogs: typeof statsData.cogs === 'number' ? statsData.cogs : 0,
+            netProfit: typeof statsData.netProfit === 'number' ? statsData.netProfit : 0,
+            profitMargin: typeof statsData.profitMargin === 'number' ? statsData.profitMargin : 0,
+            cancellationRate: typeof statsData.cancellationRate === 'number' ? statsData.cancellationRate : 0,
+            uncollectedCod: typeof statsData.uncollectedCod === 'number' ? statsData.uncollectedCod : 0
           });
         }
 
@@ -128,36 +170,93 @@ export default function Dashboard() {
 
   const kpiCards = [
     {
-      title: 'Total Revenue',
+      title: 'Gross Sales (Turnover)',
+      subtitle: 'Realized Customer Turnover',
       value: stats ? `Rs. ${stats.totalRevenue.toLocaleString()}` : 'Unavailable',
-      change: stats?.revenueGrowth ?? null,
       icon: DollarSign,
       color: 'var(--accent-text)',
-      bgColor: 'rgba(255, 138, 0, 0.1)'
+      bgColor: 'rgba(255, 138, 0, 0.1)',
+      badge: stats?.revenueGrowth !== null && stats?.revenueGrowth !== undefined ? (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 12px',
+          borderRadius: '20px',
+          backgroundColor: stats.revenueGrowth >= 0 ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)',
+          color: stats.revenueGrowth >= 0 ? 'var(--success-text)' : 'var(--danger-text)',
+          fontSize: '13px', fontWeight: '700'
+        }}>
+          <ArrowUpRight size={14} style={stats.revenueGrowth < 0 ? { transform: 'rotate(90deg)' } : undefined} />
+          {stats.revenueGrowth > 0 ? '+' : ''}{stats.revenueGrowth}%
+        </span>
+      ) : (
+        <span style={{
+          padding: '6px 12px', borderRadius: '20px',
+          backgroundColor: 'rgba(255, 138, 0, 0.12)', color: 'var(--accent-text)',
+          fontSize: '12px', fontWeight: '700'
+        }}>
+          Turnover
+        </span>
+      )
     },
     {
-      title: 'Total Orders',
-      value: stats ? stats.totalOrders : 'Unavailable',
-      change: stats?.ordersGrowth ?? null,
-      icon: ShoppingCart,
-      color: 'var(--info-text)',
-      bgColor: 'var(--info-light)',
+      title: 'Cost of Goods (COGS)',
+      subtitle: 'Product acquisition cost',
+      value: stats ? `Rs. ${(stats.cogs ?? 0).toLocaleString()}` : 'Unavailable',
+      icon: Tag,
+      color: '#3B82F6',
+      bgColor: 'rgba(59, 130, 246, 0.1)',
+      badge: (
+        <span style={{
+          padding: '6px 12px', borderRadius: '20px',
+          backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#3B82F6',
+          fontSize: '12px', fontWeight: '700'
+        }}>
+          {stats && stats.totalRevenue > 0 ? `${Math.round(((stats.cogs || 0) / stats.totalRevenue) * 100)}% of Sales` : 'Direct Cost'}
+        </span>
+      )
     },
     {
-      title: 'Total Customers',
-      value: stats ? stats.totalCustomers : 'Unavailable',
-      change: stats?.customersGrowth ?? null,
-      icon: Users,
-      color: 'var(--success-text)',
-      bgColor: 'rgba(22, 163, 74, 0.1)'
+      title: 'Net Profit',
+      subtitle: 'Sales minus product cost',
+      value: stats ? `Rs. ${(stats.netProfit ?? 0).toLocaleString()}` : 'Unavailable',
+      icon: TrendingUp,
+      color: '#10B981',
+      bgColor: 'rgba(16, 185, 129, 0.1)',
+      badge: (
+        <span style={{
+          padding: '6px 14px', borderRadius: '20px',
+          backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10B981',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          fontSize: '13px', fontWeight: '800'
+        }}>
+          +{stats?.profitMargin ?? 0}% Margin
+        </span>
+      )
     },
     {
-      title: 'Total Products',
-      value: stats ? stats.totalProducts : 'Unavailable',
-      change: stats?.productsGrowth ?? null,
-      icon: Package,
-      color: 'var(--warning-text)',
-      bgColor: 'rgba(245, 158, 11, 0.1)'
+      title: 'Orders & Risk Status',
+      subtitle: 'Fulfillment & cancellation control',
+      value: stats ? `${stats.totalOrders} Orders` : 'Unavailable',
+      icon: ShoppingBag,
+      color: '#8B5CF6',
+      bgColor: 'rgba(139, 92, 246, 0.1)',
+      badge: (stats?.cancellationRate ?? 0) > 30 ? (
+        <span style={{
+          padding: '6px 12px', borderRadius: '20px',
+          backgroundColor: 'rgba(220, 38, 38, 0.12)', color: 'var(--danger-text)',
+          border: '1px solid #DC2626',
+          fontSize: '12px', fontWeight: '800'
+        }}>
+          ⚠ {stats?.cancellationRate}% Cancelled
+        </span>
+      ) : (
+        <span style={{
+          padding: '6px 12px', borderRadius: '20px',
+          backgroundColor: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)',
+          fontSize: '12px', fontWeight: '700'
+        }}>
+          {stats?.deliveredOrders ?? 0} Delivered
+        </span>
+      )
     },
   ];
 
@@ -262,28 +361,16 @@ export default function Dashboard() {
               }}>
                 <card.icon size={28} color={card.color} />
               </div>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px',
-                borderRadius: '20px',
-                backgroundColor: typeof card.change === 'number'
-                  ? (card.change >= 0 ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.1)')
-                  : 'var(--bg-primary)',
-                color: typeof card.change === 'number'
-                  ? (card.change >= 0 ? 'var(--success-text)' : 'var(--danger-text)')
-                  : 'var(--text-secondary)',
-                fontSize: '13px', fontWeight: '700'
-              }}>
-                {typeof card.change === 'number' ? (
-                  <>
-                    <ArrowUpRight size={14} style={card.change < 0 ? { transform: 'rotate(90deg)' } : undefined} />
-                    {card.change > 0 ? '+' : ''}{card.change}%
-                  </>
-                ) : 'Comparison unavailable'}
-              </div>
+              {card.badge}
             </div>
-            <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '500' }}>
+            <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
               {card.title}
             </div>
+            {'subtitle' in card && Boolean(card.subtitle) && (
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', opacity: 0.85 }}>
+                {card.subtitle}
+              </div>
+            )}
             <div style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', lineHeight: 1 }}>
               {card.value}
             </div>
@@ -392,18 +479,88 @@ export default function Dashboard() {
           borderRadius: '16px',
           padding: '24px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-          border: '1px solid var(--border-color)'
+          border: '1px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column'
         }}>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '24px', color: 'var(--text-primary)' }}>
-            Revenue Overview
-          </h2>
-          <div style={{
-            height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '32px', textAlign: 'center', borderRadius: '12px',
-            backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)'
-          }}>
-            Revenue time-series data is not available from the current analytics API.
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                Revenue Overview
+              </h2>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Daily sales performance
+              </p>
+            </div>
+            {stats?.chartData && stats.chartData.length > 0 && (
+              <span style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                padding: '4px 10px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(255, 138, 0, 0.12)',
+                color: 'var(--accent-text)'
+              }}>
+                {stats.chartData.reduce((s, c) => s + c.orders, 0)} Orders Realized
+              </span>
+            )}
           </div>
+          {stats?.chartData && stats.chartData.length > 0 ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: '260px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '20px', height: '210px', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)', overflowX: 'auto' }}>
+                {(() => {
+                  const maxRev = Math.max(...stats.chartData.map(d => d.revenue), 1);
+                  return stats.chartData.map((d, idx) => {
+                    const heightPct = Math.max(Math.round((d.revenue / maxRev) * 100), 12);
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          flex: 1,
+                          minWidth: '56px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          height: '100%',
+                          justifyContent: 'flex-end'
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>
+                          Rs. {d.revenue >= 1000 ? `${(d.revenue / 1000).toFixed(1)}k` : d.revenue}
+                        </div>
+                        <div
+                          title={`${d.date}: Rs. ${d.revenue.toLocaleString()} (${d.orders} orders)`}
+                          style={{
+                            width: '100%',
+                            maxWidth: '42px',
+                            height: `${heightPct}%`,
+                            background: 'linear-gradient(180deg, #FF8A00 0%, #D97706 100%)',
+                            borderRadius: '8px 8px 2px 2px',
+                            boxShadow: '0 4px 12px rgba(255, 138, 0, 0.25)',
+                            transition: 'height 0.4s ease'
+                          }}
+                        />
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', fontWeight: '600', whiteSpace: 'nowrap' }}>
+                          {formatChartDate(d.date)}
+                        </div>
+                        <div style={{ fontSize: '10px', color: 'var(--accent-text)', opacity: 0.9, fontWeight: '700' }}>
+                          {d.orders} ord
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              height: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '32px', textAlign: 'center', borderRadius: '12px',
+              backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)'
+            }}>
+              No realized sales records available in this period.
+            </div>
+          )}
         </div>
 
         {/* Category Distribution */}
@@ -412,18 +569,70 @@ export default function Dashboard() {
           borderRadius: '16px',
           padding: '24px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-          border: '1px solid var(--border-color)'
+          border: '1px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column'
         }}>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '24px', color: 'var(--text-primary)' }}>
-            Sales by Category
-          </h2>
-          <div style={{
-            height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '32px', textAlign: 'center', borderRadius: '12px',
-            backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)'
-          }}>
-            Category sales data is not available from the current analytics API.
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                Sales by Category
+              </h2>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Distribution of revenue by department
+              </p>
+            </div>
+            {stats?.categoryStats && stats.categoryStats.length > 0 && (
+              <span style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                padding: '4px 10px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                color: 'var(--success-text)'
+              }}>
+                {stats.categoryStats.length} Categories
+              </span>
+            )}
           </div>
+          {stats?.categoryStats && stats.categoryStats.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: '260px', overflowY: 'auto', paddingRight: '4px' }}>
+              {(() => {
+                const totalCatRev = stats.categoryStats.reduce((sum, c) => sum + (c.totalRevenue || 0), 0) || 1;
+                const palette = ['#FF8A00', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4'];
+                return stats.categoryStats.map((cat, idx) => {
+                  const pct = Math.round(((cat.totalRevenue || 0) / totalCatRev) * 100);
+                  const color = palette[idx % palette.length];
+                  return (
+                    <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: color }} />
+                          <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{cat._id}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>({cat.totalSales} units)</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Rs. {cat.totalRevenue.toLocaleString()}</span>
+                          <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', minWidth: '32px', textAlign: 'right' }}>{pct}%</span>
+                        </div>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', borderRadius: '4px', backgroundColor: 'var(--bg-primary)', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.max(pct, 2)}%`, height: '100%', backgroundColor: color, borderRadius: '4px', transition: 'width 0.5s ease' }} />
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          ) : (
+            <div style={{
+              height: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '32px', textAlign: 'center', borderRadius: '12px',
+              backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)'
+            }}>
+              No category sales data available.
+            </div>
+          )}
         </div>
       </div>
 
@@ -551,38 +760,122 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Revenue Breakdown */}
+      {/* Executive Financial Health & P&L Statement */}
       <div style={{
         backgroundColor: 'var(--card-bg)',
         borderRadius: '16px',
-        padding: '24px',
+        padding: '28px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
         border: '1px solid var(--border-color)'
       }}>
-        <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '24px', color: 'var(--text-primary)' }}>
-          Revenue Breakdown
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
-            <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #0B132B 0%, #060A16 100%)', color: 'white' }}>
-            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Today&apos;s Revenue</div>
-            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>
-              {stats ? `Rs. ${stats.todayRevenue.toLocaleString()}` : 'Unavailable'}
-            </div>
-            <div style={{ fontSize: '13px', opacity: 0.8 }}>Day-over-day comparison unavailable</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>
+              Financial Health & P&L Statement
+            </h2>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+              Executive reconciliation of commercial revenue, inventory expense, realized profit, and working capital.
+            </p>
           </div>
-            <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #FF8A00 0%, #E67D00 100%)', color: '#0B132B' }}>
-            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Monthly Revenue</div>
-            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>
-              {stats ? `Rs. ${stats.monthlyRevenue.toLocaleString()}` : 'Unavailable'}
-            </div>
-            <div style={{ fontSize: '13px', opacity: 0.8 }}>Month-over-month comparison unavailable</div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '6px 14px', borderRadius: '20px',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10B981',
+              fontSize: '12px', fontWeight: '700'
+            }}>
+              Net Realized Margin: +{stats?.profitMargin ?? 0}%
+            </span>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '6px 14px', borderRadius: '20px',
+              backgroundColor: 'rgba(255, 138, 0, 0.12)', color: 'var(--accent-text)',
+              fontSize: '12px', fontWeight: '700'
+            }}>
+              All-Time Realized
+            </span>
           </div>
-            <div style={{ padding: '24px', borderRadius: '12px', background: 'linear-gradient(135deg, #166534 0%, #14532D 100%)', color: 'white' }}>
-            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Total Revenue</div>
-            <div style={{ fontSize: '32px', fontWeight: '800', marginBottom: '8px' }}>
-              {stats ? `Rs. ${stats.totalRevenue.toLocaleString()}` : 'Unavailable'}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+          {/* Daily Turnover */}
+          <div style={{
+            padding: '24px', borderRadius: '14px',
+            background: 'linear-gradient(135deg, #0B132B 0%, #162244 100%)',
+            color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', opacity: 0.85, fontWeight: '600' }}>Daily Turnover</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.15)' }}>Today</span>
+              </div>
+              <div style={{ fontSize: '30px', fontWeight: '800', marginBottom: '6px', letterSpacing: '-0.5px' }}>
+                {stats ? `Rs. ${stats.todayRevenue.toLocaleString()}` : 'Unavailable'}
+              </div>
             </div>
-            <div style={{ fontSize: '13px', opacity: 0.8 }}>All time</div>
+            <div style={{ fontSize: '12px', opacity: 0.75, paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              Today&apos;s realized customer billing
+            </div>
+          </div>
+
+          {/* Monthly Turnover */}
+          <div style={{
+            padding: '24px', borderRadius: '14px',
+            background: 'linear-gradient(135deg, #FF8A00 0%, #E67D00 100%)',
+            color: '#0B132B', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', opacity: 0.9, fontWeight: '700' }}>Monthly Turnover</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(0,0,0,0.12)', fontWeight: '700' }}>This Month</span>
+              </div>
+              <div style={{ fontSize: '30px', fontWeight: '800', marginBottom: '6px', letterSpacing: '-0.5px' }}>
+                {stats ? `Rs. ${stats.monthlyRevenue.toLocaleString()}` : 'Unavailable'}
+              </div>
+            </div>
+            <div style={{ fontSize: '12px', opacity: 0.85, paddingTop: '10px', borderTop: '1px solid rgba(0,0,0,0.1)', fontWeight: '600' }}>
+              Current calendar month gross sales
+            </div>
+          </div>
+
+          {/* Cash in Transit (Pending COD) */}
+          <div style={{
+            padding: '24px', borderRadius: '14px',
+            background: 'linear-gradient(135deg, #312E81 0%, #1E1B4B 100%)',
+            color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', opacity: 0.85, fontWeight: '600' }}>Cash in Transit</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.15)' }}>Pending COD</span>
+              </div>
+              <div style={{ fontSize: '30px', fontWeight: '800', marginBottom: '6px', letterSpacing: '-0.5px' }}>
+                {stats ? `Rs. ${(stats.uncollectedCod ?? 0).toLocaleString()}` : 'Unavailable'}
+              </div>
+            </div>
+            <div style={{ fontSize: '12px', opacity: 0.75, paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              Outstanding funds on pending/in-transit orders
+            </div>
+          </div>
+
+          {/* Net Realized Profit (All Time) */}
+          <div style={{
+            padding: '24px', borderRadius: '14px',
+            background: 'linear-gradient(135deg, #166534 0%, #14532D 100%)',
+            color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', opacity: 0.85, fontWeight: '600' }}>Net Realized Profit</span>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.15)' }}>All Time</span>
+              </div>
+              <div style={{ fontSize: '30px', fontWeight: '800', marginBottom: '6px', letterSpacing: '-0.5px' }}>
+                {stats ? `Rs. ${(stats.netProfit ?? 0).toLocaleString()}` : 'Unavailable'}
+              </div>
+            </div>
+            <div style={{ fontSize: '12px', opacity: 0.75, paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              Gross sales minus total COGS (Rs. {(stats?.cogs ?? 0).toLocaleString()})
+            </div>
           </div>
         </div>
       </div>

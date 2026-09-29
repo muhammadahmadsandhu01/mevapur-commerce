@@ -42,6 +42,7 @@ interface InvoiceData {
   currency: string;
   paymentMethod: string;
   paymentStatus: string;
+  paidAt?: string;
 }
 
 export default function InvoicePage() {
@@ -153,7 +154,7 @@ export default function InvoicePage() {
               <h1 className="text-xl sm:text-2xl font-black text-[#0b132b]">
                 {classification.title}
               </h1>
-              <p className="text-xs text-slate-500 mt-1">Order Reference: {invoice.orderNumber}</p>
+              <p className="text-xs text-slate-500 mt-1">Order ID: {invoice.orderNumber}</p>
               <p className="text-xs text-slate-500">Issued on {formattedDate}</p>
             </div>
 
@@ -165,11 +166,28 @@ export default function InvoicePage() {
                     : 'bg-amber-100 text-amber-950 border-amber-200'
                 }`}
               >
-                {classification.badgeLabel}
+                {invoice.paymentStatus?.toLowerCase() === 'paid' && invoice.paymentMethod?.toLowerCase() === 'cod'
+                  ? 'PAID - Cash on Delivery'
+                  : classification.badgeLabel}
               </span>
               <p className="text-xs text-slate-600 font-semibold mt-2">
-                Payment Method: <span className="uppercase">{invoice.paymentMethod}</span>
+                Payment Method:{' '}
+                <span className="uppercase">
+                  {invoice.paymentMethod === 'cod' ? 'Cash on Delivery' : invoice.paymentMethod}
+                </span>
               </p>
+              {invoice.paidAt && (
+                <p className="text-xs text-emerald-700 font-semibold mt-1">
+                  Collected on{' '}
+                  {new Date(invoice.paidAt).toLocaleDateString('en-PK', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </p>
+              )}
             </div>
           </div>
 

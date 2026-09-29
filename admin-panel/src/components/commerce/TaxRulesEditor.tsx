@@ -63,13 +63,33 @@ export default function TaxRulesEditor({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-6">
-      <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <FileCheck className="text-[#ff8a00]" size={20} />
+    <div
+      className="bg-white border border-slate-200/80 rounded-2xl shadow-xs p-6 space-y-6 mt-4"
+      style={{
+        backgroundColor: '#ffffff',
+        border: '1px solid rgba(226, 232, 240, 0.8)',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        marginTop: '16px'
+      }}
+    >
+      <div
+        className="flex items-center justify-between pb-4 border-b border-slate-100 flex-wrap gap-2"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '16px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '8px' }}
+      >
+        <div className="flex items-center gap-3" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div
+            className="p-2 rounded-xl bg-orange-50 text-[#ff8a00]"
+            style={{ padding: '8px', borderRadius: '12px', backgroundColor: '#fff7ed', color: '#ff8a00', display: 'inline-flex' }}
+          >
+            <FileCheck size={20} />
+          </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">Exact Rational Tax & Customs Rules</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="text-base font-bold text-slate-900" style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+              Exact Rational Tax & Customs Rules
+            </h3>
+            <p className="text-xs text-slate-500 mt-1" style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', margin: 0 }}>
               Deterministic rational tax arithmetic, customs valuation, de-minimis thresholds, and refund allocation policies.
             </p>
           </div>
@@ -78,7 +98,21 @@ export default function TaxRulesEditor({
           <button
             type="button"
             onClick={handleAddRule}
-            className="px-3 py-1.5 bg-[#0b132b] hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-2xs"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#ff8a00] hover:bg-[#ea580c] text-white text-xs font-semibold rounded-xl shadow-xs transition cursor-pointer"
+            style={{
+              backgroundColor: '#ff8a00',
+              color: '#ffffff',
+              padding: '8px 14px',
+              borderRadius: '12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+            }}
           >
             <Plus size={14} /> Add Tax & Customs Rule
           </button>
@@ -101,47 +135,144 @@ export default function TaxRulesEditor({
             return (
               <div
                 key={rule.ruleId || idx}
-                className={`p-4 border rounded-xl transition text-xs space-y-3 ${
-                  rule.enabled ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'
+                className={`p-4 border rounded-xl transition text-xs space-y-3 bg-white shadow-xs ${
+                  rule.enabled ? 'border-slate-200/90 hover:border-slate-300' : 'border-slate-200 bg-slate-50 opacity-60'
                 }`}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid rgba(226, 232, 240, 0.9)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}
               >
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-black text-slate-900 text-sm">{rule.destinationCountry}</span>
+                <div className="flex items-center justify-between flex-wrap gap-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div className="flex items-center gap-2 flex-wrap" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span
+                      className="font-bold text-slate-900 text-sm px-2.5 py-1 bg-slate-100 rounded-lg border border-slate-200"
+                      style={{
+                        display: 'inline-flex',
+                        padding: '4px 10px',
+                        backgroundColor: '#f1f5f9',
+                        color: '#0f172a',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        fontSize: '12px',
+                        fontWeight: 700
+                      }}
+                    >
+                      {rule.destinationCountry}
+                    </span>
                     {rule.destinationSubdivision && (
-                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 font-bold rounded text-[10px]">
+                      <span
+                        className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold rounded text-[10px] border border-slate-200"
+                        style={{
+                          display: 'inline-flex',
+                          padding: '2px 8px',
+                          backgroundColor: '#f1f5f9',
+                          color: '#475569',
+                          borderRadius: '6px',
+                          border: '1px solid #e2e8f0',
+                          fontSize: '10px',
+                          fontWeight: 700
+                        }}
+                      >
                         {rule.destinationSubdivision}
                       </span>
                     )}
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-800 font-bold rounded text-[11px]">
+                    <span
+                      className="px-2.5 py-1 bg-slate-100 text-slate-800 font-semibold rounded-lg text-[11px] border border-slate-200"
+                      style={{
+                        display: 'inline-flex',
+                        padding: '4px 8px',
+                        backgroundColor: '#f1f5f9',
+                        color: '#1e293b',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        fontSize: '11px',
+                        fontWeight: 600
+                      }}
+                    >
                       {rule.taxType} ({taxPct}) · {rule.taxTreatment}
                     </span>
-                    <span className={`px-2 py-0.5 font-bold rounded text-[11px] ${
-                      isDDP ? 'bg-blue-100 text-blue-800' : isDAP ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-800'
-                    }`}>
+                    <span
+                      className={`px-2.5 py-1 font-semibold rounded-lg text-[11px] border ${
+                        isDDP ? 'bg-blue-50 text-blue-800 border-blue-200' : isDAP ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-slate-100 text-slate-800 border-slate-200'
+                      }`}
+                      style={{
+                        display: 'inline-flex',
+                        padding: '4px 8px',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        backgroundColor: isDDP ? '#eff6ff' : isDAP ? '#fffbeb' : '#f1f5f9',
+                        color: isDDP ? '#1e40af' : isDAP ? '#78350f' : '#1e293b',
+                        border: isDDP ? '1px solid #bfdbfe' : isDAP ? '1px solid #fde68a' : '1px solid #e2e8f0'
+                      }}
+                    >
                       Incoterm: {rule.incoterm}
                     </span>
                     {(rule.dutyRateNumerator || 0) > 0 && (
-                      <span className="px-2 py-0.5 bg-purple-100 text-purple-900 font-bold rounded text-[11px]">
+                      <span
+                        className="px-2.5 py-1 bg-purple-50 text-purple-900 font-semibold rounded-lg text-[11px] border border-purple-200"
+                        style={{
+                          display: 'inline-flex',
+                          padding: '4px 8px',
+                          backgroundColor: '#faf5ff',
+                          color: '#581c87',
+                          borderRadius: '8px',
+                          border: '1px solid #e9d5ff',
+                          fontSize: '11px',
+                          fontWeight: 600
+                        }}
+                      >
                         Duty: {dutyPct}
                       </span>
                     )}
-                    <span className="text-[11px] text-slate-500">
-                      Priority: <strong className="text-slate-800 font-mono">{rule.priority ?? 100}</strong>
+                    <span className="text-[11px] text-slate-500 font-medium" style={{ color: '#64748b', fontSize: '11px', fontWeight: 500 }}>
+                      Priority: <strong className="text-slate-800 font-mono" style={{ color: '#1e293b', fontFamily: 'monospace' }}>{rule.priority ?? 100}</strong>
                     </span>
                     {rule.verificationStatus === 'VERIFIED_LEGAL_RULE' ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 10px',
+                          backgroundColor: '#ecfdf5',
+                          color: '#065f46',
+                          borderRadius: '9999px',
+                          border: '1px solid #a7f3d0',
+                          fontSize: '10px',
+                          fontWeight: 600
+                        }}
+                      >
                         <CheckCircle2 size={11} /> Legal Verified
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 10px',
+                          backgroundColor: '#fffbeb',
+                          color: '#92400e',
+                          borderRadius: '9999px',
+                          border: '1px solid #fde68a',
+                          fontSize: '10px',
+                          fontWeight: 600
+                        }}
+                      >
                         <AlertTriangle size={11} /> Unverified Estimate
                       </span>
                     )}
                   </div>
 
                   {!disabled && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <label className="flex items-center gap-1.5 text-xs text-slate-600 font-semibold cursor-pointer mr-2">
                         <input
                           type="checkbox"
@@ -154,14 +285,32 @@ export default function TaxRulesEditor({
                       <button
                         type="button"
                         onClick={() => setEditingIndex(isEditing ? null : idx)}
-                        className="px-2.5 py-1 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold transition"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer bg-white"
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          backgroundColor: '#ffffff',
+                          color: '#334155',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
                       >
                         {isEditing ? 'Done' : 'Edit'}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteRule(idx)}
-                        className="p-1 hover:bg-rose-100 text-rose-600 rounded transition"
+                        className="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 text-rose-600 transition cursor-pointer bg-white"
+                        style={{
+                          padding: '6px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          backgroundColor: '#ffffff',
+                          color: '#e11d48',
+                          cursor: 'pointer'
+                        }}
                         title="Delete Rule"
                       >
                         <Trash2 size={14} />

@@ -13,11 +13,21 @@ const cspHeader = buildContentSecurityPolicy({
 const nextConfig: NextConfig = {
   ...(isVercel ? {} : { output: 'standalone' }),
   async rewrites() {
-    const rawTarget = process.env.INTERNAL_API_URL || process.env.BACKEND_PUBLIC_URL || process.env.API_URL || process.env['NEXT_PUBLIC_API_URL'] || 'http://backend:5000';
+    const backendInternalUrl = (
+      process.env.BACKEND_INTERNAL_URL ||
+      process.env.INTERNAL_API_URL ||
+      process.env.BACKEND_URL ||
+      'http://mevapur_uat_p10c_bfkzo9mv-backend-1:5000'
+    ).replace(/\/$/, '');
+
     return [
       {
         source: '/api/:path*',
-        destination: `${rawTarget.replace(/\/$/, '')}/api/:path*`,
+        destination: `${backendInternalUrl}/api/:path*`,
+      },
+      {
+        source: '/uploads/:path*',
+        destination: `${backendInternalUrl}/uploads/:path*`,
       },
     ];
   },

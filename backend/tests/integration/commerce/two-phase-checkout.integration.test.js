@@ -2043,7 +2043,7 @@ describe('Phase 6D-5A Two-Phase Checkout & Stock Hold Engine Integration', () =>
       expect(getRes.status).toBe(200);
       expect(getRes.body.data.session.status).toBe('converted');
       expect(getRes.body.data.session.convertedOrderDisplayId).toBe(convertResult.order.orderId);
-      expect(getRes.body.data.session.convertedOrderDisplayId).toMatch(/^ORD-/);
+      expect(getRes.body.data.session.convertedOrderDisplayId).toMatch(/^(?:ORD|HZ)-/);
     });
 
     it('10. Converted session never returns convertedOrderId MongoDB ObjectId', async () => {

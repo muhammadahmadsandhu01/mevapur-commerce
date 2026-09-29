@@ -535,7 +535,7 @@ describe('Phase 6D-3: Shipping Governance & Multi-Service Integration', () => {
       const order = result.order || result;
 
       expect(order).toBeDefined();
-      expect(order.orderId).toMatch(/^ORD-/);
+      expect(order.orderId).toMatch(/^(?:ORD|HZ)-/);
       expect(order.shippingCost).toBe(35);
       expect(order.quote.quoteId).toBe(quote.quoteId);
       expect(order.quote.incoterm).toBe('DDP');

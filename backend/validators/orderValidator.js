@@ -67,7 +67,9 @@ const createOrderSchema = z.object({
     z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9_-]+$/)
   ),
   customerNote: optionalTrimmed(z.string().trim().max(500)),
-  quoteToken: optionalTrimmed(z.string().trim().max(4096)),
+  quoteToken: optionalTrimmed(z.string().trim().max(32768)),
+  quoteId: optionalTrimmed(z.string().trim().max(100)),
+  guestVerificationToken: optionalTrimmed(z.string().trim().max(200)),
   shippingServiceLevel: z.enum(['standard', 'express']).default('standard')
 }).strict().superRefine((value, context) => {
   const seen = new Set();
@@ -96,7 +98,10 @@ const idempotencyHeaderSchema = z.object({
 const orderReference = z.string().refine(
   (value) => (
     mongoose.isObjectIdOrHexString(value)
+    || /^HZ-\d{8}-\d+$/.test(value)
+    || /^HZ-\d+$/.test(value)
     || /^ORD-\d{8}-[A-F0-9]{12}$/.test(value)
+    || /^ORD-[A-Za-z0-9-]+$/.test(value)
   ),
   'A valid order reference is required'
 );
@@ -138,12 +143,17 @@ const adminOrderQuerySchema = paginationSchema.extend({
 
 const updateOrderStatusSchema = z.object({
   orderStatus: z.enum(Object.values(ORDER_STATUSES)),
-  adminNote: optionalTrimmed(z.string().trim().max(500))
+  adminNote: optionalTrimmed(z.string().trim().max(500)),
+  autoReconcilePayment: z.boolean().optional(),
+  cashCollected: z.boolean().optional()
 }).strict();
 
 const updatePaymentStatusSchema = z.object({
-  paymentStatus: z.enum(['Paid']),
-  adminNote: optionalTrimmed(z.string().trim().max(500))
+  paymentStatus: z.enum(['Paid', 'paid']).optional(),
+  status: z.enum(['Paid', 'paid']).optional(),
+  adminNote: optionalTrimmed(z.string().trim().max(500)),
+  autoDeliver: z.boolean().optional(),
+  cashCollected: z.boolean().optional()
 }).strict();
 
 const updateTrackingSchema = z.object({

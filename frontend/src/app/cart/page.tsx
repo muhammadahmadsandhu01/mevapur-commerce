@@ -16,12 +16,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
+import { useAuthStore } from '@/store/authStore';
 import { revalidateCart, type RevalidationSummary } from '@/lib/cartRevalidation';
 import { formatMoney, calculateSubtotal } from '@/lib/money';
 import { getSafeMediaUrl } from '@/lib/catalogAdapter';
 
 export default function CartPage() {
   const { items, updateQuantity, removeFromCart, reconcileItems } = useCartStore();
+  const { isAuthenticated } = useAuthStore();
   const [revalidating, setRevalidating] = useState(false);
   const [revalidationSummary, setRevalidationSummary] = useState<RevalidationSummary | null>(null);
 
@@ -318,7 +320,7 @@ export default function CartPage() {
               </div>
             ) : (
               <Link
-                href="/checkout"
+                href={isAuthenticated ? "/checkout" : "/login?returnUrl=/checkout"}
                 className="w-full flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#ff8a00] hover:bg-[#ffab45] text-[#0b132b] font-extrabold text-sm shadow-sm transition"
               >
                 Proceed to Checkout <ArrowRight size={17} />

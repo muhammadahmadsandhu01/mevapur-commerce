@@ -29,6 +29,11 @@ export function getSafeMediaUrl(
     return trimmed;
   }
 
+  // Relative upload paths - return as relative so Next.js rewrites proxy them to backend
+  if (trimmed.startsWith('uploads/')) {
+    return `/${trimmed}`;
+  }
+
   try {
     const parsed = new URL(trimmed);
     if (!['http:', 'https:'].includes(parsed.protocol)) {
@@ -36,6 +41,21 @@ export function getSafeMediaUrl(
     }
     // Reject credential-bearing URLs (e.g. https://user:pass@host)
     if (parsed.username || parsed.password) {
+      return fallback;
+    }
+    // Map mock media uploads to local /uploads reverse proxy; fallback on other mock domains
+    if (
+      parsed.hostname === 'media.mock.mevapur.test' ||
+      parsed.hostname.endsWith('.mock.mevapur.test')
+    ) {
+      const cleanPath = parsed.pathname.replace(/^\/+/, '');
+      if (!cleanPath) {
+        return fallback;
+      }
+      const fullPath = cleanPath.startsWith('uploads/') ? `/${cleanPath}` : `/uploads/${cleanPath}`;
+      return parsed.search ? `${fullPath}${parsed.search}` : fullPath;
+    }
+    if (parsed.hostname === 'harzaar.com') {
       return fallback;
     }
     return trimmed;

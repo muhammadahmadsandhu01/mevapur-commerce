@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
-import Image from 'next/image';
+import { useState, useEffect, useCallback, Suspense, Fragment } from 'react';
 import {
   Package, AlertTriangle, CheckCircle,
-  Search, Download, ChevronDown, ChevronUp,
+  Search, Download, ChevronDown, ChevronRight,
   X, Box, History, Loader, AlertCircle, Layers
 } from 'lucide-react';
 import api from '@/lib/api';
 import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import { resolveImageUrl } from '@/lib/imageUtils';
 import { useAuthStore } from '@/store/authStore';
 
 interface InventoryVariant {
@@ -287,12 +287,70 @@ function InventoryContent() {
 
   const getStatusBadge = (stock: number, threshold = 10) => {
     if (stock <= 0) {
-      return { bg: 'rgba(239, 68, 68, 0.12)', color: 'var(--danger-text)', text: 'Out of Stock', icon: X };
+      return {
+        bg: 'rgba(239, 68, 68, 0.12)',
+        color: 'var(--danger-text)',
+        badgeClass: 'bg-red-50 text-red-700 border border-red-200',
+        text: 'Out of Stock',
+        icon: X
+      };
     }
     if (stock <= threshold) {
-      return { bg: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning-text)', text: 'Low Stock', icon: AlertTriangle };
+      return {
+        bg: 'rgba(245, 158, 11, 0.12)',
+        color: 'var(--warning-text)',
+        badgeClass: 'bg-amber-50 text-amber-700 border border-amber-200',
+        text: 'Low Stock',
+        icon: AlertTriangle
+      };
     }
-    return { bg: 'rgba(22, 163, 74, 0.12)', color: 'var(--success-text)', text: 'In Stock', icon: CheckCircle };
+    return {
+      bg: 'rgba(22, 163, 74, 0.12)',
+      color: 'var(--success-text)',
+      badgeClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+      text: 'In Stock',
+      icon: CheckCircle
+    };
+  };
+
+  const resolveProductImage = (item: Record<string, unknown> | InventoryItem | null | undefined): string | null => {
+    if (!item) return null;
+    const itemRecord = item as Record<string, unknown>;
+    const target = (itemRecord.product && typeof itemRecord.product === 'object'
+      ? itemRecord.product
+      : itemRecord) as Record<string, unknown>;
+    const raw =
+      (typeof target.thumbnail === 'string' ? target.thumbnail : null) ||
+      (Array.isArray(target.images) && target.images.length > 0
+        ? (typeof target.images[0] === 'object' && target.images[0] !== null
+          ? ((target.images[0] as Record<string, unknown>).url as string)
+          : (target.images[0] as string))
+        : null) ||
+      (typeof target.image === 'string' ? target.image : null) ||
+      (typeof itemRecord.thumbnail === 'string' ? itemRecord.thumbnail : null) ||
+      (Array.isArray(itemRecord.images) && itemRecord.images.length > 0
+        ? (typeof itemRecord.images[0] === 'object' && itemRecord.images[0] !== null
+          ? ((itemRecord.images[0] as Record<string, unknown>).url as string)
+          : (itemRecord.images[0] as string))
+        : null) ||
+      (typeof itemRecord.image === 'string' ? itemRecord.image : null);
+
+    if (!raw || typeof raw !== 'string') return null;
+
+    if (raw.includes('mock.mevapur.test')) {
+      const mapped = resolveImageUrl(raw);
+      if (mapped && mapped !== PRODUCT_PLACEHOLDER) {
+        return mapped;
+      }
+    }
+
+    if (raw.startsWith('/uploads/') || raw.startsWith('uploads/')) {
+      return raw.startsWith('/') ? raw : `/${raw}`;
+    }
+
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:55069';
+    return `${baseUrl.replace(/\/$/, '')}/${raw.replace(/^\//, '')}`;
   };
 
   return (
@@ -499,7 +557,7 @@ function InventoryContent() {
       </div>
 
       {/* Inventory Table with Expandable Variants */}
-      <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-xs overflow-hidden">
         {loading ? (
           <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-secondary)' }}>
             <Loader size={28} className="animate-spin" style={{ margin: '0 auto 12px' }} />
@@ -512,175 +570,207 @@ function InventoryContent() {
             <p style={{ fontSize: '14px' }}>Try adjusting your search query or filter options.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full table-fixed text-left border-collapse min-w-[900px]">
+              <colgroup>
+                <col className="w-14" style={{ width: '56px' }} />
+                <col className="min-w-[280px] lg:w-[360px]" style={{ minWidth: '280px' }} />
+                <col className="w-44" style={{ width: '176px' }} />
+                <col className="w-32" style={{ width: '128px' }} />
+                <col className="w-28" style={{ width: '112px' }} />
+                <col className="w-32" style={{ width: '128px' }} />
+                <col className="w-32" style={{ width: '128px' }} />
+              </colgroup>
               <thead>
-                <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <th scope="col" style={{ padding: '16px 20px', width: '40px' }}><span className="sr-only">Expand</span></th>
-                  <th scope="col" style={{ padding: '16px 20px' }}>Product & Root SKU</th>
-                  <th scope="col" style={{ padding: '16px 20px' }}>Category</th>
-                  <th scope="col" style={{ padding: '16px 20px' }}>Current Stock</th>
-                  <th scope="col" style={{ padding: '16px 20px' }}>Threshold</th>
-                  <th scope="col" style={{ padding: '16px 20px' }}>Stock Status</th>
-                  <th scope="col" style={{ padding: '16px 20px', textAlign: 'right' }}>Actions</th>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs font-semibold uppercase tracking-wider">
+                  <th scope="col" className="w-14 py-3.5 px-3 text-center whitespace-nowrap">
+                    EXPAND
+                  </th>
+                  <th scope="col" className="min-w-[280px] lg:w-[360px] py-3.5 px-4 text-left whitespace-nowrap">
+                    PRODUCT & ROOT SKU
+                  </th>
+                  <th scope="col" className="w-44 py-3.5 px-4 text-left whitespace-nowrap">
+                    CATEGORY
+                  </th>
+                  <th scope="col" className="w-32 py-3.5 px-4 text-left whitespace-nowrap">
+                    CURRENT STOCK
+                  </th>
+                  <th scope="col" className="w-28 py-3.5 px-4 text-left whitespace-nowrap">
+                    THRESHOLD
+                  </th>
+                  <th scope="col" className="w-32 py-3.5 px-4 text-left whitespace-nowrap">
+                    STOCK STATUS
+                  </th>
+                  <th scope="col" className="w-32 py-3.5 px-4 text-right whitespace-nowrap">
+                    ACTIONS
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                 {inventory.map((item) => {
                   const isExpanded = expandedProducts.has(item._id);
-                  const badge = getStatusBadge(item.stock, item.lowStockThreshold);
+                  const imageUrl = resolveProductImage(item);
+                  const hasVariants = Boolean(item.hasVariants && item.variants && item.variants.length > 0);
 
                   return (
-                    <tr key={item._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td colSpan={7} style={{ padding: 0 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '40px 1.8fr 1fr 1fr 1fr 1.2fr 1.2fr', alignItems: 'center', padding: '16px 20px', borderBottom: isExpanded ? '1px dashed var(--border-color)' : 'none' }}>
-                          <div>
-                            {item.hasVariants && item.variants.length > 0 && (
-                              <button
-                                onClick={() => toggleExpand(item._id)}
-                                aria-label={isExpanded ? `Collapse variants for ${item.product.name}` : `Expand variants for ${item.product.name}`}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
-                              >
-                                {isExpanded ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
-                              </button>
-                            )}
-                          </div>
+                    <Fragment key={item._id}>
+                      <tr className="border-b border-slate-100 hover:bg-slate-50/60 transition">
+                        {/* Column 1: EXPAND */}
+                        <td className="w-14 py-3.5 px-3 text-center align-middle">
+                          {hasVariants ? (
+                            <button
+                              onClick={() => toggleExpand(item._id)}
+                              aria-label={isExpanded ? `Collapse variants for ${item.product.name}` : `Expand variants for ${item.product.name}`}
+                              className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 inline-flex items-center justify-center transition cursor-pointer"
+                            >
+                              {isExpanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
+                            </button>
+                          ) : (
+                            <span className="text-slate-300 text-xs font-mono select-none">—</span>
+                          )}
+                        </td>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ width: '44px', height: '44px', borderRadius: '8px', backgroundColor: 'var(--bg-primary)', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--border-color)' }}>
-                              <Image
-                                src={item.product.images?.[0] || PRODUCT_PLACEHOLDER}
-                                alt={item.product.name}
-                                width={44}
-                                height={44}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                unoptimized
-                                onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
-                              />
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{item.product.name}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                SKU: {item.product.sku} {item.hasVariants ? `(${item.variants.length} variants)` : ''}
+                        {/* Column 2: PRODUCT & ROOT SKU */}
+                        <td className="min-w-[280px] lg:w-[360px] py-3.5 px-4 align-middle overflow-hidden">
+                          <div className="flex items-center gap-3">
+                            {/* 48x48 locked thumbnail */}
+                            <div
+                              className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200 flex items-center justify-center relative"
+                              style={{ width: '48px', height: '48px', minWidth: '48px', maxWidth: '48px', minHeight: '48px', maxHeight: '48px' }}
+                            >
+                              {imageUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={imageUrl}
+                                  alt={item.product?.name || item.product?.sku || 'Product image'}
+                                  className="w-12 h-12 object-cover block"
+                                  style={{ width: '48px', height: '48px', minWidth: '48px', maxWidth: '48px', minHeight: '48px', maxHeight: '48px', objectFit: 'cover' }}
+                                  onError={(e) => {
+                                    const target = e.currentTarget;
+                                    target.style.display = 'none';
+                                    const fallback = target.nextElementSibling as HTMLElement;
+                                    if (fallback) fallback.style.display = 'flex';
+                                  }}
+                                />
+                              ) : null}
+                              <div
+                                className="placeholder-fallback items-center justify-center w-full h-full"
+                                style={{ display: imageUrl ? 'none' : 'flex' }}
+                              >
+                                <Package className="text-slate-400 w-5 h-5" />
                               </div>
                             </div>
+                            <div className="min-w-0 flex-1 truncate">
+                              <p className="font-bold text-slate-900 text-xs truncate" title={item.product?.name}>
+                                {item.product?.name}
+                              </p>
+                              <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
+                                SKU: {item.product?.sku || 'N/A'}{hasVariants ? ` (${item.variants.length} variants)` : ''}
+                              </p>
+                            </div>
                           </div>
+                        </td>
 
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                            {item.product.category?.name || 'Uncategorized'}
-                          </div>
+                        {/* Column 3: CATEGORY */}
+                        <td className="w-44 py-3.5 px-4 align-middle truncate font-medium text-slate-600">
+                          {item.product?.category?.name || '—'}
+                        </td>
 
-                          <div>
-                            <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>{item.stock}</span>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '4px' }}>units</span>
-                          </div>
+                        {/* Column 4: CURRENT STOCK */}
+                        <td className="w-32 py-3.5 px-4 align-middle font-bold text-slate-900 whitespace-nowrap">
+                          {item.stock} units
+                        </td>
 
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                            {item.lowStockThreshold} units
-                          </div>
+                        {/* Column 5: THRESHOLD */}
+                        <td className="w-28 py-3.5 px-4 align-middle text-slate-500 whitespace-nowrap">
+                          {item.lowStockThreshold ?? 2} units
+                        </td>
 
-                          <div>
-                            <span style={{
-                              padding: '4px 10px',
-                              borderRadius: '12px',
-                              fontSize: '12px',
-                              fontWeight: '700',
-                              backgroundColor: badge.bg,
-                              color: badge.color
-                            }}>
-                              {badge.text}
-                            </span>
-                          </div>
+                        {/* Column 6: STOCK STATUS */}
+                        <td className="w-32 py-3.5 px-4 align-middle whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                              item.stock === 0
+                                ? 'bg-red-50 text-red-700 border border-red-200'
+                                : item.stock <= (item.lowStockThreshold ?? 2)
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}
+                          >
+                            {item.stock === 0 ? 'Out of Stock' : item.stock <= (item.lowStockThreshold ?? 2) ? 'Low Stock' : 'In Stock'}
+                          </span>
+                        </td>
 
-                          <div style={{ textAlign: 'right' }}>
-                            {canAdjust && (
-                              <button
-                                onClick={() => openAdjustModal(item)}
-                                style={{
-                                  padding: '8px 16px',
-                                  backgroundColor: 'var(--primary)',
-                                  color: '#0B132B',
-                                  border: 'none',
-                                  borderRadius: '8px',
-                                  fontWeight: '700',
-                                  fontSize: '13px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                Adjust Stock
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                        {/* Column 7: ACTIONS */}
+                        <td className="w-32 py-3.5 px-4 text-right align-middle whitespace-nowrap">
+                          {canAdjust && (
+                            <button
+                              onClick={() => openAdjustModal(item)}
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 shadow-xs transition cursor-pointer whitespace-nowrap"
+                            >
+                              Adjust Stock
+                            </button>
+                          )}
+                        </td>
+                      </tr>
 
-                        {/* Variant Sub-Rows */}
-                        {isExpanded && item.hasVariants && (
-                          <div style={{ backgroundColor: 'var(--bg-primary)', padding: '12px 20px 16px 60px' }}>
-                            <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
+                      {/* Variant Sub-Rows */}
+                      {isExpanded && item.hasVariants && (
+                        <tr className="bg-slate-50/80 border-b border-slate-200">
+                          <td colSpan={7} className="py-4 px-6 pl-14">
+                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">
                               Individual Variant Sellable SKUs
                             </div>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                              <thead>
-                                <tr style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                                  <th scope="col" style={{ padding: '8px 12px' }}>Variant SKU</th>
-                                  <th scope="col" style={{ padding: '8px 12px' }}>Attributes</th>
-                                  <th scope="col" style={{ padding: '8px 12px' }}>Stock</th>
-                                  <th scope="col" style={{ padding: '8px 12px' }}>Status</th>
-                                  <th scope="col" style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {item.variants.map((v) => {
-                                  const vBadge = getStatusBadge(v.stock, item.lowStockThreshold);
-                                  return (
-                                    <tr key={v._id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                      <td style={{ padding: '10px 12px', fontWeight: '600', color: 'var(--text-primary)' }}>{v.sku}</td>
-                                      <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                                        {v.attributes && v.attributes.length > 0
-                                          ? v.attributes.map((a) => `${a.name}: ${a.value}`).join(' | ')
-                                          : 'Default'}
-                                      </td>
-                                      <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--text-primary)' }}>{v.stock} units</td>
-                                      <td style={{ padding: '10px 12px' }}>
-                                        <span style={{
-                                          padding: '2px 8px',
-                                          borderRadius: '8px',
-                                          fontSize: '11px',
-                                          fontWeight: '700',
-                                          backgroundColor: vBadge.bg,
-                                          color: vBadge.color
-                                        }}>
-                                          {vBadge.text}
-                                        </span>
-                                      </td>
-                                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                                        {canAdjust && (
-                                          <button
-                                            onClick={() => openAdjustModal(item, v._id)}
-                                            style={{
-                                              padding: '4px 10px',
-                                              backgroundColor: 'var(--card-bg)',
-                                              border: '1px solid var(--border-color)',
-                                              borderRadius: '6px',
-                                              fontWeight: '600',
-                                              fontSize: '12px',
-                                              cursor: 'pointer',
-                                              color: 'var(--text-primary)'
-                                            }}
+                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                              <table className="w-full border-collapse text-xs">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 text-left font-bold uppercase tracking-wider">
+                                    <th scope="col" className="py-2.5 px-3">Variant SKU</th>
+                                    <th scope="col" className="py-2.5 px-3">Attributes</th>
+                                    <th scope="col" className="py-2.5 px-3">Stock</th>
+                                    <th scope="col" className="py-2.5 px-3">Status</th>
+                                    <th scope="col" className="py-2.5 px-3 text-right">Action</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {item.variants.map((v) => {
+                                    const vBadge = getStatusBadge(v.stock, item.lowStockThreshold);
+                                    return (
+                                      <tr key={v._id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                                        <td className="py-2.5 px-3 font-semibold text-slate-800 font-mono">{v.sku}</td>
+                                        <td className="py-2.5 px-3 text-slate-600">
+                                          {v.attributes && v.attributes.length > 0
+                                            ? v.attributes.map((a) => `${a.name}: ${a.value}`).join(' | ')
+                                            : 'Default'}
+                                        </td>
+                                        <td className="py-2.5 px-3 font-bold text-slate-900">{v.stock} units</td>
+                                        <td className="py-2.5 px-3">
+                                          <span
+                                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${vBadge.badgeClass}`}
                                           >
-                                            Adjust SKU
-                                          </button>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
+                                            {vBadge.text}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right">
+                                          {canAdjust && (
+                                            <button
+                                              onClick={() => openAdjustModal(item, v._id)}
+                                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-semibold text-xs transition-colors cursor-pointer border border-slate-200"
+                                            >
+                                              Adjust SKU
+                                            </button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

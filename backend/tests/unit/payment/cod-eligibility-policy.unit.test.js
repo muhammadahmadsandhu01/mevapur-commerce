@@ -112,7 +112,11 @@ describe('CodEligibilityPolicyService Unit Tests', () => {
 
     test('3b. Fails with COD_LOCATION_UNSERVICEABLE when area is not serviceable', async () => {
       mockServiceabilityModel.findOne = jest.fn().mockReturnValue({
-        sort: jest.fn().mockResolvedValue(null) // No rule found -> fail closed
+        sort: jest.fn().mockResolvedValue({
+          _id: 'rule-unserviceable',
+          isServiceable: false,
+          status: 'active'
+        })
       });
 
       const result = await service.evaluateCodEligibility({
@@ -123,6 +127,57 @@ describe('CodEligibilityPolicyService Unit Tests', () => {
 
       expect(result.available).toBe(false);
       expect(result.reasonCode).toBe(REASON_CODES.LOCATION_UNSERVICEABLE);
+    });
+
+    test('3c. Fails with COD_CITY_DISALLOWED when city is in dynamic disallowed list', async () => {
+      const mockCodSettings = {
+        isCityDisallowed: jest.fn().mockResolvedValue(true)
+      };
+      const disallowedService = new CodEligibilityPolicyService({
+        serviceabilityModel: mockServiceabilityModel,
+        restrictionModel: mockRestrictionModel,
+        offeringModel: mockOfferingModel,
+        couponModel: mockCouponModel,
+        verificationService: mockVerificationService,
+        codSettingsService: mockCodSettings
+      });
+
+      const result = await disallowedService.evaluateCodEligibility({
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        address: { ...validAddress, city: 'Faisalabad', locality: 'Faisalabad' }
+      });
+
+      expect(result.available).toBe(false);
+      expect(result.reasonCode).toBe(REASON_CODES.CITY_DISALLOWED);
+      expect(result.customerMessage).toContain('Cash on Delivery is currently unavailable for Faisalabad');
+    });
+
+    test('3d. Defaults to serviceable nationwide for unlisted Pakistan city', async () => {
+      mockServiceabilityModel.findOne = jest.fn().mockReturnValue({
+        sort: jest.fn().mockResolvedValue(null) // No explicit rule -> nationwide default!
+      });
+      const mockCodSettings = {
+        isCityDisallowed: jest.fn().mockResolvedValue(false)
+      };
+      const nationwideService = new CodEligibilityPolicyService({
+        serviceabilityModel: mockServiceabilityModel,
+        restrictionModel: mockRestrictionModel,
+        offeringModel: mockOfferingModel,
+        couponModel: mockCouponModel,
+        verificationService: mockVerificationService,
+        codSettingsService: mockCodSettings
+      });
+
+      const result = await nationwideService.evaluateCodEligibility({
+        destinationCountry: 'PK',
+        currency: 'PKR',
+        address: { ...validAddress, city: 'Multan' },
+        userId: 'allowed-user'
+      });
+
+      expect(result.available).toBe(true);
+      expect(result.reasonCode).toBeNull();
     });
 
     test('4a. Fails with COD_CUSTOMER_BLOCKED when customer has active manual block', async () => {

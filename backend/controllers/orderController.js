@@ -23,7 +23,8 @@ const success = (res, statusCode, data, requestId) => res
 exports.createOrder = async (req, res, next) => {
   try {
     const result = await OrderService.createOrder({
-      userId: req.user.id,
+      userId: req.user?.id,
+      user: req.user,
       orderData: req.body,
       idempotencyKey: req.get('Idempotency-Key')
     });
@@ -104,7 +105,9 @@ exports.updateOrderStatus = async (req, res, next) => {
       reference: req.params.id,
       actor: req.user,
       orderStatus: req.body.orderStatus,
-      adminNote: req.body.adminNote || ''
+      adminNote: req.body.adminNote || '',
+      autoReconcilePayment: Boolean(req.body.autoReconcilePayment || req.body.cashCollected),
+      cashCollected: Boolean(req.body.cashCollected)
     });
     logger.orderEvent(
       result.isReplay ? 'ORDER_STATUS_REPLAYED' : 'ORDER_STATUS_CHANGED',
@@ -191,7 +194,8 @@ exports.updateOrderPaymentStatus = async (req, res, next) => {
     const result = await OrderService.markCodPaid({
       reference: req.params.id,
       actor: req.user,
-      adminNote: req.body.adminNote || ''
+      adminNote: req.body.adminNote || '',
+      autoDeliver: Boolean(req.body.autoDeliver || req.body.cashCollected)
     });
     return success(
       res,

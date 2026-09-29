@@ -208,3 +208,49 @@ export const publicApiBaseUrl = resolvePublicApiContract(
   process.env.NEXT_PUBLIC_API_URL,
   { environment: process.env.NODE_ENV }
 ).apiBaseUrl;
+
+/**
+ * Resolves the authoritative runtime API base URL across client and server execution contexts.
+ * In browser runtime:
+ * - If window.__ENV__.NEXT_PUBLIC_API_URL or API_URL is supplied with a resolvable address, uses it.
+ * - If the configured publicApiBaseUrl points to an unresolvable mock domain (e.g. api.mevapur.test),
+ *   it transparently bridges to the local same-origin Next.js reverse proxy route ('/api').
+ * In SSR / Node runtime:
+ * - Uses INTERNAL_API_URL or BACKEND_INTERNAL_URL (e.g. http://backend:5000/api) if configured.
+ * - Otherwise falls back to publicApiBaseUrl.
+ */
+export function resolveRuntimeApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const win = window as unknown as {
+      __ENV__?: { NEXT_PUBLIC_API_URL?: string; API_URL?: string };
+    };
+    const injected = win.__ENV__?.NEXT_PUBLIC_API_URL || win.__ENV__?.API_URL;
+    if (injected && !injected.includes('api.mevapur.test') && !injected.includes('.mock.mevapur.test')) {
+      const clean = injected.replace(/\/$/, '');
+      return clean.endsWith('/api') ? clean : `${clean}/api`;
+    }
+
+    if (
+      !publicApiBaseUrl ||
+      publicApiBaseUrl.includes('api.mevapur.test') ||
+      publicApiBaseUrl.includes('.mock.mevapur.test')
+    ) {
+      return '/api';
+    }
+  } else {
+    const runtimeUrl =
+      process.env.INTERNAL_API_URL ||
+      process.env.BACKEND_INTERNAL_URL ||
+      process.env.BACKEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL;
+    if (runtimeUrl) {
+      try {
+        const parsed = new URL(runtimeUrl);
+        return `${parsed.origin}/api`;
+      } catch {
+        // Fallback to static contract
+      }
+    }
+  }
+  return publicApiBaseUrl;
+}

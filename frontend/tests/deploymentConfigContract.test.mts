@@ -90,6 +90,21 @@ test('Storefront next.config.js preserves security headers, SEO directives and i
   }
 });
 
+test('Storefront next.config.js configures reverse proxy rewrites for /api and /uploads', () => {
+  const result = runIsolatedStorefrontConfigEvaluation({
+    NODE_ENV: 'production',
+    NEXT_PUBLIC_API_URL: 'https://api.mevapur.test',
+    NEXT_PUBLIC_SITE_URL: 'https://storefront.mevapur.test',
+    NEXT_PUBLIC_SITE_NAME: 'MevaPur',
+    INTERNAL_API_URL: 'http://backend:5000',
+  });
+
+  assert.equal(result.hasRewrites, true, 'next.config.js must export async rewrites()');
+  assert.ok(result.rewritesCount >= 2, 'next.config.js must declare at least 2 rewrites');
+  assert.ok(result.rewritesSources.includes('/api/:path*'), 'must rewrite /api/:path*');
+  assert.ok(result.rewritesSources.includes('/uploads/:path*'), 'must rewrite /uploads/:path*');
+});
+
 test('Storefront package.json engines declaration is Vercel-compatible', () => {
   const pkgPath = join(process.cwd(), 'package.json');
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));

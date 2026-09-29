@@ -7,7 +7,7 @@ import {
   getAccessToken,
   refreshAuthentication,
 } from "./authSession.ts";
-import { publicApiBaseUrl } from "../config/publicConfig.ts";
+import { publicApiBaseUrl, resolveRuntimeApiBaseUrl } from "../config/publicConfig.ts";
 import {
   normalizeProduct,
   normalizePagination,
@@ -25,6 +25,7 @@ const api = axios.create({
   withCredentials: true,
   headers: {
     "Content-Type": "application/json",
+    "X-Auth-Scope": "storefront",
   },
 });
 
@@ -34,17 +35,27 @@ interface RetryRequestConfig extends InternalAxiosRequestConfig {
 
 api.interceptors.request.use(
   (config) => {
-    if (typeof window === 'undefined') {
-      const runtimeUrl = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL;
-      if (runtimeUrl) {
+    config.baseURL = resolveRuntimeApiBaseUrl();
+
+    // Map any hardcoded mock domain URL in config.url to relative path
+    if (typeof config.url === 'string') {
+      if (
+        config.url.includes('api.mevapur.test') ||
+        config.url.includes('.mock.mevapur.test')
+      ) {
         try {
-          const parsed = new URL(runtimeUrl);
-          config.baseURL = `${parsed.origin}/api`;
+          const parsed = new URL(config.url);
+          const cleanPath = parsed.pathname.replace(/^\/api\/?/, '');
+          config.url = cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`;
+          if (parsed.search) {
+            config.url += parsed.search;
+          }
         } catch {
-          // Fallback to static baseURL
+          // ignore parsing error
         }
       }
     }
+
     const token = getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;

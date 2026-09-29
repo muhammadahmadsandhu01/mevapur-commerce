@@ -99,6 +99,7 @@ function OrdersListContent() {
   const [newStatus, setNewStatus] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [markPaymentPaid, setMarkPaymentPaid] = useState(true);
   const [codOrderToMark, setCodOrderToMark] = useState<Order | null>(null);
   const [codAdminNote, setCodAdminNote] = useState('');
   const [markingCod, setMarkingCod] = useState(false);
@@ -171,22 +172,90 @@ function OrdersListContent() {
     if (!updatingOrder || !newStatus) return;
 
     setUpdating(true);
+    const targetId = updatingOrder._id || (updatingOrder as unknown as { id?: string }).id || updatingOrder.orderId;
     try {
-      await api.put(`/orders/${updatingOrder._id}/status`, {
-        orderStatus: newStatus,
-        adminNote: adminNotes
-      });
+      const isCod = String(updatingOrder.paymentMethod).toLowerCase() === 'cod';
+      const isPending = updatingOrder.paymentStatus === 'Pending';
+      const shouldAutoReconcile = newStatus === 'Delivered' && (isCod || isPending) && markPaymentPaid;
+
+      if (newStatus === updatingOrder.orderStatus && shouldAutoReconcile) {
+        await api.patch(`/orders/${targetId}/payment-status`, {
+          paymentStatus: 'Paid',
+          cashCollected: true,
+          adminNote: adminNotes || 'Cash collected upon delivery'
+        });
+      } else {
+        await api.put(`/orders/${targetId}/status`, {
+          orderStatus: newStatus,
+          adminNote: adminNotes,
+          autoReconcilePayment: shouldAutoReconcile,
+          cashCollected: shouldAutoReconcile
+        });
+      }
+
+      setOrders((prev) => prev.map((o) => {
+        const isMatch = o._id === targetId || (o as unknown as { id?: string }).id === targetId || o.orderId === targetId;
+        return isMatch
+          ? {
+              ...o,
+              orderStatus: newStatus,
+              paymentStatus: shouldAutoReconcile ? 'Paid' : o.paymentStatus
+            }
+          : o;
+      }));
+
+      if (selectedOrder && (selectedOrder._id === targetId || (selectedOrder as unknown as { id?: string }).id === targetId || selectedOrder.orderId === targetId)) {
+        setSelectedOrder((prev) => (prev ? {
+          ...prev,
+          orderStatus: newStatus,
+          paymentStatus: shouldAutoReconcile ? 'Paid' : prev.paymentStatus
+        } : null));
+      }
+
       await Promise.all([fetchOrders(), fetchStats()]);
       setShowStatusModal(false);
       setUpdatingOrder(null);
       setNewStatus('');
       setAdminNotes('');
+      setMarkPaymentPaid(true);
       setToast({ type: 'success', message: 'Order status updated successfully.' });
     } catch (error) {
       console.error('Error updating order status:', error);
       setToast({ type: 'error', message: 'Failed to update order status.' });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleQuickMarkPaid = async (order: Order) => {
+    const targetId = order._id || (order as unknown as { id?: string }).id || order.orderId;
+    try {
+      const response = await api.patch(`/orders/${targetId}/payment-status`, {
+        paymentStatus: 'Paid',
+        cashCollected: true,
+        autoDeliver: true,
+        adminNote: 'Cash collected upon delivery. Marked paid via quick action.'
+      });
+      if (response.data.success) {
+        setOrders((prev) => prev.map((o) => {
+          const isMatch = o._id === targetId || (o as unknown as { id?: string }).id === targetId || o.orderId === targetId;
+          return isMatch ? { ...o, paymentStatus: 'Paid' } : o;
+        }));
+        if (selectedOrder && (selectedOrder._id === targetId || (selectedOrder as unknown as { id?: string }).id === targetId || selectedOrder.orderId === targetId)) {
+          setSelectedOrder((prev) => (prev ? { ...prev, paymentStatus: 'Paid' } : null));
+        }
+        await Promise.all([fetchOrders(), fetchStats()]);
+        setToast({
+          type: 'success',
+          message: `Payment marked as Paid for order ${order.orderId || order._id.slice(-8).toUpperCase()}.`
+        });
+      }
+    } catch (err: unknown) {
+      console.error('Error marking payment as paid:', err);
+      const errorMsg = (err as { response?: { data?: { message?: string; error?: { message?: string } } } })?.response?.data?.message
+        || (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+        || 'Failed to record payment';
+      setToast({ type: 'error', message: errorMsg });
     }
   };
 
@@ -615,7 +684,7 @@ function OrdersListContent() {
                     >
                       <td style={{ padding: '16px 20px' }}>
                         <div style={{ fontWeight: '700', color: 'var(--accent-text)', fontSize: '14px', fontFamily: 'monospace' }}>
-                          #{order.orderId || order._id.slice(-8).toUpperCase()}
+                          {order.orderId || `#${order._id.slice(-8).toUpperCase()}`}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                           {order.items.length} item(s)
@@ -652,6 +721,30 @@ function OrdersListContent() {
                         }}>
                           {order.paymentStatus}
                         </div>
+                        {String(order.paymentMethod).toLowerCase() === 'cod' && order.paymentStatus === 'Pending' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickMarkPaid(order);
+                            }}
+                            className="block text-[11px] font-semibold text-emerald-600 hover:text-emerald-800 underline mt-0.5 cursor-pointer"
+                            style={{
+                              display: 'block',
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              color: '#059669',
+                              textDecoration: 'underline',
+                              marginTop: '4px',
+                              cursor: 'pointer',
+                              background: 'none',
+                              border: 'none',
+                              padding: 0
+                            }}
+                          >
+                            Mark Paid
+                          </button>
+                        )}
                       </td>
                       <td style={{ padding: '16px 20px' }}>
                         <div style={{
@@ -694,6 +787,7 @@ function OrdersListContent() {
                               e.stopPropagation();
                               setUpdatingOrder(order);
                               setNewStatus(order.orderStatus);
+                              setMarkPaymentPaid(true);
                               setShowStatusModal(true);
                             }}
                             style={{
@@ -812,7 +906,7 @@ function OrdersListContent() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
               <div>
                 <h2 style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                  Order #{selectedOrder.orderId || selectedOrder._id.slice(-8).toUpperCase()}
+                  {selectedOrder.orderId ? `Order ${selectedOrder.orderId}` : `Order #${selectedOrder._id.slice(-8).toUpperCase()}`}
                 </h2>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                   <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
@@ -1012,6 +1106,7 @@ function OrdersListContent() {
                   setShowDetails(false);
                   setUpdatingOrder(selectedOrder);
                   setNewStatus(selectedOrder.orderStatus);
+                  setMarkPaymentPaid(true);
                   setShowStatusModal(true);
                 }}
                 style={{
@@ -1103,6 +1198,44 @@ function OrdersListContent() {
                 <option value="Delivered">Delivered</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
+              {newStatus === 'Delivered' && (String(updatingOrder?.paymentMethod).toLowerCase() === 'cod' || updatingOrder?.paymentStatus === 'Pending') && updatingOrder?.paymentStatus !== 'Paid' && (
+                <label
+                  className="flex items-center gap-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60 cursor-pointer mt-3"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    border: '1px solid #A7F3D0',
+                    backgroundColor: 'rgba(236, 253, 245, 0.8)',
+                    cursor: 'pointer',
+                    marginTop: '12px'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={markPaymentPaid}
+                    onChange={(e) => setMarkPaymentPaid(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                    style={{ width: '16px', height: '16px', accentColor: '#059669', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <span
+                      className="text-xs font-bold text-emerald-900 block"
+                      style={{ fontSize: '12px', fontWeight: '700', color: '#064E3B', display: 'block' }}
+                    >
+                      Cash Collected / Mark Payment as Paid (PKR {(updatingOrder?.totalAmount || selectedOrder?.totalAmount)?.toLocaleString()})
+                    </span>
+                    <span
+                      className="text-[11px] text-emerald-700"
+                      style={{ fontSize: '11px', color: '#047857', display: 'block', marginTop: '2px' }}
+                    >
+                      Customer paid cash upon delivery. Updates payment status to Paid and recognizes revenue.
+                    </span>
+                  </div>
+                </label>
+              )}
             </div>
 
             <div style={{ marginBottom: '24px' }}>
@@ -1213,7 +1346,7 @@ function OrdersListContent() {
 
             <div style={{ backgroundColor: 'var(--bg-primary)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Order Reference</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Order ID</span>
                 <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{codOrderToMark.orderId || codOrderToMark._id}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>

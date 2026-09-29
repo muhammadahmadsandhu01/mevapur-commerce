@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { getCategories, getBrands, getProduct, updateProduct, uploadProductImage } from '@/lib/api';
 import { ProductCategorySelect } from '@/components/products/ProductCategorySelect';
+import { PRODUCT_PLACEHOLDER } from '@/lib/placeholder';
+import { resolveImageUrl } from '@/lib/imageUtils';
 import axios from 'axios';
 import {
   validateProductForm,
@@ -504,15 +506,24 @@ export default function EditProductPage() {
     try {
       for (const file of Array.from(files)) {
         const result = await uploadProductImage(file);
-        setMediaAssetIds(prev => [...prev, result.mediaAssetId]);
+        const uploadedUrl = typeof result === 'string'
+          ? result
+          : (result?.url || result?.path || result?.secure_url || result?.src || '');
+        const assetId = typeof result === 'object' && result !== null && result.mediaAssetId
+          ? result.mediaAssetId
+          : undefined;
+
+        if (assetId) {
+          setMediaAssetIds(prev => [...prev, assetId]);
+        }
         setFormData(prev => ({
           ...prev,
-          images: [...prev.images, result.url],
-          primaryImage: prev.primaryImage || result.url
+          images: [...prev.images, uploadedUrl],
+          primaryImage: prev.primaryImage || uploadedUrl
         }));
         setUploadState(transitionUploadState('uploading', 'UPLOAD_SUCCESS', {
-          mediaAssetId: result.mediaAssetId,
-          url: result.url
+          mediaAssetId: assetId,
+          url: uploadedUrl
         }).state);
       }
     } catch (err: unknown) {
@@ -1324,11 +1335,12 @@ export default function EditProductPage() {
                     cursor: 'pointer'
                   }}>
                     <Image
-                      src={img}
+                      src={resolveImageUrl(img)}
                       alt={`Product ${index + 1}`}
                       width={120}
                       height={120}
                       unoptimized
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }}
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                     <button
@@ -1792,7 +1804,7 @@ export default function EditProductPage() {
               {/* Preview Image */}
               <div style={{ height: '200px', backgroundColor: 'var(--bg-primary)', position: 'relative' }}>
                 {formData.primaryImage ? (
-                  <Image src={formData.primaryImage} alt="Preview" width={320} height={200} unoptimized style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <Image src={resolveImageUrl(formData.primaryImage)} alt="Preview" width={320} height={200} unoptimized onError={(e) => { (e.currentTarget as HTMLImageElement).src = PRODUCT_PLACEHOLDER; }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   <div style={{
                     width: '100%', height: '100%',

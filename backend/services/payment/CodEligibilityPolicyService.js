@@ -19,6 +19,7 @@ const ProductMarketOffering = require('../../models/ProductMarketOffering');
 const Coupon = require('../../models/Coupon');
 const guestVerificationService = require('../auth/GuestPhoneVerificationService');
 const { Money, MoneyMapper } = require('../../modules/commerce');
+const defaultCodSettingsService = require('../settings/CodSettingsService');
 
 const COD_MAX_PAYABLE_MINOR_UNITS = 2500000; // PKR 25,000.00 (exponent 2)
 const COD_MAX_PAYABLE_THRESHOLD_EXACT = Object.freeze({
@@ -32,6 +33,7 @@ const REASON_CODES = Object.freeze({
   CURRENCY_UNSUPPORTED: 'COD_CURRENCY_UNSUPPORTED',
   LOCATION_REQUIRED: 'COD_LOCATION_REQUIRED',
   LOCATION_UNSERVICEABLE: 'COD_LOCATION_UNSERVICEABLE',
+  CITY_DISALLOWED: 'COD_CITY_DISALLOWED',
   CUSTOMER_BLOCKED: 'COD_CUSTOMER_BLOCKED',
   CUSTOMER_TEMPORARILY_LOCKED: 'COD_CUSTOMER_TEMPORARILY_LOCKED',
   GUEST_PHONE_REQUIRED: 'COD_GUEST_PHONE_VERIFICATION_REQUIRED',
@@ -46,6 +48,7 @@ const CUSTOMER_MESSAGES = Object.freeze({
   [REASON_CODES.CURRENCY_UNSUPPORTED]: 'Cash on delivery requires payment in Pakistani Rupees (PKR).',
   [REASON_CODES.LOCATION_REQUIRED]: 'Please enter a valid delivery city and address to check Cash on Delivery availability.',
   [REASON_CODES.LOCATION_UNSERVICEABLE]: 'Cash on delivery is not serviceable in your delivery zone. Please choose a prepaid payment method.',
+  [REASON_CODES.CITY_DISALLOWED]: 'Cash on Delivery is currently unavailable for this city. Please select an alternative payment method.',
   [REASON_CODES.CUSTOMER_BLOCKED]: 'Cash on delivery is unavailable for your account. Please select a prepaid payment method.',
   [REASON_CODES.CUSTOMER_TEMPORARILY_LOCKED]: 'Cash on delivery is temporarily unavailable for your account due to multiple refused deliveries. Please use a prepaid payment method.',
   [REASON_CODES.GUEST_PHONE_REQUIRED]: 'Guest checkout with Cash on Delivery requires verified phone confirmation.',
@@ -61,13 +64,15 @@ class CodEligibilityPolicyService {
     restrictionModel = CustomerCodRestriction,
     offeringModel = ProductMarketOffering,
     couponModel = Coupon,
-    verificationService = guestVerificationService
+    verificationService = guestVerificationService,
+    codSettingsService = defaultCodSettingsService
   } = {}) {
     this.serviceabilityModel = serviceabilityModel;
     this.restrictionModel = restrictionModel;
     this.offeringModel = offeringModel;
     this.couponModel = couponModel;
     this.verificationService = verificationService;
+    this.codSettingsService = codSettingsService;
   }
 
   /**
@@ -78,14 +83,29 @@ class CodEligibilityPolicyService {
     merchantScopeId = 'default',
     city,
     postalCode = '',
-    atDate = new Date()
+    atDate = new Date(),
+    destinationCountry = 'PK'
   }) {
     if (!city || typeof city !== 'string' || !city.trim()) {
       return { serviceable: false, reasonCode: REASON_CODES.LOCATION_REQUIRED };
     }
 
-    const normalizedCity = city.trim().toUpperCase();
+    const trimmedCity = city.trim();
+    const normalizedCity = trimmedCity.toUpperCase();
     const normalizedPostalCode = postalCode ? String(postalCode).trim() : '';
+
+    // 1. Dynamic Disallowed Cities Exclusion Check
+    if (this.codSettingsService && typeof this.codSettingsService.isCityDisallowed === 'function') {
+      const isDisallowed = await this.codSettingsService.isCityDisallowed(trimmedCity);
+      if (isDisallowed) {
+        return {
+          serviceable: false,
+          reasonCode: REASON_CODES.CITY_DISALLOWED,
+          customerMessage: `Cash on Delivery is currently unavailable for ${trimmedCity}. Please select an alternative payment method.`,
+          ruleMatched: 'city_disallowed'
+        };
+      }
+    }
 
     const query = {
       merchantScopeId,
@@ -95,7 +115,7 @@ class CodEligibilityPolicyService {
       $or: [{ effectiveTo: null }, { effectiveTo: { $gte: atDate } }]
     };
 
-    // 1. Check specific postal code rule first if postalCode provided
+    // 2. Check specific postal code rule first if postalCode provided
     if (normalizedPostalCode) {
       const postalRule = await this.serviceabilityModel.findOne({
         ...query,
@@ -112,7 +132,7 @@ class CodEligibilityPolicyService {
       }
     }
 
-    // 2. Fall back to city-wide rule
+    // 3. Fall back to city-wide rule
     const cityRule = await this.serviceabilityModel.findOne({
       ...query,
       normalizedCity,
@@ -128,7 +148,17 @@ class CodEligibilityPolicyService {
       };
     }
 
-    // Fail closed for unknown/unlisted locations
+    // 4. Default to serviceable nationwide for domestic Pakistan
+    const normDestCountry = String(destinationCountry || 'PK').trim().toUpperCase();
+    if (normDestCountry === 'PK') {
+      return {
+        serviceable: true,
+        reasonCode: null,
+        ruleMatched: 'nationwide_default'
+      };
+    }
+
+    // Fail closed for unknown non-PK locations
     return {
       serviceable: false,
       reasonCode: REASON_CODES.LOCATION_UNSERVICEABLE,
@@ -187,11 +217,13 @@ class CodEligibilityPolicyService {
       merchantScopeId,
       city,
       postalCode,
-      atDate
+      atDate,
+      destinationCountry: normCountry
     });
     if (!serviceability.serviceable) {
-      return this._buildDecision(false, REASON_CODES.LOCATION_UNSERVICEABLE, {
-        serviceabilityDiagnostic: serviceability.ruleMatched
+      return this._buildDecision(false, serviceability.reasonCode || REASON_CODES.LOCATION_UNSERVICEABLE, {
+        serviceabilityDiagnostic: serviceability.ruleMatched,
+        customerMessageOverride: serviceability.customerMessage
       });
     }
 
@@ -333,10 +365,16 @@ class CodEligibilityPolicyService {
   }
 
   _buildDecision(available, reasonCode = null, metadata = {}) {
+    let customerMessage = null;
+    if (reasonCode) {
+      customerMessage = metadata?.customerMessageOverride
+        || CUSTOMER_MESSAGES[reasonCode]
+        || 'Cash on delivery is not eligible.';
+    }
     return {
       available,
       reasonCode,
-      customerMessage: reasonCode ? (CUSTOMER_MESSAGES[reasonCode] || 'Cash on delivery is not eligible.') : null,
+      customerMessage,
       evaluatedPolicyVersion: '1.0.0',
       metadata
     };

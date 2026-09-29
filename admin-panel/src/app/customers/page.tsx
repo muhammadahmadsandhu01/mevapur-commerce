@@ -8,6 +8,7 @@ import {
   Eye, Edit, CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, X, ShieldAlert, Loader
 } from 'lucide-react';
 import api from '@/lib/api';
+import axios from 'axios';
 import { useAuthStore } from '@/store/authStore';
 
 interface Customer {
@@ -44,6 +45,8 @@ interface Customer {
   updatedAt: string;
   isBlocked: boolean;
   isActive: boolean;
+  loginAttempts?: number;
+  lockUntil?: string | null;
 }
 
 interface CustomerSummary {
@@ -91,6 +94,42 @@ function CustomersListContent() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  const [unlockingCustomerId, setUnlockingCustomerId] = useState<string | null>(null);
+  const [customerActionMessage, setCustomerActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [now] = useState(() => Date.now());
+
+  const isCustomerLocked = (c: Customer) => {
+    const hasAttempts = (c.loginAttempts ?? 0) >= 5;
+    const isTimeLocked = Boolean(c.lockUntil && new Date(c.lockUntil).getTime() > now);
+    return isTimeLocked || hasAttempts;
+  };
+
+  const handleUnlockCustomer = async (c: Customer) => {
+    const custId = c._id || c.id;
+    try {
+      setUnlockingCustomerId(custId);
+      setCustomerActionMessage(null);
+      const response = await api.post(`/admin/users/${custId}/unlock`);
+      if (response.data.success) {
+        setCustomerActionMessage({
+          type: 'success',
+          text: `Customer ${c.fullName} (${c.email}) has been successfully unlocked.`
+        });
+        if (selectedCustomer && (selectedCustomer._id === custId || selectedCustomer.id === custId)) {
+          setSelectedCustomer({ ...selectedCustomer, loginAttempts: 0, lockUntil: null });
+        }
+        await fetchCustomers();
+      }
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) && typeof err.response?.data?.message === 'string'
+        ? err.response.data.message
+        : 'Failed to unlock customer account';
+      setCustomerActionMessage({ type: 'error', text: msg });
+    } finally {
+      setUnlockingCustomerId(null);
+    }
+  };
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -448,6 +487,33 @@ function CustomersListContent() {
         </div>
       </div>
 
+      {customerActionMessage && (
+        <div style={{
+          padding: '12px 16px',
+          borderRadius: '10px',
+          marginBottom: '20px',
+          backgroundColor: customerActionMessage.type === 'success' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.12)',
+          color: customerActionMessage.type === 'success' ? 'var(--success-text)' : 'var(--danger-text)',
+          border: `1px solid ${customerActionMessage.type === 'success' ? 'rgba(22, 163, 74, 0.3)' : 'rgba(220, 38, 38, 0.3)'}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '14px',
+          fontWeight: '600'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {customerActionMessage.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <span>{customerActionMessage.text}</span>
+          </div>
+          <button
+            onClick={() => setCustomerActionMessage(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Customer Table */}
       <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
         {loading ? (
@@ -502,22 +568,69 @@ function CustomersListContent() {
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AOV: Rs. {c.averageOrderValue.toFixed(0)}</div>
                     </td>
                     <td style={{ padding: '16px 20px' }}>
-                      <span style={{
-                        padding: '4px 10px',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        fontWeight: '700',
-                        backgroundColor: c.isBlocked ? 'rgba(239, 68, 68, 0.12)' : 'rgba(22, 163, 74, 0.12)',
-                        color: c.isBlocked ? 'var(--danger-text)' : 'var(--success-text)'
-                      }}>
-                        {c.isBlocked ? 'Blocked' : 'Active'}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          backgroundColor: c.isBlocked ? 'rgba(239, 68, 68, 0.12)' : 'rgba(22, 163, 74, 0.12)',
+                          color: c.isBlocked ? 'var(--danger-text)' : 'var(--success-text)'
+                        }}>
+                          {c.isBlocked ? 'Blocked' : 'Active'}
+                        </span>
+                        {isCustomerLocked(c) && (
+                          <span style={{
+                            padding: '3px 8px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                            color: '#DC2626',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            border: '1px solid rgba(239, 68, 68, 0.3)'
+                          }}>
+                            <ShieldAlert size={12} /> Locked ({c.loginAttempts ?? 5})
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ padding: '16px 20px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                       {c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : 'Never'}
                     </td>
                     <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {isCustomerLocked(c) && (
+                          <button
+                            onClick={() => handleUnlockCustomer(c)}
+                            disabled={unlockingCustomerId === (c._id || c.id)}
+                            title="Unlock Customer Account"
+                            aria-label={`Unlock account for ${c.fullName}`}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#FF8A00',
+                              color: '#0B132B',
+                              border: 'none',
+                              borderRadius: '8px',
+                              fontWeight: '700',
+                              fontSize: '12px',
+                              cursor: unlockingCustomerId === (c._id || c.id) ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              boxShadow: '0 2px 6px rgba(255, 138, 0, 0.3)'
+                            }}
+                          >
+                            {unlockingCustomerId === (c._id || c.id) ? (
+                              <Loader size={13} className="animate-spin" />
+                            ) : (
+                              <CheckCircle size={13} />
+                            )}
+                            <span>Unlock</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setSelectedCustomer(c);
@@ -689,6 +802,47 @@ function CustomersListContent() {
                 <X size={24} />
               </button>
             </div>
+
+            {selectedCustomer && isCustomerLocked(selectedCustomer) && (
+              <div style={{
+                padding: '14px 18px',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '12px',
+                marginBottom: '20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#DC2626', fontSize: '13px', fontWeight: '600' }}>
+                  <AlertCircle size={18} />
+                  <span>This customer account is locked due to {selectedCustomer.loginAttempts ?? 5} failed login attempts.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUnlockCustomer(selectedCustomer)}
+                  disabled={unlockingCustomerId === (selectedCustomer._id || selectedCustomer.id)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#FF8A00',
+                    color: '#0B132B',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: unlockingCustomerId === (selectedCustomer._id || selectedCustomer.id) ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {unlockingCustomerId === (selectedCustomer._id || selectedCustomer.id) ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  <span>Unlock Account</span>
+                </button>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '24px' }}>
               <div style={{ backgroundColor: 'var(--bg-primary)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)' }}>

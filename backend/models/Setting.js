@@ -33,6 +33,13 @@ const settingSchema = new mongoose.Schema({
     mastercard_enabled: { type: Boolean, default: false },
     mastercard_merchant_id: { type: String, default: '' }
   },
+
+  // Cash on Delivery (COD) Dynamic Configuration
+  codSettings: {
+    enabled: { type: Boolean, default: true },
+    allowedCountry: { type: String, default: 'PK' },
+    disallowedCities: [{ type: String, trim: true }]
+  },
   
   // Social Media Links
   social: {

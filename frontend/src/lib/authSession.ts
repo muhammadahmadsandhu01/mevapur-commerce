@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { publicApiBaseUrl } from '../config/publicConfig.ts';
+import { publicApiBaseUrl, resolveRuntimeApiBaseUrl } from '../config/publicConfig.ts';
 
 export interface AuthPayload<TUser> {
   user: TUser;
@@ -13,12 +13,63 @@ interface CsrfContext {
   hasRefreshSession: boolean;
 }
 
+export const STOREFRONT_AUTH_KEY = 'mevapur_storefront_auth';
+
+export interface StoredStorefrontAuth<TUser = unknown> {
+  token: string;
+  user: TUser;
+  csrfToken?: string;
+  timestamp?: number;
+}
+
+export const loadStoredStorefrontAuth = <TUser>(): StoredStorefrontAuth<TUser> | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(STOREFRONT_AUTH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredStorefrontAuth<TUser>;
+    if (parsed && typeof parsed.token === 'string' && parsed.user) {
+      return parsed;
+    }
+  } catch {
+    // Ignore JSON parsing errors
+  }
+  return null;
+};
+
+export const saveStoredStorefrontAuth = <TUser>(auth: StoredStorefrontAuth<TUser>): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      STOREFRONT_AUTH_KEY,
+      JSON.stringify({ ...auth, timestamp: Date.now() })
+    );
+  } catch {
+    // Ignore storage quota/access errors
+  }
+};
+
+export const clearStoredStorefrontAuth = (): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(STOREFRONT_AUTH_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 export const authHttp = axios.create({
   baseURL: publicApiBaseUrl,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
+    'X-Auth-Scope': 'storefront',
   },
+});
+
+authHttp.interceptors.request.use((config) => {
+  config.baseURL = resolveRuntimeApiBaseUrl();
+  return config;
 });
 
 let accessToken: string | null = null;
@@ -47,12 +98,20 @@ export const acceptAuthentication = <TUser>(
   accessToken = payload.accessToken;
   csrfToken = payload.csrfToken;
   bumpSessionGeneration();
+  if (payload.user) {
+    saveStoredStorefrontAuth({
+      token: payload.accessToken,
+      user: payload.user,
+      csrfToken: payload.csrfToken,
+    });
+  }
   return payload;
 };
 
 export const clearAuthentication = (notify = false) => {
   accessToken = null;
   csrfToken = null;
+  clearStoredStorefrontAuth();
   bumpSessionGeneration();
   if (notify) invalidationHandler?.();
 };

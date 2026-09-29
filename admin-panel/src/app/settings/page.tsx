@@ -307,6 +307,12 @@ export default function SettingsPage() {
     facebook: '', instagram: '', twitter: '', youtube: '', linkedin: '', website: ''
   });
 
+  const [disallowedCities, setDisallowedCities] = useState<string[]>([]);
+  const [newCityInput, setNewCityInput] = useState('');
+  const [cityInputError, setCityInputError] = useState('');
+  const [savingCodCities, setSavingCodCities] = useState(false);
+  const [codSuccessToast, setCodSuccessToast] = useState<string | null>(null);
+
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const fetchSettings = useCallback(async () => {
@@ -326,6 +332,16 @@ export default function SettingsPage() {
         );
         if (data.social) setSocialData((prev) => ({ ...prev, ...data.social }));
       }
+
+      try {
+        const codRes = await api.get('/admin/settings/cod');
+        const cities = codRes.data?.disallowedCities || codRes.data?.data?.disallowedCities || [];
+        if (Array.isArray(cities)) {
+          setDisallowedCities(cities);
+        }
+      } catch {
+        // Non-fatal
+      }
     } catch {
       setProviderCredentials(null);
       setMessage({ type: 'error', text: 'Settings are currently unavailable. Please try again.' });
@@ -333,6 +349,43 @@ export default function SettingsPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleAddCity = () => {
+    const trimmed = newCityInput.trim();
+    if (!trimmed) return;
+
+    const lower = trimmed.toLowerCase();
+    if (disallowedCities.some((c) => c.toLowerCase() === lower)) {
+      setCityInputError(`"${trimmed}" is already in the disallowed cities list.`);
+      return;
+    }
+
+    setDisallowedCities((prev) => [...prev, trimmed]);
+    setNewCityInput('');
+    setCityInputError('');
+  };
+
+  const handleRemoveCity = (cityToRemove: string) => {
+    setDisallowedCities((prev) => prev.filter((c) => c.toLowerCase() !== cityToRemove.toLowerCase()));
+  };
+
+  const handleSaveCodCities = async () => {
+    setSavingCodCities(true);
+    setCityInputError('');
+    try {
+      const res = await api.put('/admin/settings/cod', {
+        disallowedCities
+      });
+      const updatedCities = res.data?.disallowedCities || res.data?.data?.disallowedCities || disallowedCities;
+      setDisallowedCities(updatedCities);
+      setCodSuccessToast('COD city restrictions updated successfully');
+      setTimeout(() => setCodSuccessToast(null), 4000);
+    } catch {
+      setCityInputError('Failed to save COD city restrictions. Please try again.');
+    } finally {
+      setSavingCodCities(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -591,6 +644,185 @@ export default function SettingsPage() {
               </div>
 
               <ToggleField label="Cash on Delivery (COD)" description="Customer pays cash when order is delivered" checked={paymentData.cod_enabled} onChange={(v: boolean) => setPaymentData({ ...paymentData, cod_enabled: v })} activeColor="#16A34A" />
+
+              {/* Cash on Delivery (COD) City Restrictions Card */}
+              <div style={{
+                padding: '24px',
+                backgroundColor: 'var(--bg-primary)',
+                borderRadius: '12px',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Cash on Delivery (COD) City Restrictions
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
+                    By default, COD is available across all cities in Pakistan. Add cities below where you want to disable COD.
+                  </div>
+                </div>
+
+                {/* Input Box for adding cities */}
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1', minWidth: '220px' }}>
+                    <input
+                      id="cod-city-input"
+                      type="text"
+                      value={newCityInput}
+                      onChange={(e) => { setNewCityInput(e.target.value); setCityInputError(''); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCity();
+                        }
+                      }}
+                      placeholder="Enter city name to disable COD (e.g. Faisalabad)"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: cityInputError ? '1px solid #DC2626' : '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        backgroundColor: 'var(--input-bg)',
+                        color: 'var(--text-primary)'
+                      }}
+                    />
+                    {cityInputError && (
+                      <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '4px' }}>
+                        {cityInputError}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    id="add-cod-city-btn"
+                    onClick={handleAddCity}
+                    style={{
+                      padding: '10px 18px',
+                      backgroundColor: '#0B132B',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    Add City
+                  </button>
+                </div>
+
+                {/* Active Disallowed Cities Badges / Chips */}
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Disallowed Cities ({disallowedCities.length})
+                  </div>
+                  {disallowedCities.length === 0 ? (
+                    <div style={{
+                      padding: '12px 16px',
+                      backgroundColor: 'rgba(22, 163, 74, 0.08)',
+                      borderRadius: '8px',
+                      border: '1px dashed #16A34A',
+                      color: '#16A34A',
+                      fontSize: '13px',
+                      fontWeight: '500'
+                    }}>
+                      No cities restricted. COD is available nationwide across 100% of Pakistan.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {disallowedCities.map((city) => (
+                        <span
+                          key={city.toLowerCase()}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px 12px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            color: '#DC2626',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            borderRadius: '20px',
+                            fontSize: '13px',
+                            fontWeight: '600'
+                          }}
+                        >
+                          {city}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCity(city)}
+                            aria-label={`Remove ${city}`}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#DC2626',
+                              cursor: 'pointer',
+                              padding: '0 2px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              fontSize: '14px',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Success Toast */}
+                {codSuccessToast && (
+                  <div style={{
+                    padding: '10px 14px',
+                    backgroundColor: '#DCFCE7',
+                    border: '1px solid #16A34A',
+                    borderRadius: '8px',
+                    color: '#15803D',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <CheckCircle size={16} color="#16A34A" />
+                    {codSuccessToast}
+                  </div>
+                )}
+
+                {/* Save Button */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px' }}>
+                  <button
+                    type="button"
+                    id="save-cod-restrictions-btn"
+                    onClick={handleSaveCodCities}
+                    disabled={savingCodCities}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: savingCodCities ? '#9CA3AF' : 'var(--primary)',
+                      color: savingCodCities ? '#FFFFFF' : '#0B132B',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: savingCodCities ? 'not-allowed' : 'pointer',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    {savingCodCities ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={16} />}
+                    Save COD City Restrictions
+                  </button>
+                </div>
+              </div>
 
               {/* JazzCash */}
               <div style={{ padding: '24px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px', border: `2px solid ${paymentData.jazzcash_enabled ? '#FF0080' : 'var(--border-color)'}` }}>

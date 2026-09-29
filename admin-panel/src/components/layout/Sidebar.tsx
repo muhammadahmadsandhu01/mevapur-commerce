@@ -33,7 +33,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
-import { copyrightLine } from '@/config/branding';
 import { useAuthStore } from '@/store/authStore';
 
 interface SidebarProps {
@@ -379,8 +378,8 @@ export default function Sidebar({ isOpen, mobileOpen, onClose, hamburgerRef }: S
           borderTop: '1px solid var(--sidebar-border)'
         }}>
           {isOpen && (
-            <p style={{ margin: '0 8px 8px', color: 'var(--sidebar-text)', fontSize: '10px', opacity: 0.6 }}>
-              {copyrightLine()}
+            <p className="text-[11px] text-slate-400" style={{ margin: '0 8px 8px', color: 'var(--sidebar-text)', fontSize: '11px', opacity: 0.7 }}>
+              © 2026 HARZAAR. All rights reserved.
             </p>
           )}
           <button

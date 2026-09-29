@@ -32,7 +32,7 @@ import { getAllCountryCodes, getCountryPolicy } from '@/lib/countryPolicy';
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect');
+  const rawRedirect = searchParams.get('returnUrl') || searchParams.get('redirect');
   const safeRedirect = isSafeLocalRedirect(rawRedirect, '/');
   const { register, resendVerification } = useAuthStore();
 
@@ -136,11 +136,12 @@ function RegisterForm() {
     setErrors({});
 
     try {
+      const effectiveResidenceCountry = (formData.residenceCountry || 'PK').trim().toUpperCase();
       const result = await register({
         fullName: formData.fullName,
         email: formData.email,
         phone: formData.phone,
-        residenceCountry: formData.residenceCountry.trim().toUpperCase(),
+        residenceCountry: effectiveResidenceCountry,
         password: formData.password,
         redirect: safeRedirect !== '/' ? safeRedirect : undefined
       });
@@ -152,10 +153,8 @@ function RegisterForm() {
           setToast({ message: result.message, type: 'info' });
         } else {
           setToast({ message: '✅ ' + result.message, type: 'success' });
-          const loginTarget = safeRedirect !== '/'
-            ? `/login?redirect=${encodeURIComponent(safeRedirect)}`
-            : '/login';
-          setTimeout(() => router.push(loginTarget), 1500);
+          const targetUrl = safeRedirect !== '/' ? safeRedirect : '/';
+          setTimeout(() => router.push(targetUrl), 1500);
         }
       } else {
         if (result.code === 'INVALID_RESIDENCE_COUNTRY') {

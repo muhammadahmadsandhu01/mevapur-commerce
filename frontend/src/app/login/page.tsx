@@ -23,7 +23,7 @@ import { isSafeLocalRedirect } from '@/lib/routeClassification';
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect');
+  const rawRedirect = searchParams.get('returnUrl') || searchParams.get('redirect');
   const safeRedirect = isSafeLocalRedirect(rawRedirect, '/');
   const { login, resendVerification } = useAuthStore();
 
@@ -38,7 +38,10 @@ function LoginContent() {
   const [resendStatus, setResendStatus] = useState<string | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const messageParam = searchParams.get('message');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(() =>
+    messageParam ? { message: messageParam, type: 'info' } : null
+  );
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -117,7 +120,7 @@ function LoginContent() {
   };
 
   const registerUrl = safeRedirect !== '/'
-    ? `/register?redirect=${encodeURIComponent(safeRedirect)}`
+    ? `/register?returnUrl=${encodeURIComponent(safeRedirect)}&redirect=${encodeURIComponent(safeRedirect)}`
     : '/register';
 
   return (

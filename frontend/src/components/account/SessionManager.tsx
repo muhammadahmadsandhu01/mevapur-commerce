@@ -45,7 +45,11 @@ export default function SessionManager() {
   }, [loadSessions]);
 
   const handleRevokeSingle = async (session: ActiveSession) => {
-    if (!window.confirm(`Are you sure you want to sign out this session (${session.deviceInfo?.browser || 'Browser'} on ${session.deviceInfo?.os || 'Device'})?`)) {
+    const isCurrent = Boolean(session.isCurrent);
+    const confirmMessage = isCurrent
+      ? 'Are you sure you want to sign out of this device?'
+      : `Are you sure you want to sign out this session (${session.deviceInfo?.browser || 'Browser'} on ${session.deviceInfo?.os || 'Device'})?`;
+    if (!window.confirm(confirmMessage)) {
       return;
     }
 
@@ -53,15 +57,20 @@ export default function SessionManager() {
     setError(null);
     setSuccess(null);
     try {
-      const result = await authService.revokeSession(session.id);
-      if (session.isCurrent || result?.revokedCurrent) {
+      const result = await authService.revokeSession(session.id).catch(() => null);
+      if (isCurrent || result?.revokedCurrent) {
         await logout();
-        router.push('/login?message=Session+revoked.+Please+sign+in+again.');
+        router.push('/login?message=Signed+out+successfully');
         return;
       }
       setSuccess('Session signed out successfully.');
       await loadSessions();
     } catch {
+      if (isCurrent) {
+        await logout();
+        router.push('/login?message=Signed+out+successfully');
+        return;
+      }
       setError('Failed to revoke session. Please try again.');
     } finally {
       setRevokingId(null);
@@ -168,12 +177,22 @@ export default function SessionManager() {
                   </div>
                 </div>
 
-                {!session.isCurrent && (
+                {session.isCurrent ? (
                   <button
                     type="button"
                     onClick={() => handleRevokeSingle(session)}
                     disabled={revokingId === session.id}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-xs hover:bg-red-100 disabled:opacity-50 transition cursor-pointer"
+                  >
+                    {revokingId === session.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5 text-red-600" />}
+                    Sign Out of this Device
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleRevokeSingle(session)}
+                    disabled={revokingId === session.id}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 transition cursor-pointer"
                   >
                     {revokingId === session.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldAlert className="h-3.5 w-3.5 text-red-500" />}
                     Revoke Access

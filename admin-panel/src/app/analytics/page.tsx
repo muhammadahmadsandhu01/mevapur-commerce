@@ -120,7 +120,7 @@ export default function AnalyticsPage() {
         <>
           {!hasActivity && <div role="status" style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '13px 15px', marginBottom: '18px', border: '1px solid var(--border-color)', borderRadius: '9px', background: 'var(--card-bg)', color: 'var(--text-secondary)', fontSize: '13px' }}><BarChart3 size={18} /> No non-cancelled order activity was recorded for either comparison month.</div>}
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '18px' }}>
-            <ComparisonCard title="Revenue" current={analytics.thisMonth.revenue} previous={analytics.lastMonth.revenue} growth={analytics.growth.revenue} format={(value) => currencyFormatter.format(value)} icon={TrendingUp} />
+            <ComparisonCard title="Gross Sales (Turnover)" current={analytics.thisMonth.revenue} previous={analytics.lastMonth.revenue} growth={analytics.growth.revenue} format={(value) => currencyFormatter.format(value)} icon={TrendingUp} />
             <ComparisonCard title="Orders" current={analytics.thisMonth.orders} previous={analytics.lastMonth.orders} growth={analytics.growth.orders} format={(value) => numberFormatter.format(value)} icon={ShoppingCart} />
           </section>
         </>

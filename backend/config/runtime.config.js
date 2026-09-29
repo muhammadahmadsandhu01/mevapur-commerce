@@ -1,3 +1,25 @@
+const path = require('path');
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+// Explicitly load SMTP, EMAIL, and FRONTEND_URL variables from .env with override so they take precedence,
+// while preserving container network configuration (e.g. MONGODB_URI, REDIS_URL)
+try {
+  const envPath = path.join(__dirname, '../.env');
+  if (fs.existsSync(envPath)) {
+    const parsed = dotenv.parse(fs.readFileSync(envPath));
+    for (const [k, v] of Object.entries(parsed)) {
+      if (k.startsWith('SMTP_') || k.startsWith('EMAIL_') || k === 'FRONTEND_URL' || k === 'CLIENT_URL') {
+        process.env[k] = v;
+      } else if (!process.env[k]) {
+        process.env[k] = v;
+      }
+    }
+  }
+} catch {
+  // Ignore if .env is not present
+}
+
 const DEPLOYED_ENVIRONMENTS = new Set(['staging', 'production']);
 const SUPPORTED_ENVIRONMENTS = new Set([
   'development',
@@ -174,9 +196,16 @@ const createRuntimeConfig = (environment = process.env) => {
   const allowLoopbackHttp = !isDeployed;
   const originOptions = { allowLoopbackHttp };
 
+  const resolveFrontendUrl = () => {
+    return optionalValue(environment, 'FRONTEND_URL')
+      || optionalValue(environment, 'CLIENT_URL')
+      || optionalValue(environment, 'NEXT_PUBLIC_SITE_URL')
+      || 'http://127.0.0.1:55070';
+  };
+
   const storefrontValue = isDeployed
     ? requiredValue(environment, 'FRONTEND_URL')
-    : optionalValue(environment, 'FRONTEND_URL') || 'http://localhost:3000';
+    : resolveFrontendUrl();
   const adminValue = isDeployed
     ? requiredValue(environment, 'ADMIN_URL')
     : optionalValue(environment, 'ADMIN_URL') || 'http://localhost:3001';
@@ -274,18 +303,27 @@ const createRuntimeConfig = (environment = process.env) => {
   let smtpFromName = null;
 
   if (emailMode === 'smtp') {
-    smtpHost = requiredValue(environment, 'SMTP_HOST');
-    const portRaw = requiredValue(environment, 'SMTP_PORT');
+    smtpHost = optionalValue(environment, 'SMTP_HOST') || optionalValue(environment, 'EMAIL_HOST');
+    if (!smtpHost) {
+      throw new RuntimeConfigurationError('SMTP_HOST is required');
+    }
+    const portRaw = optionalValue(environment, 'SMTP_PORT') || optionalValue(environment, 'EMAIL_PORT');
+    if (!portRaw) {
+      throw new RuntimeConfigurationError('SMTP_PORT is required');
+    }
     smtpPort = Number(portRaw);
     if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
       throw new RuntimeConfigurationError('SMTP_PORT must be an integer from 1 to 65535');
     }
 
-    const secureRaw = requiredValue(environment, 'SMTP_SECURE');
-    if (secureRaw !== 'true' && secureRaw !== 'false') {
+    const secureRaw = optionalValue(environment, 'SMTP_SECURE');
+    if (secureRaw === null) {
+      smtpSecure = smtpPort === 465;
+    } else if (secureRaw !== 'true' && secureRaw !== 'false') {
       throw new RuntimeConfigurationError('SMTP_SECURE must be true or false');
+    } else {
+      smtpSecure = secureRaw === 'true';
     }
-    smtpSecure = secureRaw === 'true';
 
     // Port 465 requires implicit TLS/secure=true
     if (smtpPort === 465 && !smtpSecure) {
@@ -296,13 +334,29 @@ const createRuntimeConfig = (environment = process.env) => {
       throw new RuntimeConfigurationError('SMTP_PORT 587 requires SMTP_SECURE to be false');
     }
 
-    smtpUser = requiredValue(environment, 'SMTP_USER');
-    smtpPassword = requiredValue(environment, 'SMTP_PASSWORD');
-    smtpFrom = requiredValue(environment, 'SMTP_FROM');
-    if (!/^\S+@\S+\.\S+$/.test(smtpFrom)) {
+    smtpUser = optionalValue(environment, 'SMTP_USER') || optionalValue(environment, 'EMAIL_USER');
+    if (!smtpUser) {
+      throw new RuntimeConfigurationError('SMTP_USER is required');
+    }
+    smtpPassword = optionalValue(environment, 'SMTP_PASSWORD') || optionalValue(environment, 'SMTP_PASS') || optionalValue(environment, 'EMAIL_PASSWORD');
+    if (!smtpPassword) {
+      throw new RuntimeConfigurationError('SMTP_PASSWORD is required');
+    }
+    const rawFrom = optionalValue(environment, 'SMTP_FROM') || optionalValue(environment, 'EMAIL_FROM') || smtpUser;
+    if (!rawFrom) {
+      throw new RuntimeConfigurationError('SMTP_FROM is required');
+    }
+    const extractedEmail = rawFrom.includes('<') && rawFrom.includes('>')
+      ? (rawFrom.match(/<([^>]+)>/)?.[1] || rawFrom).trim()
+      : rawFrom.trim();
+    if (!/^\S+@\S+\.\S+$/.test(extractedEmail)) {
       throw new RuntimeConfigurationError('SMTP_FROM must be a valid email address');
     }
+    smtpFrom = extractedEmail;
     smtpFromName = optionalValue(environment, 'SMTP_FROM_NAME');
+    if (!smtpFromName && rawFrom.includes('<')) {
+      smtpFromName = rawFrom.split('<')[0].replace(/"/g, '').trim();
+    }
     if (smtpFromName) {
       smtpFromName = smtpFromName.replace(/[\r\n]/g, '').trim();
     }

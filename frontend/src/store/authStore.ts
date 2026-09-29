@@ -4,8 +4,12 @@ import {
   acceptAuthentication,
   authHttp,
   clearAuthentication,
+  fetchCsrfContext,
+  loadStoredStorefrontAuth,
   logoutAuthentication,
   refreshAuthentication,
+  saveStoredStorefrontAuth,
+  clearStoredStorefrontAuth,
   setInvalidationHandler,
   type AuthPayload,
 } from '../lib/authSession.ts';
@@ -87,8 +91,68 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     bootstrapInFlight = (async () => {
       try {
-        const payload = await refreshAuthentication(true) as
-          AuthPayload<User> | null;
+        // 1. Check local storage for storefront auth first
+        const stored = loadStoredStorefrontAuth<User>();
+        if (stored) {
+          acceptAuthentication({
+            user: stored.user,
+            accessToken: stored.token,
+            csrfToken: stored.csrfToken || '',
+          });
+          set({
+            user: stored.user,
+            token: stored.token,
+            isAuthenticated: true,
+          });
+
+          // Fetch fresh CSRF context in the background
+          void fetchCsrfContext().catch(() => null);
+
+          // Verify token validity by attempting to fetch current profile
+          try {
+            const profileRes = await authHttp.get('/account/profile', {
+              headers: { Authorization: `Bearer ${stored.token}` },
+            });
+            if (profileRes.data?.data?.profile) {
+              const freshUser = { ...stored.user, ...profileRes.data.data.profile };
+              saveStoredStorefrontAuth({
+                token: stored.token,
+                user: freshUser,
+                csrfToken: stored.csrfToken,
+              });
+              set({ user: freshUser });
+              return;
+            }
+          } catch (profileErr) {
+            if (axios.isAxiosError(profileErr)) {
+              if (profileErr.response?.status === 401) {
+                const refreshed = await refreshAuthentication(true) as AuthPayload<User> | null;
+                if (refreshed && refreshed.user) {
+                  set({
+                    user: refreshed.user,
+                    token: refreshed.accessToken,
+                    isAuthenticated: true,
+                  });
+                  return;
+                }
+                clearAuthentication();
+                set({ user: null, token: null, isAuthenticated: false });
+                return;
+              }
+              if (profileErr.response?.status === 403) {
+                clearAuthentication();
+                set({ user: null, token: null, isAuthenticated: false });
+                return;
+              }
+            }
+            // Retain restored local session on transient network errors or test environments
+            return;
+          }
+          return;
+        }
+
+        // 2. Fall back to storefront cookie refresh if no localStorage auth exists
+        const payload = await refreshAuthentication(true) as AuthPayload<User> | null;
         if (payload) {
           set({
             user: payload.user,
@@ -254,6 +318,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     clearAllCheckoutAttempts();
+    clearStoredStorefrontAuth();
     const request = logoutAuthentication();
     set({
       user: null,
@@ -261,12 +326,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isAuthenticated: false,
       isInitialized: true,
     });
+    if (typeof document !== 'undefined') {
+      document.cookie = 'mevapur_storefront_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+      document.cookie = 'mevapur_storefront_csrf=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    }
     await request.catch(() => undefined);
   },
 
   updateUser: (data) => {
     const currentUser = get().user;
-    if (currentUser) set({ user: { ...currentUser, ...data } });
+    if (currentUser) {
+      const updated = { ...currentUser, ...data };
+      set({ user: updated });
+      const currentToken = get().token;
+      if (currentToken) {
+        saveStoredStorefrontAuth({
+          token: currentToken,
+          user: updated,
+        });
+      }
+    }
   },
 }));
 

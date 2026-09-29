@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
       match: /^[A-Z]{2}$/,
-      default: null
+      default: 'PK'
     },
 
     preferredMarketCountry: {

@@ -61,6 +61,7 @@ export interface CheckoutPayload {
   couponCode?: string;
   customerNote?: string;
   quoteToken?: string;
+  quoteId?: string;
   shippingServiceLevel?: string;
   guestVerificationToken?: string;
 }
@@ -164,11 +165,51 @@ export async function fetchCheckoutQuote(
   request: CheckoutQuoteRequest,
   signal?: AbortSignal
 ): Promise<CheckoutQuoteResponse> {
-  const response = await api.post('/commerce/checkout/quote', request, { signal });
-  if (!response.data?.success || !response.data?.data?.quote) {
+  const response = await api.post('/checkout/quote', request, { signal });
+  if (!response.data?.success) {
     throw new Error(response.data?.message || 'Failed to generate checkout quote');
   }
-  return response.data as CheckoutQuoteResponse;
+
+  const rawQuote =
+    (response.data?.data as { quote?: AuthoritativeQuote })?.quote ||
+    (response.data as { quote?: AuthoritativeQuote })?.quote ||
+    response.data?.data ||
+    response.data;
+
+  if (!rawQuote || typeof rawQuote !== 'object') {
+    throw new Error(response.data?.message || 'Failed to generate checkout quote');
+  }
+
+  const quoteRecord = rawQuote as unknown as Record<string, unknown>;
+  const dataRecord = (response.data?.data || {}) as Record<string, unknown>;
+
+  // Authoritatively extract cryptographically signed quoteToken and human-readable quoteId
+  const extractedToken =
+    quoteRecord.quoteToken ||
+    quoteRecord.token ||
+    dataRecord.quoteToken ||
+    (response.data as Record<string, unknown>)?.quoteToken;
+
+  const extractedQuoteId =
+    quoteRecord.quoteId ||
+    quoteRecord.id ||
+    dataRecord.quoteId ||
+    (response.data as Record<string, unknown>)?.quoteId;
+
+  if (extractedToken && typeof extractedToken === 'string') {
+    quoteRecord.quoteToken = extractedToken;
+  }
+  if (extractedQuoteId && typeof extractedQuoteId === 'string') {
+    quoteRecord.quoteId = extractedQuoteId;
+  }
+
+  return {
+    ...response.data,
+    data: {
+      ...response.data?.data,
+      quote: rawQuote as AuthoritativeQuote,
+    },
+  } as CheckoutQuoteResponse;
 }
 
 /**
@@ -419,14 +460,22 @@ export function serializeCheckoutPayload(
   couponCode?: string,
   customerNote?: string,
   currency?: string,
-  guestVerificationToken?: string
+  guestVerificationToken?: string,
+  explicitQuoteId?: string
 ): CheckoutPayload {
   let effectiveQuoteToken: string | undefined = undefined;
+  let effectiveQuoteId: string | undefined = explicitQuoteId;
   let effectiveServiceLevel: string = 'standard';
   let effectiveCouponCode: string | undefined = couponCode;
   let effectiveCustomerNote: string | undefined = customerNote;
 
-  if (couponCode !== undefined || customerNote !== undefined || currency !== undefined || (quoteTokenOrCouponCode && quoteTokenOrCouponCode.length > 50)) {
+  if (quoteTokenOrCouponCode && (quoteTokenOrCouponCode.startsWith('QUO-') || quoteTokenOrCouponCode.startsWith('quo-'))) {
+    // If a quoteId was provided in quoteTokenOrCouponCode, do not pass it as a token!
+    if (!effectiveQuoteId) {
+      effectiveQuoteId = quoteTokenOrCouponCode;
+    }
+    effectiveServiceLevel = shippingServiceLevelOrCustomerNote || 'standard';
+  } else if (couponCode !== undefined || customerNote !== undefined || currency !== undefined || (quoteTokenOrCouponCode && quoteTokenOrCouponCode.length > 50)) {
     effectiveQuoteToken = quoteTokenOrCouponCode;
     effectiveServiceLevel = shippingServiceLevelOrCustomerNote || 'standard';
   } else if (shippingServiceLevelOrCustomerNote && !couponCode) {
@@ -480,8 +529,20 @@ export function serializeCheckoutPayload(
     shippingServiceLevel: effectiveServiceLevel,
   };
 
-  if (effectiveQuoteToken && typeof effectiveQuoteToken === 'string' && effectiveQuoteToken.trim()) {
-    payload.quoteToken = effectiveQuoteToken.trim().slice(0, 4096);
+  if (
+    effectiveQuoteToken &&
+    typeof effectiveQuoteToken === 'string' &&
+    effectiveQuoteToken.trim() &&
+    effectiveQuoteToken.trim() !== 'null' &&
+    effectiveQuoteToken.trim() !== 'undefined' &&
+    !effectiveQuoteToken.startsWith('QUO-') &&
+    !effectiveQuoteToken.startsWith('quo-')
+  ) {
+    payload.quoteToken = effectiveQuoteToken.trim().slice(0, 32768);
+  }
+
+  if (effectiveQuoteId && typeof effectiveQuoteId === 'string' && effectiveQuoteId.trim()) {
+    payload.quoteId = effectiveQuoteId.trim().slice(0, 100);
   }
 
   if (effectiveCouponCode && effectiveCouponCode.trim()) {
@@ -499,33 +560,121 @@ export function serializeCheckoutPayload(
   return payload;
 }
 
+export interface SubmitOrderOptions {
+  signal?: AbortSignal;
+  previousQuote?: AuthoritativeQuote | null;
+  onMaterialChangePrompt?: (reason: string, freshQuote: AuthoritativeQuote) => Promise<boolean>;
+}
+
 /**
- * Submits an order with an authoritative Idempotency-Key header.
+ * Submits an order with an authoritative Idempotency-Key header and transparent quote-recovery retry.
  */
 export async function submitOrder(
   payload: CheckoutPayload,
   idempotencyKey: string,
-  signal?: AbortSignal
+  options?: SubmitOrderOptions | AbortSignal
 ): Promise<{ order: CreatedOrderResult; idempotentReplay: boolean }> {
   if (!idempotencyKey || idempotencyKey.length < 8) {
     throw new Error('A valid idempotency key is required to place an order');
   }
 
-  const response = await api.post('/orders', payload, {
-    headers: {
-      'Idempotency-Key': idempotencyKey,
-    },
-    signal,
-  });
+  const signal = options instanceof AbortSignal ? options : options?.signal;
+  const previousQuote = options && !(options instanceof AbortSignal) ? options.previousQuote : null;
+  const onMaterialChangePrompt = options && !(options instanceof AbortSignal) ? options.onMaterialChangePrompt : null;
 
-  if (!response.data?.success || !response.data?.data?.order) {
-    throw new Error(response.data?.message || 'Order creation failed');
+  let currentPayload = { ...payload };
+  let currentKey = idempotencyKey;
+
+  try {
+    const response = await api.post('/orders', currentPayload, {
+      headers: {
+        'Idempotency-Key': currentKey,
+      },
+      signal,
+    });
+
+    if (!response.data?.success || !response.data?.data?.order) {
+      throw new Error(response.data?.message || 'Order creation failed');
+    }
+
+    return {
+      order: response.data.data.order as CreatedOrderResult,
+      idempotentReplay: Boolean(response.data.data.idempotentReplay),
+    };
+  } catch (err: unknown) {
+    const errorResp = (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data;
+    const errorCode = errorResp?.code;
+
+    // API Client Auto-Recovery Interceptor: Intercept QUOTE_MALFORMED, QUOTE_TOKEN_REQUIRED, QUOTE_CONSUMED, or QUOTE_EXPIRED
+    if (
+      errorCode === 'QUOTE_MALFORMED' ||
+      errorCode === 'QUOTE_TOKEN_REQUIRED' ||
+      errorCode === 'QUOTE_CONSUMED' ||
+      errorCode === 'QUOTE_EXPIRED' ||
+      errorCode === 'QUOTE_TAMPERED'
+    ) {
+      try {
+        const quoteRequest: CheckoutQuoteRequest = {
+          items: currentPayload.items.map((it) => ({
+            productId: it.productId,
+            variantId: it.variantId,
+            quantity: it.quantity,
+          })),
+          shippingAddress: currentPayload.shippingAddress,
+          currency: currentPayload.currency,
+          couponCode: currentPayload.couponCode,
+          shippingServiceLevel: currentPayload.shippingServiceLevel,
+          guestVerificationToken: currentPayload.guestVerificationToken,
+        };
+
+        const freshQuoteRes = await fetchCheckoutQuote(quoteRequest, signal);
+        const freshQuote = freshQuoteRes.data?.quote;
+
+        if (freshQuote && freshQuote.quoteToken) {
+          // Check material quote change
+          if (previousQuote) {
+            const diff = detectMaterialQuoteChange(previousQuote, freshQuote);
+            if (diff.changed) {
+              if (onMaterialChangePrompt) {
+                const confirmed = await onMaterialChangePrompt(diff.reason || 'Order total has changed.', freshQuote);
+                if (!confirmed) {
+                  throw new Error(`Order total updated: ${diff.reason || 'Please review your order summary before placing your order.'}`);
+                }
+              } else {
+                throw new Error(`Order total updated: ${diff.reason || 'Please review your order summary before placing your order.'}`);
+              }
+            }
+          }
+
+          // Retry order submission with fresh quote token and fresh idempotency key
+          currentPayload = {
+            ...currentPayload,
+            quoteToken: freshQuote.quoteToken,
+            quoteId: freshQuote.quoteId,
+          };
+          currentKey = generateIdempotencyKey();
+
+          const retryResponse = await api.post('/orders', currentPayload, {
+            headers: {
+              'Idempotency-Key': currentKey,
+            },
+            signal,
+          });
+
+          if (retryResponse.data?.success && retryResponse.data?.data?.order) {
+            return {
+              order: retryResponse.data.data.order as CreatedOrderResult,
+              idempotentReplay: Boolean(retryResponse.data.data.idempotentReplay),
+            };
+          }
+        }
+      } catch (retryErr: unknown) {
+        throw retryErr;
+      }
+    }
+
+    throw err;
   }
-
-  return {
-    order: response.data.data.order as CreatedOrderResult,
-    idempotentReplay: Boolean(response.data.data.idempotentReplay),
-  };
 }
 
 /**

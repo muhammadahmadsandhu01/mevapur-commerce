@@ -63,7 +63,7 @@ function OrderSuccessContent() {
 
     async function loadOrder() {
       if (!orderIdParam) {
-        setError('No order reference specified.');
+        setError('No order ID specified.');
         setLoading(false);
         return;
       }
@@ -175,13 +175,13 @@ function OrderSuccessContent() {
           </p>
 
           <div className="mt-6 inline-flex flex-wrap items-center justify-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs sm:text-sm font-bold">
-            <span className="text-slate-600">Order Reference:</span>
+            <span className="text-slate-600">Order ID:</span>
             <span className="font-mono text-slate-900">{order.orderId || order._id}</span>
             <button
               type="button"
               onClick={copyOrderId}
               className="p-1 hover:bg-slate-200 rounded text-slate-700 transition"
-              aria-label="Copy order reference"
+              aria-label="Copy order ID"
             >
               <Copy size={15} />
             </button>
@@ -197,7 +197,7 @@ function OrderSuccessContent() {
               Manual Payment Instructions Required
             </h2>
             <p className="text-xs sm:text-sm text-slate-800 leading-relaxed mb-4">
-              Your order is currently in <strong className="font-bold">Pending Payment</strong> status. Please complete the {order.paymentMethod === 'raast' ? 'Raast transfer' : 'Direct Bank IBFT transfer'} using your order reference as the transaction remark.
+              Your order is currently in <strong className="font-bold">Pending Payment</strong> status. Please complete the {order.paymentMethod === 'raast' ? 'Raast transfer' : 'Direct Bank IBFT transfer'} using your Order ID as the transaction remark.
             </p>
             <Link
               href={`/payment-instructions?orderId=${encodeURIComponent(order._id || order.orderId)}`}

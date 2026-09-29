@@ -24,33 +24,41 @@ class EmailService {
    * Get SMTP transporter singleton
    */
   getTransporter() {
-    if (config.mode !== 'smtp') {
+    const effectiveMode = process.env.EMAIL_MODE || config.mode;
+    if (effectiveMode !== 'smtp') {
       return null;
     }
     if (this.transporter) {
       return this.transporter;
     }
 
-    const smtpConfig = config.smtp;
-    if (!smtpConfig) {
+    const host = process.env.SMTP_HOST || config.smtp?.host || 'smtp.gmail.com';
+    const port = Number(process.env.SMTP_PORT || config.smtp?.port) || 587;
+    const secure = port === 465 ? true : (process.env.SMTP_SECURE === 'true' ? true : false);
+    const user = process.env.SMTP_USER || process.env.EMAIL_USER || config.smtp?.auth?.user;
+    const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_PASSWORD || config.smtp?.auth?.pass;
+
+    if (!user || !pass) {
       throw new Error('EMAIL_SMTP_CONFIGURATION_FAILED');
     }
 
     const options = {
-      host: smtpConfig.host,
-      port: smtpConfig.port,
-      secure: smtpConfig.secure,
+      host,
+      port,
+      secure,
       auth: {
-        user: smtpConfig.auth.user,
-        pass: smtpConfig.auth.pass
+        user,
+        pass
       },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 10000,
-      tls: {}
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
+      tls: {
+        rejectUnauthorized: true
+      }
     };
 
-    if (smtpConfig.port === 587) {
+    if (port === 587) {
       options.requireTLS = true;
     }
 
@@ -64,7 +72,11 @@ class EmailService {
   async sendVerificationEmail(email, fullName, token, options = {}) {
     const { getRuntimeConfig } = require('../config/runtime.config');
     const runtimeConfig = getRuntimeConfig();
-    const storefrontOrigin = runtimeConfig.origins.storefront;
+    const storefrontOrigin = process.env.FRONTEND_URL
+      || process.env.CLIENT_URL
+      || process.env.NEXT_PUBLIC_SITE_URL
+      || runtimeConfig?.origins?.storefront
+      || 'http://127.0.0.1:55070';
     const verifyUrl = new URL('/verify-email', storefrontOrigin);
     verifyUrl.searchParams.set('token', token);
     if (options.redirect) {
@@ -80,6 +92,11 @@ class EmailService {
       }
     }
     const verificationLink = verifyUrl.toString();
+
+    logger.info('Generated verification email link', {
+      recipient: email,
+      verificationLink
+    });
 
     const safeBrandName = this.escapeHtml(config.brandName);
     const safeLink = this.escapeHtml(verificationLink);
@@ -304,6 +321,369 @@ This is an automated security notification from ${config.brandName}.`;
   }
 
   /**
+   * Format status string for user-friendly display
+   */
+  formatStatus(status) {
+    if (!status || typeof status !== 'string') return '';
+    return status
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  /**
+   * Send Order Confirmation Email
+   */
+  async sendOrderConfirmationEmail(arg1, arg2) {
+    let order, recipientEmail, recipientName;
+    if (arg1 && arg1.order) {
+      ({ order, recipientEmail, recipientName } = arg1);
+    } else {
+      order = arg1;
+      recipientEmail = arg2;
+    }
+
+    const { getRuntimeConfig } = require('../config/runtime.config');
+    const runtimeConfig = getRuntimeConfig();
+    const storefrontOrigin = process.env.FRONTEND_URL
+      || process.env.CLIENT_URL
+      || process.env.NEXT_PUBLIC_SITE_URL
+      || runtimeConfig?.origins?.storefront
+      || 'http://127.0.0.1:55070';
+
+    if (!order) {
+      return { success: false, reason: 'NO_ORDER_PROVIDED' };
+    }
+
+    const orderId = order.orderId || order._id;
+    const viewOrderUrl = `${storefrontOrigin}/orders/${encodeURIComponent(orderId)}`;
+    const safeBrandName = this.escapeHtml(config.brandName || 'HARZAAR');
+    const toEmail = recipientEmail || order.customerEmail || order.shippingAddress?.email || (order.user && order.user.email);
+    if (!toEmail) {
+      logger.warn('Cannot send order confirmation email: no recipient email found', { orderId });
+      return { success: false, reason: 'NO_RECIPIENT_EMAIL' };
+    }
+
+    const customerName = recipientName || order.shippingAddress?.fullName || (order.user && order.user.fullName) || 'Valued Customer';
+    const safeCustomerName = this.escapeHtml(customerName);
+    const safeOrderId = this.escapeHtml(orderId);
+    const safeViewOrderUrl = this.escapeHtml(viewOrderUrl);
+    const paymentMethodDisplay = order.paymentMethod === 'cod' ? 'Cash on Delivery (COD)' : (order.paymentMethod || 'Prepaid');
+    const safePaymentMethod = this.escapeHtml(paymentMethodDisplay);
+    const totalAmount = Number(order.totalAmount || 0);
+
+    // Format delivery address
+    const address = order.shippingAddress || {};
+    const addressParts = [
+      address.address || address.addressLine1,
+      address.addressLine2,
+      address.city || address.locality,
+      address.province || address.administrativeArea,
+      address.postalCode,
+      address.country
+    ].filter(Boolean);
+    const addressStr = addressParts.join(', ');
+    const safeAddress = this.escapeHtml(addressStr);
+    const phone = address.phone || address.phoneE164 || '';
+    const safePhone = this.escapeHtml(phone);
+
+    // Format items
+    const itemsList = Array.isArray(order.items) ? order.items : [];
+    const itemsHtml = itemsList.map((item) => {
+      const name = this.escapeHtml(item.name || 'Item');
+      const qty = item.quantity || 1;
+      const price = item.price !== undefined ? item.price : 0;
+      return `<tr>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #1e293b;">${name}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 13px; color: #475569;">${qty}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 13px; font-weight: 700; color: #0b132b;">Rs. ${(Number(price) * qty).toLocaleString()}</td>
+      </tr>`;
+    }).join('');
+
+    const itemsText = itemsList.map((item) => {
+      const name = item.name || 'Item';
+      const qty = item.quantity || 1;
+      const price = item.price !== undefined ? Number(item.price) * qty : 0;
+      return `- ${name} x${qty} (Rs. ${price.toLocaleString()})`;
+    }).join('\n');
+
+    const subject = `Order Confirmed: #${orderId} - Thank you for your purchase!`;
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${this.escapeHtml(subject)}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 20px; }
+    .container { max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; padding: 32px; border-radius: 12px; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .header { font-size: 20px; font-weight: 800; color: #0b132b; margin-bottom: 16px; border-bottom: 2px solid #ff8a00; padding-bottom: 12px; }
+    .status-badge { display: inline-block; background-color: #16a34a; color: #ffffff; font-weight: 700; padding: 6px 16px; border-radius: 9999px; font-size: 13px; text-transform: uppercase; margin: 10px 0; letter-spacing: 0.05em; }
+    .details-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 8px; margin: 20px 0; font-size: 13px; line-height: 1.6; color: #334155; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+    th { text-align: left; padding: 8px; background-color: #f1f5f9; border-bottom: 2px solid #cbd5e1; font-weight: 700; color: #0b132b; }
+    .cta-btn { display: inline-block; background-color: #0b132b; color: #ffffff !important; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px; margin: 24px 0 16px 0; transition: background 0.2s; }
+    .footer { font-size: 12px; color: #64748b; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">${safeBrandName}</div>
+    <p style="font-size: 15px; margin-bottom: 8px;">Hello <strong>${safeCustomerName}</strong>,</p>
+    <p style="font-size: 14px; color: #475569; margin-top: 0;">Thank you for shopping with us! Your order <strong>#${safeOrderId}</strong> has been successfully placed.</p>
+    
+    <div>
+      <span class="status-badge">Order Confirmed</span>
+    </div>
+
+    <div class="details-box">
+      <div><strong>Order ID:</strong> #${safeOrderId}</div>
+      <div><strong>Payment Method:</strong> ${safePaymentMethod}</div>
+      ${safeAddress ? `<div><strong>Delivery Address:</strong> ${safeAddress}</div>` : ''}
+      ${safePhone ? `<div><strong>Phone:</strong> ${safePhone}</div>` : ''}
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 700; color: #0b132b; margin-top: 24px; margin-bottom: 8px;">Items Ordered</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th style="text-align: center;">Qty</th>
+          <th style="text-align: right;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2" style="padding: 12px 8px; font-weight: 800; font-size: 14px; color: #0b132b; border-top: 2px solid #cbd5e1;">Order Total:</td>
+          <td style="padding: 12px 8px; text-align: right; font-weight: 800; font-size: 15px; color: #0b132b; border-top: 2px solid #cbd5e1;">Rs. ${totalAmount.toLocaleString()}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div style="text-align: center;">
+      <a href="${safeViewOrderUrl}" class="cta-btn">View Order Details</a>
+    </div>
+
+    <div class="footer">
+      If you have any questions about your order, please reply to this email or contact support.<br>
+      &copy; ${new Date().getFullYear()} ${safeBrandName}. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const text = `${config.brandName || 'HARZAAR'} - Order Confirmation
+=====================================================
+
+Hello ${customerName},
+
+Thank you for your order! Your order #${orderId} has been successfully placed.
+
+Status: Order Confirmed
+Order ID: #${orderId}
+Payment Method: ${paymentMethodDisplay}
+${addressStr ? `Delivery Address: ${addressStr}\n` : ''}${phone ? `Phone: ${phone}\n` : ''}
+Items Ordered:
+${itemsText}
+
+Order Total: Rs. ${totalAmount.toLocaleString()}
+
+View Order Details:
+${viewOrderUrl}
+
+Thank you for shopping with ${config.brandName || 'HARZAAR'}!
+`;
+
+    const emailData = {
+      to: toEmail,
+      toName: customerName,
+      subject,
+      text,
+      html
+    };
+
+    logger.info('Dispatching order confirmation email', {
+      orderId,
+      recipient: toEmail,
+      subject
+    });
+
+    return await this.send(emailData);
+  }
+
+  /**
+   * Send Order Status Update Email
+   */
+  async sendOrderStatusUpdateEmail(arg1, arg2, arg3) {
+    let order, newStatus, previousStatus, recipientEmail, recipientName;
+    if (arg1 && arg1.order) {
+      ({ order, newStatus, previousStatus, recipientEmail, recipientName } = arg1);
+    } else {
+      order = arg1;
+      newStatus = arg2;
+      previousStatus = arg3;
+    }
+
+    const { getRuntimeConfig } = require('../config/runtime.config');
+    const runtimeConfig = getRuntimeConfig();
+    const storefrontOrigin = process.env.FRONTEND_URL
+      || process.env.CLIENT_URL
+      || process.env.NEXT_PUBLIC_SITE_URL
+      || runtimeConfig?.origins?.storefront
+      || 'http://127.0.0.1:55070';
+
+    if (!order) {
+      return { success: false, reason: 'NO_ORDER_PROVIDED' };
+    }
+
+    const orderId = order.orderId || order._id;
+    const viewOrderUrl = `${storefrontOrigin}/orders/${encodeURIComponent(orderId)}`;
+    const safeBrandName = this.escapeHtml(config.brandName || 'HARZAAR');
+    const toEmail = recipientEmail || order.customerEmail || order.shippingAddress?.email || (order.user && order.user.email);
+    if (!toEmail) {
+      logger.warn('Cannot send order status update email: no recipient email found', { orderId });
+      return { success: false, reason: 'NO_RECIPIENT_EMAIL' };
+    }
+
+    const customerName = recipientName || order.shippingAddress?.fullName || (order.user && order.user.fullName) || 'Valued Customer';
+    const safeCustomerName = this.escapeHtml(customerName);
+    const safeOrderId = this.escapeHtml(orderId);
+    const formattedStatus = this.formatStatus(newStatus);
+    const safeStatus = this.escapeHtml(formattedStatus);
+    const safeViewOrderUrl = this.escapeHtml(viewOrderUrl);
+
+    // Format delivery address
+    const address = order.shippingAddress || {};
+    const addressParts = [
+      address.address,
+      address.addressLine2,
+      address.city,
+      address.province,
+      address.postalCode,
+      address.country
+    ].filter(Boolean);
+    const addressStr = addressParts.join(', ');
+    const safeAddress = this.escapeHtml(addressStr);
+
+    // Format items
+    const itemsList = Array.isArray(order.items) ? order.items : [];
+    const itemsHtml = itemsList.map((item) => {
+      const name = this.escapeHtml(item.name || 'Item');
+      const qty = item.quantity || 1;
+      const price = item.price !== undefined ? item.price : '';
+      return `<tr>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #1e293b;">${name}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 13px; color: #475569;">${qty}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 13px; font-weight: 700; color: #0b132b;">Rs. ${(Number(price) * qty).toLocaleString()}</td>
+      </tr>`;
+    }).join('');
+
+    const itemsText = itemsList.map((item) => {
+      const name = item.name || 'Item';
+      const qty = item.quantity || 1;
+      const price = item.price !== undefined ? Number(item.price) * qty : '';
+      return `- ${name} x${qty}${price !== '' ? ` (Rs. ${price.toLocaleString()})` : ''}`;
+    }).join('\n');
+
+    const subject = `Update on your order ${orderId}: Now ${formattedStatus}`;
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${this.escapeHtml(subject)}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 20px; }
+    .container { max-width: 600px; background-color: #ffffff; border: 1px solid #e2e8f0; padding: 32px; border-radius: 12px; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .header { font-size: 20px; font-weight: 800; color: #0b132b; margin-bottom: 16px; border-bottom: 2px solid #ff8a00; padding-bottom: 12px; }
+    .status-badge { display: inline-block; background-color: #ff8a00; color: #ffffff; font-weight: 700; padding: 6px 16px; border-radius: 9999px; font-size: 13px; text-transform: uppercase; margin: 10px 0; letter-spacing: 0.05em; }
+    .details-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 8px; margin: 20px 0; font-size: 13px; line-height: 1.6; color: #334155; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+    th { text-align: left; padding: 8px; background-color: #f1f5f9; border-bottom: 2px solid #cbd5e1; font-weight: 700; color: #0b132b; }
+    .cta-btn { display: inline-block; background-color: #0b132b; color: #ffffff !important; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px; margin: 24px 0 16px 0; transition: background 0.2s; }
+    .footer { font-size: 12px; color: #64748b; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">${safeBrandName}</div>
+    <p style="font-size: 15px; margin-bottom: 8px;">Hello <strong>${safeCustomerName}</strong>,</p>
+    <p style="font-size: 14px; color: #475569; margin-top: 0;">The status of your order <strong>#${safeOrderId}</strong> has been updated:</p>
+    <div style="text-align: center; margin: 16px 0;">
+      <span class="status-badge">${safeStatus}</span>
+    </div>
+
+    <div class="details-box">
+      <strong style="color: #0b132b;">Delivery Address:</strong><br>
+      ${safeCustomerName}<br>
+      ${safeAddress}
+    </div>
+
+    <h3 style="font-size: 14px; font-weight: 700; color: #0b132b; margin-top: 24px; margin-bottom: 8px;">Items in this Order</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th style="text-align: center;">Qty</th>
+          <th style="text-align: right;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml}
+      </tbody>
+    </table>
+
+    <div style="text-align: center;">
+      <a href="${safeViewOrderUrl}" class="cta-btn">View Order Details</a>
+    </div>
+
+    <div class="footer">
+      This is an automated notification regarding your purchase at ${safeBrandName}.<br>
+      If you have questions, please reach out to customer support.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const text = `${config.brandName || 'HARZAAR'} - Order Status Update
+
+Hello ${customerName},
+
+The status of your order #${orderId} has been updated: Now ${formattedStatus}
+
+Delivery Address:
+${customerName}
+${addressStr}
+
+Items in this Order:
+${itemsText}
+
+View Order Details:
+${viewOrderUrl}
+
+Thank you for shopping with ${config.brandName || 'HARZAAR'}.`;
+
+    const emailData = {
+      to: toEmail,
+      subject,
+      html,
+      text
+    };
+
+    logger.info('Dispatching order status update email', {
+      orderId,
+      newStatus,
+      previousStatus: previousStatus || 'unknown',
+      recipient: toEmail,
+      subject
+    });
+
+    return await this.send(emailData);
+  }
+
+  /**
    * Send via Brevo HTTPS REST API
    */
   async sendViaBrevo(emailData) {
@@ -440,9 +820,10 @@ This is an automated security notification from ${config.brandName}.`;
    */
   async sendViaSmtp(emailData) {
     const transporter = this.getTransporter();
-    const fromName = config.smtp.fromName || config.displayName;
-    const fromAddress = config.smtp.from;
-    const fromHeader = `"${fromName.replace(/"/g, '\\"')}" <${fromAddress}>`;
+    const fromName = process.env.SMTP_FROM_NAME || config.smtp?.fromName || config.displayName || 'HARZAAR Support';
+    const fromAddress = process.env.SMTP_FROM || config.smtp?.from || process.env.SMTP_USER || process.env.EMAIL_USER;
+    const defaultFromHeader = `"${fromName.replace(/"/g, '\\"')}" <${fromAddress}>`;
+    const fromHeader = process.env.EMAIL_FROM || defaultFromHeader;
 
     const mailOptions = {
       from: fromHeader,
@@ -461,14 +842,16 @@ This is an automated security notification from ${config.brandName}.`;
 
       if (accepted.includes(recipient) && !rejected.includes(recipient)) {
         logger.info('Email successfully accepted by SMTP provider', {
-          messageId: info.messageId
+          messageId: info.messageId,
+          response: info.response
         });
         return {
           success: true,
           reason: 'EMAIL_SMTP_ACCEPTED',
           messageId: info.messageId,
           providerAccepted: true,
-          deliveredToInbox: false
+          deliveredToInbox: false,
+          response: info.response
         };
       } else {
         logger.warn('Email was rejected by the SMTP provider');
@@ -487,7 +870,8 @@ This is an automated security notification from ${config.brandName}.`;
       }
 
       logger.error('SMTP delivery failed', {
-        reason: reasonCode
+        reason: reasonCode,
+        message: error.message
       });
 
       throw new Error(reasonCode);
@@ -498,7 +882,7 @@ This is an automated security notification from ${config.brandName}.`;
    * Generic Send Method
    */
   async send(emailData) {
-    const mode = config.mode;
+    const mode = process.env.EMAIL_MODE || config.mode;
     if (mode === 'disabled') {
       logger.info('Email sending disabled', {
         subject: emailData.subject

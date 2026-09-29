@@ -240,8 +240,9 @@ export default function AdminHelpAssistant() {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-controls={open ? 'admin-assistant-title' : undefined}
+        aria-label="Harzaar Support Admin"
       >
-        {branding.siteName} Admin
+        <span className="text-xs font-semibold">Harzaar Support</span>
       </button>
     </>
   );
