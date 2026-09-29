@@ -108,6 +108,15 @@ exports.updateSettings = async (req, res) => {
     });
   } catch (error) {
     logSettingsError('update', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+        error: {
+          code: error.code || 'SECURITY_ERROR'
+        }
+      });
+    }
     return res.status(500).json({
       success: false,
       message: 'Failed to update settings'

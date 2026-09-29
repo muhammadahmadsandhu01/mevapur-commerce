@@ -58,7 +58,7 @@ class MfaService {
   encryptSecret(plainSecret) {
     const key = this.getEncryptionKey();
     const iv = crypto.randomBytes(12); // 96-bit IV for AES-GCM
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
     
     let encrypted = cipher.update(plainSecret, 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -82,13 +82,25 @@ class MfaService {
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    if (!Buffer.isBuffer(iv) || iv.length !== 12) {
+      throw new AppError('Invalid MFA initialization vector length', 500, ERROR_CODES.INTERNAL_SERVER_ERROR);
+    }
+
+    if (!Buffer.isBuffer(authTag) || authTag.length !== 16) {
+      throw new AppError('Invalid MFA authentication tag length', 500, ERROR_CODES.INTERNAL_SERVER_ERROR);
+    }
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
     decipher.setAuthTag(authTag);
 
-    let decrypted = decipher.update(cipherText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
+    try {
+      let decrypted = decipher.update(cipherText, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      throw new AppError('Failed to decrypt MFA secret', 500, ERROR_CODES.INTERNAL_SERVER_ERROR);
+    }
   }
 
   generateSecret({ accountEmail, issuer = 'MevaPur' }) {

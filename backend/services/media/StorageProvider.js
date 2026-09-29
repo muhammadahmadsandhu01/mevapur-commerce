@@ -1,4 +1,7 @@
+const path = require('path');
+const fs = require('fs');
 const { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const { AppError } = require('../../common/errors/AppError');
 const logger = require('../../utils/logger');
 
 class StorageProvider {
@@ -32,10 +35,21 @@ class MockStorageProvider extends StorageProvider {
     super();
     this.bucket = options.bucket || 'mevapur-mock-bucket';
     this.baseUrl = options.publicBaseUrl || 'https://media.mock.mevapur.test';
+    this.uploadsDir = options.uploadsDir ? path.resolve(options.uploadsDir) : path.resolve(__dirname, '../../uploads');
     this.storage = new Map();
   }
 
   async upload({ key, buffer, mimeType }) {
+    if (!key || typeof key !== 'string') {
+      throw new AppError('Path traversal detected', 403, 'SECURITY_ERROR');
+    }
+
+    const uploadsDir = path.resolve(this.uploadsDir || path.resolve(__dirname, '../../uploads'));
+    const targetPath = path.resolve(uploadsDir, key);
+    if (!targetPath.startsWith(path.resolve(uploadsDir) + path.sep)) {
+      throw new AppError('Path traversal detected', 403, 'SECURITY_ERROR');
+    }
+
     this.storage.set(key, {
       buffer,
       mimeType,
@@ -44,14 +58,8 @@ class MockStorageProvider extends StorageProvider {
     });
 
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const uploadsDir = path.resolve(__dirname, '../../uploads');
-      const targetPath = path.resolve(uploadsDir, key);
-      if (targetPath.startsWith(uploadsDir)) {
-        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-        fs.writeFileSync(targetPath, buffer);
-      }
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, buffer);
     } catch (diskErr) {
       logger.warn('MockStorageProvider disk write fallback failed', { error: diskErr.message });
     }
@@ -64,14 +72,20 @@ class MockStorageProvider extends StorageProvider {
   }
 
   async delete({ key }) {
+    if (!key || typeof key !== 'string') {
+      throw new AppError('Path traversal detected', 403, 'SECURITY_ERROR');
+    }
+
+    const uploadsDir = path.resolve(this.uploadsDir || path.resolve(__dirname, '../../uploads'));
+    const targetPath = path.resolve(uploadsDir, key);
+    if (!targetPath.startsWith(path.resolve(uploadsDir) + path.sep)) {
+      throw new AppError('Path traversal detected', 403, 'SECURITY_ERROR');
+    }
+
     this.storage.delete(key);
 
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const uploadsDir = path.resolve(__dirname, '../../uploads');
-      const targetPath = path.resolve(uploadsDir, key);
-      if (targetPath.startsWith(uploadsDir) && fs.existsSync(targetPath)) {
+      if (fs.existsSync(targetPath)) {
         fs.unlinkSync(targetPath);
       }
     } catch {

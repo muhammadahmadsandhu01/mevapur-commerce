@@ -49,17 +49,37 @@ const PROVIDER_SECRET_EXCLUSION = Object.freeze(Object.fromEntries(
   LEGACY_PROVIDER_SECRET_PATHS.map((path) => [path, 0])
 ));
 
+const { AppError } = require('../common/errors/AppError');
+
+const FORBIDDEN_KEYS = Object.freeze(new Set(['__proto__', 'constructor', 'prototype']));
+
 const isPlainObject = (value) => (
   value !== null
   && typeof value === 'object'
   && !Array.isArray(value)
 );
 
+const assertNoForbiddenKeys = (data, depth = 0) => {
+  if (!data || typeof data !== 'object' || depth > 10) return;
+  for (const key of Object.getOwnPropertyNames(data)) {
+    if (FORBIDDEN_KEYS.has(key)) {
+      throw new AppError(`Forbidden property access: ${key}`, 400, 'SECURITY_ERROR');
+    }
+    if (isPlainObject(data[key])) {
+      assertNoForbiddenKeys(data[key], depth + 1);
+    }
+  }
+};
+
 const hasOwnPath = (source, path) => {
+  if (typeof path !== 'string') return false;
   const segments = path.split('.');
   let current = source;
 
   for (const segment of segments) {
+    if (FORBIDDEN_KEYS.has(segment)) {
+      throw new AppError(`Forbidden property access: ${segment}`, 400, 'SECURITY_ERROR');
+    }
     if (
       !isPlainObject(current)
       || !Object.prototype.hasOwnProperty.call(current, segment)
@@ -72,12 +92,24 @@ const hasOwnPath = (source, path) => {
   return true;
 };
 
-const getPath = (source, path) => path
-  .split('.')
-  .reduce((current, segment) => current?.[segment], source);
+const getPath = (source, path) => {
+  if (typeof path !== 'string') return undefined;
+  const segments = path.split('.');
+  let current = source;
+
+  for (const segment of segments) {
+    if (FORBIDDEN_KEYS.has(segment)) {
+      throw new AppError(`Forbidden property access: ${segment}`, 400, 'SECURITY_ERROR');
+    }
+    current = current?.[segment];
+  }
+
+  return current;
+};
 
 const buildSettingsUpdate = (settingsData) => {
   if (!isPlainObject(settingsData)) return {};
+  assertNoForbiddenKeys(settingsData);
 
   return ALLOWED_SETTING_PATHS.reduce((update, path) => {
     if (hasOwnPath(settingsData, path)) {
@@ -87,13 +119,15 @@ const buildSettingsUpdate = (settingsData) => {
   }, {});
 };
 
-const containsProviderCredentialInput = (settingsData) => (
-  isPlainObject(settingsData)
-  && PROVIDER_CREDENTIAL_INPUT_PATHS.some((path) => hasOwnPath(settingsData, path))
-);
+const containsProviderCredentialInput = (settingsData) => {
+  if (!isPlainObject(settingsData)) return false;
+  assertNoForbiddenKeys(settingsData);
+  return PROVIDER_CREDENTIAL_INPUT_PATHS.some((path) => hasOwnPath(settingsData, path));
+};
 
 const getUpdatedGroups = (settingsData) => {
   if (!isPlainObject(settingsData)) return [];
+  assertNoForbiddenKeys(settingsData);
   const allowedGroups = new Set(ALLOWED_SETTING_PATHS.map((path) => path.split('.')[0]));
   return Object.keys(settingsData).filter((group) => allowedGroups.has(group));
 };
@@ -103,6 +137,10 @@ module.exports = {
   LEGACY_PROVIDER_SECRET_PATHS,
   PROVIDER_CREDENTIAL_INPUT_PATHS,
   PROVIDER_SECRET_EXCLUSION,
+  FORBIDDEN_KEYS,
+  hasOwnPath,
+  getPath,
+  assertNoForbiddenKeys,
   buildSettingsUpdate,
   containsProviderCredentialInput,
   getUpdatedGroups
