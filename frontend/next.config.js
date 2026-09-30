@@ -24,7 +24,8 @@ const nextConfig = {
       process.env.BACKEND_INTERNAL_URL ||
       process.env.INTERNAL_API_URL ||
       process.env.BACKEND_URL ||
-      'http://mevapur_uat_p10c_bfkzo9mv-backend-1:5000'
+      process.env.NEXT_PUBLIC_API_URL ||
+      'http://localhost:5000'
     ).replace(/\/$/, '');
 
     return [

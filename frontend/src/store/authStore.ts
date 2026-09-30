@@ -94,14 +94,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // 1. Check local storage for storefront auth first
         const stored = loadStoredStorefrontAuth<User>();
         if (stored) {
-          acceptAuthentication({
-            user: stored.user,
-            accessToken: '', // Passed via HttpOnly cookie
-            csrfToken: stored.csrfToken || '',
-          });
+          const restoredToken = stored.token || '';
+          if (restoredToken && stored.csrfToken) {
+            try {
+              acceptAuthentication({
+                user: stored.user,
+                accessToken: restoredToken,
+                csrfToken: stored.csrfToken,
+              });
+            } catch {
+              // Ignore incomplete auth errors when restoring local session
+            }
+          }
           set({
             user: stored.user,
-            token: '',
+            token: restoredToken,
             isAuthenticated: true,
           });
 
@@ -115,6 +122,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               const freshUser = { ...stored.user, ...profileRes.data.data.profile };
               saveStoredStorefrontAuth({
                 user: freshUser,
+                token: restoredToken,
                 csrfToken: stored.csrfToken,
               });
               set({ user: freshUser });

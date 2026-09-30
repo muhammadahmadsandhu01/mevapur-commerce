@@ -35,14 +35,18 @@ import {
 } from '@/lib/catalogAdapter';
 import { safeJsonLdStringify } from '@/lib/safeJsonLd';
 
-export default function ProductDetailClient() {
+interface ProductDetailClientProps {
+  initialProduct?: Product | null;
+}
+
+export default function ProductDetailClient({ initialProduct }: ProductDetailClientProps = {}) {
   const params = useParams();
   const router = useRouter();
   const { addToCart } = useCartStore();
   const { isAuthenticated } = useAuthStore();
 
-  const [product, setProduct] = useState<Product | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [product, setProduct] = useState<Product | null>(initialProduct || null);
+  const [loading, setLoading] = useState(!initialProduct);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -52,7 +56,17 @@ export default function ProductDetailClient() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Variant selection state
-  const [selectedAttributes, setSelectedAttributes] = useState<Record<string, string>>({});
+  const [selectedAttributes, setSelectedAttributes] = useState<Record<string, string>>(() => {
+    if (initialProduct?.variants && initialProduct.variants.length > 0) {
+      const defaultVar = initialProduct.variants.find((v) => v.isDefault) || initialProduct.variants[0];
+      const initialAttrs: Record<string, string> = {};
+      defaultVar.attributes.forEach((a) => {
+        initialAttrs[a.name] = a.value;
+      });
+      return initialAttrs;
+    }
+    return {};
+  });
 
   const productId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
 
@@ -63,6 +77,26 @@ export default function ProductDetailClient() {
       if (!productId || productId === 'undefined') {
         setError('Invalid product identifier');
         setLoading(false);
+        return;
+      }
+
+      if (initialProduct && (initialProduct._id === productId || initialProduct.slug === productId)) {
+        if (isAuthenticated) {
+          accountService
+            .wishlist()
+            .then((result) => {
+              setWishlist(
+                result.items.some(
+                  (entry) =>
+                    String((entry.product as { _id: string })._id) === String(initialProduct._id)
+                )
+              );
+            })
+            .catch(() => setWishlist(false));
+        } else {
+          const { isInWishlist } = useCartStore.getState();
+          setWishlist(isInWishlist(initialProduct._id));
+        }
         return;
       }
 
@@ -121,7 +155,7 @@ export default function ProductDetailClient() {
     return () => {
       controller.abort();
     };
-  }, [productId, isAuthenticated]);
+  }, [productId, isAuthenticated, initialProduct]);
 
   // Selected variant resolved purely
   const activeVariant: ProductVariant | null = useMemo(() => {

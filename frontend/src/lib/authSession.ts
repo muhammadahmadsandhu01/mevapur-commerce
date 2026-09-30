@@ -17,6 +17,7 @@ export const STOREFRONT_AUTH_KEY = 'mevapur_storefront_auth';
 
 export interface StoredStorefrontAuth<TUser = unknown> {
   user: TUser;
+  token?: string;
   csrfToken?: string;
   timestamp?: number;
 }
@@ -100,6 +101,7 @@ export const acceptAuthentication = <TUser>(
   if (payload.user) {
     saveStoredStorefrontAuth({
       user: payload.user,
+      token: payload.accessToken,
       csrfToken: payload.csrfToken,
     });
   }

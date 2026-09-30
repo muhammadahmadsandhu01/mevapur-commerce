@@ -127,44 +127,94 @@ export interface SearchSuggestion {
 // Categories & Brands
 // =========================
 
-export const getCategories = async (): Promise<Category[]> => {
-  try {
-    const response = await api.get("/categories");
-    if (!response.data?.success || !Array.isArray(response.data.data)) {
-      return [];
-    }
-    return response.data.data.map((cat: Record<string, unknown>) => ({
-      _id: String(cat._id || ''),
-      name: String(cat.name || ''),
-      slug: String(cat.slug || cat._id || ''),
-      description: cat.description ? String(cat.description) : undefined,
-      image: getSafeMediaUrl(cat.image ? String(cat.image) : undefined),
-      parentId: cat.parentId ? String(cat.parentId) : null,
-      isActive: cat.isActive !== undefined ? Boolean(cat.isActive) : true,
-      displayOrder: typeof cat.displayOrder === 'number' ? cat.displayOrder : 0,
-    })).filter((cat: Category) => Boolean(cat._id && cat.name));
-  } catch {
-    return [];
-  }
+let cachedCategories: { data: Category[]; expiry: number } | null = null;
+let categoriesInFlight: Promise<Category[]> | null = null;
+
+export const clearCategoriesCache = (): void => {
+  cachedCategories = null;
+  categoriesInFlight = null;
 };
 
-export const getBrands = async (): Promise<Brand[]> => {
-  try {
-    const response = await api.get("/brands");
-    if (!response.data?.success || !Array.isArray(response.data.data)) {
-      return [];
-    }
-    return response.data.data.map((brand: Record<string, unknown>) => ({
-      _id: String(brand._id || ''),
-      name: String(brand.name || ''),
-      slug: String(brand.slug || brand._id || ''),
-      logo: getSafeMediaUrl(brand.logo ? String(brand.logo) : undefined),
-      description: brand.description ? String(brand.description) : undefined,
-      isActive: brand.isActive !== undefined ? Boolean(brand.isActive) : true,
-    })).filter((brand: Brand) => Boolean(brand._id && brand.name));
-  } catch {
-    return [];
+export const getCategories = async (options?: { forceRefresh?: boolean }): Promise<Category[]> => {
+  const now = Date.now();
+  if (!options?.forceRefresh && cachedCategories && cachedCategories.expiry > now) {
+    return cachedCategories.data;
   }
+  if (!options?.forceRefresh && categoriesInFlight) {
+    return categoriesInFlight;
+  }
+
+  categoriesInFlight = (async () => {
+    try {
+      const response = await api.get("/categories");
+      if (!response.data?.success || !Array.isArray(response.data.data)) {
+        return [];
+      }
+      const data = response.data.data.map((cat: Record<string, unknown>) => ({
+        _id: String(cat._id || ''),
+        name: String(cat.name || ''),
+        slug: String(cat.slug || cat._id || ''),
+        description: cat.description ? String(cat.description) : undefined,
+        image: getSafeMediaUrl(cat.image ? String(cat.image) : undefined),
+        parentId: cat.parentId ? String(cat.parentId) : null,
+        isActive: cat.isActive !== undefined ? Boolean(cat.isActive) : true,
+        displayOrder: typeof cat.displayOrder === 'number' ? cat.displayOrder : 0,
+      })).filter((cat: Category) => Boolean(cat._id && cat.name));
+
+      cachedCategories = { data, expiry: Date.now() + 60_000 };
+      return data;
+    } catch {
+      return [];
+    } finally {
+      categoriesInFlight = null;
+    }
+  })();
+
+  return categoriesInFlight;
+};
+
+let cachedBrands: { data: Brand[]; expiry: number } | null = null;
+let brandsInFlight: Promise<Brand[]> | null = null;
+
+export const clearBrandsCache = (): void => {
+  cachedBrands = null;
+  brandsInFlight = null;
+};
+
+export const getBrands = async (options?: { forceRefresh?: boolean }): Promise<Brand[]> => {
+  const now = Date.now();
+  if (!options?.forceRefresh && cachedBrands && cachedBrands.expiry > now) {
+    return cachedBrands.data;
+  }
+  if (!options?.forceRefresh && brandsInFlight) {
+    return brandsInFlight;
+  }
+
+  brandsInFlight = (async () => {
+    try {
+      const response = await api.get("/brands");
+      if (!response.data?.success || !Array.isArray(response.data.data)) {
+        return [];
+      }
+      const data = response.data.data.map((brand: Record<string, unknown>) => ({
+        _id: String(brand._id || ''),
+        name: String(brand.name || ''),
+        slug: String(brand.slug || brand._id || ''),
+        logo: getSafeMediaUrl(brand.logo ? String(brand.logo) : undefined),
+        description: brand.description ? String(brand.description) : undefined,
+        isActive: brand.isActive !== undefined ? Boolean(brand.isActive) : true,
+      })).filter((brand: Brand) => Boolean(brand._id && brand.name));
+
+      cachedBrands = { data, expiry: Date.now() + 60_000 };
+      return data;
+    } catch {
+      return [];
+    } finally {
+      brandsInFlight = null;
+    }
+  })();
+
+  return brandsInFlight;
 };
 
 // =========================
